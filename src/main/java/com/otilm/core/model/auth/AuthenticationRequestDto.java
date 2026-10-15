@@ -1,8 +1,10 @@
 package com.otilm.core.model.auth;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.List;
 import java.util.Map;
 import lombok.Getter;
 import lombok.Setter;
@@ -19,6 +21,10 @@ public class AuthenticationRequestDto {
 
     @Schema(description = "Base64 Content of the certificate")
     private String certificateContent;
+
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Schema(description = "Untrusted intermediate certificates as canonical Base64 DER")
+    private List<String> certificateChain;
 
     @Schema(description = "Authentication Token User Claims")
     private Map<String, Object> authenticationTokenUserClaims;

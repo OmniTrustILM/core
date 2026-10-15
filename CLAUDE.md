@@ -5,6 +5,14 @@ This file instructs an agent implementing changes in this repository. Review rul
 
 General engineering principles and process guidance for working effectively on this codebase. Project-specific facts (build commands, architecture, package layout) belong in the README, scripts, or code itself — they can be derived from the repo. This file is for the things that aren't obvious from the code.
 
+## Forwarded certificate identity
+
+Keep REST and TSP on request-aware forwarded certificate parsing so RFC companions and every asserted candidate are validated before cache lookup. Pass the immutable parsed identity to the Auth client: the cache fingerprint and canonical leaf payload must come from the same object. Validated non-leaf candidates are untrusted path material, never anchors. Auth preserves existing .NET System trust and deployment CA mounts; forwarded candidates belong only in X509Chain ExtraStore. Core sends no trust policy and requires no acknowledgment or new environment variable. Preserve legacy defaults, method priority and the existing expire-after-write cache interval. CA loading and refresh follow the existing runtime behavior; do not promise per-validation file rereads or immediate CA removal. Keep user-facing certificate setup and format details in the documentation repository; the README links to its client certificate authentication guide.
+
+## New dependencies
+
+New dependencies must be compatible with Apache-2.0 and permitted by the CNCF third-party license policy. Verify new transitive dependencies and preserve required notices.
+
 ## Working with reviews
 
 This section is for an agent preparing its own pull request for review, not for a reviewer.

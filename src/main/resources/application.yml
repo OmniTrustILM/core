@@ -252,6 +252,7 @@ secrets:
 
 ## Section server.* is related to the embedded Tomcat server only
 server:
+  max-http-request-header-size: 64KB
   port: ${PORT:8080}
   servlet:
     context-path: /api
