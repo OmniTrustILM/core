@@ -68,7 +68,9 @@ final class Rfc9440CertificateDecoder {
     /**
      * The Structured Fields parser sizes the buffer of every token, string and byte sequence it reads to the whole
      * field, so its work grows with the field length times the number of values. Members and parameter occurrences are
-     * counted before parsing to bound that number; an inner list never holds a certificate, so it is refused unread.
+     * counted before parsing to bound that number; an inner list never holds a certificate, so it is refused unread. A
+     * display string ({@code %"..."}) takes a backslash literally where a string escapes with it, so the scan must end
+     * each one where the parser does.
      */
     private static final class FieldStructure {
         private int members;
@@ -79,15 +81,17 @@ final class Rfc9440CertificateDecoder {
                 ForwardedCertificateLimits.certificateCount(++members + 1);
             }
             boolean quoted = false;
+            boolean backslashEscapes = false;
             boolean escaped = false;
             for (int i = 0; i < value.length(); i++) {
                 char character = value.charAt(i);
                 if (escaped) {
                     escaped = false;
-                } else if (quoted && character == '\\') {
+                } else if (quoted && backslashEscapes && character == '\\') {
                     escaped = true;
                 } else if (character == '"') {
                     quoted = !quoted;
+                    backslashEscapes = quoted && (i == 0 || value.charAt(i - 1) != '%');
                 } else if (!quoted) {
                     countDelimiter(character, companion);
                 }

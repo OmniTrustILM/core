@@ -107,6 +107,23 @@ class Rfc9440CertificateDecoderTest {
     }
 
     @Test
+    void countsParametersAfterADisplayStringEndingInABackslash() {
+        String leaf = ":" + LEAF_DER + ":" + ";d=%\"\\\"" + ";p=x".repeat(15000);
+        List<String> noCompanions = List.of();
+        long allocated = allocatedBytes(() -> assertThat(assertThrows(IllegalArgumentException.class,
+                () -> Rfc9440CertificateDecoder.decode(leaf, noCompanions))).hasMessageContaining("limit"));
+        assertThat(allocated).isLessThan(16L << 20);
+    }
+
+    @Test
+    void findsAnInnerListAfterADisplayStringEndingInABackslash() {
+        String leaf = ":" + LEAF_DER + ":";
+        var chain = List.of(":" + ISSUER_DER + ":" + ";d=%\"\\\", (" + "a ".repeat(30000) + ")");
+        long allocated = allocatedBytes(() -> assertSafeFailure(() -> Rfc9440CertificateDecoder.decode(leaf, chain)));
+        assertThat(allocated).isLessThan(16L << 20);
+    }
+
+    @Test
     void countsParameterOccurrencesAcrossLeafAndCompanions() {
         int leafParameters = ForwardedCertificateLimits.PARAMETERS / 2;
         String leaf = ":" + LEAF_DER + ":" + ";p".repeat(leafParameters);
