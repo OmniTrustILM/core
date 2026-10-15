@@ -177,7 +177,7 @@ public class ExceptionHandlingAdvice {
      * @return {@link ErrorMessageDto}
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_CONTENT)
     public List<String> handleMethodArgumentNotValidException(MethodArgumentNotValidException ex) {
         // Return a string array, matching the ValidationException 422 body, so every 422 has one shape.
         List<String> errors = ex
@@ -238,7 +238,7 @@ public class ExceptionHandlingAdvice {
      * @return
      */
     @ExceptionHandler(ValidationException.class)
-    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_CONTENT)
     public List<String> handleValidationException(ValidationException ex) {
         LOG.info("HTTP 422: {}", ex.getMessage());
         LOG.debug("HTTP 422:", ex);

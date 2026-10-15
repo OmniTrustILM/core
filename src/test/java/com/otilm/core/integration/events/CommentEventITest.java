@@ -24,7 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.filter.TypeExcludeFilters;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;

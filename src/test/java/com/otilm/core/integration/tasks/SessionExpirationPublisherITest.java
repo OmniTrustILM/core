@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,12 +36,7 @@ class SessionExpirationPublisherITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        SessionTableHelper.createSessionTables(jdbcTemplate);
-    }
-
-    @AfterEach
-    void tearDown() {
-        SessionTableHelper.dropSessionTables(jdbcTemplate);
+        SessionTableHelper.deleteAllSessions(jdbcTemplate);
     }
 
     @Test

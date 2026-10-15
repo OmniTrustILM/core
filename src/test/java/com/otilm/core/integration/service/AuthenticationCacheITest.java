@@ -11,7 +11,6 @@ import com.otilm.core.util.mockbeans.ManagementApiMocks;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -50,12 +49,7 @@ class AuthenticationCacheITest extends BaseSpringBootTest {
     @BeforeEach
     void setup() {
         authenticationCache.evictAll();
-        SessionTableHelper.createSessionTables(jdbcTemplate);
-    }
-
-    @AfterEach
-    void tearDown() {
-        SessionTableHelper.dropSessionTables(jdbcTemplate);
+        SessionTableHelper.deleteAllSessions(jdbcTemplate);
     }
 
     // -------------------------------------------------------------------------
