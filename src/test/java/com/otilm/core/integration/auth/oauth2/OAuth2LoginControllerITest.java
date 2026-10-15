@@ -71,7 +71,7 @@ class OAuth2LoginControllerITest {
     void setUp() {
         http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
-        SessionTableHelper.createSessionTables(jdbcTemplate);
+        SessionTableHelper.deleteAllSessions(jdbcTemplate);
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, new AuthenticationSettingsDto());
         reset(auditLogService);
     }
@@ -79,7 +79,6 @@ class OAuth2LoginControllerITest {
     @AfterEach
     void tearDown() {
         settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, new AuthenticationSettingsDto());
-        SessionTableHelper.dropSessionTables(jdbcTemplate);
     }
 
     @ParameterizedTest

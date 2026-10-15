@@ -52,8 +52,8 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <!-- Boot 4.1 manages Testcontainers 2.0.5. Core stays on the 1.x line, which is verified to
-                 coexist with JUnit 6.0.3; moving to 2.x is out of scope for the baseline bump. -->
+            <!-- Boot 4.1 manages Testcontainers 2.x. Core stays on the 1.x line, which is verified to
+                 coexist with JUnit 6.0.3. -->
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
@@ -236,6 +236,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
