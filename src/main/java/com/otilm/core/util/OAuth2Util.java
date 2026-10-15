@@ -7,6 +7,7 @@ import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDt
 import com.otilm.core.config.http.PlatformHttpClients;
 import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.settings.SettingsCache;
 import java.io.IOException;
 import java.net.URI;
@@ -24,6 +25,7 @@ import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
@@ -51,6 +53,7 @@ public class OAuth2Util {
      * Pool sizing, cookie handling, proxy wiring and retry policy come from {@link PlatformHttpClients}; what is
      * specific here is how the provider's responses are mapped.
      */
+    @SuppressWarnings("removal")
     private static RestClient buildRestClient() {
         HttpClientSettings settings = HttpClientSettings
                 .defaults()
@@ -60,6 +63,11 @@ public class OAuth2Util {
         return RestClient
                 .builder()
                 .requestFactory(PlatformHttpClients.requestFactoryBuilder().build(settings))
+                .configureMessageConverters(
+                        converters -> converters
+                                .registerDefaults()
+                                .withJsonConverter(new MappingJackson2HttpMessageConverter(
+                                        ObjectMapperFactory.restClientDefault())))
                 .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler())
                 .defaultStatusHandler(HttpStatusCode::is3xxRedirection, OAuth2Util::rejectUnfollowedRedirect)
                 .build();
