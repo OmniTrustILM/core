@@ -38,6 +38,7 @@ public final class ObjectMapperFactory {
      * The mapper {@code RestClient.builder()} chose by default on Spring 6.2, which the provisioning and OAuth2
      * provider clients keep. It writes null members, which {@link #wire()} leaves out.
      */
+    @SuppressWarnings("removal")
     public static ObjectMapper restClientDefault() {
         return Jackson2ObjectMapperBuilder.json().build();
     }

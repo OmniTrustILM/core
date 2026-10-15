@@ -53,6 +53,7 @@ public class ProvisioningApiConfig {
     }
 
     @Bean
+    @SuppressWarnings("removal")
     public RestClient provisioningRestClient(ClientHttpRequestInterceptor provisioningHttpLoggingInterceptor) {
         HttpClientSettings settings = HttpClientSettings
                 .defaults()

@@ -53,6 +53,7 @@ public class OAuth2Util {
      * Pool sizing, cookie handling, proxy wiring and retry policy come from {@link PlatformHttpClients}; what is
      * specific here is how the provider's responses are mapped.
      */
+    @SuppressWarnings("removal")
     private static RestClient buildRestClient() {
         HttpClientSettings settings = HttpClientSettings
                 .defaults()
