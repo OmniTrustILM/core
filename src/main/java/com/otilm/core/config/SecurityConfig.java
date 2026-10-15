@@ -21,6 +21,7 @@ import com.otilm.core.security.authn.tsp.TspSecurityContextWriter;
 import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.util.AuthHelper;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -101,6 +102,10 @@ public class SecurityConfig {
     protected SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests(authorize -> authorize
+                        // The container's forward to the error page runs without the caller's authentication, so
+                        // authorizing it again would replace the error status with 401.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR)
+                        .permitAll()
                         .requestMatchers(AuthHelper.getPermitAllEndpoints())
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, AuthHelper.getGetOnlyPermitAllEndpoints())
