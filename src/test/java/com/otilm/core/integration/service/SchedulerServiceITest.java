@@ -28,6 +28,7 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
 import com.otilm.api.model.core.scheduler.ScheduledJobDto;
 import com.otilm.api.model.core.scheduler.ScheduledJobHistoryResponseDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobScheduleState;
 import com.otilm.api.model.core.scheduler.ScheduledJobsResponseDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
@@ -89,10 +90,12 @@ import com.otilm.core.tasks.DiscoveryCertificateTask;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.SystemScheduledJobs;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.WireMockPorts;
 import java.io.IOException;
 import java.security.cert.CertificateException;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
@@ -240,14 +243,14 @@ class SchedulerServiceITest extends BaseSpringBootTest {
         triggerRequest.setActionsUuids(List.of());
         TriggerDetailDto triggerIgnore = triggerService.createTrigger(triggerRequest);
 
-        WireMockServer mockServer = new WireMockServer(0);
+        WireMockServer mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         // create connector
         Connector connector = new Connector();
         connector.setName("discoveryProviderConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
@@ -432,7 +435,7 @@ class SchedulerServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testRegisterScheduledJobAndOperations() throws SchedulerException, NotFoundException {
+    void testRegisterScheduledJobAndOperations() throws SchedulerException, NotFoundException, AlreadyExistException {
         final String jobName = "TestDiscoveryScheduled";
         final String cronExpressionUpdate = "0 0/30 * * * ? *";
 
@@ -479,6 +482,26 @@ class SchedulerServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testRegisterScheduledJobRefusesATakenJobName()
+            throws SchedulerException, NotFoundException, AlreadyExistException {
+        final String jobName = "TestDiscoveryScheduledTwice";
+        schedulerMock
+                .stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create")).willReturn(WireMock.ok()));
+
+        ScheduledJobDetailDto first = schedulerService
+                .registerScheduledJob(DiscoveryCertificateTask.class, jobName, "0 0 3 1 1 ? 2099", false, null);
+
+        Assertions
+                .assertThrows(AlreadyExistException.class, () -> schedulerService
+                        .registerScheduledJob(DiscoveryCertificateTask.class, jobName, "0 0 4 2 2 ? 2098", true, null));
+
+        ScheduledJobDetailDto kept = schedulerService.getScheduledJobDetail(first.getUuid().toString());
+        Assertions.assertEquals("0 0 3 1 1 ? 2099", kept.getCronExpression());
+        Assertions.assertFalse(kept.isOneTime());
+        schedulerMock.verify(1, WireMock.postRequestedFor(WireMock.urlPathMatching("/v1/scheduler/create")));
+    }
+
+    @Test
     void testSystemScheduledJobsRegistration() throws SchedulerException {
         schedulerMock
                 .stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create")).willReturn(WireMock.ok()));
@@ -488,6 +511,8 @@ class SchedulerServiceITest extends BaseSpringBootTest {
 
         systemScheduledJobs.registerJobs();
 
+        // Registration runs during context refresh at boot; it does not read the scheduler's list.
+        schedulerMock.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/v1/scheduler/list")));
         ScheduledJobsResponseDto jobs = schedulerService
                 .listScheduledJobs(SecurityFilter.create(), new PaginationRequestDto());
 
@@ -499,6 +524,62 @@ class SchedulerServiceITest extends BaseSpringBootTest {
         Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CbomReconcileTask.NAME)));
         Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CryptoAssetPqcSweepTask.NAME)));
         Assertions.assertTrue(jobClassNames.stream().anyMatch(name -> name.contains(CbomSyncSkipRetentionTask.NAME)));
+    }
+
+    @Test
+    void listScheduledJobs_carriesWhatTheSchedulerObserves() throws SchedulerException {
+        schedulerMock
+                .stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create")).willReturn(WireMock.ok()));
+        schedulerMock.stubFor(WireMock.get(WireMock.urlPathEqualTo("/v1/scheduler/list")).willReturn(WireMock.okJson("""
+                {"schedulerStatus":"OK","schedulerJobList":[{
+                  "jobName":"CryptoAssetPqcSweepTask","cronExpression":"0 30 * ? * *",
+                  "classNameToBeExecuted":"com.otilm.core.tasks.CryptoAssetPqcSweepTask",
+                  "nextFireTime":"2026-09-29T12:30:00Z","previousFireTime":"2026-09-29T11:30:00Z",
+                  "triggerState":"NORMAL"}]}
+                """)));
+        schedulerInternalService.registerScheduledJob(CryptoAssetPqcSweepTask.class);
+        schedulerInternalService.registerScheduledJob(CbomSyncTask.class);
+        schedulerMock.resetRequests();
+
+        ScheduledJobsResponseDto jobs = schedulerService
+                .listScheduledJobs(SecurityFilter.create(), new PaginationRequestDto());
+
+        ScheduledJobDto sweep = jobNamed(jobs, CryptoAssetPqcSweepTask.NAME);
+        Assertions.assertEquals(ScheduledJobScheduleState.SCHEDULED, sweep.getScheduleState());
+        Assertions.assertEquals(Instant.parse("2026-09-29T12:30:00Z"), sweep.getNextFireTime());
+        Assertions.assertEquals(Instant.parse("2026-09-29T11:30:00Z"), sweep.getPreviousFireTime());
+        ScheduledJobDto sync = jobNamed(jobs, CbomSyncTask.NAME);
+        Assertions.assertEquals(ScheduledJobScheduleState.NOT_SCHEDULED, sync.getScheduleState());
+        Assertions.assertNull(sync.getNextFireTime());
+        // One read for the page, not one per job.
+        schedulerMock.verify(1, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/v1/scheduler/list")));
+    }
+
+    @Test
+    void listScheduledJobs_reportsUnknownWhileTheSchedulerAnswersAnError() throws SchedulerException {
+        schedulerMock
+                .stubFor(WireMock.post(WireMock.urlPathMatching("/v1/scheduler/create")).willReturn(WireMock.ok()));
+        schedulerMock
+                .stubFor(
+                        WireMock.get(WireMock.urlPathEqualTo("/v1/scheduler/list")).willReturn(WireMock.serverError()));
+        schedulerInternalService.registerScheduledJob(CryptoAssetPqcSweepTask.class);
+
+        ScheduledJobsResponseDto jobs = schedulerService
+                .listScheduledJobs(SecurityFilter.create(), new PaginationRequestDto());
+
+        ScheduledJobDto sweep = jobNamed(jobs, CryptoAssetPqcSweepTask.NAME);
+        Assertions.assertEquals(ScheduledJobScheduleState.UNKNOWN, sweep.getScheduleState());
+        Assertions.assertNull(sweep.getNextFireTime());
+        Assertions.assertNull(sweep.getPreviousFireTime());
+    }
+
+    private static ScheduledJobDto jobNamed(ScheduledJobsResponseDto jobs, String jobName) {
+        return jobs
+                .getScheduledJobs()
+                .stream()
+                .filter(job -> jobName.equals(job.getJobName()))
+                .findFirst()
+                .orElseThrow();
     }
 
 }

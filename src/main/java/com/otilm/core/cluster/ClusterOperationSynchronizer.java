@@ -1,6 +1,7 @@
 package com.otilm.core.cluster;
 
 import jakarta.persistence.EntityManager;
+import java.util.Collection;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,7 +23,8 @@ public class ClusterOperationSynchronizer {
         PROVIDER_STATUS_POLL_SWEEP(0x50_52_4F_56_50_4F_4C_4CL),
         DISCOVERY_WORK_SWEEP(0x44_49_53_43_57_4B_53_50L),
         CRYPTO_ASSET_PQC_SWEEP(0x43_41_50_51_43_53_57_50L),
-        CBOM_SYNC_SKIP_RETENTION(0x43_42_53_4B_52_45_54_4EL);
+        CBOM_SYNC_SKIP_RETENTION(0x43_42_53_4B_52_45_54_4EL),
+        KEY_IMPORT_SWEEP(0x4B_49_4D_50_53_57_45_50L);
 
         private final long lockKey;
 
@@ -87,5 +89,26 @@ public class ClusterOperationSynchronizer {
                 .createNativeQuery("SELECT pg_advisory_xact_lock(hashtext(:key))")
                 .setParameter("key", key)
                 .getSingleResult();
+    }
+
+    /**
+     * Acquires the cluster-wide locks for all {@code keys} in one statement, blocking until every one is available.
+     * <p>
+     * Keyed exactly as {@link #lock(String)}, so the two address the same locks. The locks are taken in ascending order
+     * of the hashed key, the lock id itself: the sort sits in a subquery, which the planner cannot flatten, and the
+     * lock call runs over its rows. Two callers locking overlapping key sets therefore acquire the shared locks in the
+     * same order and cannot deadlock on each other, even when two keys hash alike.
+     * <p>
+     * Must be called inside a transaction, for the reason {@link #tryLock(Operation)} gives.
+     */
+    public void lockAll(Collection<String> keys) {
+        if (keys.isEmpty()) {
+            return;
+        }
+        entityManager
+                .createNativeQuery("SELECT pg_advisory_xact_lock(id) FROM (SELECT DISTINCT hashtext(k) AS id"
+                        + " FROM unnest(CAST(:keys AS text[])) AS k ORDER BY id) AS ids")
+                .setParameter("keys", keys.toArray(String[]::new))
+                .getResultList();
     }
 }

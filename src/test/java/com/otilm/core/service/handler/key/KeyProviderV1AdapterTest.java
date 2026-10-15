@@ -155,9 +155,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void listExportKeyAttributes_offersNothingForAV1Connector() {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
 
         // when
         // then
@@ -167,9 +166,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void exportKey_isRefusedForAV1Connector() {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         HeldKey heldKey = new HeldKey(KeyRequestType.KEY_PAIR, KeyAlgorithm.RSA, 2048, new byte[]{1}, null);
         Passphrase passphrase = new Passphrase("correct horse battery staple".toCharArray());
 
@@ -177,6 +175,24 @@ class KeyProviderV1AdapterTest {
         // then
         List<RequestAttribute> noAttributes = List.of();
         assertThrows(ValidationException.class, () -> adapter.exportKey(context, heldKey, passphrase, noAttributes));
+    }
+
+    @Test
+    void importCalls_areRefusedForAV1Connector() {
+        // given
+        List<MetadataAttribute> handle = List.of();
+        UUID keyImportId = UUID.randomUUID();
+
+        // when
+        ValidationException refused = assertThrows(ValidationException.class,
+                () -> adapter.importKey(null, null, null, "key"));
+
+        // then
+        assertTrue(refused.getMessage().contains("Key import is not part of the v1 cryptography provider contract."));
+        assertThrows(ValidationException.class, () -> adapter.importKeyStatus(null, handle, null, "key"));
+        assertThrows(ValidationException.class, () -> adapter.importKeyResult(null, keyImportId, null, "key"));
+        assertThrows(ValidationException.class, () -> adapter.cancelImportKey(handle));
+        assertThrows(ValidationException.class, () -> adapter.destroyImportedKeyItem(null, handle));
     }
 
     @Test
@@ -400,8 +416,8 @@ class KeyProviderV1AdapterTest {
         // given
         UUID remoteUuid = UUID.randomUUID();
         UUID remoteToken = UUID.randomUUID();
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(remoteUuid), remoteToken));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.MLDSA,
+                new RemoteKeyReference.UuidReference(remoteUuid), remoteToken);
         SignDataRequestDto request = new SignDataRequestDto();
         request.setSignatureAttributes(List.of());
         SignatureRequestData item = new SignatureRequestData();
@@ -424,8 +440,7 @@ class KeyProviderV1AdapterTest {
     void operation_rejectsKeyWithoutV1Remotes_beforeCallingConnector(String operation, String reason,
             RemoteKeyReference reference, UUID remoteTokenUuid, String expectedMessage, OperationCall call) {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.MLDSA, reference, remoteTokenUuid));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.MLDSA, reference, remoteTokenUuid);
 
         // when
         Executable operate = () -> call.run(adapter, context);
@@ -490,15 +505,14 @@ class KeyProviderV1AdapterTest {
 
     @FunctionalInterface
     interface OperationCall {
-        void run(KeyProviderV1Adapter adapter, OperationKeyContext context) throws ConnectorException;
+        void run(KeyProviderV1Adapter adapter, CryptographicKeyItemOperationModel context) throws ConnectorException;
     }
 
     @Test
     void signData_rejectsUnknownSignatureAttribute_forRsaKey() {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         SignDataRequestDto request = new SignDataRequestDto();
         RequestAttributeV2 unknown = new RequestAttributeV2();
         unknown.setName("not-an-rsa-attribute");
@@ -516,9 +530,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void encryptData_mapsEncryptedItems() throws Exception {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         CipherDataRequestDto request = new CipherDataRequestDto();
         request.setCipherAttributes(List.of());
         CipherRequestData item = new CipherRequestData();
@@ -539,9 +552,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void decryptData_mapsDecryptedItems() throws Exception {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         CipherDataRequestDto request = new CipherDataRequestDto();
         request.setCipherAttributes(List.of());
         CipherRequestData item = new CipherRequestData();
@@ -562,9 +574,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void verifyData_mapsVerificationResult() throws Exception {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.MLDSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         VerifyDataRequestDto request = new VerifyDataRequestDto();
         request.setSignatureAttributes(List.of());
         SignatureRequestData signature = new SignatureRequestData();
@@ -585,9 +596,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void encryptData_leavesDataNull_whenConnectorOmitsIt() throws Exception {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         CipherDataRequestDto request = new CipherDataRequestDto();
         request.setCipherAttributes(List.of());
         request.setCipherData(List.of());
@@ -604,9 +614,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void signData_leavesSignaturesNull_whenConnectorOmitsThem() throws Exception {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.MLDSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         SignDataRequestDto request = new SignDataRequestDto();
         request.setSignatureAttributes(List.of());
         request.setData(List.of());
@@ -623,9 +632,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void verifyData_leavesVerificationsNull_whenConnectorOmitsThem() throws Exception {
         // given
-        OperationKeyContext context = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.MLDSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
         VerifyDataRequestDto request = new VerifyDataRequestDto();
         request.setSignatureAttributes(List.of());
         request.setSignatures(List.of());
@@ -640,14 +648,46 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
+    void signData_reportsAnEmptyConnectorAnswer_asAConnectorFailure() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.MLDSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+        when(operationsClient.signData(any(), any(), any(), any())).thenReturn(null);
+
+        // when
+        Executable sign = () -> adapter.signData(context, request);
+
+        // then
+        assertThrows(ConnectorException.class, sign);
+    }
+
+    @Test
+    void verifyData_reportsAnEmptyConnectorAnswer_asAConnectorFailure() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.MLDSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
+        VerifyDataRequestDto request = new VerifyDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setSignatures(List.of());
+        when(operationsClient.verifyData(any(), any(), any(), any())).thenReturn(null);
+
+        // when
+        Executable verify = () -> adapter.verifyData(context, request);
+
+        // then
+        assertThrows(ConnectorException.class, verify);
+    }
+
+    @Test
     void listSignAttributes_returnsCoreSchema_byAlgorithm() {
         // given
-        OperationKeyContext rsa = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.RSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
-        OperationKeyContext mldsa = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.MLDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel rsa = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
+        CryptographicKeyItemOperationModel mldsa = keyItem(KeyAlgorithm.MLDSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
 
         // when
         List<BaseAttribute> rsaSchema = adapter.listSignAttributes(rsa);
@@ -659,6 +699,20 @@ class KeyProviderV1AdapterTest {
         // same field data and does compare by value.
         assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), rsaSchema.toString());
         assertTrue(mldsaSchema.isEmpty());
+        verifyNoInteractions(operationsClient);
+    }
+
+    @Test
+    void listVerifyAttributes_returnsCoreSchema_withoutTouchingTheConnector() {
+        // given
+        CryptographicKeyItemOperationModel rsa = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
+
+        // when
+        List<BaseAttribute> schema = adapter.listVerifyAttributes(rsa);
+
+        // then
+        assertEquals(RsaSignatureAttributes.getRsaSignatureAttributes().toString(), schema.toString());
         verifyNoInteractions(operationsClient);
     }
 
@@ -773,9 +827,8 @@ class KeyProviderV1AdapterTest {
     @Test
     void listEncryptAttributes_rejectsUnsupportedAlgorithm() {
         // given
-        OperationKeyContext ecdsa = OperationKeyContext
-                .legacy(keyItem(KeyAlgorithm.ECDSA, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
-                        UUID.randomUUID()));
+        CryptographicKeyItemOperationModel ecdsa = keyItem(KeyAlgorithm.ECDSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
 
         // when
         Executable list = () -> adapter.listEncryptAttributes(ecdsa);
@@ -788,7 +841,7 @@ class KeyProviderV1AdapterTest {
             UUID tokenInstanceUuid) {
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, algorithm, KeyState.ACTIVE,
                 KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null, reference, UUID.randomUUID(),
-                tokenInstanceUuid, UUID.randomUUID(), null, null);
+                tokenInstanceUuid, UUID.randomUUID(), null, null, UUID.randomUUID(), UUID.randomUUID());
     }
 
     private static RequestAttribute requestAttribute(String name) {

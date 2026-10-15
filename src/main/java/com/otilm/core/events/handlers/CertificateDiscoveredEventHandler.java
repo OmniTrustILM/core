@@ -44,6 +44,7 @@ import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.service.handler.CertificateHandler;
+import com.otilm.core.service.handler.discovery.StagedMetadata;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.util.CertificateUtil;
@@ -810,7 +811,8 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         group
                 .rows()
                 .forEach(row -> certificateHandler
-                        .updateDiscoveredCertificate(DiscoverySource.of(context), certificate, row.getMeta()));
+                        .updateDiscoveredCertificate(DiscoverySource.of(context), certificate,
+                                StagedMetadata.unseal(row.getMeta(), row.getProtectedMeta())));
 
         // Action triggers deliberately do not run here -- see runActionTriggersSafely.
         return new ImportedGroup(

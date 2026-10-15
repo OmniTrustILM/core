@@ -61,6 +61,23 @@ class KeyMaterialDownloadTest {
         assertEquals(MediaType.APPLICATION_OCTET_STREAM, headers.getContentType());
     }
 
+    @Test
+    void pkcs12_isAKeystoreDownloadThatIsNeitherCachedNorSniffed() throws Exception {
+        // when
+        ResponseEntity<Resource> download = KeyMaterialDownload.pkcs12("tls \"key\";\r\n", new byte[]{1, 2, 3});
+
+        // then
+        HttpHeaders headers = download.getHeaders();
+        ContentDisposition disposition = headers.getContentDisposition();
+        assertTrue(disposition.isAttachment());
+        assertEquals("tls__key____.p12", disposition.getFilename());
+        assertEquals("no-store, no-cache", headers.getCacheControl());
+        assertEquals("no-cache", headers.getPragma());
+        assertEquals("nosniff", headers.getFirst("X-Content-Type-Options"));
+        assertEquals(MediaType.parseMediaType("application/x-pkcs12"), headers.getContentType());
+        assertArrayEquals(new byte[]{1, 2, 3}, download.getBody().getContentAsByteArray());
+    }
+
     @ParameterizedTest
     @MethodSource("unsafeNames")
     void sanitizedFileName_keepsOnlyCharactersSafeInAFileName(String name, String expected) {

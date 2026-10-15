@@ -212,7 +212,7 @@ class ScepServiceImplRegistrationModeTest {
                 .issueExistingCertificate(any(), any(), eq(matched.getUuid().toString()),
                         Mockito.argThat(dto -> CHALLENGE.equals(dto.getAuthorizationSecret())));
         verify(scepRegistrationTrackingWriter).recordPollMapping(eq("tx-1"), eq(matched.getUuid()), any());
-        verify(scepRegistrationTrackingWriter).recordProtocolAttribution(eq(matched.getUuid()), any());
+        verify(certificateService).applyProtocolAssociations(eq(matched.getUuid()), any());
     }
 
     @Test
@@ -235,8 +235,8 @@ class ScepServiceImplRegistrationModeTest {
         ScepRequest request = scepRequest("CN=device-1", CHALLENGE);
         when(request.getTransactionId()).thenReturn("tx-2");
         doThrow(new RuntimeException("association failed"))
-                .when(scepRegistrationTrackingWriter)
-                .recordProtocolAttribution(any(), any());
+                .when(certificateService)
+                .applyProtocolAssociations(any(), any());
 
         ScepResponse response = ReflectionTestUtils.invokeMethod(service, "completeRegistration", request, matched);
 

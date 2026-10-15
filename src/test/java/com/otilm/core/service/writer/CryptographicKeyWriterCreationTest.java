@@ -44,6 +44,22 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CryptographicKeyWriterCreationTest {
 
+    @Test
+    void createKeyWithItems_registersPqcWithoutLength() throws AttributeException {
+        // given
+        ProviderKeyItem providerItem = new ProviderKeyItem("pqc", KeyType.PRIVATE_KEY, KeyAlgorithm.MLDSA, null,
+                new RemoteKeyReference.MetadataReference(List.of()), null, List.of());
+
+        // when
+        writer
+                .createKeyWithItems(keyRequest(), profile(List.of(KeyUsage.SIGN)), token, List.of(providerItem), false,
+                        true);
+
+        // then
+        assertThat(savedItem().getLength()).isNull();
+        assertThat(savedItem().getKeyAlgorithm()).isEqualTo(KeyAlgorithm.MLDSA);
+    }
+
     @Mock
     private CryptographicKeyRepository keys;
     @Mock

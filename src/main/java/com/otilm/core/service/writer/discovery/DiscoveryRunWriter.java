@@ -7,13 +7,18 @@ import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
+import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.TriggerExternalService;
+import com.otilm.core.service.TriggerInternalService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -37,14 +42,22 @@ public class DiscoveryRunWriter {
     private final DiscoveryRepository discoveryRepository;
     private final AttributeEngine attributeEngine;
     private final TriggerExternalService triggerService;
+    private final TriggerInternalService triggerInternalService;
+    private final CommentInternalService commentService;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     // Constructed rather than set, unlike the services that hold this same collaborator: a writer bean may expose no
     // public method that is not a REQUIRED transaction, which a setter would be.
     public DiscoveryRunWriter(DiscoveryRepository discoveryRepository, AttributeEngine attributeEngine,
-            TriggerExternalService triggerService) {
+            TriggerExternalService triggerService, TriggerInternalService triggerInternalService,
+            CommentInternalService commentService) {
         this.discoveryRepository = discoveryRepository;
         this.attributeEngine = attributeEngine;
         this.triggerService = triggerService;
+        this.triggerInternalService = triggerInternalService;
+        this.commentService = commentService;
     }
 
     /**
@@ -104,5 +117,32 @@ public class DiscoveryRunWriter {
         // All zero by construction: the run was inserted in this transaction and nothing since has written a message
         // or staged an item.
         return DiscoveryDtoMapper.toDetailDto(saved, new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0));
+    }
+
+    /**
+     * Removes a run its connector refused at initiate, for a caller still waiting on the create: the refusal is their
+     * answer, and a failed run left behind would be one nobody asked to keep. Nothing past initiate has been written
+     * for such a run, so what {@link #createRun} wrote is all there is to remove, with any comment left on the run in
+     * the meantime.
+     *
+     * <p>
+     * The run is listed from the moment it is created, so someone may have ended it while the initiate was in flight.
+     * That ending stands, announced as it was, and the run is left as they left it.
+     */
+    @Transactional
+    public void discardUnstartedRun(UUID discoveryUuid) {
+        Discovery run = discoveryRepository.findWithLockByUuid(discoveryUuid).orElse(null);
+        if (run == null) {
+            return;
+        }
+        // The caller's persistence context may still hold the run as it was loaded before the connector call.
+        entityManager.refresh(run);
+        if (run.getStatus() != DiscoveryStatus.IN_PROGRESS) {
+            return;
+        }
+        attributeEngine.deleteObjectAttributeContent(Resource.DISCOVERY, discoveryUuid);
+        commentService.removeObjectComments(Resource.DISCOVERY, discoveryUuid);
+        triggerInternalService.deleteTriggerAssociations(Resource.DISCOVERY, discoveryUuid);
+        discoveryRepository.delete(run);
     }
 }

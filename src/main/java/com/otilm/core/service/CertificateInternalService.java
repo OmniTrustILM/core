@@ -23,6 +23,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.events.handlers.discovery.DiscoveredCertificateImport;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
+import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -89,6 +90,12 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * protocol-association row is recorded and the protocol profile's certificate associations (owner, groups, custom
      * attributes) are applied — a profile-configured owner or group replaces one set earlier, including at registration
      * time.
+     *
+     * <p>
+     * Runs in a transaction of its own: the association is committed on return, so a caller that goes on to re-read the
+     * certificate sees it, and a rollback of the caller's transaction does not drop the attribution of a certificate
+     * that is already issuing.
+     * </p>
      */
     void applyProtocolAssociations(UUID certificateUuid, CertificateProtocolInfo protocolInfo)
             throws NotFoundException, AttributeException;
@@ -287,6 +294,16 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * @throws NotFoundException
      */
     void updateCertificateKeys(UUID keyUuid, String publicKeyFingerprint);
+
+    /**
+     * Returns the keys {@link #submitCertificateRequest} stores the request's signature attributes under: the keys a
+     * stored request with this content was first submitted with, else the given ones, else the inventory keys its
+     * public keys match.
+     *
+     * @param csr Base64-encoded certificate request, as passed to {@link #submitCertificateRequest}
+     */
+    CertificateRequestKeys findRequestKeys(String csr, CertificateRequestFormat csrFormat, UUID keyUuid,
+            UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException;
 
     /**
      * Create certificate request entity and certificate in status New, store it in the database ready for issuing

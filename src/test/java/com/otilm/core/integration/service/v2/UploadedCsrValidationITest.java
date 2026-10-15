@@ -24,6 +24,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import java.io.StringWriter;
 import java.math.BigInteger;
@@ -99,12 +100,12 @@ class UploadedCsrValidationITest extends BaseSpringBootTest {
     @BeforeEach
     void wireStrictRaProfileRequiringCommonName() throws Exception {
         // given — a strict RA profile backed by a mock authority connector that serves the request-attribute set
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         Connector connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

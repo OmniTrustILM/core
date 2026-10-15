@@ -8,6 +8,8 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.AuthenticationRequestDto;
+import com.otilm.core.security.authn.ForwardedClientCertificateParser.InvalidCertificateHeaderException;
+import com.otilm.core.security.authn.ForwardedClientCertificateParser.ParsedCertificate;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.client.dto.AuthenticationResponseDto;
 import com.otilm.core.security.authn.client.dto.UserDetailsDto;
@@ -15,9 +17,6 @@ import com.otilm.core.security.exception.AuthenticationServiceException;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
-import com.otilm.core.util.CertificateUtil;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -44,9 +43,6 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
     private final String customAuthServiceBaseUrl;
     private final AuthenticationCache authenticationCache;
 
-    @Value("${server.ssl.certificate-header-name}")
-    private String certificateHeaderName;
-
     private final AuditLogInternalService auditLogService;
 
     public PlatformAuthenticationClient(@Autowired AuditLogInternalService auditLogService,
@@ -68,10 +64,10 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
                 .getOrAuthenticateByUserUuid(userUuid, () -> authenticate(AuthMethod.USER_PROXY, userUuid, false)));
     }
 
-    public AuthenticationInfo authenticateByCertificate(String rawCertHeader, String certificateThumbprint) {
+    public AuthenticationInfo authenticateByCertificate(ParsedCertificate certificate) {
         return restoreActorMdc(authenticationCache
-                .getOrAuthenticateByCertificate(certificateThumbprint,
-                        () -> authenticate(AuthMethod.CERTIFICATE, rawCertHeader, false)));
+                .getOrAuthenticateByCertificate(certificate.thumbprint(),
+                        () -> authenticate(AuthMethod.CERTIFICATE, certificate, false)));
     }
 
     public AuthenticationInfo authenticateByToken(Map<String, Object> claims, long settingsGeneration) {
@@ -107,12 +103,15 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
             throws AuthenticationException {
 
         AuthenticationRequestDto authRequest = getAuthPayload(authMethod, authData, isLocalhostRequest);
+        boolean certificateRequest = authMethod == AuthMethod.CERTIFICATE;
+        String auditAuthData = certificateRequest ? null : authRequest.getAuthData(false);
         if (logger.isDebugEnabled()) {
             ActorType actorType = LoggingHelper.getActorType();
             logger
                     .debug("Going to authenticate {}user with {} auth method. {}",
                             actorType == null || actorType == ActorType.USER ? "" : actorType.getLabel() + " ",
-                            authRequest.getAuthMethod().getLabel(), authRequest.getAuthData(true));
+                            authRequest.getAuthMethod().getLabel(),
+                            certificateRequest ? "" : authRequest.getAuthData(true));
         }
 
         try {
@@ -127,19 +126,20 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
 
             if (response == null) {
                 String message = "Empty response received from authentication service";
-                AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, authRequest.getAuthData(false));
+                AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, auditAuthData);
                 throw new PlatformAuthenticationException(message);
             }
             return createAuthenticationInfo(authRequest.getAuthMethod(), response);
         } catch (WebClientResponseException.InternalServerError | WebClientRequestException | IllegalStateException e) {
-            String message = "An error occurred when calling authentication service: " + e.getMessage();
-            AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, authRequest.getAuthData(false));
+            String message = certificateRequest
+                    ? certificateFailureReason(e)
+                    : "An error occurred when calling authentication service: " + e.getMessage();
+            AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, auditAuthData);
             throw new PlatformAuthenticationException(message, e);
         } catch (AuthenticationServiceException e) {
-            AuthHelper
-                    .logAndAuditAuthFailure(logger, auditLogService, e.getException().getMessage(),
-                            authRequest.getAuthData(false));
-            throw new PlatformAuthenticationException(e.getException().getMessage(), e);
+            String message = certificateRequest ? certificateFailureReason(e) : e.getException().getMessage();
+            AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, auditAuthData);
+            throw new PlatformAuthenticationException(message, e);
         }
     }
 
@@ -150,15 +150,11 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
         switch (authMethod) {
             case NONE -> checkLocalhostUser(requestDto, isLocalhostRequest);
             case CERTIFICATE -> {
-                try {
-                    String certificateInHeader = URLDecoder.decode((String) authData, StandardCharsets.UTF_8);
-                    requestDto.setCertificateContent(CertificateUtil.normalizeCertificateContent(certificateInHeader));
-                } catch (Exception e) {
-                    LoggingHelper.putActorInfoWhenNull(ActorType.USER, AuthMethod.CERTIFICATE);
-                    String message = "Could not parse certificate for authentication. Certificate: " + authData;
-                    AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, authData.toString());
-                    throw new PlatformAuthenticationException(message);
+                if (!(authData instanceof ParsedCertificate certificate)) {
+                    throw new PlatformAuthenticationException("Parsed certificate identity required.");
                 }
+                requestDto.setCertificateContent(certificate.content());
+                requestDto.setCertificateChain(certificate.chain());
             }
             case TOKEN -> requestDto.setAuthenticationTokenUserClaims((Map<String, Object>) authData);
             case USER_PROXY -> {
@@ -177,6 +173,31 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, requestDto.getAuthMethod());
 
         return requestDto;
+    }
+
+    /** Returns controlled certificate-failure diagnostics without submitted or upstream material. */
+    public static String certificateFailureReason(Throwable failure) {
+        Throwable reason = failure instanceof PlatformAuthenticationException && failure.getCause() != null
+                ? failure.getCause()
+                : failure;
+        if (reason instanceof InvalidCertificateHeaderException) {
+            return reason.getMessage();
+        }
+        if (reason instanceof WebClientRequestException
+                || reason instanceof WebClientResponseException.InternalServerError) {
+            return "Authentication service unavailable";
+        }
+        if (reason instanceof AuthenticationServiceException service) {
+            var detail = service.getException();
+            Integer status = detail == null ? null : detail.getStatusCode();
+            return status != null && status >= 500
+                    ? "Authentication service unavailable"
+                    : "Authentication service rejected certificate";
+        }
+        if (reason instanceof JsonProcessingException) {
+            return "Invalid authentication service response";
+        }
+        return "Certificate authentication failed";
     }
 
     private void checkLocalhostUser(AuthenticationRequestDto requestDto, boolean isLocalhostRequest) {

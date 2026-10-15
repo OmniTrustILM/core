@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
@@ -31,6 +32,20 @@ public interface DiscoveryProviderAdapter {
      * exception.
      */
     DiscoveryDetailDto start(UUID discoveryUuid, ScheduledJobInfo scheduledJobInfo);
+
+    /**
+     * Starts the run for a caller still waiting on its create. A connector's refusal of what was asked is theirs to
+     * correct, so it is thrown to them and the refused run is discarded rather than left behind FAILED; any other
+     * failure ends the run as {@link #start} does.
+     *
+     * @throws ConnectorProblemException when the connector refused the run's configuration
+     * @throws UnsupportedOperationException when the generation's start runs the whole discovery on the calling thread,
+     * as v1's does, which no caller may wait on
+     * @throws UnsupportedDiscoveryVersionException as {@link #start} does
+     */
+    default DiscoveryDetailDto startForCaller(UUID discoveryUuid) throws ConnectorProblemException {
+        throw new UnsupportedOperationException("This discovery generation starts its runs asynchronously");
+    }
 
     /**
      * @throws UnsupportedOperationException when the connector version can never suspend a run (v1 cannot)

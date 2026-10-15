@@ -1,10 +1,12 @@
 package com.otilm.core.service.impl;
 
+import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authz.UnauthenticatedEndpoint;
 import com.otilm.core.service.AuditLogInternalService;
@@ -82,12 +84,14 @@ public class OAuth2LoginServiceImpl implements OAuth2LoginExternalService {
 
     @Override
     @UnauthenticatedEndpoint
-    public OAuth2ProviderSettingsDto resolveProviderOrThrow(String providerName, String sessionAccessToken) {
+    public OAuth2ProviderSettingsDto resolveProviderOrThrow(String providerName, @Sensitive String sessionAccessToken) {
         OAuth2ProviderSettingsDto providerSettings = getOAuth2ProviderSettings(providerName);
         if (providerSettings == null) {
             String message = "Unknown OAuth2 Provider with name '%s' for authentication with OAuth2 flow"
                     .formatted(providerName);
-            auditLogService.logAuthentication(Operation.LOGIN, OperationResult.FAILURE, message, sessionAccessToken);
+            auditLogService
+                    .logAuthentication(Operation.LOGIN, OperationResult.FAILURE, message,
+                            LogRedaction.token(sessionAccessToken));
             throw new PlatformAuthenticationException(message);
         }
         return providerSettings;

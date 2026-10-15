@@ -1,5 +1,6 @@
 package com.otilm.core.api.web;
 
+import com.otilm.api.interfaces.core.web.CertificateController;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import org.springframework.core.io.ByteArrayResource;
@@ -30,15 +31,32 @@ final class KeyMaterialDownload {
     static ResponseEntity<Resource> encryptedPrivateKeyPem(String name, byte[] encryptedPrivateKeyInfo) {
         String pem = "-----BEGIN ENCRYPTED PRIVATE KEY-----\n" + PEM_BASE64.encodeToString(encryptedPrivateKeyInfo)
                 + "\n-----END ENCRYPTED PRIVATE KEY-----\n";
+        return download(MediaType.APPLICATION_OCTET_STREAM, sanitizedFileName(name, "pem"),
+                pem.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    /**
+     * A PKCS#12 keystore, named after the certificate.
+     *
+     * @param name the certificate's common name, sanitized into the file name
+     * @param content the DER-encoded PKCS#12 file
+     * @return the download
+     */
+    static ResponseEntity<Resource> pkcs12(String name, byte[] content) {
+        return download(MediaType.parseMediaType(CertificateController.KEYSTORE_MEDIA_TYPE),
+                sanitizedFileName(name, "p12"), content);
+    }
+
+    private static ResponseEntity<Resource> download(MediaType type, String fileName, byte[] content) {
         return ResponseEntity
                 .ok()
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentType(type)
                 .header(HttpHeaders.CONTENT_DISPOSITION,
-                        ContentDisposition.attachment().filename(sanitizedFileName(name, "pem")).build().toString())
+                        ContentDisposition.attachment().filename(fileName).build().toString())
                 .header(HttpHeaders.CACHE_CONTROL, "no-store, no-cache")
                 .header(HttpHeaders.PRAGMA, "no-cache")
                 .header("X-Content-Type-Options", "nosniff")
-                .body(new ByteArrayResource(pem.getBytes(StandardCharsets.US_ASCII)));
+                .body(new ByteArrayResource(content));
     }
 
     /**

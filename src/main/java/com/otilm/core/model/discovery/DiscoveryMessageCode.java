@@ -1,8 +1,7 @@
 package com.otilm.core.model.discovery;
 
 /**
- * The codes Core assigns to run messages it produces itself. A connector-reported problem carries the connector's own
- * code instead, straight from {@code DiscoveryErrorEvent}.
+ * The codes Core assigns to run messages it produces itself.
  *
  * <p>
  * The code names the <em>kind</em> of problem — what an operator or a support engineer matches on — and is what
@@ -10,7 +9,7 @@ package com.otilm.core.model.discovery;
  * (see {@link DiscoveryMessageDraft}).
  *
  * <p>
- * Each code has exactly one producer, which owns the severity and the curated text that go with it.
+ * A code's producers all write it with the same severity; each writes its own curated text.
  */
 public enum DiscoveryMessageCode {
 
@@ -47,13 +46,13 @@ public enum DiscoveryMessageCode {
     /** A processing batch that failed once its rows were already imported, so nothing is left to retry. */
     BATCH_PROCESSING_ABANDONED("batchProcessingAbandoned"),
 
-    /** Stands in for a connector's own code when it reported an error without naming one. */
-    CONNECTOR_ERROR("connectorError"),
-
-    /** How the run ended; the message is the terminal reason and the severity follows the terminal status. */
+    /** How the run ended; the message is the terminal reason, and the severity follows why the run ended. */
     RUN_ENDED("runEnded"),
 
-    /** A run metadata statement Core did not record: over the size cap, or malformed. */
+    /** Targets the connector was asked to examine and could not read; the count is how many. */
+    TARGETS_FAILED("targetsFailed"),
+
+    /** Run metadata Core did not record: a statement over the size cap or malformed, or storing it failed. */
     RUN_METADATA_NOT_RECORDED("runMetadataNotRecorded"),
     /** A discovered key the pipeline could not turn into a key record. */
     KEY_IMPORT_FAILED("keyImportFailed"),

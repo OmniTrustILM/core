@@ -189,6 +189,16 @@ public class LoggingHelper {
         }
     }
 
+    /**
+     * Removes the audit resource object, its type as well as its UUID and name, so that an operation whose calls each
+     * name an object of their own names none unless it names one itself afterwards.
+     */
+    public static void clearLogResourceObject() {
+        MDC.remove(LOG_AUDIT_RESOURCE);
+        MDC.remove(LOG_AUDIT_RESOURCE_UUID);
+        MDC.remove(LOG_AUDIT_RESOURCE_NAME);
+    }
+
     public static void putLogResourceInfo(Resource resource, boolean affiliated, String resourceUuid,
             String resourceName) {
         if (affiliated) {

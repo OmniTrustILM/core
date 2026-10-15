@@ -1,6 +1,7 @@
 package com.otilm.core.cbom.ingest;
 
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
+import com.otilm.core.model.cbom.CbomHeaderCounts;
 import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -9,6 +10,7 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * The report's shape, as a pure function of one extraction.
@@ -50,6 +52,24 @@ class IngestFindingRollupTest {
             assertThat(row.componentName()).isEqualTo("broken");
             assertThat(row.detail()).contains("IllegalArgumentException");
         });
+    }
+
+    /** A skipped component's own findings are reported beside its skip, under its name. */
+    @Test
+    void aSkipsFindingsAreReportedAsFindings() {
+        IngestFindingRollup.Rollup report = IngestFindingRollup
+                .of(extraction(List.of(),
+                        List
+                                .of(new CbomAssetExtractor.Skip("unrouted", "no asset type",
+                                        List.of("a key material value was dropped"))),
+                        List.of()));
+
+        assertThat(report.rows())
+                .extracting(IngestFindingRollup.Row::kind, IngestFindingRollup.Row::componentName,
+                        IngestFindingRollup.Row::detail)
+                .containsExactly(tuple(CbomIngestFindingKind.FINDING, "unrouted", "a key material value was dropped"),
+                        tuple(CbomIngestFindingKind.SKIP, "unrouted",
+                                "the component could not be turned into an asset: no asset type"));
     }
 
     /** A duplicated ref is a property of the document's reference graph, so no one component answers for it. */
@@ -251,12 +271,12 @@ class IngestFindingRollupTest {
 
     private static CbomAssetExtractor.Extraction extraction(List<CbomAssetExtractor.ExtractedAsset> assets,
             List<CbomAssetExtractor.Skip> skips, List<String> ambiguousRefs) {
-        return new CbomAssetExtractor.Extraction(assets, skips, false, false, ambiguousRefs);
+        return new CbomAssetExtractor.Extraction(assets, skips, false, false, ambiguousRefs, CbomHeaderCounts.ZERO);
     }
 
     /** Only the component name and the findings are read here, so the rest of the record is left out. */
     private static CbomAssetExtractor.ExtractedAsset asset(String componentName, String finding) {
         return new CbomAssetExtractor.ExtractedAsset(null, null, null, componentName, null, null, 0, null,
-                List.of(finding));
+                List.of(finding), List.of(), List.of());
     }
 }

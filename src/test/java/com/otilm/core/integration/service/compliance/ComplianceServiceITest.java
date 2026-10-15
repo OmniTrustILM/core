@@ -31,11 +31,13 @@ import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
@@ -56,6 +58,7 @@ import com.otilm.core.util.CertificateUtil;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -64,11 +67,15 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
 import static org.mockito.Mockito.when;
 
 class ComplianceServiceITest extends BaseComplianceTest {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private ComplianceInternalService complianceService;
@@ -86,6 +93,9 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Autowired
     private TokenInstanceReferenceRepository tokenRepository;
+
+    @Autowired
+    private VaultProfileRepository vaultProfileRepository;
 
     @Autowired
     CryptographicKeyRepository cryptographicKeyRepository;
@@ -269,21 +279,7 @@ class ComplianceServiceITest extends BaseComplianceTest {
         complianceService.checkResourceObjectCompliance(Resource.RA_PROFILE, associatedRaProfileUuid);
 
         // check compliance of cryptographic key
-        TokenInstanceReference token = new TokenInstanceReference();
-        token.setStatus(TokenInstanceStatus.UNKNOWN);
-        token.setName("Token");
-        token.setAuthor("John Doe");
-        token.setCreated(OffsetDateTime.now());
-        token.setUpdated(OffsetDateTime.now());
-        tokenRepository.save(token);
-
-        TokenProfile tokenProfile = new TokenProfile();
-        tokenProfile.setName("Token Profile 1");
-        tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
-        tokenProfile.setAuthor("John Doe");
-        tokenProfile.setCreated(OffsetDateTime.now());
-        tokenProfile.setUpdated(OffsetDateTime.now());
-        tokenProfileRepository.save(tokenProfile);
+        TokenProfile tokenProfile = saveTokenProfile("Token Profile 1");
 
         ComplianceProfileAssociation complianceProfileAssociation = new ComplianceProfileAssociation();
         complianceProfileAssociation.setComplianceProfileUuid(complianceProfile.getUuid());
@@ -391,6 +387,10 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
         secret.setLatestVersion(secretVersion);
         secretRepository.save(secret);
+        OffsetDateTime beforeTheCheck = OffsetDateTime.of(2020, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+        jdbcTemplate
+                .update("UPDATE " + dbSchema + ".secret SET i_upd = ? WHERE uuid = ?", beforeTheCheck,
+                        secret.getUuid());
 
         Assertions
                 .assertDoesNotThrow(() -> complianceExternalService
@@ -402,6 +402,12 @@ class ComplianceServiceITest extends BaseComplianceTest {
         ComplianceCheckResultDto complianceCheckResult = complianceService
                 .getComplianceCheckResult(Resource.SECRET, secret.getUuid());
         Assertions.assertEquals(ComplianceStatus.OK, complianceCheckResult.getStatus());
+        Assertions
+                .assertTrue(secretRepository
+                        .findByUuid(secret.getUuid())
+                        .orElseThrow()
+                        .getUpdated()
+                        .isAfter(beforeTheCheck), "A stored compliance result is a change of the secret");
 
         complianceService
                 .checkCompliance(List.of(SecuredUUID.fromUUID(complianceProfile.getUuid())), Resource.SECRET, null);
@@ -726,5 +732,82 @@ class ComplianceServiceITest extends BaseComplianceTest {
                         () -> complianceExternalService
                                 .checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, objectUuids),
                         "No RA Profile found with specified UUID");
+        Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.TOKEN_PROFILE, objectUuids),
+                        "No Token Profile found with specified UUID");
+        Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.VAULT_PROFILE, objectUuids),
+                        "No Vault Profile found with specified UUID");
+    }
+
+    @Test
+    void checkResourceObjectsComplianceValidationRejectsExistingProfileWithoutComplianceProfile() {
+        TokenProfile tokenProfile = saveTokenProfile("Unassociated Token Profile");
+
+        VaultProfile vaultProfile = new VaultProfile();
+        vaultProfile.setName("UnassociatedVaultProfile");
+        vaultProfile.setVaultInstance(vaultInstanceRepository.findById(vaultInstanceUuid).orElseThrow());
+        vaultProfileRepository.save(vaultProfile);
+
+        assertRefusedNamingProfiles(Resource.RA_PROFILE, List.of(unassociatedRaProfileUuid), "TestProfile2");
+        assertRefusedNamingProfiles(Resource.TOKEN_PROFILE, List.of(tokenProfile.getUuid()),
+                "Unassociated Token Profile");
+        assertRefusedNamingProfiles(Resource.VAULT_PROFILE, List.of(vaultProfile.getUuid()),
+                "UnassociatedVaultProfile");
+    }
+
+    @Test
+    void checkResourceObjectsComplianceValidationNamesEverySelectedProfileWithoutComplianceProfile() {
+        TokenProfile firstTokenProfile = saveTokenProfile("First Unassociated Token Profile");
+        TokenProfile secondTokenProfile = saveTokenProfile("Second Unassociated Token Profile");
+
+        assertRefusedNamingProfiles(Resource.TOKEN_PROFILE,
+                List.of(firstTokenProfile.getUuid(), secondTokenProfile.getUuid()), "First Unassociated Token Profile",
+                "Second Unassociated Token Profile");
+    }
+
+    private void assertRefusedNamingProfiles(Resource resource, List<UUID> objectUuids, String... profileNames) {
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> complianceExternalService.checkResourceObjectsComplianceValidation(resource, objectUuids),
+                        "An existing %s without a compliance profile is not a missing %s"
+                                .formatted(resource.getLabel(), resource.getLabel()));
+        for (String profileName : profileNames) {
+            Assertions
+                    .assertTrue(exception.getMessage().contains(profileName),
+                            "The refusal names %s: %s".formatted(profileName, exception.getMessage()));
+        }
+    }
+
+    @Test
+    void checkResourceObjectsComplianceValidationAcceptsSelectionWithAnAssociatedProfile() {
+        List<UUID> raProfileUuids = List.of(associatedRaProfileUuid, unassociatedRaProfileUuid);
+        Assertions
+                .assertDoesNotThrow(
+                        () -> complianceExternalService
+                                .checkResourceObjectsComplianceValidation(Resource.RA_PROFILE, raProfileUuids),
+                        "Profiles without a compliance profile are skipped when another selected profile has one");
+    }
+
+    private TokenProfile saveTokenProfile(String name) {
+        TokenInstanceReference token = new TokenInstanceReference();
+        token.setStatus(TokenInstanceStatus.UNKNOWN);
+        token.setName("Token");
+        token.setAuthor("John Doe");
+        token.setCreated(OffsetDateTime.now());
+        token.setUpdated(OffsetDateTime.now());
+        tokenRepository.save(token);
+
+        TokenProfile tokenProfile = new TokenProfile();
+        tokenProfile.setName(name);
+        tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
+        tokenProfile.setAuthor("John Doe");
+        tokenProfile.setCreated(OffsetDateTime.now());
+        tokenProfile.setUpdated(OffsetDateTime.now());
+        return tokenProfileRepository.save(tokenProfile);
     }
 }

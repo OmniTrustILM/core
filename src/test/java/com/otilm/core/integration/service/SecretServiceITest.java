@@ -73,6 +73,7 @@ import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
 import com.otilm.core.util.WireMockPorts;
@@ -170,10 +171,10 @@ class SecretServiceITest extends BaseSpringBootTest {
         }).when(actionProducer).produceMessage(any());
         Mockito.doNothing().when(authHelper).authenticateAsUser(any());
 
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
         WireMock
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching("/v1/secretProvider/secrets/basicAuth/attributes"))
@@ -222,7 +223,7 @@ class SecretServiceITest extends BaseSpringBootTest {
 
         connector = new Connector();
         connector.setName("testConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connectorRepository.save(connector);
 
@@ -782,6 +783,16 @@ class SecretServiceITest extends BaseSpringBootTest {
         PaginationResponseDto<SecretDto> secrets = secretService.listSecrets(searchRequest, SecurityFilter.create());
         Assertions.assertEquals(1, secrets.getTotalItems());
         Assertions.assertEquals(secret.getName(), secrets.getItems().getFirst().getName());
+    }
+
+    @Test
+    void testListSecretsRefusesPageSizeAboveMaximum() {
+        SearchRequestDto searchRequest = new SearchRequestDto();
+        searchRequest.setItemsPerPage(1001);
+        SecurityFilter securityFilter = SecurityFilter.create();
+        Assertions
+                .assertThrows(ValidationException.class,
+                        () -> secretService.listSecrets(searchRequest, securityFilter));
     }
 
     @Test

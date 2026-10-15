@@ -12,6 +12,7 @@ import com.otilm.core.service.compliance.BaseComplianceTest;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.List;
@@ -50,10 +51,10 @@ class RevokeDuringComplianceCheckITest extends BaseComplianceTest {
         SecurityContextHolder.setStrategyName(SecurityContextHolder.MODE_INHERITABLETHREADLOCAL);
         SecurityContextHolder.getContext().setAuthentication(getAuthentication());
 
-        ocspServer = new WireMockServer(0);
+        ocspServer = new WireMockServer(LoopbackWireMock.options());
         ocspServer.start();
 
-        String ocspUrl = "http://localhost:" + ocspServer.port() + "/ocsp";
+        String ocspUrl = LoopbackWireMock.url(ocspServer) + "/ocsp";
 
         // The EE cert embeds this WireMock URL as its OCSP AIA, so X509CertificateValidator's OCSP
         // check makes a real HTTP call to WireMock during validate().

@@ -36,10 +36,7 @@ import org.springframework.stereotype.Repository;
  * cached for up to the TTL.
  */
 @Repository
-public interface CertificateRepository
-        extends
-            SecurityFilterRepository<Certificate, UUID>,
-            CustomCertificateRepository {
+public interface CertificateRepository extends ComplianceSubjectRepository<Certificate>, CustomCertificateRepository {
 
     List<String> FETCH_GROUPS_AND_OWNER = List.of("groups", "owner");
 

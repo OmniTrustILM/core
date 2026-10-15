@@ -235,7 +235,7 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
         itemRepository
                 .stage(uuid, run.getUuid(), resource, sequence, uniqueRef,
                         "{\"resource\":\"" + resource + "\",\"keyData\":\"" + uniqueRef + "\"}",
-                        OffsetDateTime.now(ZoneOffset.UTC), true, null);
+                        OffsetDateTime.now(ZoneOffset.UTC), true, null, null);
         return uuid;
     }
 

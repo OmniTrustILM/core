@@ -9,6 +9,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -25,8 +26,15 @@ import org.hibernate.type.SqlTypes;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "attribute_content_item")
+@Table(name = "attribute_content_item", uniqueConstraints = @UniqueConstraint(name = "uq_attribute_content_item_value",
+        columnNames = {"attribute_definition_uuid", "json_digest"}))
 public class AttributeContentItem extends UniquelyIdentified {
+
+    /**
+     * The {@code json_digest} of a value bound as {@code :json}, for a lookup through
+     * {@code uq_attribute_content_item_value}. It must compute what V202610061000's generated column holds.
+     */
+    public static final String DIGEST_OF_JSON_PARAMETER = "sha256(decode(replace(CAST(:json AS jsonb)::text, chr(92), chr(92) || chr(92)), 'escape'))";
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "attribute_definition_uuid", nullable = false, insertable = false, updatable = false)
@@ -47,6 +55,15 @@ public class AttributeContentItem extends UniquelyIdentified {
 
     @Column(name = "encrypted_data", length = Integer.MAX_VALUE)
     private String encryptedData;
+
+    /**
+     * Computed by the database, and mapped only so the test schema — generated from these annotations — carries the
+     * column the insert's conflict target names. NULL for an encrypted row; V202610061000 explains the digest.
+     */
+    @Column(name = "json_digest",
+            columnDefinition = "bytea generated always as (case when encrypted_data is null then sha256(decode(replace(json::text, chr(92), chr(92) || chr(92)), 'escape')) end) stored",
+            insertable = false, updatable = false)
+    private byte[] jsonDigest;
 
     public void setAttributeDefinition(AttributeDefinition attributeDefinition) {
         this.attributeDefinition = attributeDefinition;

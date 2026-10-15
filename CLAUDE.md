@@ -5,6 +5,14 @@ This file instructs an agent implementing changes in this repository. Review rul
 
 General engineering principles and process guidance for working effectively on this codebase. Project-specific facts (build commands, architecture, package layout) belong in the README, scripts, or code itself — they can be derived from the repo. This file is for the things that aren't obvious from the code.
 
+## Forwarded certificate identity
+
+Keep REST and TSP on request-aware forwarded certificate parsing so RFC companions and every asserted candidate are validated before cache lookup. Pass the immutable parsed identity to the Auth client: the cache fingerprint and canonical leaf payload must come from the same object. Validated non-leaf candidates are untrusted path material, never anchors. Auth preserves existing .NET System trust and deployment CA mounts; forwarded candidates belong only in X509Chain ExtraStore. Core sends no trust policy and requires no acknowledgment or new environment variable. Preserve legacy defaults, method priority and the existing expire-after-write cache interval. CA loading and refresh follow the existing runtime behavior; do not promise per-validation file rereads or immediate CA removal. Keep user-facing certificate setup and format details in the documentation repository; the README links to its client certificate authentication guide.
+
+## New dependencies
+
+New dependencies must be compatible with Apache-2.0 and permitted by the CNCF third-party license policy. Verify new transitive dependencies and preserve required notices.
+
 ## Working with reviews
 
 This section is for an agent preparing its own pull request for review, not for a reviewer.
@@ -132,6 +140,10 @@ Use pessimistic locking on the read-and-update path: a custom repository finder 
 
 Don't span the lock across slow external calls (see "Transactions and external calls" above) — split the transaction so the lock covers only the local writes that need atomicity.
 
+## Open-in-view keeps what a request reads managed
+
+`spring.jpa.open-in-view` is on, so an entity read through the request's EntityManager stays managed there until the response is written, and every transaction that runs on that EntityManager flushes the changes made to it, as a whole row unless the entity is `@DynamicUpdate`. A `Propagation.NOT_SUPPORTED` method does not keep them out: the transactions it starts run on the request's EntityManager until it first uses that EntityManager outside a transaction, on EntityManagers of their own from then until it returns, and the request's next transaction runs on the request's EntityManager again. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it can pass whatever the code does.
+
 ## New operator-facing settings go through the Settings UI, not env vars
 
 An operator-configurable tunable belongs in the Settings subsystem (persisted, exposed via the settings API/UI), not in
@@ -166,6 +178,42 @@ String safeText = e instanceof OurDomainException && e.getMessage() != null
 This applies to PKI/CMP/SCEP `PKIFreeText`, ACME `error.detail`, REST API error responses, and any other surface where the message reaches an external party.
 
 A connector's error text is its own words. On a call that carried a secret (a passphrase, key material), drop that text and report the failure with a fixed message, as `KeyProviderV2Adapter.sendExport` does: the connector may echo the secret back.
+
+## Uploaded key files are normalized in Core
+
+`KeyNormalizer` opens an uploaded key file in memory, derives the key's public key and protects the key afresh in the connector contract's pinned profile under a passphrase it generates, so neither the file nor the user's passphrase reaches a connector. Its refusals are fixed messages: what can be seen without the passphrase (the format, the protection scheme, a cost or nesting limit) is named, and every failure after decryption shares one message, so a refusal tells nothing about the passphrase. Cost limits are checked before any key is derived.
+
+## Key import is a saga across the connector boundary
+
+`KeyImportSaga` records an attempt in `key_import` before `importKey` is sent, and resolves an open attempt of the same
+import through `/import/result` before it starts another. The row holds no secret: it keeps digests of the transport
+passphrase and envelope each send carried, and every answer about the attempt is checked not to echo them. An attempt is
+closed as `FAILED` only when nothing can have been imported: it was never sent, or the connector answered with a refusal
+with an error code, a failed or cancelled status, or a cancel it confirmed. Every other failure leaves the attempt open,
+because the connector may hold a key the platform has not registered, and the caller is told to retry. An open attempt
+the connector does not know is sent again only within `key-import.unresolved-after` of its creation, while the connector
+still keeps its records. Registration and `COMPLETED` commit in one transaction under the attempt's row lock, so a retry
+racing the original request registers the key once.
+
+`KeyImportSweeper` settles the attempts whose outcome their requesters never learned. A requester keeps an attempt for
+`key-import.retry-window` after each send; then one node at a time claims it under `KEY_IMPORT_SWEEP`, with its row
+locked, and asks `/import/result` after the claim commits. A key the connector imported is destroyed through the
+connector's handles only after the attempt moved to `COMPENSATING` under its row lock, so a retry that reaches
+registration afterwards finds it closed, and no other import of the key starts until the attempt settles. A key the connector refuses to destroy is registered deactivated
+(`QUARANTINED`). An attempt last sent longer than `key-import.unresolved-after` ago gets one last look, where a
+connector that no longer knows it proves nothing but one that holds its key still has it undone; what that look cannot
+settle, like a key that can be neither destroyed nor registered, ends `UNRESOLVED` with its key reference logged. A registration that fails in the request makes the attempt
+due at once. Each run then deletes the attempts that completed, failed or were compensated longer than
+`key-import.retention` ago, in bounded batches of one statement and one
+transaction each. Every node deletes without the cluster lock; a batch skips the rows another node's batch holds
+(`FOR UPDATE SKIP LOCKED`), so nodes never wait for each other.
+
+An import may adopt a certificate's public-key-only record, so writers of keys and key items must not act on a copy read
+before it: `CryptographicKey` and `CryptographicKeyItem` are `@DynamicUpdate`, every local item deletion or destruction
+passes the key as the caller read it and is refused when its token changed, and compliance results are stored through
+`ComplianceSubjectWriter`, never by saving the checked subject. An adoption needs `CRYPTOGRAPHIC_KEY`/`UPDATE` on the
+record, checked before the import is sent and again as the requester at registration, and it changes only the record's
+token, token profile and items, never its owner, groups, custom attributes, name or description.
 
 ## Controllers reach services through `*ExternalService` interfaces
 

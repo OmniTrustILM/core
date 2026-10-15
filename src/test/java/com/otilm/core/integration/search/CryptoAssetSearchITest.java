@@ -87,7 +87,7 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
                 null, null, null, null), null);
 
         assetWriter
-                .applyPqcVerdict(populated, PqcVerdict.NOT_READY, "ECDSA-CLASSICAL", "not quantum resistant", 3,
+                .applyPqcVerdict(populated, PqcVerdict.NOT_READY, "ECDSA-CLASSICAL", "not quantum resistant",
                         java.util.Map.of("curve", "P-256"));
     }
 
@@ -147,11 +147,6 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
     @Test
     void theEnumBackedVerdictColumnMatchesTheContractCode() {
         assertFieldBehaviour(FilterField.CBOM_ASSET_PQC_VERDICT, PqcVerdict.NOT_READY.getCode());
-    }
-
-    @Test
-    void theNullablePqcRulesetVersionDistinguishesAValueMatchFromAnAbsentValue() {
-        assertFieldBehaviour(FilterField.CBOM_ASSET_PQC_RULESET_VERSION, "3");
     }
 
     @Test
@@ -527,9 +522,8 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
                         FilterField.CBOM_ASSET_ALGORITHM_FAMILY, FilterField.CBOM_ASSET_PRIMITIVE,
                         FilterField.CBOM_ASSET_PARAMETER_SET, FilterField.CBOM_ASSET_CURVE, FilterField.CBOM_ASSET_MODE,
                         FilterField.CBOM_ASSET_PADDING, FilterField.CBOM_ASSET_VARIANT,
-                        FilterField.CBOM_ASSET_PQC_VERDICT, FilterField.CBOM_ASSET_PQC_RULESET_VERSION,
-                        FilterField.CBOM_ASSET_RULESET_VERSION, FilterField.CBOM_ASSET_SOURCE_COUNT,
-                        FilterField.CBOM_ASSET_OID_REFUTED);
+                        FilterField.CBOM_ASSET_PQC_VERDICT, FilterField.CBOM_ASSET_RULESET_VERSION,
+                        FilterField.CBOM_ASSET_SOURCE_COUNT, FilterField.CBOM_ASSET_OID_REFUTED);
         assertThat(cryptoAssetFields)
                 .describedAs("every crypto-asset field roots at the ratified CRYPTO_ASSET resource, so the inventory "
                         + "gets its own search surface rather than borrowing the CBOM one")
@@ -542,10 +536,9 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
                         FilterField.CBOM_ASSET_ALGORITHM_FAMILY, FilterField.CBOM_ASSET_PRIMITIVE,
                         FilterField.CBOM_ASSET_PARAMETER_SET, FilterField.CBOM_ASSET_CURVE, FilterField.CBOM_ASSET_MODE,
                         FilterField.CBOM_ASSET_PADDING, FilterField.CBOM_ASSET_VARIANT,
-                        FilterField.CBOM_ASSET_PQC_VERDICT, FilterField.CBOM_ASSET_PQC_RULESET_VERSION,
-                        FilterField.CBOM_ASSET_RULESET_VERSION, FilterField.CBOM_ASSET_SOURCE_COUNT,
-                        FilterField.CBOM_ASSET_FREE_TEXT, FilterField.CBOM_ASSET_OID_REFUTED,
-                        FilterField.CBOM_ASSET_SOURCE_CBOM);
+                        FilterField.CBOM_ASSET_PQC_VERDICT, FilterField.CBOM_ASSET_RULESET_VERSION,
+                        FilterField.CBOM_ASSET_SOURCE_COUNT, FilterField.CBOM_ASSET_FREE_TEXT,
+                        FilterField.CBOM_ASSET_OID_REFUTED, FilterField.CBOM_ASSET_SOURCE_CBOM);
 
         for (Resource resource : Resource.values()) {
             if (resource == Resource.CRYPTO_ASSET) {
@@ -562,6 +555,12 @@ class CryptoAssetSearchITest extends BaseSpringBootTest {
         assertThat(FilterField.CBOM_ASSET_TYPE.getEnumClass()).isEqualTo(CryptographicAssetType.class);
         assertThat(FilterField.CBOM_ASSET_PQC_VERDICT.getEnumClass()).isEqualTo(PqcVerdict.class);
         assertThat(FilterField.CBOM_ASSET_SYNC_STATE.getEnumClass()).isEqualTo(CbomAssetSyncState.class);
+    }
+
+    @Test
+    void cbomContributionFilterIsRejectedOnCryptoAssetListing() {
+        assertThatThrownBy(() -> search(aPropertyEqualsFilter(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS, true)))
+                .isInstanceOf(ValidationException.class);
     }
 
     // ---- helpers ----

@@ -19,9 +19,9 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface ListViewRepository extends JpaRepository<ListView, UUID> {
 
-    List<ListView> findByUserUuidOrderByNameAsc(UUID userUuid);
+    List<ListView> findByUserUuidOrderByCreatedAscUuidAsc(UUID userUuid);
 
-    List<ListView> findByUserUuidAndResourceOrderByNameAsc(UUID userUuid, Resource resource);
+    List<ListView> findByUserUuidAndResourceOrderByCreatedAscUuidAsc(UUID userUuid, Resource resource);
 
     Optional<ListView> findByUuidAndUserUuid(UUID uuid, UUID userUuid);
 

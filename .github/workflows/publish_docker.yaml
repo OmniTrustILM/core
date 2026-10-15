@@ -12,6 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  checks: write
   contents: read
   packages: write
   id-token: write

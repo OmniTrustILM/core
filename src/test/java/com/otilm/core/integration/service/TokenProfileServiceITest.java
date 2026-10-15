@@ -37,6 +37,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
@@ -90,13 +91,13 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
@@ -122,7 +123,7 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
     @Test
     void testListTokenProfiles() {
         List<TokenProfileDto> tokenProfiles = tokenProfileService
-                .listTokenProfiles(Optional.of(true), SecurityFilter.create());
+                .listTokenProfiles(Optional.of(true), List.of(), SecurityFilter.create());
         Assertions.assertNotNull(tokenProfiles);
         Assertions.assertFalse(tokenProfiles.isEmpty());
         Assertions.assertEquals(1, tokenProfiles.size());
@@ -146,7 +147,7 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
 
             // when
             List<TokenProfileDto> profiles = tokenProfileService
-                    .listTokenProfiles(enabledFilter, SecurityFilter.create());
+                    .listTokenProfiles(enabledFilter, List.of(), SecurityFilter.create());
 
             // then
             Assertions.assertEquals(enabled == null ? 2 : 1, profiles.size());
@@ -196,7 +197,7 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
 
         // when
         List<TokenProfileDto> tokenProfiles = tokenProfileService
-                .listTokenProfiles(Optional.of(true), SecurityFilter.create());
+                .listTokenProfiles(Optional.of(true), List.of(), SecurityFilter.create());
 
         // then
         Assertions

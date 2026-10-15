@@ -8,6 +8,7 @@ import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.repository.CommentRepository;
 import com.otilm.core.service.ResourceInternalService;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,6 +89,20 @@ public class CommentWriter {
     public int deleteAllForObject(Resource resource, UUID objectUuid) {
         synchronizer.lock(hostLockKey(resource, objectUuid));
         return commentRepository.deleteAllByResourceAndObjectUuid(resource, objectUuid);
+    }
+
+    /**
+     * The bulk counterpart of {@link #deleteAllForObject}: every host's lock in one statement, then a single purge
+     * statement. The locks are taken in a fixed order, so two bulk deletions of overlapping hosts cannot deadlock on
+     * each other.
+     */
+    @Transactional
+    public int deleteAllForObjects(Resource resource, Collection<UUID> objectUuids) {
+        if (objectUuids.isEmpty()) {
+            return 0;
+        }
+        synchronizer.lockAll(objectUuids.stream().map(objectUuid -> hostLockKey(resource, objectUuid)).toList());
+        return commentRepository.deleteAllByResourceAndObjectUuidIn(resource, objectUuids);
     }
 
     private static String hostLockKey(Resource resource, UUID objectUuid) {

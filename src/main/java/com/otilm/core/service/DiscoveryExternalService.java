@@ -83,6 +83,14 @@ public interface DiscoveryExternalService {
 
     void runDiscoveryAsync(UUID discoveryUuid);
 
+    /**
+     * Starts a run whose connector answers its initiate promptly, on the thread of the caller who created it, so a
+     * refusal of what they asked for reaches them rather than ending a run they are not watching.
+     *
+     * @throws ConnectorException when the connector refused the run's configuration; the run is discarded
+     */
+    void startDiscovery(UUID discoveryUuid) throws ConnectorException;
+
     void deleteDiscovery(SecuredUUID uuid) throws NotFoundException;
 
     void bulkRemoveDiscovery(List<SecuredUUID> discoveryUuids) throws NotFoundException;

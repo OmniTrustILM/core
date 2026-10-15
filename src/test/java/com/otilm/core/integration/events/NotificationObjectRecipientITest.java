@@ -40,6 +40,7 @@ import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.NotificationProfileExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.WireMockPorts;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -87,9 +88,9 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws AlreadyExistException, AttributeException, NotFoundException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         // Connector declares one string mapping attribute
         mockServer
@@ -116,7 +117,7 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         // Connector and notification instance
         Connector connector = new Connector();
         connector.setName("testObjectRecipientConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
@@ -158,7 +159,8 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
                         UUID.fromString(customAttr.getUuid()), customAttr.getName(),
-                        List.of(new StringAttributeContentV3(CONTACT_VALUE)));
+                        List.of(new StringAttributeContentV3(CONTACT_VALUE)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         NotificationMessage message = new NotificationMessage(ResourceEvent.CERTIFICATE_STATUS_CHANGED,
                 Resource.CERTIFICATE, certificateUuid, List.of(UUID.fromString(profile.getUuid())), List.of(), null);
@@ -403,7 +405,8 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
                         UUID.fromString(customAttr.getUuid()), customAttr.getName(),
-                        List.of(new StringAttributeContentV3(CONTACT_VALUE)));
+                        List.of(new StringAttributeContentV3(CONTACT_VALUE)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         Assertions
                 .assertDoesNotThrow(() -> notificationListener
@@ -432,7 +435,8 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.SECRET, secretTargetUuid,
                         UUID.fromString(secretAttr.getUuid()), secretAttr.getName(),
-                        List.of(new StringAttributeContentV3(secretMarker)));
+                        List.of(new StringAttributeContentV3(secretMarker)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         NotificationInstanceMappedAttributes secretMapping = new NotificationInstanceMappedAttributes();
         secretMapping.setAttributeDefinitionUuid(UUID.fromString(secretAttr.getUuid()));
@@ -561,7 +565,8 @@ class NotificationObjectRecipientITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid,
                         UUID.fromString(customAttr.getUuid()), customAttr.getName(),
-                        List.of(new StringAttributeContentV3(CONTACT_VALUE)));
+                        List.of(new StringAttributeContentV3(CONTACT_VALUE)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         Trigger trigger = new Trigger();
         trigger.setName("testActionsTrigger");

@@ -7,6 +7,8 @@ import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.model.ScheduledTaskResult;
 import java.util.Date;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class ScheduledJobHistoryWriter {
+
+    private static final Logger logger = LoggerFactory.getLogger(ScheduledJobHistoryWriter.class);
 
     private final ScheduledJobHistoryRepository repository;
 
@@ -53,10 +57,14 @@ public class ScheduledJobHistoryWriter {
         return repository.save(row);
     }
 
-    /** The task returned a result: closes the row with it. */
+    /**
+     * The task returned a result: closes the row with it.
+     *
+     * @return false when another finisher had already closed the run, whose outcome then stands
+     */
     @Transactional
-    public void recordFinished(UUID historyUuid, ScheduledTaskResult result) {
-        close(historyUuid, result);
+    public boolean recordFinished(UUID historyUuid, ScheduledTaskResult result) {
+        return close(historyUuid, result);
     }
 
     /**
@@ -69,7 +77,10 @@ public class ScheduledJobHistoryWriter {
         close(historyUuid, new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED, operatorSafeMessage));
     }
 
-    /** The task declined the run ({@code ScheduledJobSkippedException}): a skipped run leaves no history. */
+    /**
+     * The task declined the run ({@code ScheduledJobSkippedException}): the row goes; what remains of the run is what
+     * {@code ScheduledJobWriter} recorded on the job, so this is called only once that has committed.
+     */
     @Transactional
     public void removeSkipped(UUID historyUuid) {
         if (repository.removeRun(historyUuid) == 0) {
@@ -77,13 +88,22 @@ public class ScheduledJobHistoryWriter {
         }
     }
 
-    private void close(UUID historyUuid, ScheduledTaskResult result) {
+    /**
+     * The first close wins. A scheduled discovery can be finished twice, by its own hand-back and by its ending event,
+     * and a later close overwriting the first would publish a second outcome for the same run.
+     */
+    private boolean close(UUID historyUuid, ScheduledTaskResult result) {
         int closed = repository
                 .closeRun(historyUuid, new Date(), result.getStatus(), result.getResultMessage(),
                         result.getResultObjectType(), result.getResultObjectIdentification());
-        if (closed == 0) {
+        if (closed == 1) {
+            return true;
+        }
+        if (!repository.existsById(historyUuid)) {
             throw vanished(historyUuid);
         }
+        logger.debug("Scheduled job execution {} was already closed; keeping its first outcome", historyUuid);
+        return false;
     }
 
     private static IllegalStateException vanished(UUID historyUuid) {

@@ -3,6 +3,8 @@ package com.otilm.core.service.impl;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.AttributeDefinitionDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
@@ -25,6 +27,7 @@ import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.AttributeSearchFieldCatalogue;
 import com.otilm.core.attribute.engine.AttributeVersionHelper;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
@@ -53,6 +56,7 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
 
     private AttributeEngine attributeEngine;
     private AttributeDefinitionRepository attributeDefinitionRepository;
+    private AttributeSearchFieldCatalogue attributeSearchFieldCatalogue;
 
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
@@ -62,6 +66,11 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
     @Autowired
     public void setAttributeDefinitionRepository(AttributeDefinitionRepository attributeDefinitionRepository) {
         this.attributeDefinitionRepository = attributeDefinitionRepository;
+    }
+
+    @Autowired
+    public void setAttributeSearchFieldCatalogue(AttributeSearchFieldCatalogue attributeSearchFieldCatalogue) {
+        this.attributeSearchFieldCatalogue = attributeSearchFieldCatalogue;
     }
 
     @Override
@@ -254,10 +263,16 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
         attribute.getProperties().setLabel(request.getLabel());
         attribute.getProperties().setVisible(request.isVisible());
         attribute.getProperties().setGlobal(true);
+        // The request carries no protection level, and the properties' default of NONE would decrypt every stored
+        // value.
+        attribute.getProperties().setProtectionLevel(definition.getProtectionLevel());
 
-        return attributeEngine
+        GlobalMetadataDefinitionDetailDto edited = attributeEngine
                 .updateMetadataAttributeDefinition(attribute, null)
                 .mapToGlobalMetadataDefinitionDetailDto();
+        // An operator's rename or hide shows at once here; connector-written metadata relies on the TTL instead.
+        attributeSearchFieldCatalogue.evictAll();
+        return edited;
     }
 
     @Override
@@ -337,6 +352,14 @@ public class AttributeServiceImpl implements AttributeExternalService, Attribute
         AttributeDefinition definition = attributeDefinitionRepository
                 .findByConnectorUuidAndAttributeUuid(connectorUUid, uuid)
                 .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, uuid.toString()));
+        // One global definition per name: promoting onto a taken name would leave two, and a connector that declares
+        // this metadata global looks it up by name. The unique key backstops two promotions at once.
+        if (!Boolean.TRUE.equals(definition.getGlobal()) && Boolean.TRUE
+                .equals(attributeDefinitionRepository
+                        .existsByTypeAndNameAndGlobalTrue(AttributeType.META, definition.getName()))) {
+            throw new ValidationException(ValidationError
+                    .create("Global metadata named '%s' already exists".formatted(definition.getName())));
+        }
         definition.setGlobal(true);
         attributeDefinitionRepository.save(definition);
         return getGlobalMetadata(definition.getUuid());

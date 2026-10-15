@@ -92,6 +92,7 @@ import com.otilm.core.service.VaultInstanceInternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.FilterPredicatesBuilder;
+import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
@@ -316,6 +317,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.LIST,
             parentResource = Resource.VAULT_PROFILE, parentAction = ResourceAction.MEMBERS)
     public PaginationResponseDto<SecretDto> listSecrets(SearchRequestDto searchRequest, SecurityFilter securityFilter) {
+        RequestValidatorHelper.revalidateSearchRequestDto(searchRequest);
         final Supplier<CustomAttributeContentFilter> contentFilter = attributeEngine.customAttributeContentFilterOnce();
         TriFunction<Root<Secret>, CriteriaBuilder, CriteriaQuery<?>, Predicate> additionalWhereClause = (root, cb,
                 cq) -> FilterPredicatesBuilder

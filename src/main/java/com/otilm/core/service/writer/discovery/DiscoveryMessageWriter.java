@@ -118,6 +118,16 @@ public class DiscoveryMessageWriter {
         write(discoveryUuid, severity, DiscoveryMessageCode.RUN_ENDED.code(), shorten(reason, maxMessageLength), 1);
     }
 
+    /**
+     * Records how many targets the connector could not read, exempt from every bound like {@link #appendRunEnded},
+     * since it is what explains a run ending WARNING. The caller files it once per run, so it cannot grow the log.
+     */
+    @Transactional
+    public void appendTargetsFailed(UUID discoveryUuid, String message, long failed) {
+        write(discoveryUuid, DiscoveryMessageSeverity.WARNING, DiscoveryMessageCode.TARGETS_FAILED.code(),
+                shorten(message, maxMessageLength), failed);
+    }
+
     private void recordMessage(UUID discoveryUuid, DiscoveryMessageDraft draft) {
         String code = shorten(draft.code(), MAX_CODE_LENGTH);
         String message = shorten(draft.message(), maxMessageLength);

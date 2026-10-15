@@ -1,12 +1,16 @@
 package com.otilm.core.integration.security.oauth2;
 
 import com.nimbusds.jose.JOSEException;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.core.auth.oauth2.PlatformAuthenticationSuccessHandler;
 import com.otilm.core.auth.oauth2.PlatformClientRegistrationRepository;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.oauth2.OAuth2TestUtil;
+import com.otilm.core.service.AuditLogExternalService;
+import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Constants;
 import java.security.KeyPair;
@@ -34,6 +38,9 @@ import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
@@ -41,6 +48,12 @@ class OAuth2AuthenticationSuccessHandlerITest {
 
     @MockitoBean
     OAuth2AuthorizedClientService clientService;
+
+    @MockitoBean
+    AuditLogInternalService auditLogService;
+
+    @MockitoBean
+    AuditLogExternalService auditLogExternalService;
 
     @Autowired
     PlatformAuthenticationSuccessHandler successHandler;
@@ -73,9 +86,9 @@ class OAuth2AuthenticationSuccessHandlerITest {
         settingsCache
                 .cacheSettings(SettingsSection.AUTHENTICATION,
                         OAuth2TestUtil.getAuthenticationSettings(null, 0, new ArrayList<>(), null));
+        String accessTokenValue = OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "username");
         OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER,
-                OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "username"), Instant.now(),
-                Instant.MAX);
+                accessTokenValue, Instant.now(), Instant.MAX);
         OAuth2AuthorizedClient authorizedClient = new OAuth2AuthorizedClient(
                 clientRegistrationRepository.findByRegistrationId("test"), "name", oauth2AccessToken);
         when(clientService.loadAuthorizedClient("test", "sub")).thenReturn(authorizedClient);
@@ -89,6 +102,12 @@ class OAuth2AuthenticationSuccessHandlerITest {
                 .assertDoesNotThrow(() -> successHandler
                         .onAuthenticationSuccess(mockHttpServletRequest, new MockHttpServletResponse(),
                                 authenticationToken));
+
+        // a successful login is recorded without the live access token's signature
+        String[] parts = accessTokenValue.split("\\.");
+        verify(auditLogService)
+                .logAuthentication(eq(Operation.LOGIN), eq(OperationResult.SUCCESS), isNull(),
+                        eq(parts[0] + "." + parts[1]));
     }
 
     @Test

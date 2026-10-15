@@ -7,6 +7,7 @@ import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.api.ExceptionHandlingAdvice;
 import com.otilm.core.model.crypto.ExportedKeyMaterial;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
+import com.otilm.core.util.ApplicationMessageConverters;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +42,11 @@ class CryptographicKeyControllerExportTest {
     @BeforeEach
     void setUp() {
         controller.setCryptographicKeyExportExternalService(exportService);
-        mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new ExceptionHandlingAdvice()).build();
+        mvc = MockMvcBuilders
+                .standaloneSetup(controller)
+                .setMessageConverters(ApplicationMessageConverters.get())
+                .setControllerAdvice(new ExceptionHandlingAdvice())
+                .build();
     }
 
     @Test

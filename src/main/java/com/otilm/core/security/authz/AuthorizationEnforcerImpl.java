@@ -51,12 +51,22 @@ public class AuthorizationEnforcerImpl implements AuthorizationEnforcer {
 
     @Override
     public boolean isAuthorizedAs(UUID userUuid, Resource resource, ResourceAction action, SecuredUUID objectUuid) {
-        Authentication authentication = resolvePrincipal(userUuid);
+        Authentication authentication = signedInAs(userUuid);
+        if (authentication == null) {
+            authentication = resolvePrincipal(userUuid);
+        }
         if (authentication == null) {
             return false;
         }
         AuthorizationRequest request = AuthorizationRequest.forDirectCheck(resource, action, List.of(objectUuid));
         return core.decide(authentication, request).isGranted();
+    }
+
+    /** The current authentication when it is the user's own, so a decision for the signed-in user asks nobody else. */
+    private static Authentication signedInAs(UUID userUuid) {
+        Authentication current = SecurityContextHolder.getContext().getAuthentication();
+        return current != null && current.getPrincipal() instanceof PlatformUserDetails user
+                && userUuid.toString().equals(user.getUserUuid()) ? current : null;
     }
 
     /**

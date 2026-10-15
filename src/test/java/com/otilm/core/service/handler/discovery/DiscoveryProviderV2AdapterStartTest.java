@@ -10,6 +10,7 @@ import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.writer.discovery.DiscoveryRunWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import java.time.Duration;
 import java.util.List;
@@ -46,7 +47,8 @@ class DiscoveryProviderV2AdapterStartTest {
     private final DiscoveryProviderV2Adapter adapter = new DiscoveryProviderV2Adapter(discoveryRepository, detailCounts,
             connectorInterfaceRepository, client, workWriter, terminator, capabilityService, new TransactionHandler(),
             new DiscoveryWorkProperties(new StatusPollProperties.PollSchedule(List.of(Duration.ofSeconds(1)), 3),
-                    Map.of()));
+                    Map.of()),
+            mock(DiscoveryRunWriter.class));
 
     /**
      * A failure after both agenda rows are committed still has to tell the connector to drop the run: the run ends

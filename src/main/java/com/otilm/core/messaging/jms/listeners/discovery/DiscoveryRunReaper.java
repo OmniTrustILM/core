@@ -232,9 +232,6 @@ public class DiscoveryRunReaper {
      * Ends the run through the terminator's own mutation, so a reaped run is indistinguishable from one a worker ended
      * — same status, same released handle, same entry in the message log. The re-assert and the row lock stay here:
      * they are the reaper's conditions, not the terminator's.
-     *
-     * <p>
-     * {@code connectorStatus} is deliberately left at the last report: the connector never confirmed this ending.
      */
     private void endRun(Discovery run, DiscoveryStatus status, String message) {
         terminator.applyTerminalState(run, status, message);

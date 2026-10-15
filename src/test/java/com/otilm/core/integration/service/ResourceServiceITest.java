@@ -353,6 +353,17 @@ class ResourceServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void cbomContributionListingFilterIsNotOfferedAsRuleCondition() throws NotFoundException {
+        assertThat(resourceService
+                .listResourceRuleFilterFields(Resource.CBOM, false)
+                .stream()
+                .flatMap(group -> group.getSearchFieldData().stream())
+                .map(SearchFieldDataDto::getFieldIdentifier))
+                .contains(FilterField.CBOM_ASSET_SYNC_STATE.name())
+                .doesNotContain(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS.name());
+    }
+
+    @Test
     void certificateRuleFieldsExcludeExtendedKeyUsage() throws NotFoundException {
         assertThat(resourceService.listResourceRuleFilterFields(Resource.CERTIFICATE, false))
                 .flatExtracting(SearchFieldDataByGroupDto::getSearchFieldData)

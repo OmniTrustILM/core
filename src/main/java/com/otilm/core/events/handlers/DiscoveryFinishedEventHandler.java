@@ -4,7 +4,6 @@ import com.otilm.api.exception.EventException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.core.other.ResourceEvent;
-import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.evaluator.TriggerEvaluator;
@@ -87,7 +86,8 @@ public class DiscoveryFinishedEventHandler extends EventHandler<Discovery> {
         if (eventContext.getScheduledJobInfo() != null) {
             // The run's own outcome, so the scheduler's execution history tells a failed or cancelled discovery from a
             // clean one.
-            ScheduledTaskResult scheduledTaskResult = new ScheduledTaskResult(executionStatusOf(discovery.getStatus()),
+            ScheduledTaskResult scheduledTaskResult = new ScheduledTaskResult(
+                    DiscoveryRunLifecycle.executionStatusOf(discovery.getStatus(), endedByUser(eventContext)),
                     discovery.getMessage(), Resource.DISCOVERY, discovery.getUuid().toString());
             applicationEventPublisher
                     .publishEvent(
@@ -101,14 +101,10 @@ public class DiscoveryFinishedEventHandler extends EventHandler<Discovery> {
                 discoveryResult, userUuid, scheduledJobInfo);
     }
 
-    /**
-     * WARNING counts as success: the run finished and imported what it could, and the warning is about individual items
-     * rather than the job. FAILED and CANCELLED did not deliver what the schedule asked for.
-     */
-    private static SchedulerJobExecutionStatus executionStatusOf(DiscoveryStatus status) {
-        return status == DiscoveryStatus.FAILED || status == DiscoveryStatus.CANCELLED
-                ? SchedulerJobExecutionStatus.FAILED
-                : SchedulerJobExecutionStatus.SUCCESS;
+    /** The status alone cannot tell a user's cancel from the others, so the ending says so itself. */
+    private boolean endedByUser(EventContext<Discovery> eventContext) {
+        return eventContext.getData() != null
+                && objectMapper.convertValue(eventContext.getData(), DiscoveryResult.class).isEndedByUser();
     }
 
     private static boolean isPostProcessingFinishSignal(DiscoveryStatus reportedStatus) {

@@ -8,15 +8,12 @@ import java.util.List;
 import java.util.UUID;
 import lombok.Setter;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class AbstractExternalAuthorizationManagerTest {
@@ -24,22 +21,6 @@ class AbstractExternalAuthorizationManagerTest {
     TestImplementationOfManager manager = new TestImplementationOfManager();
 
     Authentication authentication = createPlatformAuthentication();
-
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    @SuppressWarnings("removal")
-    void deprecatedCheckReturnsTheSameDecisionAsAuthorize(boolean granted) {
-        // given
-        manager.setCheckResult(new AuthorizationDecision(granted));
-
-        // when
-        AuthorizationDecision viaCheck = manager.check(() -> authentication, new Object());
-        AuthorizationDecision viaAuthorize = manager.authorize(() -> authentication, new Object());
-
-        // then
-        assertEquals(granted, viaCheck.isGranted());
-        assertEquals(viaAuthorize.isGranted(), viaCheck.isGranted());
-    }
 
     @Test
     void deniesIfAuthenticationIsNotOfTypePlatformAuthenticationToken() {

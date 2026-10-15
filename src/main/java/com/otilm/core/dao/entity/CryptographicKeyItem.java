@@ -15,6 +15,7 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.model.NamedModel;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.util.DtoMapper;
+import com.otilm.core.util.KeySizeUtil;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -37,6 +38,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
@@ -51,6 +53,9 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @Entity
 @Table(name = "cryptographic_key_item")
 @EntityListeners(AuditingEntityListener.class)
+// A request may hold a copy read before an import adopted the item; writing only what it changed keeps the handle and
+// usages the adoption gave it.
+@DynamicUpdate
 public class CryptographicKeyItem extends UniquelyIdentified
         implements
             ComplianceSubject,
@@ -99,11 +104,12 @@ public class CryptographicKeyItem extends UniquelyIdentified
     @Enumerated(EnumType.STRING)
     private KeyFormat format;
 
+    @ToString.Exclude
     @Column(name = "keyData", length = Integer.MAX_VALUE)
     private String keyData;
 
     @Column(name = "length")
-    private int length;
+    private Integer length;
 
     @Column(name = "state")
     @Enumerated(EnumType.STRING)
@@ -123,9 +129,8 @@ public class CryptographicKeyItem extends UniquelyIdentified
      * ever narrowed afterwards, and never written from what a connector reports.
      *
      * <p>
-     * Not updatable: this entity carries neither {@code @DynamicUpdate} nor a version, so every flush writes every
-     * column, and a copy loaded before the permission was withdrawn would put it back. Withdrawal is the statement in
-     * {@code CryptographicKeyItemRepository}, which is the only thing that may change it.
+     * Not updatable: a copy loaded before the permission was withdrawn must never put it back. Withdrawal is the
+     * statement in {@code CryptographicKeyItemRepository}, which is the only thing that may change it.
      * </p>
      */
     @Column(name = "exportable", nullable = false, updatable = false)
@@ -161,6 +166,11 @@ public class CryptographicKeyItem extends UniquelyIdentified
         if (key != null) {
             this.keyUuid = key.getUuid();
         }
+    }
+
+    /** Stores a length below 1 as null, so an unknown length has one stored form. */
+    public void setLength(Integer length) {
+        this.length = KeySizeUtil.knownLength(length);
     }
 
     public List<KeyUsage> getUsage() {

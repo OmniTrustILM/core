@@ -31,7 +31,6 @@ import com.otilm.core.security.authz.SecurityFilter;
 import java.io.IOException;
 import java.security.cert.CertificateException;
 import java.util.List;
-import java.util.UUID;
 
 public interface CertificateExternalService {
 
@@ -48,7 +47,7 @@ public interface CertificateExternalService {
             boolean withEndCertificate, CertificateFormatEncoding encoding)
             throws NotFoundException, CertificateException;
 
-    CertificateDownloadResponseDto downloadCertificate(UUID uuid, CertificateFormat certificateFormat,
+    CertificateDownloadResponseDto downloadCertificate(SecuredUUID uuid, CertificateFormat certificateFormat,
             CertificateFormatEncoding encoding) throws CertificateException, NotFoundException, IOException;
 
     /**
@@ -144,35 +143,35 @@ public interface CertificateExternalService {
      * @param uuids UUIDs of the certificate
      * @return List of certificate contents
      */
-    List<CertificateContentDto> getCertificateContent(List<UUID> uuids);
+    List<CertificateContentDto> getCertificateContent(List<SecuredUUID> uuids);
 
     /**
      * Archives a single certificate by its UUID.
      *
      * @param uuid the UUID of the certificate to archive
      */
-    void archiveCertificate(UUID uuid) throws NotFoundException;
+    void archiveCertificate(SecuredUUID uuid) throws NotFoundException;
 
     /**
      * Unarchives a single certificate by its UUID.
      *
      * @param uuid the UUID of the certificate to unarchive
      */
-    void unarchiveCertificate(UUID uuid) throws NotFoundException;
+    void unarchiveCertificate(SecuredUUID uuid) throws NotFoundException;
 
     /**
      * Archives a list of certificates by their UUIDs.
      *
      * @param uuids the list of UUIDs of certificates to archive
      */
-    void bulkArchiveCertificates(List<UUID> uuids);
+    void bulkArchiveCertificates(List<SecuredUUID> uuids);
 
     /**
      * Unarchives a list of certificates by their UUIDs.
      *
      * @param uuids the list of UUIDs of certificates to unarchive
      */
-    void bulkUnarchiveCertificates(List<UUID> uuids);
+    void bulkUnarchiveCertificates(List<SecuredUUID> uuids);
 
     /**
      * Retrieves the relations for the given certificate.
@@ -180,7 +179,7 @@ public interface CertificateExternalService {
      * @param uuid UUID of the certificate whose relations should be retrieved.
      * @return {@link CertificateRelationsDto} containing related certificates.
      */
-    CertificateRelationsDto getCertificateRelations(UUID uuid) throws NotFoundException;
+    CertificateRelationsDto getCertificateRelations(SecuredUUID uuid) throws NotFoundException;
 
     /**
      * Associates the given certificate with the subject certificate.
@@ -188,7 +187,7 @@ public interface CertificateExternalService {
      * @param uuid UUID of the subject certificate.
      * @param certificateUuid UUID of the certificate to associate.
      */
-    void associateCertificates(UUID uuid, UUID certificateUuid) throws NotFoundException;
+    void associateCertificates(SecuredUUID uuid, SecuredUUID certificateUuid) throws NotFoundException;
 
     /**
      * Removes the association between the given certificates
@@ -196,6 +195,6 @@ public interface CertificateExternalService {
      * @param uuid UUID of the subject certificate.
      * @param certificateUuid UUID of the certificate
      */
-    void removeCertificateAssociation(UUID uuid, UUID certificateUuid) throws NotFoundException;
+    void removeCertificateAssociation(SecuredUUID uuid, SecuredUUID certificateUuid) throws NotFoundException;
 
 }

@@ -17,6 +17,7 @@ import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AttributeContent2Object_;
 import com.otilm.core.dao.entity.AttributeContentItem_;
 import com.otilm.core.dao.entity.AttributeDefinition_;
+import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
@@ -25,6 +26,8 @@ import com.otilm.core.dao.entity.GroupAssociation_;
 import com.otilm.core.dao.entity.ResourceObjectAssociation_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
+import com.otilm.core.dao.entity.VaultInstance;
+import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
@@ -37,6 +40,7 @@ import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.oid.OidHandler;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
@@ -51,6 +55,7 @@ import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -75,8 +80,11 @@ import javax.xml.datatype.DatatypeConfigurationException;
 import javax.xml.datatype.DatatypeFactory;
 import javax.xml.datatype.Duration;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
+import org.hibernate.query.criteria.JpaDerivedJoin;
 import org.hibernate.query.criteria.JpaExpression;
+import org.hibernate.query.criteria.JpaRoot;
 import org.hibernate.query.criteria.JpaSubQuery;
+import org.hibernate.query.sqm.tree.SqmJoinType;
 
 public class FilterPredicatesBuilder {
 
@@ -96,6 +104,10 @@ public class FilterPredicatesBuilder {
 
     public static final char LIKE_ESCAPE_CHAR = '\\';
     private static final String ARRAY_ITEM_CONTAINS_FUNCTION_NAME = PostgresFunctionContributor.ARRAY_ITEM_CONTAINS;
+
+    /** Columns of a per-object key table: the object the key belongs to, and the key. */
+    static final String KEY_OBJECT = "keyObject";
+    static final String KEY_VALUE = "keyValue";
 
     private static final Set<FilterConditionOperator> OID_CONDITIONS_A_NULL_OID_SATISFIES = Set
             .of(FilterConditionOperator.NOT_EQUALS, FilterConditionOperator.NOT_CONTAINS);
@@ -393,6 +405,48 @@ public class FilterPredicatesBuilder {
         }
     }
 
+    /**
+     * The property field the identifier names. Resolved here rather than left to {@link Enum#valueOf} because the
+     * predicate is built inside the repository call, where the persistence layer would wrap the resulting
+     * {@link IllegalArgumentException} into a server fault instead of a rejected request.
+     */
+    private static FilterField resolvePropertyFilterField(final String fieldIdentifier) {
+        return Arrays
+                .stream(FilterField.values())
+                .filter(field -> field.name().equals(fieldIdentifier))
+                .findFirst()
+                .orElseThrow(() -> new ValidationException(
+                        ValidationError.create("Unknown filter field identifier %s.".formatted(fieldIdentifier))));
+    }
+
+    /**
+     * Refuses a field another resource declares. The identifier is unique across every resource, but the attribute path
+     * behind it need not be, so a field of another resource can resolve against the listing's entity and filter the
+     * wrong column, or fail inside the repository call as a server fault. An entity that maps to no resource has no
+     * catalogue to check against.
+     */
+    private static void requireFieldOfListing(final Root<?> root, final FilterField filterField) {
+        final Resource resource = listingResourceOf(root);
+        if (resource != null && filterField.getRootResource() != resource) {
+            throw new ValidationException(
+                    ValidationError.create("Field %s cannot filter this listing.".formatted(filterField.name())));
+        }
+    }
+
+    /**
+     * The resource whose property fields a listing of the entity advertises. Vault instances and profiles are absent
+     * from {@link ResourceToClass}, so they are named here rather than by the attribute mapping.
+     */
+    private static Resource listingResourceOf(final Root<?> root) {
+        if (root.getJavaType().equals(VaultInstance.class)) {
+            return Resource.VAULT;
+        }
+        if (root.getJavaType().equals(VaultProfile.class)) {
+            return Resource.VAULT_PROFILE;
+        }
+        return attributeResourceOf(root);
+    }
+
     private static boolean isDeclaredOnStrictSubtypeOf(final From<?, ?> from, final Attribute<?, ?> fieldAttribute) {
         final Class<?> declaringType = fieldAttribute.getDeclaringType().getJavaType();
         return !declaringType.equals(from.getJavaType()) && from.getJavaType().isAssignableFrom(declaringType);
@@ -401,8 +455,27 @@ public class FilterPredicatesBuilder {
     private static <T> Predicate getPropertyFilterPredicate(final CriteriaBuilder criteriaBuilder,
             final CommonAbstractCriteria query, final Root<T> root, SearchFilterRequestDto filterDto,
             Map<String, From> joinedAssociations, boolean refutedOidsOptedIn) {
-        final FilterField filterField = FilterField.valueOf(filterDto.getFieldIdentifier());
+        final FilterField filterField = resolvePropertyFilterField(filterDto.getFieldIdentifier());
+        requireFieldOfListing(root, filterField);
         requireAdvertisedCondition(filterField, filterDto.getCondition());
+        if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS) {
+            if (!Cbom.class.equals(root.getJavaType())) {
+                throw new ValidationException("Field " + filterField.name() + " can only filter CBOM listings.");
+            }
+            Object rawValue = filterDto.getValue();
+            if (!(rawValue instanceof Boolean) && !(rawValue instanceof String value
+                    && ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)))) {
+                throw new ValidationException(
+                        "Field " + filterField + " accepts a single boolean value, true or false.");
+            }
+            boolean requested = Boolean.parseBoolean(rawValue.toString());
+            @SuppressWarnings("unchecked")
+            Root<Cbom> cbomRoot = (Root<Cbom>) root;
+            Predicate contributed = CbomAssetSourcePredicates.hasContributedAssets(cbomRoot, criteriaBuilder, query);
+            return requested == (filterDto.getCondition() == FilterConditionOperator.EQUALS)
+                    ? contributed
+                    : criteriaBuilder.not(contributed);
+        }
         From from = getJoinedAssociation(root, joinedAssociations, filterField, filterDto.getCondition());
 
         // prepare filter values, expression and set filter characteristics
@@ -463,32 +536,28 @@ public class FilterPredicatesBuilder {
 
         boolean isJsonArray = false;
         if (filterField.getJsonPath() != null) {
+            final Expression jsonSource = resolveJsonSource(criteriaBuilder, from, filterField);
             isJsonArray = isJsonArray(filterField);
             if (isJsonArray) {
                 expression = criteriaBuilder
-                        .function("jsonb_path_query_array", String.class,
-                                resolveFieldPath(from, filterField.getFieldAttribute()),
+                        .function("jsonb_path_query_array", String.class, jsonSource,
                                 criteriaBuilder.literal(getArrayJsonPath(filterField.getJsonPath())));
             } else {
                 expression = switch (filterField.getJsonPath().length) {
                     case 1 -> criteriaBuilder
-                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, jsonSource,
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]));
                     case 2 -> criteriaBuilder
-                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, jsonSource,
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]));
                     case 3 -> criteriaBuilder
-                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, jsonSource,
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[2]));
                     case 4 -> criteriaBuilder
-                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class,
-                                    resolveFieldPath(from, filterField.getFieldAttribute()),
+                            .function(JSONB_EXTRACT_PATH_TEXT_FUNCTION_NAME, String.class, jsonSource,
                                     criteriaBuilder.literal(filterField.getJsonPath()[0]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[1]),
                                     criteriaBuilder.literal(filterField.getJsonPath()[2]),
@@ -501,7 +570,7 @@ public class FilterPredicatesBuilder {
             if (expression == null) {
                 throw new ValidationException("Invalid filter configuration: no expression for field " + filterField);
             }
-            expression = ((JpaExpression) expression).cast(filterField.getType().getExpressionClass());
+            expression = ((JpaExpression) expression).cast(expressionClassOf(filterField));
         }
 
         boolean multipleValues = filterValues.size() > 1;
@@ -537,6 +606,11 @@ public class FilterPredicatesBuilder {
                     + " with operator " + conditionOperator);
         }
         final Expression finalExpression = expression;
+        // A number is inlined, as the range comparisons inline it. Bound, a fraction would first have to coerce to the
+        // integer the expression is cast to, which Hibernate refuses before the query runs.
+        final List<?> equalityOperands = filterField.getType() == SearchFieldTypeEnum.NUMBER
+                ? filterValues.stream().map(criteriaBuilder::literal).toList()
+                : filterValues;
         switch (conditionOperator) {
             case EQUALS -> {
                 if (bitEnumProperty) {
@@ -551,8 +625,8 @@ public class FilterPredicatesBuilder {
                     predicate = getNativeArrayEqualsExpression(criteriaBuilder, filterValues, finalExpression);
                 } else {
                     predicate = multipleValues
-                            ? expression.in(filterValues)
-                            : criteriaBuilder.equal(expression, filterValues.getFirst());
+                            ? expression.in(equalityOperands)
+                            : criteriaBuilder.equal(expression, equalityOperands.getFirst());
                 }
             }
             case NOT_EQUALS -> {
@@ -586,9 +660,9 @@ public class FilterPredicatesBuilder {
                                         .or(getNotPresentPredicate(criteriaBuilder, from, expression, hasParent,
                                                 isParentCollection, false, isJsonArray),
                                                 multipleValues
-                                                        ? criteriaBuilder.not(expression.in(filterValues))
+                                                        ? criteriaBuilder.not(expression.in(equalityOperands))
                                                         : criteriaBuilder
-                                                                .notEqual(expression, filterValues.getFirst()));
+                                                                .notEqual(expression, equalityOperands.getFirst()));
                     }
                 }
             }
@@ -826,6 +900,14 @@ public class FilterPredicatesBuilder {
         }
     }
 
+    private static Expression resolveJsonSource(final CriteriaBuilder criteriaBuilder, final From from,
+            final FilterField filterField) {
+        final Expression source = resolveFieldPath(from, filterField.getFieldAttribute());
+        return filterField.getFieldAttribute().getJavaType() == String.class
+                ? criteriaBuilder.function(PostgresFunctionContributor.TEXT_TO_JSONB, String.class, source)
+                : source;
+    }
+
     public static boolean isJsonArray(FilterField filterField) {
         return Arrays.stream(filterField.getJsonPath()).anyMatch(pathPart -> pathPart.contains("*"));
     }
@@ -1050,6 +1132,16 @@ public class FilterPredicatesBuilder {
                 || condition == FilterConditionOperator.COUNT_LESS_THAN;
     }
 
+    // A number compares as an integer, except one held in a long: an integer cast fails the whole query on the first
+    // row past the integer range.
+    private static Class<?> expressionClassOf(FilterField filterField) {
+        Class<?> javaType = filterField.getFieldAttribute().getJavaType();
+        if (filterField.getType() == SearchFieldTypeEnum.NUMBER && (javaType == long.class || javaType == Long.class)) {
+            return Long.class;
+        }
+        return filterField.getType().getExpressionClass();
+    }
+
     private static List<Object> preparePropertyFilterValues(final SearchFilterRequestDto filterDto,
             final FilterField filterField) {
         Serializable filterValue = filterDto.getValue();
@@ -1071,6 +1163,9 @@ public class FilterPredicatesBuilder {
                     }
                 } else {
                     preparedFilterValue = findEnumByCustomValue(value, filterField.getEnumClass());
+                    if (preparedFilterValue != null && filterField.getJsonPath() != null) {
+                        preparedFilterValue = ((IPlatformEnum) preparedFilterValue).getCode();
+                    }
                     if (preparedFilterValue == null && filterField.isNativeArrayField()) {
                         throw new ValidationException(
                                 "Unknown filter value '%s' for field %s".formatted(value, filterField));
@@ -1087,9 +1182,17 @@ public class FilterPredicatesBuilder {
                     }
                 } else if (filterField.getType() == SearchFieldTypeEnum.NUMBER) {
                     try {
-                        preparedFilterValue = stringValue.contains(".")
-                                ? Float.parseFloat(stringValue)
-                                : Integer.parseInt(stringValue);
+                        boolean fractional = stringValue.contains(".");
+                        if (expressionClassOf(filterField) == Long.class) {
+                            // A float rounds past 2^24, so a threshold on a long keeps every digit it was given.
+                            preparedFilterValue = fractional
+                                    ? new BigDecimal(stringValue)
+                                    : Long.parseLong(stringValue);
+                        } else {
+                            preparedFilterValue = fractional
+                                    ? Float.parseFloat(stringValue)
+                                    : Integer.parseInt(stringValue);
+                        }
                     } catch (NumberFormatException e) {
                         throw new ValidationException(
                                 "Filter field value " + stringValue + " cannot be parsed as a Number.");
@@ -1227,22 +1330,35 @@ public class FilterPredicatesBuilder {
     }
 
     /**
-     * The predicates that pin a content row to one attribute definition and to one object: the definition's type,
-     * content type and name, and the object the content is attached to. Shared by the filter predicate and the sort key
-     * so the two cannot disagree about which rows belong to a field.
+     * The predicates that pin a content row to one attribute definition and to one object: the field predicates, and
+     * the object the content is attached to.
      */
     private static <T> List<Predicate> attributeCorrelationPredicates(final CriteriaBuilder criteriaBuilder,
             final Root<T> root, final Root<AttributeContent2Object> subqueryRoot, final Join joinDefinition,
             final AttributeType attributeType, final AttributeContentType contentType, final String attributeName,
             final Resource resource, final String objectUuidPath) {
+        List<Predicate> predicates = new ArrayList<>(attributeFieldPredicates(criteriaBuilder, subqueryRoot,
+                joinDefinition, attributeType, contentType, attributeName, resource));
+        predicates
+                .add(criteriaBuilder
+                        .equal(subqueryRoot.get(AttributeContent2Object_.objectUuid), root.get(objectUuidPath)));
+        return predicates;
+    }
+
+    /**
+     * The predicates that pin a content row to one field of one resource, whatever object it belongs to: the
+     * definition's type, content type and name, and the resource the content is filed under. Shared by the filter
+     * predicate and the sort key so the two cannot disagree about which rows belong to a field.
+     */
+    private static List<Predicate> attributeFieldPredicates(final CriteriaBuilder criteriaBuilder,
+            final Root<AttributeContent2Object> subqueryRoot, final Join joinDefinition,
+            final AttributeType attributeType, final AttributeContentType contentType, final String attributeName,
+            final Resource resource) {
         return List
                 .of(criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.type), attributeType),
                         criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.contentType), contentType),
                         criteriaBuilder.equal(joinDefinition.get(AttributeDefinition_.name), attributeName),
-                        criteriaBuilder.equal(subqueryRoot.get(AttributeContent2Object_.objectType), resource),
-                        criteriaBuilder
-                                .equal(subqueryRoot.get(AttributeContent2Object_.objectUuid),
-                                        root.get(objectUuidPath)));
+                        criteriaBuilder.equal(subqueryRoot.get(AttributeContent2Object_.objectType), resource));
     }
 
     /**
@@ -1275,30 +1391,23 @@ public class FilterPredicatesBuilder {
     }
 
     /**
-     * A scalar sort key carrying the value of one attribute-sourced field for one row.
+     * Joins the table that carries one sort key per object for an attribute-sourced field, and returns the key.
      *
      * <p>
-     * Filtering an attribute is order-agnostic and so is expressed as {@code EXISTS}, which yields no value to order
-     * by. Ordering needs the value itself, so this is a correlated scalar subquery instead: the same definition and
-     * object correlation as the filter, extracted from the stored json with the same {@code jsonb_extract_path_text}
-     * and the same per-content-type cast, so a column sorts by what the cell displays.
-     *
-     * <p>
-     * An attribute may hold several values for one object, which leaves the key ambiguous. The subquery therefore
-     * orders by definition and then by {@code item_order} and takes the first row - the same order the projection query
-     * reads a page of values in - so a multi-valued attribute sorts on the value the cell shows first, and two
-     * identical requests cannot pick differently among the definitions one attribute name may map to. A row with no
-     * value for the field yields no row and so a null key, which is ordered last in both directions by the caller
-     * rather than being dropped.
+     * The table is computed once for the query, not once per row: the field's content rows, extracted with the same
+     * {@code jsonb_extract_path_text} and per-content-type cast the filter uses, grouped by the object they belong to.
+     * A multi-valued attribute sorts on its smallest value ascending and its largest descending - the rule a sort
+     * through a collection join follows - so two identical requests always order alike. An object with no readable
+     * value finds no key, and the caller's ordering places it last in both directions.
      *
      * <p>
      * Ordering reads a value, so it is gated like the projection that renders one: encrypted content is skipped, a
      * definition marked not visible is skipped whatever its attribute type, a disabled custom definition is skipped,
      * and the caller's custom-attribute permissions narrow which definitions are readable at all. That the field may be
-     * ordered on at all - not secret, not a code block, and visible in at least one of the definitions it collapses -
-     * is settled before this by {@code ListingSortResolver} against the resource's published catalogue.
+     * ordered on at all is settled before this by {@code ListingSortResolver} against the resource's catalogue.
      */
-    public static <T> Expression<?> getAttributeSortKey(final CriteriaBuilder criteriaBuilder,
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static <T> Expression<?> joinAttributeSortKey(final CriteriaBuilder criteriaBuilder,
             final CommonAbstractCriteria query, final Root<T> root, final SortSpecification sort) {
         final FilterFieldSource fieldSource = sort.fieldSource();
         final String fieldIdentifier = sort.fieldIdentifier();
@@ -1315,13 +1424,11 @@ public class FilterPredicatesBuilder {
                     .create("Ordering by %s was not resolved against the caller's attribute permissions."
                             .formatted(fieldIdentifier)));
         }
-
         final AttributeFieldIdentifier identifier = AttributeFieldIdentifier.parse(fieldIdentifier);
         if (identifier == null) {
             throw new ValidationException(ValidationError
                     .create("Sort field identifier %s does not name an attribute.".formatted(fieldIdentifier)));
         }
-        final String attributeName = identifier.attributeName();
         final AttributeContentType contentType = identifier.contentType();
         if (contentType == null) {
             throw new ValidationException(ValidationError
@@ -1334,13 +1441,8 @@ public class FilterPredicatesBuilder {
         final Resource resource = sort.resource() == null ? attributeResourceOf(root) : sort.resource();
         final String objectUuidPath = attributeObjectUuidPath(root, attributeType);
 
-        // Typed to the value's own class rather than to Object: the aggregate the grouped ordering wraps this in
-        // takes a comparable, and an Object-typed subquery is not one.
-        final Class<?> valueClass = castedAttributeContentData.contains(contentType)
-                ? contentType.getContentDataClass()
-                : String.class;
-        final Subquery subquery = query.subquery(valueClass);
-        final Root<AttributeContent2Object> subqueryRoot = subquery.from(AttributeContent2Object.class);
+        final JpaSubQuery<Tuple> keyTable = (JpaSubQuery<Tuple>) query.subquery(Tuple.class);
+        final Root<AttributeContent2Object> subqueryRoot = keyTable.from(AttributeContent2Object.class);
         final Join joinContentItem = subqueryRoot.join(AttributeContent2Object_.attributeContentItem, JoinType.INNER);
         final Join joinDefinition = joinContentItem.join(AttributeContentItem_.attributeDefinition, JoinType.INNER);
 
@@ -1352,8 +1454,8 @@ public class FilterPredicatesBuilder {
                 ? ((JpaExpression<String>) extracted).cast(contentType.getContentDataClass())
                 : extracted;
 
-        final List<Predicate> predicates = new ArrayList<>(attributeCorrelationPredicates(criteriaBuilder, root,
-                subqueryRoot, joinDefinition, attributeType, contentType, attributeName, resource, objectUuidPath));
+        final List<Predicate> predicates = new ArrayList<>(attributeFieldPredicates(criteriaBuilder, subqueryRoot,
+                joinDefinition, attributeType, contentType, identifier.attributeName(), resource));
         predicates
                 .addAll(attributeReadabilityPredicates(criteriaBuilder, joinContentItem, joinDefinition, attributeType,
                         contentFilterSource, true));
@@ -1363,13 +1465,24 @@ public class FilterPredicatesBuilder {
             predicates.add(definitionIsVisible(criteriaBuilder, joinDefinition));
         }
 
-        subquery.select(value).where(predicates.toArray(new Predicate[]{}));
-        ((JpaSubQuery) subquery)
-                .orderBy(criteriaBuilder.asc(joinContentItem.get(AttributeContentItem_.attributeDefinitionUuid)),
-                        criteriaBuilder.asc(subqueryRoot.get(AttributeContent2Object_.order)))
-                .fetch(1);
+        final Path<UUID> objectUuid = subqueryRoot.get(AttributeContent2Object_.objectUuid);
+        keyTable
+                .multiselect(objectUuid.alias(KEY_OBJECT),
+                        SortOrderBuilder.keyAggregate(criteriaBuilder, value, sort.direction()).alias(KEY_VALUE))
+                .where(predicates.toArray(new Predicate[]{}))
+                .groupBy(objectUuid);
+        return joinPerObjectKey(criteriaBuilder, root, keyTable, objectUuidPath);
+    }
 
-        return subquery;
+    /**
+     * Left-joins a table that holds one row per object, keyed by {@link #KEY_OBJECT}, to the root, and returns its
+     * {@link #KEY_VALUE}. Left, so an object without a key stays in the result with a null key.
+     */
+    static Expression<?> joinPerObjectKey(final CriteriaBuilder criteriaBuilder, final Root<?> root,
+            final JpaSubQuery<Tuple> keyTable, final String objectUuidPath) {
+        final JpaDerivedJoin<Tuple> key = ((JpaRoot<?>) root).join(keyTable, SqmJoinType.LEFT);
+        key.on(criteriaBuilder.equal(key.get(KEY_OBJECT), root.get(objectUuidPath)));
+        return key.get(KEY_VALUE);
     }
 
     /**

@@ -11,6 +11,7 @@ import java.util.ArrayList;
 public class RequestValidatorHelper {
 
     private static final Integer DEFAULT_ITEMS_PER_PAGE = 10;
+    private static final int MAX_ITEMS_PER_PAGE = 1000;
 
     /**
      * As below, and refuses a sort the listing of this resource would not apply.
@@ -39,6 +40,7 @@ public class RequestValidatorHelper {
         if (dto.getPageNumber() == null) {
             dto.setPageNumber(1);
         }
+        validatePaging(dto.getPageNumber(), dto.getItemsPerPage());
     }
 
     public static void revalidatePaginationRequestDto(final PaginationRequestDto dto) {
@@ -47,6 +49,25 @@ public class RequestValidatorHelper {
         }
         if (dto.getPageNumber() == null) {
             dto.setPageNumber(1);
+        }
+        validatePaging(dto.getPageNumber(), dto.getItemsPerPage());
+    }
+
+    private static void validatePaging(final int pageNumber, final int itemsPerPage) {
+        if (pageNumber < 1) {
+            throw new ValidationException("Page number must be at least 1, but was " + pageNumber);
+        }
+        if (itemsPerPage < 1) {
+            throw new ValidationException("Items per page must be at least 1, but was " + itemsPerPage);
+        }
+        if (itemsPerPage > MAX_ITEMS_PER_PAGE) {
+            throw new ValidationException(
+                    "Items per page must be at most " + MAX_ITEMS_PER_PAGE + ", but was " + itemsPerPage);
+        }
+        // The JPA offset is an int, so an unchecked product wraps and silently serves the wrong page.
+        if ((long) (pageNumber - 1) * itemsPerPage > Integer.MAX_VALUE) {
+            throw new ValidationException("Page number " + pageNumber + " with " + itemsPerPage
+                    + " items per page exceeds the addressable offset.");
         }
     }
 

@@ -48,6 +48,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorExternalService;
 import com.otilm.core.service.ConnectorInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import java.util.ArrayList;
 import java.util.List;
@@ -103,14 +104,14 @@ class ConnectorServiceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         connector = new Connector();
         connector.setName(CONNECTOR_NAME);
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);
@@ -280,7 +281,7 @@ class ConnectorServiceITest extends BaseSpringBootTest {
 
         var request = new com.otilm.api.model.core.connector.v2.ConnectorRequestDto();
         request.setName("testConnector2");
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
         request.setVersion(ConnectorVersion.V2);
         request.setAuthType(AuthType.NONE);
 
@@ -307,7 +308,7 @@ class ConnectorServiceITest extends BaseSpringBootTest {
         String jsonBody = objectMapper.writeValueAsString(infoResponses);
 
         mockServer.stop();
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
         mockServer.stubFor(WireMock.get("/v1").willReturn(WireMock.okJson(jsonBody)));
 
@@ -319,7 +320,7 @@ class ConnectorServiceITest extends BaseSpringBootTest {
 
         ConnectorRequestDto request = new ConnectorRequestDto();
         request.setName("duplicateConnector");
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
         request.setAuthType(AuthType.NONE);
 
         // Connector with same function group (CREDENTIAL_PROVIDER) and kind (ApiKey) already exists
@@ -347,7 +348,7 @@ class ConnectorServiceITest extends BaseSpringBootTest {
         mockServer.stubFor(WireMock.get("/v1").willReturn(WireMock.okJson("[]")));
 
         ConnectorUpdateRequestDto request = new ConnectorUpdateRequestDto();
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
 
         ConnectorDto dto = connectorService.editConnector(connector.getSecuredUuid(), request);
         Assertions.assertNotNull(dto);
@@ -460,7 +461,7 @@ class ConnectorServiceITest extends BaseSpringBootTest {
                         .willReturn(WireMock.aResponse().withStatus(404).withBody("Not Found")));
 
         ConnectRequestDto request = new ConnectRequestDto();
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
         request.setAuthType(AuthType.NONE);
 
         List<ConnectDto> connectDtos = connectorService.connect(request);
@@ -472,7 +473,7 @@ class ConnectorServiceITest extends BaseSpringBootTest {
     void testReconnect_withV2Connector_throws() {
         Connector v2Connector = new Connector();
         v2Connector.setName("v2Connector");
-        v2Connector.setUrl("http://localhost:" + mockServer.port());
+        v2Connector.setUrl(LoopbackWireMock.url(mockServer));
         v2Connector.setVersion(ConnectorVersion.V2);
         v2Connector.setStatus(ConnectorStatus.CONNECTED);
         v2Connector = connectorRepository.save(v2Connector);
@@ -484,7 +485,7 @@ class ConnectorServiceITest extends BaseSpringBootTest {
     @Test
     void testApproveConnector() throws ConnectorException, NotFoundException {
         Connector waitingConnector = new Connector();
-        waitingConnector.setUrl("http://localhost:" + mockServer.port() + "/waiting_connector");
+        waitingConnector.setUrl(LoopbackWireMock.url(mockServer) + "/waiting_connector");
         waitingConnector.setVersion(ConnectorVersion.V1);
         waitingConnector.setStatus(ConnectorStatus.WAITING_FOR_APPROVAL);
         waitingConnector = connectorRepository.save(waitingConnector);
@@ -677,7 +678,7 @@ class ConnectorServiceITest extends BaseSpringBootTest {
         mockServer.stubFor(WireMock.get("/v1").willReturn(WireMock.okJson("[]")));
 
         ConnectorUpdateRequestDto request = new ConnectorUpdateRequestDto();
-        request.setUrl("http://localhost:" + mockServer.port());
+        request.setUrl(LoopbackWireMock.url(mockServer));
         request.setProxyUuid("abfbc322-29e1-11ed-a261-0242ac120099");
 
         Assertions

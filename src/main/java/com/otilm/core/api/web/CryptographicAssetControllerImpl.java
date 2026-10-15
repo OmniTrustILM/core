@@ -7,6 +7,7 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
@@ -43,6 +44,13 @@ public class CryptographicAssetControllerImpl implements CryptographicAssetContr
     public CryptographicAssetDetailDto getCryptographicAsset(@LogResource(uuid = true) UUID uuid)
             throws NotFoundException {
         return cryptographicAssetService.getCryptographicAsset(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.CRYPTO_ASSET, operation = Operation.DETAIL)
+    public CryptographicAssetPqcExplanationDto getCryptographicAssetPqcExplanation(@LogResource(uuid = true) UUID uuid)
+            throws NotFoundException {
+        return cryptographicAssetService.getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(uuid));
     }
 
     @Override

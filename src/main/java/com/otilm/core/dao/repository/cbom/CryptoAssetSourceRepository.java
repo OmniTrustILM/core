@@ -2,7 +2,9 @@ package com.otilm.core.dao.repository.cbom;
 
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
+import com.otilm.core.model.cbom.CryptoAssetSourceBomRefsRow;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -60,6 +62,18 @@ public interface CryptoAssetSourceRepository extends SecurityFilterRepository<Cr
     List<UUID> findAssetUuidsByCbomUuid(@Param("cbomUuid") UUID cbomUuid, Limit limit);
 
     /**
+     * The refs one CBOM's source rows carry for the given assets -- the page the CBOM-scoped listing has just resolved.
+     * Rows come back in no particular order; the caller keys them by asset.
+     */
+    @Query("""
+            SELECT new com.otilm.core.model.cbom.CryptoAssetSourceBomRefsRow(s.assetUuid, s.bomRefs)
+            FROM CryptoAssetSource s
+            WHERE s.cbomUuid = :cbomUuid AND s.assetUuid IN :assetUuids
+            """)
+    List<CryptoAssetSourceBomRefsRow> findBomRefsByCbomUuidAndAssetUuids(@Param("cbomUuid") UUID cbomUuid,
+            @Param("assetUuids") Collection<UUID> assetUuids);
+
+    /**
      * Records what one CBOM says about one asset, or refreshes it.
      *
      * <p>
@@ -85,6 +99,12 @@ public interface CryptoAssetSourceRepository extends SecurityFilterRepository<Cr
      * cannot come apart. A strictly older arrival widens the window and changes nothing else.
      *
      * <p>
+     * {@code bom_refs} is a content column like the payload and follows the same gate. It is assigned whole, never
+     * appended to: the extractor folds every component of a document into its asset before the write, so the bound
+     * value is the complete answer for this pair, and accumulating would keep refs of components a later version of the
+     * document no longer carries.
+     *
+     * <p>
      * The comparison is {@code >=} rather than {@code >} deliberately. If the ingest path ends up deriving
      * {@code seenAt} from the document rather than from the extraction run, every re-ingest is a tie; under {@code >}
      * the content would then freeze forever and a re-extraction under upgraded code could never refresh the row. Under
@@ -93,9 +113,10 @@ public interface CryptoAssetSourceRepository extends SecurityFilterRepository<Cr
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}crypto_asset_source (uuid, asset_uuid, cbom_uuid, original_crypto_properties,
-                    properties_leaf_count, properties_hash, evidence, occurrence_count, first_seen_at, last_seen_at)
+                    properties_leaf_count, properties_hash, evidence, occurrence_count, bom_refs, first_seen_at,
+                    last_seen_at)
             VALUES (:uuid, :assetUuid, :cbomUuid, CAST(:properties AS jsonb), :leafCount, :propertiesHash,
-                    CAST(:evidence AS jsonb), :occurrenceCount, :seenAt, :seenAt)
+                    CAST(:evidence AS jsonb), :occurrenceCount, :bomRefs, :seenAt, :seenAt)
             ON CONFLICT (asset_uuid, cbom_uuid) DO UPDATE SET
                 original_crypto_properties = CASE
                     WHEN EXCLUDED.last_seen_at >= crypto_asset_source.last_seen_at
@@ -117,13 +138,18 @@ public interface CryptoAssetSourceRepository extends SecurityFilterRepository<Cr
                     WHEN EXCLUDED.last_seen_at >= crypto_asset_source.last_seen_at
                         THEN EXCLUDED.occurrence_count
                     ELSE crypto_asset_source.occurrence_count END,
+                bom_refs = CASE
+                    WHEN EXCLUDED.last_seen_at >= crypto_asset_source.last_seen_at
+                        THEN EXCLUDED.bom_refs
+                    ELSE crypto_asset_source.bom_refs END,
                 first_seen_at = LEAST(crypto_asset_source.first_seen_at, EXCLUDED.first_seen_at),
                 last_seen_at = GREATEST(crypto_asset_source.last_seen_at, EXCLUDED.last_seen_at)
             """, nativeQuery = true)
     void upsertSource(@Param("uuid") UUID uuid, @Param("assetUuid") UUID assetUuid, @Param("cbomUuid") UUID cbomUuid,
             @Param("properties") String properties, @Param("leafCount") int leafCount,
             @Param("propertiesHash") String propertiesHash, @Param("evidence") String evidence,
-            @Param("occurrenceCount") int occurrenceCount, @Param("seenAt") OffsetDateTime seenAt);
+            @Param("occurrenceCount") int occurrenceCount, @Param("bomRefs") String[] bomRefs,
+            @Param("seenAt") OffsetDateTime seenAt);
 
     @Modifying
     @Query("DELETE FROM CryptoAssetSource s WHERE s.assetUuid = :assetUuid AND s.cbomUuid = :cbomUuid")

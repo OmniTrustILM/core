@@ -1,10 +1,16 @@
 package com.otilm.core.auth.oauth2;
 
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
@@ -15,6 +21,7 @@ import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.OAuth2Util;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -148,7 +155,39 @@ class PlatformJwtAuthenticationConverterTest {
             assertSame(cause, thrown);
             verify(auditLogService)
                     .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, cause.getMessage(),
-                            TOKEN_VALUE);
+                            LogRedaction.token(TOKEN_VALUE));
+        }
+    }
+
+    @Test
+    void claimsExtractionFailure_withSignedJwt_recordsHeaderAndPayloadOnly() throws Exception {
+        // given - the request's own, validly signed bearer JWT, refused because it has no username claim
+        SignedJWT signedJwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256),
+                new JWTClaimsSet.Builder().issuer(ISSUER_URL).subject("alice").build());
+        signedJwt.sign(new MACSigner("0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8)));
+        String tokenValue = signedJwt.serialize();
+        String[] parts = tokenValue.split("\\.");
+        String headerAndPayload = parts[0] + "." + parts[1];
+
+        Jwt jwt = mock(Jwt.class);
+        when(jwt.getTokenValue()).thenReturn(tokenValue);
+        when(jwt.getIssuer()).thenReturn(new URL(ISSUER_URL));
+        PlatformAuthenticationException cause = new PlatformAuthenticationException(
+                "Username claim 'username' not found in token claims.");
+
+        try (MockedStatic<SettingsCache> settingsMock = mockStatic(SettingsCache.class);
+                MockedStatic<OAuth2Util> oauth2Mock = mockStatic(OAuth2Util.class)) {
+            settingsMock
+                    .when(SettingsCache::getAuthenticationSnapshot)
+                    .thenReturn(new AuthenticationSettingsSnapshot(authSettingsWithProvider(ISSUER_URL), 1L));
+            oauth2Mock.when(() -> OAuth2Util.findProviderByIssuer(any(), anyString())).thenCallRealMethod();
+            oauth2Mock.when(() -> OAuth2Util.getAllClaimsAvailable(any(), eq(tokenValue), isNull())).thenThrow(cause);
+
+            // when / then
+            assertThrows(PlatformAuthenticationException.class, () -> converter.convert(jwt));
+            verify(auditLogService)
+                    .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, cause.getMessage(),
+                            headerAndPayload);
         }
     }
 

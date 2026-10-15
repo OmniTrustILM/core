@@ -30,13 +30,16 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
+import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryStatusTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
+import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
+import com.otilm.core.util.RefusedDefinitionInserts;
 import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -45,11 +48,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -78,6 +84,8 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryMessageRepository messageRepository;
     @Autowired
+    private DiscoveryMessageWriter messageWriter;
+    @Autowired
     private DiscoveryWorkWriter workWriter;
     @Autowired
     private DiscoveryWorkProperties workProperties;
@@ -89,6 +97,14 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     private ConnectorRepository connectorRepository;
     @Autowired
     private ConnectorInterfaceRepository connectorInterfaceRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @AfterEach
+    void cleanupRefusedDefinitionInserts() {
+        RefusedDefinitionInserts.remove(jdbcTemplate);
+    }
 
     @Test
     void runningAnswer_keepsTheRunInProgressAndRefreshesTheBudget() throws Exception {
@@ -450,6 +466,126 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
         assertThat(agenda(run)).isEmpty();
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .singleElement()
+                .satisfies(ending -> {
+                    assertThat(ending.getCode()).isEqualTo(DiscoveryMessageCode.RUN_ENDED.code());
+                    assertThat(ending.getSeverity())
+                            .as("nobody here asked for this cancel, so the run lost its work without anything failing")
+                            .isEqualTo(DiscoveryMessageSeverity.WARNING);
+                });
+    }
+
+    @Test
+    void completedAnswerReportingFailedTargets_filesOneWarningCountingThem() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("filed when the connector finishes, not on every answer that repeats it")
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.getCode()).isEqualTo(DiscoveryMessageCode.TARGETS_FAILED.code());
+                    assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.WARNING);
+                    assertThat(message.getOccurrences()).isEqualTo(3);
+                });
+    }
+
+    @Test
+    void aConnectorThatCompletesAgain_filesTheTargetsWarningOnce() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 5, 3));
+        worker.tick(run.getUuid(), 0);
+        answers(statusResponse(DiscoveryRunState.RUNNING));
+        worker.tick(run.getUuid(), 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("the same failed targets are not counted a second time")
+                .singleElement()
+                .extracting(DiscoveryMessage::getOccurrences)
+                .isEqualTo(3L);
+    }
+
+    @Test
+    void failedTargetsReportedOnlyOnALaterCompletedAnswer_stillFileTheWarning() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(statusResponse(DiscoveryRunState.COMPLETED));
+        worker.tick(run.getUuid(), 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("progress is optional on every answer, so the counts can arrive after the first completed one")
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.getCode()).isEqualTo(DiscoveryMessageCode.TARGETS_FAILED.code());
+                    assertThat(message.getOccurrences()).isEqualTo(3);
+                });
+    }
+
+    @Test
+    void completedAnswerOnARunWhoseLogIsFull_stillFilesTheTargetsWarning() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        // One kind of problem per message, one past the per-run bound, so the log is full before the run completes.
+        for (int i = 1; i <= 51; i++) {
+            messageWriter
+                    .append(run.getUuid(),
+                            new DiscoveryMessageDraft(DiscoveryMessageSeverity.INFO, "code" + i, "a problem", 1));
+        }
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("the count of unreadable targets lands on its own row, not folded into the suppression row")
+                .filteredOn(message -> DiscoveryMessageCode.TARGETS_FAILED.code().equals(message.getCode()))
+                .singleElement()
+                .extracting(DiscoveryMessage::getOccurrences)
+                .isEqualTo(3L);
+    }
+
+    @Test
+    void completedAnswerWhoseTargetsWereOnlyEmpty_filesNothing() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 10, 0));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("a target with nothing on it is a normal outcome")
+                .isEmpty();
+        assertThat(reload(run).getProgress().getTargetsEmpty()).isEqualTo(10L);
+    }
+
+    @Test
+    void progressReportingOnlyEmptyTargets_isRecorded() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsEmpty(4L);
+        response.setProgress(progress);
+        answers(response);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getProgress())
+                .as("a report of empty targets alone still says something")
+                .isNotNull()
+                .extracting(DiscoveryProgressDto::getTargetsEmpty)
+                .isEqualTo(4L);
     }
 
     @Test
@@ -463,6 +599,9 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(reloaded.getMessage()).contains("no longer tracks");
+        assertThat(reloaded.getConnectorStatus())
+                .as("a connector that forgot the run is not still scanning it")
+                .isEqualTo(DiscoveryStatus.FAILED);
         assertThat(agenda(run)).isEmpty();
     }
 
@@ -493,6 +632,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(reloaded.getMessage()).contains("stopped answering");
+        assertThat(reloaded.getConnectorStatus()).isEqualTo(DiscoveryStatus.FAILED);
         assertThat(agenda(run)).isEmpty();
     }
 
@@ -686,6 +826,23 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
                 .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
     }
 
+    /** A database fault arrives unchecked, unlike the engine's checked refusal, and is caught all the same. */
+    @Test
+    void aStatementTheDatabaseRefuses_isDroppedWithAMessageAndTheAnswerApplies() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        RefusedDefinitionInserts.install(jdbcTemplate);
+        answers(saying(DiscoveryRunState.RUNNING, RefusedDefinitionInserts.REFUSED_NAME, "x"));
+
+        assertThatCode(() -> worker.tick(run.getUuid(), 0)).doesNotThrowAnyException();
+
+        assertThat(reload(run).getConnectorState()).isEqualTo("running");
+        assertThat(messageRepository.findAll())
+                .filteredOn(message -> message.getDiscoveryUuid().equals(run.getUuid()))
+                .extracting(DiscoveryMessage::getCode)
+                .containsExactly(DiscoveryMessageCode.RUN_METADATA_NOT_RECORDED.code());
+    }
+
     @Test
     void aTerminalAnswer_recordsTheStatementBeforeEndingTheRun() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
@@ -748,6 +905,16 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         DiscoveryStatusResponseDto response = new DiscoveryStatusResponseDto();
         response.setState(state);
         response.setHighestSequence(0L);
+        return response;
+    }
+
+    private static DiscoveryStatusResponseDto completedWithTargets(long processed, long empty, long failed) {
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.COMPLETED);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(processed);
+        progress.setTargetsEmpty(empty);
+        progress.setTargetsFailed(failed);
+        response.setProgress(progress);
         return response;
     }
 

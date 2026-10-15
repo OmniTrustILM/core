@@ -3,7 +3,9 @@ package com.otilm.core.service.impl;
 import com.otilm.api.clients.SchedulerApiClient;
 import com.otilm.api.exception.SchedulerException;
 import com.otilm.api.model.core.scheduler.ScheduledJobDetailDto;
+import com.otilm.api.model.core.scheduler.ScheduledJobScheduleState;
 import com.otilm.core.dao.entity.ScheduledJob;
+import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
 import com.otilm.core.dao.repository.ScheduledJobsRepository;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.tasks.CbomReconcileTask;
@@ -39,6 +41,8 @@ class SchedulerJobRegistrationRaceTest {
 
     private final ApplicationContext applicationContext = mock(ApplicationContext.class);
 
+    private final SchedulerApiClient schedulerApiClient = mock(SchedulerApiClient.class);
+
     private SchedulerServiceImpl service;
 
     @BeforeEach
@@ -53,7 +57,8 @@ class SchedulerJobRegistrationRaceTest {
         service = new SchedulerServiceImpl();
         service.setApplicationContext(applicationContext);
         service.setScheduledJobsRepository(repository);
-        service.setSchedulerApiClient(mock(SchedulerApiClient.class));
+        service.setScheduledJobHistoryRepository(mock(ScheduledJobHistoryRepository.class));
+        service.setSchedulerApiClient(schedulerApiClient);
         service.setEventProducer(mock(EventProducer.class));
     }
 
@@ -73,6 +78,9 @@ class SchedulerJobRegistrationRaceTest {
 
         assertThat(registered.getUuid()).isEqualTo(winner.getUuid());
         assertThat(registered.getJobName()).isEqualTo(JOB_NAME);
+        // Built without reading the scheduler's list: the winner's detail still carries a state, UNKNOWN.
+        assertThat(registered.getScheduleState()).isEqualTo(ScheduledJobScheduleState.UNKNOWN);
+        verify(schedulerApiClient, Mockito.never()).listScheduledJobs();
     }
 
     /**
@@ -96,9 +104,11 @@ class SchedulerJobRegistrationRaceTest {
     void aJobAlreadyRegisteredIsNotInsertedAgain() throws SchedulerException {
         when(repository.findByJobName(JOB_NAME)).thenReturn(Optional.of(existingJob()));
 
-        service.registerScheduledJob(CbomReconcileTask.class);
+        ScheduledJobDetailDto registered = service.registerScheduledJob(CbomReconcileTask.class);
 
         verify(repository, Mockito.never()).save(any(ScheduledJob.class));
+        assertThat(registered.getScheduleState()).isEqualTo(ScheduledJobScheduleState.UNKNOWN);
+        verify(schedulerApiClient, Mockito.never()).listScheduledJobs();
     }
 
     private static ScheduledJob existingJob() {

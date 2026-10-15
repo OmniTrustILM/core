@@ -13,6 +13,8 @@ import org.springframework.stereotype.Repository;
 public interface CertificateLocationRepository
         extends
             SecurityFilterRepository<CertificateLocation, CertificateLocationId> {
+    List<CertificateLocation> findByCertificateUuid(UUID certificateUuid);
+
     List<CertificateLocation> findByCertificateUuidIn(List<UUID> certificateUuids);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)

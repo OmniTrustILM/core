@@ -24,6 +24,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import java.math.BigInteger;
@@ -120,9 +121,9 @@ class V3CancelITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUpWireMock() {
-        wireMockServer = new WireMockServer(0);
+        wireMockServer = new WireMockServer(LoopbackWireMock.options());
         wireMockServer.start();
-        WireMock.configureFor("localhost", wireMockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, wireMockServer.port());
     }
 
     @AfterEach
@@ -314,7 +315,7 @@ class V3CancelITest extends BaseSpringBootTest {
      */
     private static String problemJson(String errorCode, String detail) {
         return """
-                {"type":"about:blank","title":"Unprocessable Entity","status":422,"detail":"%s","errorCode":"%s"}
+                {"type":"about:blank","title":"Unprocessable Content","status":422,"detail":"%s","errorCode":"%s"}
                 """.formatted(detail, errorCode);
     }
 

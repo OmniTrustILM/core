@@ -48,6 +48,17 @@ public final class CbomIngestTestFixtures {
                 + "{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}";
     }
 
+    /** One algorithm component carrying the given {@code bom-ref}. */
+    public static String algorithmWithRef(String name, String bomRef) {
+        return "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"" + bomRef + "\",\"name\":\"" + name + "\","
+                + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}";
+    }
+
+    /** A document of the given components, spelled as {@link #algorithm} and {@link #algorithmWithRef} spell them. */
+    public static JsonNode documentOf(String... components) {
+        return read("{\"components\":[" + String.join(",", components) + "]}");
+    }
+
     /** The production defaults with one batch size substituted; what a run hands the ingest and the withdrawal. */
     public static CbomSyncPolicy policy(int assetBatchSize) {
         return new CbomSyncPolicy(CbomSyncPolicy.DEFAULT_OVERLAP, CbomSyncPolicy.DEFAULT_SKIPPED_RETRY_RUNS,

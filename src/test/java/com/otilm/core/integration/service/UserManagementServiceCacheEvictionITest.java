@@ -13,7 +13,6 @@ import com.otilm.core.util.SessionTableHelper;
 import com.otilm.core.util.mockbeans.ManagementApiMocks;
 import java.util.List;
 import java.util.UUID;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,13 +47,8 @@ class UserManagementServiceCacheEvictionITest extends BaseSpringBootTest {
     private AuthenticationCache authenticationCache;
 
     @BeforeEach
-    void setupSessionTables() {
-        SessionTableHelper.createSessionTables(jdbcTemplate);
-    }
-
-    @AfterEach
-    void tearDownSessionTables() {
-        SessionTableHelper.dropSessionTables(jdbcTemplate);
+    void deleteAllSessions() {
+        SessionTableHelper.deleteAllSessions(jdbcTemplate);
     }
 
     @Test

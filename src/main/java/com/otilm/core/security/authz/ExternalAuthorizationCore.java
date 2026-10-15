@@ -207,11 +207,12 @@ class ExternalAuthorizationCore {
             return new AuthorizationDecision(true);
         }
 
-        if (resource.hasOwner()) {
-            Long ownerCount = ownerAssociationRepository
-                    .countByOwnerUuidAndResourceAndObjectUuidIn(UUID.fromString(principal.getUserUuid()), resource,
-                            objectUUIDs.stream().filter(u -> u.getValue() != null).map(SecuredUUID::getValue).toList());
-            if (ownerCount == objectUUIDs.size()) {
+        if (resource.hasOwner() && objectUUIDs.stream().allMatch(u -> u.getValue() != null)) {
+            // Distinct on both sides, so neither a repeated UUID nor a duplicate owner row shifts the count
+            List<UUID> requestedUuids = objectUUIDs.stream().map(SecuredUUID::getValue).distinct().toList();
+            long ownedCount = ownerAssociationRepository
+                    .countOwnedObjects(UUID.fromString(principal.getUserUuid()), resource, requestedUuids);
+            if (ownedCount == requestedUuids.size()) {
                 return new AuthorizationDecision(true);
             }
         }

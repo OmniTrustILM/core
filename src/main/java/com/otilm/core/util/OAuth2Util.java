@@ -5,7 +5,9 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.config.http.PlatformHttpClients;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.settings.SettingsCache;
 import java.io.IOException;
 import java.net.URI;
@@ -17,12 +19,13 @@ import java.util.Map;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
@@ -50,8 +53,9 @@ public class OAuth2Util {
      * Pool sizing, cookie handling, proxy wiring and retry policy come from {@link PlatformHttpClients}; what is
      * specific here is how the provider's responses are mapped.
      */
+    @SuppressWarnings("removal")
     private static RestClient buildRestClient() {
-        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings
+        HttpClientSettings settings = HttpClientSettings
                 .defaults()
                 .withConnectTimeout(CONNECT_TIMEOUT)
                 .withReadTimeout(READ_TIMEOUT);
@@ -59,6 +63,11 @@ public class OAuth2Util {
         return RestClient
                 .builder()
                 .requestFactory(PlatformHttpClients.requestFactoryBuilder().build(settings))
+                .configureMessageConverters(
+                        converters -> converters
+                                .registerDefaults()
+                                .withJsonConverter(new MappingJackson2HttpMessageConverter(
+                                        ObjectMapperFactory.restClientDefault())))
                 .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler())
                 .defaultStatusHandler(HttpStatusCode::is3xxRedirection, OAuth2Util::rejectUnfollowedRedirect)
                 .build();
@@ -95,15 +104,15 @@ public class OAuth2Util {
         try {
             tokenAudiences = SignedJWT.parse(accessToken.getTokenValue()).getJWTClaimsSet().getAudience();
         } catch (ParseException e) {
-            throw new PlatformAuthenticationException(
-                    "Could not parse JWT Access Token to validate audiences " + accessToken.getTokenValue());
+            throw new PlatformAuthenticationException("Could not parse JWT Access Token to validate audiences "
+                    + LogRedaction.token(accessToken.getTokenValue()));
         }
 
         if (!(clientAudiences == null || clientAudiences.isEmpty()
                 || tokenAudiences != null && tokenAudiences.stream().anyMatch(clientAudiences::contains))) {
             String errorMessage = "User was not authenticated: audiences %s in access token issued by OAuth2 Provider %s do not match any of audiences %s set for the provider in settings. Token: %s"
                     .formatted(StringUtils.join(tokenAudiences), providerSettings.getName(),
-                            StringUtils.join(clientAudiences), accessToken.getTokenValue());
+                            StringUtils.join(clientAudiences), LogRedaction.token(accessToken.getTokenValue()));
             throw new PlatformAuthenticationException(errorMessage);
         }
 
@@ -259,7 +268,7 @@ public class OAuth2Util {
             accessTokenClaims = SignedJWT.parse(accessTokenValue).getJWTClaimsSet().getClaims();
         } catch (ParseException e) {
             String message = "Could not convert access token to JWT and extract claims. Reason: %s Token: %s"
-                    .formatted(e.getMessage(), accessTokenValue);
+                    .formatted(e.getMessage(), LogRedaction.token(accessTokenValue));
             throw new PlatformAuthenticationException(message);
         }
 

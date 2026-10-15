@@ -3,6 +3,7 @@ package com.otilm.core.integration.tasks;
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import com.otilm.core.api.ScheduledJobSkippedException;
+import com.otilm.core.cbom.client.CbomRepositoryNotDeployedException;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.impl.CbomServiceImpl;
 import com.otilm.core.tasks.CbomReconcileTask;
@@ -88,8 +89,9 @@ class CbomSyncTaskITest extends BaseSpringBootTest {
         when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
 
         Object triggerObject = new Object();
-        assertThrows(ScheduledJobSkippedException.class,
+        ScheduledJobSkippedException skipped = assertThrows(ScheduledJobSkippedException.class,
                 () -> cbomSyncTask.performJob(scheduledJobInfo, triggerObject));
+        assertEquals("No CBOM repository client is configured", skipped.getReason());
 
         verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
         verify(cbomService, times(0)).sync();
@@ -159,9 +161,34 @@ class CbomSyncTaskITest extends BaseSpringBootTest {
         when(cbomService.sync()).thenThrow(cbomException);
 
         // Act & Assert
-        assertThrows(ScheduledJobSkippedException.class, () -> cbomSyncTask.performJob(null, null));
+        ScheduledJobSkippedException skipped = assertThrows(ScheduledJobSkippedException.class,
+                () -> cbomSyncTask.performJob(null, null));
+        assertEquals("The CBOM repository answered 503 Service Unavailable", skipped.getReason());
 
         verify(cbomService).sync();
+    }
+
+    @Test
+    void aRunIsSkippedWhenNoRepositoryAnswersAtTheConfiguredUrl() throws CbomRepositoryException {
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        when(cbomService.sync()).thenThrow(new CbomRepositoryNotDeployedException());
+
+        ScheduledJobSkippedException skipped = assertThrows(ScheduledJobSkippedException.class,
+                () -> cbomSyncTask.performJob(new ScheduledJobInfo(CbomSyncTask.NAME), new Object()));
+        assertEquals("No CBOM repository answers at the configured URL", skipped.getReason());
+    }
+
+    /** Only the opening listing's 404 means "not deployed"; any other 404 is a failed run. */
+    @Test
+    void aPlain404FailsTheRun() throws CbomRepositoryException {
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        when(cbomService.sync())
+                .thenThrow(new CbomRepositoryException(ProblemDetail
+                        .forStatusAndDetail(HttpStatus.NOT_FOUND, "CBOM Repository failed a page request (HTTP 404)")));
+
+        ScheduledTaskResult result = cbomSyncTask.performJob(new ScheduledJobInfo(CbomSyncTask.NAME), new Object());
+
+        assertEquals(SchedulerJobExecutionStatus.FAILED, result.getStatus());
     }
 
 }

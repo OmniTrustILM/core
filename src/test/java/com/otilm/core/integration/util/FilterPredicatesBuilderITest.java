@@ -81,7 +81,11 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.CustomOidEntryExternalService;
+import com.otilm.core.service.SecretExternalService;
+import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.impl.CertificateServiceImpl;
+import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.MetaDefinitions;
@@ -123,6 +127,9 @@ import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -180,6 +187,18 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     private CryptographicKeyRepository cryptographicKeyRepository;
 
     @Autowired
+    private CustomOidEntryExternalService customOidEntryService;
+
+    @Autowired
+    private SecretExternalService secretService;
+
+    @Autowired
+    private ConnectorExternalService connectorService;
+
+    @Autowired
+    private VaultProfileExternalService vaultProfileService;
+
+    @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
     private CryptographicKeyExternalService cryptographicKeyService;
@@ -229,63 +248,77 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                 AttributeContentType.INTEGER);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        intAttribute.getName(), List.of(new IntegerAttributeContentV3("ref", 1)));
+                        intAttribute.getName(), List.of(new IntegerAttributeContentV3("ref", 1)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        intAttribute.getName(), List.of(new IntegerAttributeContentV3("ref", 2)));
+                        intAttribute.getName(), List.of(new IntegerAttributeContentV3("ref", 2)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto decimalAttribute = createCustomAttribute("decimal",
                 AttributeContentType.FLOAT);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        decimalAttribute.getName(), List.of(new FloatAttributeContentV3("ref", 0.5f)));
+                        decimalAttribute.getName(), List.of(new FloatAttributeContentV3("ref", 0.5f)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        decimalAttribute.getName(), List.of(new FloatAttributeContentV3("ref", 1.5f)));
+                        decimalAttribute.getName(), List.of(new FloatAttributeContentV3("ref", 1.5f)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto booleanAttribute = createCustomAttribute("boolean",
                 AttributeContentType.BOOLEAN);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        booleanAttribute.getName(), List.of(new BooleanAttributeContentV3("ref", true)));
+                        booleanAttribute.getName(), List.of(new BooleanAttributeContentV3("ref", true)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        booleanAttribute.getName(), List.of(new BooleanAttributeContentV3("ref", false)));
+                        booleanAttribute.getName(), List.of(new BooleanAttributeContentV3("ref", false)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto attribute = createCustomAttribute("string", AttributeContentType.STRING);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        attribute.getName(), List.of(new StringAttributeContentV3("ref", "value1")));
+                        attribute.getName(), List.of(new StringAttributeContentV3("ref", "value1")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        attribute.getName(), List.of(new StringAttributeContentV3("ref", "value2")));
+                        attribute.getName(), List.of(new StringAttributeContentV3("ref", "value2")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto dateAttribute = createCustomAttribute("date", AttributeContentType.DATE);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.parse("2025-05-16"))));
+                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.parse("2025-05-16"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.parse("2025-05-20"))));
+                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.parse("2025-05-20"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto dateTimeAttribute = createCustomAttribute("datetime",
                 AttributeContentType.DATETIME);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
                         dateTimeAttribute.getName(),
-                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.parse("2018-12-26T20:28:33.213+05:30"))));
+                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.parse("2018-12-26T20:28:33.213+05:30"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
                         dateTimeAttribute.getName(),
-                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.parse("2018-12-28T20:28:33.213+05:30"))));
+                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.parse("2018-12-28T20:28:33.213+05:30"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto timeAttribute = createCustomAttribute("time", AttributeContentType.TIME);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        timeAttribute.getName(), List.of(new TimeAttributeContentV3(LocalTime.parse("10:15:45"))));
+                        timeAttribute.getName(), List.of(new TimeAttributeContentV3(LocalTime.parse("10:15:45"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        timeAttribute.getName(), List.of(new TimeAttributeContentV3(LocalTime.parse("11:15:45"))));
+                        timeAttribute.getName(), List.of(new TimeAttributeContentV3(LocalTime.parse("11:15:45"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         criteriaBuilder = entityManager.getCriteriaBuilder();
         criteriaQuery = criteriaBuilder.createQuery(Certificate.class);
@@ -1498,10 +1531,12 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                 AttributeContentType.DATE);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.now().plusDays(3))));
+                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.now().plusDays(3))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.now().minusDays(3))));
+                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.now().minusDays(3))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         searchRequestDto
                 .setFilters(List
@@ -1525,11 +1560,13 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
                         dateTimeAttribute.getName(),
-                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.now().plusDays(3).plusHours(5))));
+                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.now().plusDays(3).plusHours(5))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
                         dateTimeAttribute.getName(),
-                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.now().minusDays(3).minusHours(5))));
+                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.now().minusDays(3).minusHours(5))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         searchRequestDto
                 .setFilters(List
@@ -2225,6 +2262,160 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     }
 
     @Test
+    void anUnknownPropertyFilterFieldIsRefusedNamingTheField() {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "NO_SUCH_FIELD",
+                                FilterConditionOperator.EQUALS, "x")));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Unknown filter field identifier NO_SUCH_FIELD."),
+                        exception.getMessage());
+    }
+
+    @Test
+    void anUnknownPropertyFilterFieldIsRefusedOnAnotherListing() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, "NO_SUCH_FIELD",
+                                FilterConditionOperator.EQUALS, "x")));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> cryptographicKeyService.listCryptographicKeys(securityFilter, searchRequestDto));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Unknown filter field identifier NO_SUCH_FIELD."),
+                        exception.getMessage());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = FilterField.class, names = {"COMMON_NAME", "RA_PROFILE_NAME"})
+    void aCertificateFilterFieldIsRefusedOnTheKeyListingNamingTheField(FilterField field) {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, field.name(),
+                                FilterConditionOperator.EQUALS, "x")));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> cryptographicKeyService.listCryptographicKeys(securityFilter, searchRequestDto));
+        Assertions
+                .assertTrue(
+                        exception.getMessage().contains("Field %s cannot filter this listing.".formatted(field.name())),
+                        exception.getMessage());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CBOM_ASSET_FREE_TEXT, CONTAINS, x", "CBOM_ASSET_TYPE, EMPTY,", "CBOM_ASSET_SOURCE_CBOM, EQUALS, x"})
+    void aCryptoAssetFilterFieldIsRefusedOnTheCertificateListingNamingTheField(FilterField field,
+            FilterConditionOperator condition, String value) {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, field.name(), condition, value)));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+        Assertions
+                .assertTrue(
+                        exception.getMessage().contains("Field %s cannot filter this listing.".formatted(field.name())),
+                        exception.getMessage());
+    }
+
+    @Test
+    void theSourceCbomFilterIsRefusedOnTheAuditLogListingNamingTheField() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY,
+                                FilterField.CBOM_ASSET_SOURCE_CBOM.name(), FilterConditionOperator.EQUALS, "x")));
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class, () -> auditLogService.listAuditLogs(searchRequestDto));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field CBOM_ASSET_SOURCE_CBOM cannot filter this listing."),
+                        exception.getMessage());
+    }
+
+    @Test
+    void aCertificateGroupFilterIsRefusedOnTheSecretListingDespiteTheSharedAttributeName() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.GROUP_NAME.name(),
+                                FilterConditionOperator.NOT_EQUALS, (Serializable) List.of("x"))));
+        SecurityFilter securityFilter = SecurityFilter.create();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> secretService.listSecrets(searchRequestDto, securityFilter));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field GROUP_NAME cannot filter this listing."),
+                        exception.getMessage());
+    }
+
+    @Test
+    void aSecretFilterIsRefusedOnTheVaultProfileListingDespiteTheSharedAttributeName() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.SECRET_NAME.name(),
+                                FilterConditionOperator.EQUALS, "x")));
+        SecurityFilter securityFilter = SecurityFilter.create();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> vaultProfileService.listVaultProfiles(searchRequestDto, securityFilter));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field SECRET_NAME cannot filter this listing."),
+                        exception.getMessage());
+    }
+
+    @Test
+    void aCbomVersionFilterIsRefusedOnTheConnectorListingDespiteTheSharedAttributeName() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CBOM_VERSION.name(),
+                                FilterConditionOperator.EQUALS, 1)));
+        SecurityFilter securityFilter = SecurityFilter.create();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> connectorService.listConnectors(securityFilter, searchRequestDto));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field CBOM_VERSION cannot filter this listing."),
+                        exception.getMessage());
+    }
+
+    @Test
+    void theCryptoAssetOidFilterIsRefusedOnTheOidListingNamingTheField() {
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CBOM_ASSET_OID.name(),
+                                FilterConditionOperator.EQUALS, "1.2.3")));
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> customOidEntryService.listCustomOidEntries(searchRequestDto));
+        Assertions
+                .assertTrue(exception.getMessage().contains("Field CBOM_ASSET_OID cannot filter this listing."),
+                        exception.getMessage());
+    }
+
+    @Test
     void testAttributeIntegerFilter_invalidValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
         searchRequestDto
@@ -2371,7 +2562,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CRYPTOGRAPHIC_KEY, key.getUuid(), null, attr.getName(),
-                        List.of(new StringAttributeContentV3("ref", "key_value")));
+                        List.of(new StringAttributeContentV3("ref", "key_value")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto

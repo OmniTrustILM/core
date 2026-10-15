@@ -32,10 +32,10 @@ class OAuth2UtilUserInfoTest {
 
     @BeforeEach
     void startServer() {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
-        userInfoUrl = "http://localhost:" + mockServer.port() + "/userinfo";
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
+        userInfoUrl = LoopbackWireMock.url(mockServer) + "/userinfo";
     }
 
     @AfterEach
@@ -90,6 +90,17 @@ class OAuth2UtilUserInfoTest {
         Assertions.assertThrows(HttpServerErrorException.class, () -> OAuth2Util.getUserInfo(userInfoUrl, "the-token"));
     }
 
+    /** Jackson 3 rejects a body with anything after its first JSON value. */
+    @Test
+    void testGetUserInfo_ReadsTheFirstJsonValueLikeJackson2() {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/userinfo"))
+                        .willReturn(WireMock.okJson("{\"sub\":\"abc\"} {\"sub\":\"other\"}")));
+
+        Assertions.assertEquals("abc", OAuth2Util.getUserInfo(userInfoUrl, "the-token").get("sub"));
+    }
+
     /**
      * The client must keep honouring the JVM default authenticator that {@code ProxyConfiguration} installs, and must
      * not lose the bearer token while answering the proxy's 407 challenge. WireMock stands in for the proxy: a forward
@@ -101,9 +112,9 @@ class OAuth2UtilUserInfoTest {
         String previousPort = System.getProperty("http.proxyPort");
         Authenticator previousAuthenticator = Authenticator.getDefault();
         MultiServerAuthenticator proxyAuthenticator = new MultiServerAuthenticator();
-        proxyAuthenticator.add("localhost:" + mockServer.port(), "proxy-user", "proxy-password");
+        proxyAuthenticator.add(LoopbackWireMock.HOST + ":" + mockServer.port(), "proxy-user", "proxy-password");
         Authenticator.setDefault(proxyAuthenticator);
-        System.setProperty("http.proxyHost", "localhost");
+        System.setProperty("http.proxyHost", LoopbackWireMock.HOST);
         System.setProperty("http.proxyPort", String.valueOf(mockServer.port()));
         try {
             mockServer

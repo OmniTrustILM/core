@@ -1,5 +1,6 @@
 package com.otilm.core.config.http;
 
+import com.otilm.core.util.LoopbackWireMock;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -18,7 +19,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -39,10 +40,10 @@ class PlatformHttpClientsTest {
 
     @BeforeEach
     void startServer() throws IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server = HttpServer.create(new InetSocketAddress(LoopbackWireMock.HOST, 0), 0);
         serverExecutor = Executors.newVirtualThreadPerTaskExecutor();
         server.setExecutor(serverExecutor);
-        url = "http://localhost:" + server.getAddress().getPort() + "/probe";
+        url = LoopbackWireMock.url(server.getAddress().getPort()) + "/probe";
     }
 
     @AfterEach
@@ -56,7 +57,7 @@ class PlatformHttpClientsTest {
         return client(null);
     }
 
-    private RestClient client(ClientHttpRequestFactorySettings settings) {
+    private RestClient client(HttpClientSettings settings) {
         return RestClient.builder().requestFactory(PlatformHttpClients.requestFactoryBuilder().build(settings)).build();
     }
 
@@ -156,7 +157,7 @@ class PlatformHttpClientsTest {
         });
         server.start();
 
-        RestClient client = client(ClientHttpRequestFactorySettings
+        RestClient client = client(HttpClientSettings
                 .defaults()
                 .withConnectTimeout(Duration.ofSeconds(5))
                 .withReadTimeout(Duration.ofMillis(300)));

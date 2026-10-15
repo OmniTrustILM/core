@@ -18,6 +18,7 @@ import org.springframework.core.Ordered;
 @Configuration
 @EnableCaching(order = Ordered.HIGHEST_PRECEDENCE)
 @EnableConfigurationProperties({
+        AttributeSearchFieldsCacheProperties.class,
         AuthCacheProperties.class,
         AuthorizationCacheProperties.class,
         ConnectorApiClientCacheProperties.class,
@@ -31,6 +32,7 @@ public class CacheConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(CacheConfig.class);
 
+    public static final String ATTRIBUTE_SEARCH_FIELDS_CACHE = "attributeSearchFields";
     public static final String CERTIFICATE_AUTH_CACHE = "certificateAuth";
     public static final String CERTIFICATE_CHAIN_CACHE = "certificateChain";
     public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
@@ -55,7 +57,8 @@ public class CacheConfig {
             SigningCertificateCacheProperties signingCertificateCacheProperties,
             SigningProfileCacheProperties signingProfileCacheProperties,
             TimeQualityConfigurationCacheProperties tqcCacheProperties, TokenJtiIndex tokenJtiIndex,
-            TspProfileCacheProperties tspProfileCacheProperties, UserCertificateIndex userCertificateIndex) {
+            TspProfileCacheProperties tspProfileCacheProperties, UserCertificateIndex userCertificateIndex,
+            AttributeSearchFieldsCacheProperties attributeSearchFieldsCacheProperties) {
         warnIfAuthorizationTtlExceedsAuthenticationTtl(authCacheProperties, authorizationCacheProperties);
         CaffeineCacheManager mgr = new CaffeineCacheManager(SYSTEM_USER_AUTH_CACHE, USER_UUID_AUTH_CACHE);
         mgr
@@ -170,6 +173,15 @@ public class CacheConfig {
                                 .newBuilder()
                                 .expireAfterWrite(tspProfileCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
                                 .maximumSize(tspProfileCacheProperties.maxSize())
+                                .recordStats()
+                                .build());
+
+        mgr
+                .registerCustomCache(ATTRIBUTE_SEARCH_FIELDS_CACHE,
+                        Caffeine
+                                .newBuilder()
+                                .expireAfterWrite(attributeSearchFieldsCacheProperties.ttlMinutes(), TimeUnit.MINUTES)
+                                .maximumSize(attributeSearchFieldsCacheProperties.maxSize())
                                 .recordStats()
                                 .build());
 

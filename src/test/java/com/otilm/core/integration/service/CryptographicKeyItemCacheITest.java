@@ -52,7 +52,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.filter.TypeExcludeFilters;
+import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Import;
@@ -158,12 +158,17 @@ class CryptographicKeyItemCacheITest extends BaseSpringBootTest {
     void getKeyItemModel_mapsRemoteUuidReference() throws NotFoundException {
         // given
         UUID remoteUuid = keyItem.getKeyReferenceUuid();
+        UUID tokenReferenceUuid = key.getTokenInstanceReferenceUuid();
+        UUID tokenProfileUuid = key.getTokenProfileUuid();
 
         // when
         CryptographicKeyItemOperationModel model = cryptographicKeyInternalService.getKeyItemModel(keyItem.getUuid());
 
         // then
         assertThat(model.reference()).isEqualTo(new RemoteKeyReference.UuidReference(remoteUuid));
+        assertThat(model.tokenInstanceReferenceUuid()).isEqualTo(tokenReferenceUuid);
+        assertThat(model.tokenProfileUuid()).isEqualTo(tokenProfileUuid);
+        assertThat(model.tokenInstanceUuid()).isNotEqualTo(tokenReferenceUuid);
     }
 
     @Test

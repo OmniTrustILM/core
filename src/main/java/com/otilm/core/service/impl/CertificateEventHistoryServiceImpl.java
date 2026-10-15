@@ -12,6 +12,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.events.transaction.UpdateCertificateHistoryEvent;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.util.MetaDefinitions;
@@ -78,9 +79,9 @@ public class CertificateEventHistoryServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
-    public List<CertificateEventHistoryDto> getCertificateEventHistory(UUID uuid) throws NotFoundException {
+    public List<CertificateEventHistoryDto> getCertificateEventHistory(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = certificateRepository
-                .findByUuid(uuid)
+                .findByUuid(uuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Certificate.class, uuid));
         return certificateEventHistoryRepository
                 .findByCertificateOrderByCreatedDesc(certificate)

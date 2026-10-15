@@ -101,6 +101,10 @@ public class DiscoveryCertificate extends UniquelyIdentifiedAndAudited
     @JdbcTypeCode(SqlTypes.JSON)
     private List<MetadataAttribute> meta;
 
+    // Metadata attributes the connector declared encrypted, kept out of meta and encrypted; see StagedMetadata.
+    @Column(name = "protected_meta", length = Integer.MAX_VALUE)
+    private String protectedMeta;
+
     @Override
     public DiscoveryCertificateDto mapToDto() {
         DiscoveryCertificateDto dto = new DiscoveryCertificateDto();

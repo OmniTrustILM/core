@@ -845,7 +845,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         discovery.setName(request.getName());
         discovery.setConnectorName(connector.getName());
         // The association is what routes every later operation to the v2 adapter; without it the run is a v1 run
-        // no matter what the connector implements.
+        // no matter what the connector implements. A v1 run keeps the entity's resources, certificates, which is all
+        // it can target.
         if (discoveryInterface != null) {
             discovery.setConnectorInterface(discoveryInterface);
             discovery.setResources(List.copyOf(request.getResources()));
@@ -889,21 +890,39 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
         } catch (UnsupportedDiscoveryVersionException e) {
             // A routing refusal must still end as a terminal, user-visible run state: the async caller swallows
             // whatever escapes here, and the scheduler expects a result rather than an exception.
-            logger.warn("Discovery {} cannot be dispatched: {}", discoveryUuid, e.getMessage());
-            // Resolved before the terminal write, so a failed lookup cannot leave the run FAILED without its event.
-            UUID actingUserUuid = AuthHelper.getActingUserUuidOrNull();
-            // The curated text, not e.getMessage(): the raw message carries the connector-reported version
-            // string, which is unvalidated input — it stays in the log, like the REST handler's fixed body.
-            // The writer maps the detail — see its javadoc for why this scope cannot re-read it.
-            DiscoveryDetailDto failedDetail = discoveryWriter
-                    .markDispatchRefused(discoveryUuid, UNSUPPORTED_VERSION_MESSAGE)
-                    .orElseThrow(() -> e);
-            eventProducer
-                    .produceMessage(DiscoveryFinishedEventHandler
-                            .constructEventMessage(discoveryUuid, actingUserUuid, null,
-                                    new DiscoveryResult(DiscoveryStatus.FAILED, UNSUPPORTED_VERSION_MESSAGE)));
-            return failedDetail;
+            return refuseDispatch(discoveryUuid, e);
         }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.DISCOVERY, action = ResourceAction.CREATE)
+    public void startDiscovery(UUID discoveryUuid) throws ConnectorException {
+        UUID connectorInterfaceUuid = discoveryRepository.findConnectorInterfaceUuid(discoveryUuid).orElse(null);
+        try {
+            discoveryProviderAdapterFactory
+                    .forConnectorInterface(connectorInterfaceUuid, discoveryUuid)
+                    .startForCaller(discoveryUuid);
+        } catch (UnsupportedDiscoveryVersionException e) {
+            refuseDispatch(discoveryUuid, e);
+        }
+    }
+
+    private DiscoveryDetailDto refuseDispatch(UUID discoveryUuid, UnsupportedDiscoveryVersionException e) {
+        logger.warn("Discovery {} cannot be dispatched: {}", discoveryUuid, e.getMessage());
+        // Resolved before the terminal write, so a failed lookup cannot leave the run FAILED without its event.
+        UUID actingUserUuid = AuthHelper.getActingUserUuidOrNull();
+        // The curated text, not e.getMessage(): the raw message carries the connector-reported version
+        // string, which is unvalidated input — it stays in the log, like the REST handler's fixed body.
+        // The writer maps the detail — see its javadoc for why this scope cannot re-read it.
+        DiscoveryDetailDto failedDetail = discoveryWriter
+                .markDispatchRefused(discoveryUuid, UNSUPPORTED_VERSION_MESSAGE)
+                .orElseThrow(() -> e);
+        eventProducer
+                .produceMessage(DiscoveryFinishedEventHandler
+                        .constructEventMessage(discoveryUuid, actingUserUuid, null,
+                                new DiscoveryResult(DiscoveryStatus.FAILED, UNSUPPORTED_VERSION_MESSAGE)));
+        return failedDetail;
     }
 
     @Override
@@ -943,6 +962,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                         SearchHelper.prepareSearch(FilterField.DISCOVERY_START_TIME),
                         SearchHelper.prepareSearch(FilterField.DISCOVERY_END_TIME),
                         SearchHelper.prepareSearch(FilterField.DISCOVERY_TOTAL_CERT_DISCOVERED),
+                        SearchHelper.prepareSearch(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED),
+                        SearchHelper.prepareSearch(FilterField.DISCOVERY_RESOURCES),
                         SearchHelper
                                 .prepareSearch(FilterField.DISCOVERY_CONNECTOR_NAME,
                                         discoveryRepository.findDistinctConnectorName()),

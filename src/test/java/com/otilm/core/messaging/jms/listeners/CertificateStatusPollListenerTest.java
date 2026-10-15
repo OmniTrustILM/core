@@ -2,6 +2,7 @@ package com.otilm.core.messaging.jms.listeners;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.LocationException;
 import com.otilm.api.exception.MessageHandlingException;
 import com.otilm.api.model.connector.v3.certificate.CertificateOperationStatus;
 import com.otilm.api.model.core.auth.Resource;
@@ -11,8 +12,11 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateLocation;
+import com.otilm.core.dao.entity.CertificateLocationId;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -21,6 +25,7 @@ import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.CertificateStatusPollMessage;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.LocationInternalService;
 import com.otilm.core.service.handler.authority.AsyncOperationCapability;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
@@ -46,6 +51,7 @@ import org.springframework.dao.TransientDataAccessResourceException;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -88,6 +94,10 @@ class CertificateStatusPollListenerTest {
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
     @Mock
     private CertificateRelationRepository certificateRelationRepository;
+    @Mock
+    private CertificateLocationRepository certificateLocationRepository;
+    @Mock
+    private LocationInternalService locationInternalService;
 
     /**
      * Combined mock implementing both AuthorityProviderAdapter and AsyncOperationCapability. The listener casts the
@@ -122,6 +132,8 @@ class CertificateStatusPollListenerTest {
         listener.setRegistrationAuthorizationRepository(registrationAuthorizationRepository);
         listener.setRegistrationAuthorizationWriter(registrationAuthorizationWriter);
         listener.setCertificateRelationRepository(certificateRelationRepository);
+        listener.setCertificateLocationRepository(certificateLocationRepository);
+        listener.setLocationInternalService(locationInternalService);
 
         StatusPollProperties.PollSchedule schedule = mock(StatusPollProperties.PollSchedule.class);
         lenient().when(schedule.maxAttempts()).thenReturn(3);
@@ -230,6 +242,66 @@ class CertificateStatusPollListenerTest {
         // state machine is NOT used for this transition.
         verify(certificateService).issueRequestedCertificate(CERT_UUID, "PEMDATA", List.of());
         verify(stateMachine, never()).transition(any(), any(), any(), any());
+        verify(pollWriter).delete(CERT_UUID);
+    }
+
+    @Test
+    void completedIssuePushesCertificateToItsLocations() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        CertificateLocationId locationId = new CertificateLocationId(UUID.randomUUID(), CERT_UUID);
+        CertificateLocation certificateLocation = mock(CertificateLocation.class);
+        when(certificateLocation.getId()).thenReturn(locationId);
+        when(certificateLocationRepository.findByCertificateUuid(CERT_UUID)).thenReturn(List.of(certificateLocation));
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        verify(locationInternalService).pushRequestedCertificateToLocationAction(locationId, false);
+    }
+
+    @Test
+    void completedIssueDoesNotPushToLocations_whenAnotherActorAlreadyResolvedTheCertificate() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        // under the lock the certificate is already issued, e.g. by a manual finalize that pushed it itself
+        Certificate resolved = certInState(CertificateState.ISSUED);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(resolved));
+        CertificateLocation certificateLocation = mock(CertificateLocation.class);
+        lenient()
+                .when(certificateLocationRepository.findByCertificateUuid(CERT_UUID))
+                .thenReturn(List.of(certificateLocation));
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        verify(locationInternalService, never()).pushRequestedCertificateToLocationAction(any(), anyBoolean());
+    }
+
+    @Test
+    void completedIssueKeepsPushingToTheRemainingLocations_whenOnePushFails() throws Exception {
+        Certificate cert = certInState(CertificateState.PENDING_ISSUE);
+        when(certificateRepository.findForPollingByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        when(asyncAdapter.pollStatus(cert, CertificateOperation.ISSUE))
+                .thenReturn(new StatusPollResult(CertificateOperationStatus.COMPLETED, "PEMDATA", null, "OK"));
+        when(certificateRepository.findAndLockWithAssociationsByUuid(CERT_UUID)).thenReturn(Optional.of(cert));
+        CertificateLocationId failingId = new CertificateLocationId(UUID.randomUUID(), CERT_UUID);
+        CertificateLocationId otherId = new CertificateLocationId(UUID.randomUUID(), CERT_UUID);
+        CertificateLocation failing = mock(CertificateLocation.class);
+        when(failing.getId()).thenReturn(failingId);
+        CertificateLocation other = mock(CertificateLocation.class);
+        when(other.getId()).thenReturn(otherId);
+        when(certificateLocationRepository.findByCertificateUuid(CERT_UUID)).thenReturn(List.of(failing, other));
+        doThrow(new LocationException("keytool error"))
+                .when(locationInternalService)
+                .pushRequestedCertificateToLocationAction(failingId, false);
+
+        listener.processMessage(pollMsg(CertificateOperation.ISSUE, 0));
+
+        verify(locationInternalService).pushRequestedCertificateToLocationAction(otherId, false);
         verify(pollWriter).delete(CERT_UUID);
     }
 

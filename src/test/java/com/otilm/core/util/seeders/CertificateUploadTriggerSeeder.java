@@ -22,6 +22,7 @@ import com.otilm.core.service.TriggerExternalService;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -42,13 +43,24 @@ public class CertificateUploadTriggerSeeder {
     @Autowired
     private TriggerExternalService triggerService;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     /** Creates and globally associates an ignore trigger for uploads of ISSUED certificates. */
     public void seedIgnoreTrigger() throws AlreadyExistException, NotFoundException {
+        seedIgnoreTrigger(FilterField.CERTIFICATE_STATE, List.of(CertificateState.ISSUED.getCode()));
+    }
+
+    /**
+     * Creates and globally associates an ignore trigger for uploads of certificates whose field equals the value: a
+     * string for a string field, a list of codes for a list field.
+     */
+    public void seedIgnoreTrigger(FilterField field, Object value) throws AlreadyExistException, NotFoundException {
         ConditionItemRequestDto conditionItem = new ConditionItemRequestDto();
         conditionItem.setFieldSource(FilterFieldSource.PROPERTY);
-        conditionItem.setFieldIdentifier(FilterField.CERTIFICATE_STATE.name());
+        conditionItem.setFieldIdentifier(field.name());
         conditionItem.setOperator(FilterConditionOperator.EQUALS);
-        conditionItem.setValue(List.of(CertificateState.ISSUED.getCode()));
+        conditionItem.setValue(value);
 
         ConditionRequestDto conditionRequest = new ConditionRequestDto();
         conditionRequest.setName("IgnoreUploadCondition");
@@ -76,5 +88,14 @@ public class CertificateUploadTriggerSeeder {
         triggerService
                 .createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null,
                         List.of(UUID.fromString(trigger.getUuid())), true);
+    }
+
+    /**
+     * Removes the global associations of the upload triggers, so uploads are no longer ignored. The history of the
+     * triggers that fired is detached first, as the migrated schema's foreign key does and the tests' schema does not.
+     */
+    public void removeIgnoreTriggers() throws NotFoundException {
+        jdbcTemplate.update("UPDATE trigger_history SET trigger_association_uuid = NULL");
+        triggerService.createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null, List.of(), true);
     }
 }

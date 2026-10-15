@@ -21,6 +21,8 @@ public interface ComplianceProfileAssociationRepository
 
     Long countByResourceAndObjectUuid(Resource resource, UUID associationObjectUuid);
 
+    boolean existsByResourceAndObjectUuidIn(Resource resource, List<UUID> associationObjectUuids);
+
     void deleteByComplianceProfileUuid(UUID complianceProfileUuid);
 
     boolean existsByComplianceProfileUuidAndResourceAndObjectUuid(UUID complianceProfileUuid, Resource resource,

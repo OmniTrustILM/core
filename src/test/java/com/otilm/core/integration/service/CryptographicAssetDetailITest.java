@@ -4,12 +4,16 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetEvidenceDto;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetPqcExplanationDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetSourceDto;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
+import com.otilm.api.model.core.cryptoasset.PqcReferencedAssetDto;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.OccurrenceEvidenceCapper;
+import com.otilm.core.cbom.pqc.PqcDecision;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.repository.CbomRepository;
@@ -17,13 +21,17 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
+import com.otilm.core.model.cbom.CryptoAssetReferenceKind;
+import com.otilm.core.model.cbom.ResolvedAssetReference;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.service.CryptographicAssetExternalService;
+import com.otilm.core.service.writer.cbom.CryptoAssetReferenceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
 import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -56,6 +64,9 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptoAssetSourceWriter sourceWriter;
+
+    @Autowired
+    private CryptoAssetReferenceWriter referenceWriter;
 
     @Autowired
     private CbomRepository cbomRepository;
@@ -107,7 +118,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
                         new HashMap<>(Map.of("location", "src/b.c", "line", 2)),
                         new HashMap<>(Map.of("location", "src/c.c", "line", 3)));
         sourceWriter.upsertSource(assetUuid, cbom.getUuid(), Map.of("name", "AES-256-GCM"), threeOccurrences, NOW);
-        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "rule", "reason", 1, Map.of());
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "rule", "reason", Map.of());
 
         CryptographicAssetDetailDto detail = cryptographicAssetService
                 .getCryptographicAsset(SecuredUUID.fromUUID(assetUuid));
@@ -133,8 +144,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
     void servesVerdictProvenanceWhenEvaluated() throws NotFoundException {
         UUID assetUuid = upsert(fields("RSA-2048"), null);
         assetWriter
-                .applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "shor-breakable", "RSA is Shor-breakable", 3,
-                        Map.of());
+                .applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "shor-breakable", "RSA is Shor-breakable", Map.of());
 
         CryptographicAssetDetailDto detail = cryptographicAssetService
                 .getCryptographicAsset(SecuredUUID.fromUUID(assetUuid));
@@ -142,7 +152,6 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(detail.getVerdict()).isNotNull();
         assertThat(detail.getVerdict().getRuleId()).isEqualTo("shor-breakable");
         assertThat(detail.getVerdict().getReason()).isEqualTo("RSA is Shor-breakable");
-        assertThat(detail.getVerdict().getRuleSetVersion()).isEqualTo(3);
         assertThat(detail.getVerdict().getDecidedAt()).isNotNull();
         assertThat(detail.getVerdict().getEvaluatedAt()).isNotNull();
         assertThat(detail.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
@@ -159,7 +168,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(detail.getPqcVerdict())
                 .describedAs("never evaluated -> UNKNOWN, not null")
                 .isEqualTo(PqcVerdict.UNKNOWN);
-        // the zero-source wire shape: no sources, no elected payload, zero aggregate occurrences
+        // the zero-source wire shape: no sources, no elected payload, zero occurrences
         assertThat(detail.getSources()).isEmpty();
         assertThat(detail.getElectedPayload()).isNull();
         assertThat(detail.getOccurrenceCount()).isZero();
@@ -268,6 +277,232 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(servedEvidence.get(1).getLocation())
                 .describedAs("location is REQUIRED; an occurrence with no location key must not serve null")
                 .isEqualTo("");
+    }
+
+    /**
+     * The explanation recomputes rather than reads, so it can be compared with what the sweep stored: never evaluated,
+     * matching, and stale are the three states an operator sees.
+     */
+    @Test
+    void theExplanationSaysWhetherTheStoredVerdictStillHolds() throws NotFoundException {
+        UUID assetUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "rsa-2048", null, "RSA",
+                null, "2048", null, null, null, null), null);
+        SecuredUUID secured = SecuredUUID.fromUUID(assetUuid);
+
+        CryptographicAssetPqcExplanationDto neverEvaluated = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(secured);
+
+        assertThat(neverEvaluated.getUuid()).isEqualTo(assetUuid);
+        assertThat(neverEvaluated.getVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(neverEvaluated.getRuleId()).isEqualTo("CLASSICAL-SHOR");
+        assertThat(neverEvaluated.isMatchesStored()).isFalse();
+        assertThat(neverEvaluated.getStoredVerdict()).isNull();
+        assertThat(neverEvaluated.getStoredEvaluatedAt()).isNull();
+        assertThat(neverEvaluated.getInputs()).containsEntry("algorithmFamily", "RSA");
+        assertThat(neverEvaluated.getExplainedAt()).isNotNull();
+        assertThat(neverEvaluated.getSteps())
+                .filteredOn(step -> step.getOutcome() == PqcExplanationStepOutcome.DECIDED)
+                .singleElement()
+                .satisfies(step -> {
+                    assertThat(step.getRuleId()).isEqualTo("CLASSICAL-SHOR");
+                    assertThat(step.getTitle()).isEqualTo("Quantum-vulnerable family");
+                });
+        assertThat(cryptoAssetRepository.findById(assetUuid).orElseThrow().getPqcEvaluatedAt())
+                .describedAs("the explanation writes nothing back")
+                .isNull();
+
+        assetWriter
+                .applyPqcVerdict(assetUuid, neverEvaluated.getVerdict(), neverEvaluated.getRuleId(),
+                        neverEvaluated.getReason(), Map.of());
+        CryptographicAssetPqcExplanationDto current = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(secured);
+        assertThat(current.isMatchesStored()).isTrue();
+        assertThat(current.getStoredRuleId()).isEqualTo("CLASSICAL-SHOR");
+        assertThat(current.getStoredEvaluatedAt()).isNotNull();
+
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "AN-OLDER-RULE", "stamped by older rules", Map.of());
+        CryptographicAssetPqcExplanationDto stale = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(secured);
+        assertThat(stale.isMatchesStored()).isFalse();
+        assertThat(stale.getStoredVerdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(stale.getStoredRuleId()).isEqualTo("AN-OLDER-RULE");
+        assertThat(stale.getVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+    }
+
+    /**
+     * A certificate's verdict names the key it was carried over from. Its name and type are served only while that
+     * asset is in the inventory and the caller's own object access admits it; the uuid, recorded with the stamp, is
+     * served either way.
+     */
+    @Test
+    void theStoredVerdictNamesTheAssetItWasCarriedOverFromAsTheCallerMaySeeIt() throws NotFoundException {
+        UUID keyUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.RELATED_CRYPTO_MATERIAL,
+                "rsa-2048 public key", null, null, null, null, null, null, null, null), null);
+        UUID certificateUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "example.com",
+                null, null, null, null, null, null, null, null), null);
+        assetWriter
+                .applyPqcVerdict(certificateUuid,
+                        new PqcDecision(PqcVerdict.NOT_READY, "CERT-SUBJECT-KEY", "carried over", Map.of(), keyUuid),
+                        null);
+
+        PqcReferencedAssetDto visible = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificateUuid))
+                .getVerdict()
+                .getReferencedAsset();
+        assertThat(visible.getUuid()).isEqualTo(keyUuid);
+        assertThat(visible.isVisible()).isTrue();
+        assertThat(visible.getName()).isEqualTo("rsa-2048 public key");
+        assertThat(visible.getType()).isEqualTo(CryptographicAssetType.RELATED_CRYPTO_MATERIAL);
+
+        forbidCryptoAssetObjects(List.of(keyUuid));
+        PqcReferencedAssetDto forbidden = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificateUuid))
+                .getVerdict()
+                .getReferencedAsset();
+        assertThat(forbidden.getUuid()).isEqualTo(keyUuid);
+        assertThat(forbidden.isVisible()).isFalse();
+        assertThat(forbidden.getName()).isNull();
+        assertThat(forbidden.getType()).isNull();
+    }
+
+    @Test
+    void aVerdictCarriedOverFromAnAssetThatLeftTheInventoryServesItsUuidAlone() throws NotFoundException {
+        UUID certificateUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "gone.example",
+                null, null, null, null, null, null, null, null), null);
+        UUID removed = UUID.randomUUID();
+        assetWriter
+                .applyPqcVerdict(certificateUuid,
+                        new PqcDecision(PqcVerdict.NOT_READY, "CERT-SUBJECT-KEY", "carried over", Map.of(), removed),
+                        null);
+
+        PqcReferencedAssetDto referenced = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificateUuid))
+                .getVerdict()
+                .getReferencedAsset();
+
+        assertThat(referenced.getUuid()).isEqualTo(removed);
+        assertThat(referenced.isVisible()).isFalse();
+    }
+
+    /**
+     * A stored verdict the sweep is about to restamp is not current, even when the recomputation happens to reach the
+     * same verdict and rule: the row moved to a later revision, or a reference verdict it was read from changed.
+     */
+    @Test
+    void anAgreeingVerdictTheSweepWouldRestampDoesNotMatchTheStoredOne() throws NotFoundException {
+        UUID rsa = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "rsa-3072", null, "RSA", null,
+                "3072", null, null, null, null), null);
+        CryptographicAssetPqcExplanationDto first = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(rsa));
+        assetWriter.applyPqcVerdict(rsa, first.getVerdict(), first.getRuleId(), first.getReason(), Map.of());
+        assertThat(cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(rsa))
+                .isMatchesStored()).isTrue();
+
+        sourceWriter.upsertSource(rsa, newCbom("urn:uuid:moved").getUuid(), Map.of("name", "RSA-3072"), List.of(), NOW);
+
+        CryptographicAssetPqcExplanationDto moved = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(rsa));
+        assertThat(moved.getRuleId()).isEqualTo(first.getRuleId());
+        assertThat(moved.isMatchesStored())
+                .describedAs("the row moved past the revision the verdict was taken at")
+                .isFalse();
+
+        UUID certificate = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "basis.example",
+                null, null, null, null, null, null, null, null), null);
+        assetWriter
+                .applyPqcVerdict(certificate,
+                        new PqcDecision(PqcVerdict.UNKNOWN, "CERT-NO-KEY-RECORDED", "reason", Map.of()),
+                        "a-target:READY:SOME-RULE");
+
+        CryptographicAssetPqcExplanationDto certified = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(SecuredUUID.fromUUID(certificate));
+        assertThat(certified.getRuleId()).isEqualTo("CERT-NO-KEY-RECORDED");
+        assertThat(certified.isMatchesStored())
+                .describedAs("read from reference verdicts that are no longer there")
+                .isFalse();
+    }
+
+    /**
+     * bom-refs and suite labels are copied verbatim out of the electing document, so a caller who may not read that
+     * document is served neither, in the stored verdict or the explanation, as it is not served the elected payload.
+     */
+    @Test
+    void theElectingDocumentsOwnValuesAreWithheldFromACallerWhoCannotReadIt() throws NotFoundException {
+        OffsetDateTime seen = NOW.truncatedTo(ChronoUnit.MICROS);
+        UUID certificate = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "hidden.example",
+                null, null, null, null, null, null, null, null), null);
+        Cbom electing = newCbom("urn:uuid:electing");
+        sourceWriter.upsertSource(certificate, electing.getUuid(), Map.of("name", "hidden.example"), List.of(), seen);
+        referenceWriter
+                .replaceReferences(certificate, electing.getUuid(), seen,
+                        List
+                                .of(new ResolvedAssetReference(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY, 0,
+                                        "key-ref-from-the-document", null, null)));
+        assetWriter
+                .applyPqcVerdict(certificate, PqcVerdict.UNKNOWN, "CERT-REFERENCE-UNRESOLVED", "reason",
+                        Map.of("assetType", "certificate", "subjectPublicKeyRef", "key-ref-from-the-document"));
+        SecuredUUID secured = SecuredUUID.fromUUID(certificate);
+        assertThat(cryptographicAssetService.getCryptographicAssetPqcExplanation(secured).getInputs())
+                .containsEntry("subjectPublicKeyRef", "key-ref-from-the-document");
+
+        forbidCbomObjects(List.of(electing.getUuid()));
+
+        assertThat(cryptographicAssetService.getCryptographicAsset(secured).getVerdict().getEvaluatedFields())
+                .containsEntry("assetType", "certificate")
+                .doesNotContainKey("subjectPublicKeyRef");
+        CryptographicAssetPqcExplanationDto explanation = cryptographicAssetService
+                .getCryptographicAssetPqcExplanation(secured);
+        assertThat(explanation.getInputs())
+                .containsEntry("assetType", "certificate")
+                .doesNotContainKey("subjectPublicKeyRef")
+                .doesNotContainKey("unresolvedRefs");
+        assertThat(explanation.getSteps())
+                .allSatisfy(step -> assertThat(step.getEvaluatedFields() == null ? Map.of() : step.getEvaluatedFields())
+                        .doesNotContainKeys("subjectPublicKeyRef", "unresolvedRefs"));
+    }
+
+    /**
+     * A stored verdict's document values come from the source elected when it was taken. Once the row has moved on -- a
+     * withdrawal or a richer source re-elects -- the current source's visibility says nothing about them, so they are
+     * withheld until the sweep restamps the verdict.
+     */
+    @Test
+    void aStaleVerdictIsServedWithoutItsDocumentValuesWhateverTheCurrentSourceShows() throws NotFoundException {
+        OffsetDateTime seen = NOW.truncatedTo(ChronoUnit.MICROS);
+        UUID certificate = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "moved.example",
+                null, null, null, null, null, null, null, null), null);
+        sourceWriter
+                .upsertSource(certificate, newCbom("urn:uuid:first").getUuid(), Map.of("name", "moved.example"),
+                        List.of(), seen);
+        assetWriter
+                .applyPqcVerdict(certificate, PqcVerdict.UNKNOWN, "CERT-REFERENCE-UNRESOLVED", "reason",
+                        Map.of("assetType", "certificate", "subjectPublicKeyRef", "a-ref-from-the-first-document"));
+        assertThat(cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificate))
+                .getVerdict()
+                .getEvaluatedFields()).containsKey("subjectPublicKeyRef");
+
+        sourceWriter
+                .upsertSource(certificate, newCbom("urn:uuid:richer").getUuid(),
+                        Map.of("name", "moved.example", "certificateProperties", Map.of("subjectName", "CN=x")),
+                        List.of(), seen);
+
+        assertThat(cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(certificate))
+                .getVerdict()
+                .getEvaluatedFields())
+                .describedAs("a re-election moved the row past the verdict, so its values no longer have a source")
+                .containsEntry("assetType", "certificate")
+                .doesNotContainKey("subjectPublicKeyRef");
+    }
+
+    @Test
+    void theExplanationOfAnUnknownAssetIsNotFound() {
+        SecuredUUID unknown = SecuredUUID.fromUUID(UUID.randomUUID());
+
+        assertThatThrownBy(() -> cryptographicAssetService.getCryptographicAssetPqcExplanation(unknown))
+                .isInstanceOf(NotFoundException.class);
     }
 
     /**
@@ -499,6 +734,21 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
                                 .argThat(req -> req != null && req.getProperties() != null
                                         && Resource.CBOM.getCode().equals(req.getProperties().get("name"))
                                         && ResourceAction.LIST.getCode().equals(req.getProperties().get("action"))),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(partial);
+    }
+
+    private void forbidCryptoAssetObjects(List<UUID> forbidden) {
+        OpaObjectAccessResult partial = new OpaObjectAccessResult();
+        partial.setActionAllowedForGroupOfObjects(true);
+        partial.setAllowedObjects(List.of());
+        partial.setForbiddenObjects(forbidden.stream().map(UUID::toString).toList());
+        when(opaClient
+                .checkObjectAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && Resource.CRYPTO_ASSET.getCode().equals(req.getProperties().get("name"))
+                                        && ResourceAction.DETAIL.getCode().equals(req.getProperties().get("action"))),
                         Mockito.any(), Mockito.any()))
                 .thenReturn(partial);
     }

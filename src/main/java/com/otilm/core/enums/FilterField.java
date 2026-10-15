@@ -10,6 +10,7 @@ import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
@@ -143,11 +144,14 @@ public enum FilterField {
     ISSUER_SERIAL_NUMBER(Resource.CERTIFICATE, null, null, Certificate_.issuerSerialNumber, "Issuer Serial Number",
             SearchFieldTypeEnum.STRING),
     OCSP_VALIDATION(Resource.CERTIFICATE, null, null, Certificate_.certificateValidationResult, "OCSP Validation",
-            SearchFieldTypeEnum.LIST, CertificateValidationStatus.class),
+            SearchFieldTypeEnum.LIST, CertificateValidationStatus.class, null, false,
+            new String[]{"ocsp_verification", Constants.VALIDATION_CHECK_STATUS}),
     CRL_VALIDATION(Resource.CERTIFICATE, null, null, Certificate_.certificateValidationResult, "CRL Validation",
-            SearchFieldTypeEnum.LIST, CertificateValidationStatus.class),
+            SearchFieldTypeEnum.LIST, CertificateValidationStatus.class, null, false,
+            new String[]{"crl_verification", Constants.VALIDATION_CHECK_STATUS}),
     SIGNATURE_VALIDATION(Resource.CERTIFICATE, null, null, Certificate_.certificateValidationResult,
-            "Signature Validation", SearchFieldTypeEnum.LIST, CertificateValidationStatus.class),
+            "Signature Validation", SearchFieldTypeEnum.LIST, CertificateValidationStatus.class, null, false,
+            new String[]{"signature", Constants.VALIDATION_CHECK_STATUS}),
     PRIVATE_KEY(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY, List.of(Certificate_.key, CryptographicKey_.items),
             CryptographicKeyItem_.type, "Has private key", SearchFieldTypeEnum.BOOLEAN, null, KeyType.PRIVATE_KEY,
             false, null),
@@ -242,6 +246,10 @@ public enum FilterField {
             DiscoveryStatus.class, null, false, null),
     DISCOVERY_TOTAL_CERT_DISCOVERED(Resource.DISCOVERY, null, null, Discovery_.totalCertificatesDiscovered,
             "Total certificate discovered", SearchFieldTypeEnum.NUMBER),
+    DISCOVERY_TOTAL_ITEMS_DISCOVERED(Resource.DISCOVERY, null, null, Discovery_.totalItemsDiscovered,
+            "Total items discovered", SearchFieldTypeEnum.NUMBER),
+    DISCOVERY_RESOURCES(Resource.DISCOVERY, null, null, Discovery_.resources, "Resources",
+            SearchFieldTypeEnum.NATIVE_ARRAY, Resource.class, DiscoveredItemPayloadDto.DISCOVERABLE),
     DISCOVERY_CONNECTOR_NAME(Resource.DISCOVERY, null, null, Discovery_.connectorName, "Discovery provider",
             SearchFieldTypeEnum.LIST),
     DISCOVERY_KIND(Resource.DISCOVERY, null, null, Discovery_.kind, "Kind", SearchFieldTypeEnum.STRING),
@@ -406,6 +414,7 @@ public enum FilterField {
     // serve it, so it is a column as well as a filter.
     CBOM_ASSET_SYNC_ERROR(Resource.CBOM, null, null, Cbom_.assetSyncError, "Asset Sync Error",
             SearchFieldTypeEnum.STRING),
+    CBOM_HAS_CONTRIBUTED_ASSETS(Resource.CBOM, null, null, null, "Has Contributed Assets", SearchFieldTypeEnum.BOOLEAN),
 
     // CBOM cryptographic asset inventory.
     //
@@ -430,8 +439,6 @@ public enum FilterField {
     CBOM_ASSET_VARIANT(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.variant, "Variant", SearchFieldTypeEnum.LIST),
     CBOM_ASSET_PQC_VERDICT(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.pqcVerdict, "PQC Readiness",
             SearchFieldTypeEnum.LIST, PqcVerdict.class),
-    CBOM_ASSET_PQC_RULESET_VERSION(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.pqcRulesetVersion,
-            "PQC Rule Set Version", SearchFieldTypeEnum.NUMBER),
     CBOM_ASSET_RULESET_VERSION(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.rulesetVersion,
             "Identity Rule Set Version", SearchFieldTypeEnum.NUMBER),
     CBOM_ASSET_SOURCE_COUNT(Resource.CRYPTO_ASSET, null, null, CryptoAsset_.sourceCount, "Source CBOMs",
@@ -588,6 +595,7 @@ public enum FilterField {
 
     private static class Constants {
         private static final String RESOURCE_OBJECTS_ARRAY = "objects[*]";
+        private static final String VALIDATION_CHECK_STATUS = "status";
         public static final String STATE = "State";
         public static final String ENABLED = "Enabled";
         public static final String STATUS = "Status";

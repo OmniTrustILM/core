@@ -1,12 +1,25 @@
 package com.otilm.core.cbom.pqc;
 
+import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import java.util.UUID;
 
 /**
  * One row's verdict, ready for the batch writer.
  *
- * @param rowVersion the row's {@code xmin} when its inputs were read; the write is refused if another transaction has
- * written the row since
+ * @param row the inputs and verdict history read together with the row's {@code xmin}
+ * @param referenceBasis {@link PqcReferences#basis()} as read, for a certificate or protocol
  */
-public record PqcVerdictWrite(UUID assetUuid, long rowVersion, PqcDecision decision) {
+public record PqcVerdictWrite(PqcStaleVerdictRow row, PqcDecision decision, String referenceBasis) {
+
+    public PqcVerdictWrite(PqcStaleVerdictRow row, PqcDecision decision) {
+        this(row, decision, null);
+    }
+
+    public UUID assetUuid() {
+        return row.uuid();
+    }
+
+    public long rowVersion() {
+        return row.rowVersion();
+    }
 }

@@ -190,6 +190,22 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
                 FROM AttributeContent2Object aco
                 JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
                 JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND ad.operation = :operation AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                    AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectDataAttributesContentAnyConnector(
+            @Param("attributeType") AttributeType attributeType, @Param("operation") String operation,
+            @Param("purpose") String purpose, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
                 WHERE ad.type = :attributeType AND ad.operation IS NULL
                     AND aco.connectorUuid IS NULL AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
                     AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
@@ -404,5 +420,32 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
     Long deleteByAttributeContentItemAttributeDefinitionTypeAndConnectorUuidAndObjectTypeAndSourceObjectTypeAndSourceObjectUuid(
             AttributeType attributeType, UUID connectorUuid, Resource objectType, Resource sourceObjectType,
             UUID sourceObjectUuid);
+
+    /** Points every mapping of one content item at another. */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}attribute_content_2_object
+               SET attribute_content_item_uuid = :toItemUuid
+             WHERE attribute_content_item_uuid = :fromItemUuid
+            """, nativeQuery = true)
+    int moveMappings(@Param("fromItemUuid") UUID fromItemUuid, @Param("toItemUuid") UUID toItemUuid);
+
+    /** Drops mappings of a content item that repeat another of its mappings for the same object, keeping one. */
+    @Modifying
+    @Query(value = """
+            DELETE FROM {h-schema}attribute_content_2_object mapping
+             USING {h-schema}attribute_content_2_object kept
+             WHERE mapping.attribute_content_item_uuid = :itemUuid
+               AND kept.attribute_content_item_uuid = mapping.attribute_content_item_uuid
+               AND kept.uuid < mapping.uuid
+               AND kept.object_type = mapping.object_type
+               AND kept.object_uuid = mapping.object_uuid
+               AND kept.connector_uuid IS NOT DISTINCT FROM mapping.connector_uuid
+               AND kept.source_object_type IS NOT DISTINCT FROM mapping.source_object_type
+               AND kept.source_object_uuid IS NOT DISTINCT FROM mapping.source_object_uuid
+               AND kept.purpose IS NOT DISTINCT FROM mapping.purpose
+               AND kept.object_version IS NOT DISTINCT FROM mapping.object_version
+            """, nativeQuery = true)
+    int deleteRepeatedMappings(@Param("itemUuid") UUID itemUuid);
 
 }

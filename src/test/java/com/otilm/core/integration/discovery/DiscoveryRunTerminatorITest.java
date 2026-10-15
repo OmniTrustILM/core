@@ -3,16 +3,23 @@ package com.otilm.core.integration.discovery;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResourceProgressDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
+import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.events.data.DiscoveryResult;
+import com.otilm.core.messaging.model.EventMessage;
+import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
@@ -23,9 +30,17 @@ import jakarta.persistence.PersistenceContext;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -37,8 +52,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Ending a run is a decision taken under the row lock, and an ending committed while the caller was at the connector
  * has to be visible to that locked read; {@link DiscoveryRunTerminator} says why it would not be by default.
  */
+@RecordApplicationEvents
 class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
 
+    @Autowired
+    private ApplicationEvents events;
     @Autowired
     private DiscoveryRunTerminator terminator;
     @Autowired
@@ -53,6 +71,8 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
     private DiscoveryCertificateRepository certificateRepository;
     @Autowired
     private CertificateContentRepository certificateContentRepository;
+    @Autowired
+    private DiscoveryMessageRepository messageRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -94,6 +114,57 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
     }
 
     /**
+     * The status and drain ticks both hear a connector that forgot the run, and both try to end it. Only one ending may
+     * stand: a second finalizes the run, logs its ending and announces it again.
+     */
+    @Test
+    void twoWorkersEndingTheSameRunAtOnce_endItOnce() throws Exception {
+        for (int round = 0; round < 10; round++) {
+            UUID uuid = v2Run().getUuid();
+            CyclicBarrier together = new CyclicBarrier(2);
+            Callable<Boolean> ending = () -> {
+                together.await(10, TimeUnit.SECONDS);
+                return terminator
+                        .endConnectorOwned(uuid, DiscoveryStatus.FAILED, "The connector no longer tracks this run");
+            };
+            ExecutorService workers = Executors.newFixedThreadPool(2);
+            List<Future<Boolean>> outcomes;
+            try {
+                outcomes = workers.invokeAll(List.of(ending, ending));
+            } finally {
+                workers.shutdownNow();
+            }
+
+            int endedBy = 0;
+            for (Future<Boolean> outcome : outcomes) {
+                endedBy += Boolean.TRUE.equals(outcome.get()) ? 1 : 0;
+            }
+            assertThat(endedBy).as("round %d", round).isEqualTo(1);
+            assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(uuid))
+                    .as("round %d", round)
+                    .singleElement()
+                    .extracting(DiscoveryMessage::getOccurrences)
+                    .isEqualTo(1L);
+        }
+    }
+
+    @Test
+    void aUsersCancel_tellsTheSchedulerItWasTheirs() {
+        Discovery run = v2Run();
+
+        terminator
+                .endWith(run.getUuid(), locked -> new DiscoveryRunTerminator.Ending(DiscoveryStatus.CANCELLED,
+                        "Discovery cancelled", true));
+
+        assertThat(events.stream(EventMessage.class))
+                .filteredOn(message -> message.getEvent() == ResourceEvent.DISCOVERY_FINISHED)
+                .singleElement()
+                .extracting(message -> ((DiscoveryResult) message.getData()).isEndedByUser())
+                .as("the scheduler closes a user's cancel as Cancelled only if the ending says whose it was")
+                .isEqualTo(true);
+    }
+
+    /**
      * A connector's force delete ends the runs bound to it and then deletes the connector, and the two stand or fall
      * together: runs ended in transactions of their own would stay cancelled, their endings announced, under a
      * connector that is still there.
@@ -113,6 +184,24 @@ class DiscoveryRunTerminatorITest extends BaseSpringBootTest {
         assertThat(discoveryRepository.findByUuid(run.getUuid()).orElseThrow().getStatus())
                 .as("the caller rolled back, so the ending never happened")
                 .isEqualTo(DiscoveryStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void aRunEndedByItsConnectorsForceDelete_recordsTheLossAsAWarning() {
+        Discovery run = v2Run();
+
+        new TransactionTemplate(transactionManager)
+                .executeWithoutResult(status -> terminator
+                        .endRunsBoundTo(List.of(run.getConnectorInterfaceUuid()), "connector deleted"));
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .singleElement()
+                .satisfies(ending -> {
+                    assertThat(ending.getCode()).isEqualTo(DiscoveryMessageCode.RUN_ENDED.code());
+                    assertThat(ending.getSeverity())
+                            .as("deleting the connector was someone's choice, cancelling this run was not")
+                            .isEqualTo(DiscoveryMessageSeverity.WARNING);
+                });
     }
 
     @Test

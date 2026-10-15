@@ -162,8 +162,7 @@ class ExternalAuthorizationCoreTest {
         SecuredUUID objectUuid = SecuredUUID.fromUUID(UUID.randomUUID());
         AuthorizationRequest request = AuthorizationRequest
                 .forDirectCheck(Resource.CERTIFICATE, ResourceAction.DETAIL, List.of(objectUuid));
-        when(ownerAssociationRepository
-                .countByOwnerUuidAndResourceAndObjectUuidIn(eq(userUuid), eq(Resource.CERTIFICATE), any()))
+        when(ownerAssociationRepository.countOwnedObjects(eq(userUuid), eq(Resource.CERTIFICATE), any()))
                 .thenReturn(1L);
 
         // when
@@ -194,6 +193,65 @@ class ExternalAuthorizationCoreTest {
 
         // then
         assertThat(decision.isGranted()).isTrue();
+    }
+
+    @Test
+    void ownerFallbackCountsARepeatedObjectOnce() {
+        // given: the principal owns the one object the request names twice
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        UUID userUuid = UUID.randomUUID();
+        UUID objectUuid = UUID.randomUUID();
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.ARCHIVE,
+                        List.of(SecuredUUID.fromUUID(objectUuid), SecuredUUID.fromUUID(objectUuid)));
+        when(ownerAssociationRepository.countOwnedObjects(userUuid, Resource.CERTIFICATE, List.of(objectUuid)))
+                .thenReturn(1L);
+
+        // when
+        AuthorizationDecision decision = core.decide(platformAuthentication(userUuid.toString()), request);
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+    }
+
+    @Test
+    void ownerFallbackDoesNotApplyWhenAnObjectUuidIsNull() {
+        // given
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.CERTIFICATE, ResourceAction.ARCHIVE,
+                        List.of(SecuredUUID.fromUUID(UUID.randomUUID()), SecuredUUID.fromUUID(null)));
+
+        // when
+        AuthorizationDecision decision = core.decide(platformAuthentication(UUID.randomUUID().toString()), request);
+
+        // then
+        assertThat(decision.isGranted()).isFalse();
+        verifyNoInteractions(ownerAssociationRepository);
+    }
+
+    @Test
+    void resourceWithoutOwnersSkipsTheOwnerLookup() {
+        // given: USER has group associations but no owner
+        UUID objectUuid = UUID.randomUUID();
+        AuthorizationRequest request = AuthorizationRequest
+                .forDirectCheck(Resource.USER, ResourceAction.DETAIL, List.of(SecuredUUID.fromUUID(objectUuid)));
+        GroupAssociation groupAssociation = new GroupAssociation();
+        groupAssociation.setGroupUuid(UUID.randomUUID());
+        when(groupAssociationRepository.findByResourceAndObjectUuid(Resource.USER, objectUuid))
+                .thenReturn(List.of(groupAssociation));
+        when(opaClient.checkResourceAccess(any(), any(), any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized()) // direct check
+                .thenReturn(accessGranted()); // group-member check
+
+        // when
+        AuthorizationDecision decision = core.decide(platformAuthentication(UUID.randomUUID().toString()), request);
+
+        // then
+        assertThat(decision.isGranted()).isTrue();
+        verifyNoInteractions(ownerAssociationRepository);
     }
 
     @Test
@@ -361,8 +419,7 @@ class ExternalAuthorizationCoreTest {
     /** A direct-check request for CERTIFICATE (has owner + groups) whose owner association never matches. */
     private AuthorizationRequest directCheckWithNonMatchingOwner() {
         SecuredUUID objectUuid = SecuredUUID.fromUUID(UUID.randomUUID());
-        when(ownerAssociationRepository
-                .countByOwnerUuidAndResourceAndObjectUuidIn(any(), eq(Resource.CERTIFICATE), any())).thenReturn(0L);
+        when(ownerAssociationRepository.countOwnedObjects(any(), eq(Resource.CERTIFICATE), any())).thenReturn(0L);
         return AuthorizationRequest.forDirectCheck(Resource.CERTIFICATE, ResourceAction.DETAIL, List.of(objectUuid));
     }
 

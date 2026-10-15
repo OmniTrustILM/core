@@ -6,6 +6,8 @@ import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.records.ActorRecord;
 import com.otilm.core.logging.LoggingHelper;
+import com.otilm.core.security.authn.ForwardedCertificateFixtures;
+import com.otilm.core.security.authn.ForwardedClientCertificateParser;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
@@ -206,6 +208,16 @@ class PlatformAuthenticationClientITest extends BaseSpringBootTest {
         assertEquals(1, authServiceMock.getRequestCount());
     }
 
+    private static ForwardedClientCertificateParser.ParsedCertificate parsedCertificate() {
+        try {
+            var request = new org.springframework.mock.web.MockHttpServletRequest();
+            request.addHeader("ssl-client-cert", ForwardedCertificateFixtures.LEAF_DER);
+            return ForwardedClientCertificateParser.parse(request, "ssl-client-cert");
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     // --- authenticateByCertificate ---
 
     @Test
@@ -214,8 +226,7 @@ class PlatformAuthenticationClientITest extends BaseSpringBootTest {
         setUpSuccessfulAuthenticationResponse();
 
         // when
-        AuthenticationInfo result = authenticationClient
-                .authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-abc");
+        AuthenticationInfo result = authenticationClient.authenticateByCertificate(parsedCertificate());
 
         // then
         assertEquals("FrantisekJednicka", result.getUsername());
@@ -226,11 +237,11 @@ class PlatformAuthenticationClientITest extends BaseSpringBootTest {
     void authenticateByCertificate_cacheHit_doesNotCallAuthService() {
         // given - cache key is the fingerprint, not the raw cert content
         setUpSuccessfulAuthenticationResponse();
-        authenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-abc"); // prime the
-                                                                                                       // cache
+        authenticationClient.authenticateByCertificate(parsedCertificate()); // prime the
+                                                                             // cache
 
-        // when - same fingerprint, different raw content; the cache should serve the result
-        authenticationClient.authenticateByCertificate("OTHER_CERT_CONTENT", "sha256-fingerprint-abc");
+        // when - the canonical certificate identity shares the cached result
+        authenticationClient.authenticateByCertificate(parsedCertificate());
 
         // then
         assertEquals(1, authServiceMock.getRequestCount());
@@ -371,11 +382,11 @@ class PlatformAuthenticationClientITest extends BaseSpringBootTest {
     void authenticateByCertificate_cacheHit_restoresActorMdc() {
         // given
         setUpSuccessfulAuthenticationResponse();
-        authenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-mdc");
+        authenticationClient.authenticateByCertificate(parsedCertificate());
         MDC.clear();
 
         // when
-        authenticationClient.authenticateByCertificate("TEST_CERT_CONTENT", "sha256-fingerprint-mdc");
+        authenticationClient.authenticateByCertificate(parsedCertificate());
 
         // then - without restoration the actor falls back to CORE/NONE, misattributing the request
         assertEquals(1, authServiceMock.getRequestCount());

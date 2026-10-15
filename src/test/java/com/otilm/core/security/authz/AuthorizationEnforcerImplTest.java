@@ -157,6 +157,23 @@ class AuthorizationEnforcerImplTest {
     }
 
     @Test
+    void decidesForTheSignedInUserAgainstTheirOwnAuthentication() {
+        UUID signedIn = UUID.randomUUID();
+        PlatformAuthenticationToken auth = new PlatformAuthenticationToken(new PlatformUserDetails(
+                new AuthenticationInfo(AuthMethod.CERTIFICATE, signedIn.toString(), "signed-in", List.of())));
+        SecurityContextHolder.getContext().setAuthentication(auth);
+        when(core.decide(any(), any())).thenReturn(new AuthorizationDecision(true));
+
+        boolean authorized = enforcer
+                .isAuthorizedAs(signedIn, Resource.RA_PROFILE, ResourceAction.DETAIL,
+                        SecuredUUID.fromUUID(UUID.randomUUID()));
+
+        assertThat(authorized).isTrue();
+        verify(core).decide(argThat(decidedFor -> decidedFor == auth), any());
+        verifyNoInteractions(authenticationClient);
+    }
+
+    @Test
     void deniesAUserTheAuthServiceNoLongerResolves() {
         UUID deletedUser = UUID.randomUUID();
         when(authenticationClient.authenticateByUserUuid(deletedUser))

@@ -1,11 +1,14 @@
 package com.otilm.core.service.writer.cbom;
 
 import com.otilm.core.cbom.asset.JsonColumnText;
+import com.otilm.core.cbom.pqc.PqcVerdictTransition;
 import com.otilm.core.cbom.pqc.PqcVerdictWrite;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
+import com.otilm.core.events.handlers.CryptoAssetPqcNotReadyEventHandler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,9 +31,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class CryptoAssetPqcVerdictWriter {
 
     private final CryptoAssetRepository assetRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
-    public CryptoAssetPqcVerdictWriter(CryptoAssetRepository assetRepository) {
+    public CryptoAssetPqcVerdictWriter(CryptoAssetRepository assetRepository,
+            ApplicationEventPublisher applicationEventPublisher) {
         this.assetRepository = assetRepository;
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     /**
@@ -39,10 +45,10 @@ public class CryptoAssetPqcVerdictWriter {
      * whether the row it stamped as unevaluable is the one that landed before it can report having recorded it.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public List<UUID> applyStaleBatch(List<PqcVerdictWrite> batch, int rulesetVersion) {
+    public List<UUID> applyStaleBatch(List<PqcVerdictWrite> batch) {
         List<UUID> written = new ArrayList<>(batch.size());
         for (PqcVerdictWrite write : batch) {
-            if (apply(write, rulesetVersion) == 1) {
+            if (apply(write) == 1) {
                 written.add(write.assetUuid());
             }
         }
@@ -58,14 +64,26 @@ public class CryptoAssetPqcVerdictWriter {
      * @return true if the row was written, false if the guard refused it
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean applyStaleRow(PqcVerdictWrite write, int rulesetVersion) {
-        return apply(write, rulesetVersion) == 1;
+    public boolean applyStaleRow(PqcVerdictWrite write) {
+        return apply(write) == 1;
     }
 
-    private int apply(PqcVerdictWrite write, int rulesetVersion) {
-        return assetRepository
+    private int apply(PqcVerdictWrite write) {
+        PqcVerdictTransition transition = PqcVerdictTransition
+                .decide(write.row().pqcVerdict(), write.row().pqcLastDecidedVerdict(), write.decision().verdict());
+        int written = assetRepository
                 .applyPqcVerdictIfStale(write.assetUuid(), write.rowVersion(), write.decision().verdict().name(),
-                        write.decision().ruleId(), write.decision().reason(), rulesetVersion,
-                        JsonColumnText.render(write.decision().evaluatedFields()));
+                        write.decision().ruleId(), write.decision().reason(),
+                        JsonColumnText.render(write.decision().evaluatedFields()),
+                        write.decision().referencedAssetUuid(), write.referenceBasis(),
+                        transition.lastDecidedVerdict() == null ? null : transition.lastDecidedVerdict().name());
+        if (written == 1 && transition.shouldPublish()) {
+            applicationEventPublisher
+                    .publishEvent(CryptoAssetPqcNotReadyEventHandler
+                            .constructEventMessage(transition
+                                    .eventData(write.row(), write.decision().ruleId(), write.decision().reason()),
+                                    null));
+        }
+        return written;
     }
 }

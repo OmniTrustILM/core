@@ -25,6 +25,7 @@ import com.otilm.core.service.acme.AcmeTestUtil;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.V3ConnectorStubs;
 import java.security.KeyPair;
@@ -103,9 +104,9 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
 
     @BeforeEach
     public void setUpWireMock() {
-        wireMockServer = new WireMockServer(0);
+        wireMockServer = new WireMockServer(LoopbackWireMock.options());
         wireMockServer.start();
-        WireMock.configureFor("localhost", wireMockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, wireMockServer.port());
 
         // Intercept ActionProducer to drive ISSUE actions synchronously, bypassing RabbitMQ.
         // All other action types are no-ops. Mirrors the AcmeProtocolFlowITest ActionProducer spy pattern.

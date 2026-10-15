@@ -1,10 +1,12 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
 import com.otilm.api.model.common.BulkActionMessageDto;
@@ -12,6 +14,7 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
+import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
 import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
@@ -62,22 +65,28 @@ import com.otilm.core.model.cbom.CryptoStatsDto;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.CbomInternalService;
+import com.otilm.core.service.CryptographicAssetExternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomSyncSkipWriter;
 import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
+import com.otilm.core.service.writer.cbom.InventoryCustomAttributeWriter;
 import com.otilm.core.tasks.CbomSyncTask;
 import com.otilm.core.util.CbomUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
+import com.otilm.core.util.SchemaHistory;
 import com.otilm.core.util.SearchHelper;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Date;
@@ -107,6 +116,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service(Resource.Codes.CBOM)
 @Transactional
@@ -160,6 +170,9 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private static final String INVENTORY_SOURCE_CONSTRAINT = "crypto_asset_source_to_cbom_key";
 
+    /** The migration that created {@code cbom_tombstone}: from its install on, a delete leaves a tombstone. */
+    private static final String TOMBSTONE_MIGRATION_VERSION = "202608271000";
+
     private CbomRepository cbomRepository;
 
     private CbomRepositoryClient cbomRepositoryClient;
@@ -169,6 +182,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private ScheduledJobHistoryRepository scheduledJobHistoryRepository;
 
     private TransactionHandler transactionHandler;
+    private InventoryCustomAttributeWriter inventoryAttributeWriter;
+    private EntityManagerFactory entityManagerFactory;
 
     private AttributeColumnProjector attributeColumnProjector;
 
@@ -192,7 +207,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
     private ClusterOperationSynchronizer clusterSynchronizer;
 
+    private SchemaHistory schemaHistory;
+
     private AuditorAware<String> auditorAware;
+
+    private CryptographicAssetExternalService cryptographicAssetService;
 
     @Autowired
     public void setCbomRepository(CbomRepository cbomRepository) {
@@ -227,6 +246,16 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @Autowired
     public void setTransactionHandler(TransactionHandler transactionHandler) {
         this.transactionHandler = transactionHandler;
+    }
+
+    @Autowired
+    public void setInventoryAttributeWriter(InventoryCustomAttributeWriter inventoryAttributeWriter) {
+        this.inventoryAttributeWriter = inventoryAttributeWriter;
+    }
+
+    @Autowired
+    public void setEntityManagerFactory(EntityManagerFactory entityManagerFactory) {
+        this.entityManagerFactory = entityManagerFactory;
     }
 
     @Autowired
@@ -270,6 +299,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     @Autowired
+    public void setSchemaHistory(SchemaHistory schemaHistory) {
+        this.schemaHistory = schemaHistory;
+    }
+
+    @Autowired
     public void setClusterSynchronizer(ClusterOperationSynchronizer clusterSynchronizer) {
         this.clusterSynchronizer = clusterSynchronizer;
     }
@@ -277,6 +311,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @Autowired
     public void setAuditorAware(AuditorAware<String> auditorAware) {
         this.auditorAware = auditorAware;
+    }
+
+    @Autowired
+    public void setCryptographicAssetService(CryptographicAssetExternalService cryptographicAssetService) {
+        this.cryptographicAssetService = cryptographicAssetService;
     }
 
     @Override
@@ -338,8 +377,33 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         detailDto.setAssetSyncState(cbomDto.getAssetSyncState());
         detailDto.setAssetSyncedAt(cbomDto.getAssetSyncedAt());
         detailDto.setAssetSyncError(cbomDto.getAssetSyncError());
+        detailDto.setCustomAttributes(attributeEngine.getObjectCustomAttributesContent(Resource.CBOM, cbom.getUuid()));
 
         return detailDto;
+    }
+
+    /**
+     * Detail access to the CBOM is this method's gate; the assets are listed by the inventory service under its own
+     * {@code CRYPTO_ASSET/LIST} gate, which re-scopes the same filter -- the shape
+     * {@code SigningProfileServiceImpl#listSigningRecordsForSigningProfile} established for a child listing.
+     *
+     * <p>
+     * That second gate asks the authorization service over HTTP, so nothing here may hold a database connection while
+     * it does. {@code NOT_SUPPORTED} keeps the class-level transaction off, and the CBOM is looked up only after the
+     * listing: under open-in-view the request's EntityManager keeps the connection its first read takes until the
+     * response is written, so a lookup ahead of the gate would hold that connection across the call. An unknown CBOM is
+     * still a 404 -- the listing scoped to it is empty, and the lookup then refuses it -- except to a caller who may
+     * not list assets, whom that gate refuses first.
+     */
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.DETAIL)
+    public PaginationResponseDto<CbomContributedAssetDto> listCbomAssets(SecuredUUID uuid, SearchRequestDto request,
+            SecurityFilter filter) throws NotFoundException {
+        PaginationResponseDto<CbomContributedAssetDto> page = cryptographicAssetService
+                .listCbomContributedAssets(uuid.getValue(), request, filter);
+        getEntity(uuid);
+        return page;
     }
 
     @Override
@@ -351,8 +415,22 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     }
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.CREATE)
     public CbomDto createCbom(CbomUploadRequestDto request)
+            throws AlreadyExistException, CbomRepositoryException, ValidationException {
+        // Each short transaction must own its EntityManager to release its connection before the next HTTP call.
+        Object requestEntityManager = TransactionSynchronizationManager.unbindResourceIfPossible(entityManagerFactory);
+        try {
+            return uploadCbom(request);
+        } finally {
+            if (requestEntityManager != null) {
+                TransactionSynchronizationManager.bindResource(entityManagerFactory, requestEntityManager);
+            }
+        }
+    }
+
+    private CbomDto uploadCbom(CbomUploadRequestDto request)
             throws AlreadyExistException, CbomRepositoryException, ValidationException {
         Map<String, Object> content = request.getContent();
         if (content == null) {
@@ -365,6 +443,13 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 .map(Object::toString)
                 .filter(s -> StringUtils.isNotBlank(s))
                 .orElseThrow(() -> new ValidationException("specVersion must not be empty"));
+        CbomUtil.validateVersion(content);
+
+        List<RequestAttribute> requestedAttributes = request.getCustomAttributes() == null
+                ? List.of()
+                : request.getCustomAttributes();
+        SecurityResourceFilter attributeFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
+        attributeEngine.validateWritableCustomAttributesContent(Resource.CBOM, requestedAttributes, attributeFilter);
 
         // upload JSON to cbom-repository
         CryptoStatsDto cryptoStats = null;
@@ -433,23 +518,60 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         }
         CbomHeaderCounts.from(cryptoStats).applyTo(cbom);
 
-        // save into the database only in case it does not exists
-        if (cbomRepository.existsBySerialNumberAndVersion(serialNumber, version)) {
-            throw new AlreadyExistException(
-                    "CBOM with serialNumber %s and version %s already exists".formatted(serialNumber, version));
-        }
         try {
-            cbomRepository.save(cbom);
+            boolean stored = transactionHandler.runInNewTransaction(() -> {
+                if (cbomRepository.existsBySerialNumberAndVersion(cbom.getSerialNumber(), cbom.getVersion())) {
+                    return false;
+                }
+                cbomRepository.saveAndFlush(cbom);
+                return true;
+            });
+            if (!stored) {
+                throw new AlreadyExistException(
+                        "CBOM with serialNumber %s and version %s already exists".formatted(serialNumber, version));
+            }
         } catch (DataIntegrityViolationException e) {
             throw new AlreadyExistException(
                     "CBOM with serialNumber %s and version %s already exists".formatted(serialNumber, version));
         }
+        storeUploadedCustomAttributes(cbom, requestedAttributes);
         logger
                 .logEvent(Operation.CREATE, OperationResult.SUCCESS, null,
                         List.of(new ResourceObjectIdentity(cbom.getSerialNumber(), cbom.getUuid())),
                         "CBOM record created with serialNumber %s and version %s"
                                 .formatted(cbom.getSerialNumber(), cbom.getVersion()));
         return cbom.mapToDto();
+    }
+
+    private void storeUploadedCustomAttributes(Cbom cbom, List<RequestAttribute> attributes)
+            throws CbomRepositoryException {
+        if (attributes.isEmpty()) {
+            return;
+        }
+        try {
+            SecurityResourceFilter attributeFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
+            inventoryAttributeWriter
+                    .updateAttributesContent(Resource.CBOM, cbom.getUuid(), attributes, attributeFilter);
+        } catch (NotFoundException | AttributeException | RuntimeException e) {
+            throw uploadedAttributeFailure(cbom, e);
+        }
+    }
+
+    private static CbomRepositoryException uploadedAttributeFailure(Cbom cbom, Exception failure) {
+        HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
+        String reason = "Retry updating the custom attributes on the stored CBOM.";
+        if (failure instanceof ValidationException || failure instanceof AttributeException) {
+            status = HttpStatus.UNPROCESSABLE_ENTITY;
+            reason = StringUtils.defaultIfBlank(failure.getMessage(), reason);
+        } else if (failure instanceof NotFoundException) {
+            status = HttpStatus.UNPROCESSABLE_ENTITY;
+            reason = "The CBOM or a custom attribute definition is no longer available.";
+        }
+        ProblemDetail problem = ProblemDetail
+                .forStatusAndDetail(status,
+                        "CBOM with UUID %s was stored, but its custom attributes could not be stored. %s"
+                                .formatted(cbom.getUuid(), reason));
+        return new CbomRepositoryException(problem, failure);
     }
 
     /**
@@ -614,10 +736,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      */
     private void deleteAndTombstone(UUID uuid) {
         clusterSynchronizer.lock(CbomAssetIngestService.assetSyncLockKey(uuid));
-        final Cbom cbom = cbomRepository.findById(uuid).orElse(null);
+        final Cbom cbom = cbomRepository.findForUpdateByUuid(uuid).orElse(null);
         if (cbom == null) {
             return;
         }
+        attributeEngine.deleteObjectAttributeContent(Resource.CBOM, uuid);
         cbomRepository.delete(cbom);
         cbomRepository.flush();
         tombstoneWriter
@@ -719,6 +842,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.UPDATE)
     public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
         getEntity(uuid);
+        cbomRepository.findForUpdateByUuid(uuid.getValue()).orElseThrow(() -> new NotFoundException(Cbom.class, uuid));
     }
 
     @Override
@@ -741,7 +865,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                                 .prepareSearch(FilterField.CBOM_ASSET_SYNC_STATE,
                                         CbomAssetSyncState.class.getEnumConstants()),
                         SearchHelper.prepareSearch(FilterField.CBOM_ASSETS_SYNCED_AT),
-                        SearchHelper.prepareSearch(FilterField.CBOM_ASSET_SYNC_ERROR));
+                        SearchHelper.prepareSearch(FilterField.CBOM_ASSET_SYNC_ERROR),
+                        SearchHelper.prepareSearch(FilterField.CBOM_HAS_CONTRIBUTED_ASSETS));
 
         fields = new ArrayList<>(fields);
         fields.sort(new SearchFieldDataComparator());
@@ -854,7 +979,9 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
      * {@code (serialNumber, version)}, the same tombstone test before an entry is stored, the same skip bookkeeping,
      * the same ingest pass at the end. What it adds is reach -- an entry the feed never offered inside any window the
      * hourly pass asked for is invisible to that pass for ever, and this is where it is found. Almost every entry it
-     * reads is already stored and costs one indexed existence check; only a missing one costs a document read.
+     * reads is already stored and costs one indexed existence check; only a missing one costs a document read. A
+     * missing entry listed before the upgrade to 2.20.0 is held back ({@link #isHeldBack}), as it is on any pass that
+     * lists from 0.
      *
      * <p>
      * It does not touch the hourly watermark in either direction: that is read from {@code CbomSyncTask}'s own job
@@ -874,7 +1001,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     private String runSync(SyncScope scope) throws CbomRepositoryException {
         // Read once, here: a policy changed in the Settings UI applies to the next run, never to half of this one.
         final CbomSyncPolicy policy = syncPolicyProvider.current();
-        final SyncRun run = new SyncRun(OffsetDateTime.now(), policy);
+        // The whole-listing pass opens at 0, so the overlap the hourly pass needs against a late-arriving entry is
+        // not read at all: there is no watermark to step back from. An hourly pass with no successful run behind it
+        // opens at 0 too, and is then the whole listing in everything but name, the hold-back included.
+        final long after = scope == SyncScope.THE_WHOLE_LISTING ? 0L : getLastSyncTimestamp(policy.overlap());
+        final SyncRun run = new SyncRun(OffsetDateTime.now(), policy, after == 0L ? readUpgradeInstant() : null);
         logger
                 .getLogger()
                 .info("CBOM Sync: started with an overlap of {} seconds, a retry budget of {} runs, an ingest budget of {} documents and asset ingest {}",
@@ -882,12 +1013,12 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                         policy.assetIngestEnabled() ? "on" : "off");
         final Map<SyncIdentity, CbomSyncSkip> skips = loadSkipRecords();
 
-        readFeed(run, skips, scope);
+        readFeed(run, skips, after);
         retrySkipped(run, skips);
         settleUnavailable(run, scope);
         ingestPending(run);
 
-        final String syncResultMessage = scope.report(run.summary());
+        final String syncResultMessage = scope.report(run);
         logger.getLogger().info("CBOM Sync: finished. {}", syncResultMessage);
         return syncResultMessage;
     }
@@ -911,9 +1042,19 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         SINCE_THE_LAST_RUN,
         THE_WHOLE_LISTING;
 
-        /** Says which pass the job history is reporting on, so two schedules do not read as one. */
-        String report(String summary) {
-            return this == THE_WHOLE_LISTING ? "Reconciled against the whole listing. " + summary : summary;
+        /**
+         * Says which pass the job history is reporting on, so two schedules do not read as one, and how many entries a
+         * run that applied the hold-back kept out.
+         */
+        String report(SyncRun run) {
+            final String summary = this == THE_WHOLE_LISTING
+                    ? "Reconciled against the whole listing. " + run.summary()
+                    : run.summary();
+            if (run.upgradedAt == null) {
+                return summary;
+            }
+            return summary + "; %d entries listed before the upgrade to 2.20.0 and absent from Core were held back"
+                    .formatted(run.heldBack);
         }
     }
 
@@ -943,12 +1084,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 .orElse(null);
     }
 
-    private void readFeed(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips, SyncScope scope)
+    private void readFeed(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips, long after)
             throws CbomRepositoryException {
         final BomSearchRequestDto query = new BomSearchRequestDto();
-        // The whole-listing pass opens at 0, so the overlap the hourly pass needs against a late-arriving entry is
-        // not read at all: there is no watermark to step back from.
-        query.setAfter(scope == SyncScope.THE_WHOLE_LISTING ? 0L : getLastSyncTimestamp(run.policy.overlap()));
+        query.setAfter(after);
         query.setLimit(run.policy.pageSize());
         logger.getLogger().debug("CBOM sync: listing entries created after {}", query.getAfter());
 
@@ -1047,6 +1186,14 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             resolveSkipIfRecorded(identity, skips, run, "was deleted by an operator");
             return;
         }
+        if (isHeldBack(entry, identity, run, skips)) {
+            logger
+                    .getLogger()
+                    .debug("CBOM Sync: CBOM serialNumber {} version {} was listed before the upgrade to 2.20.0 and is not in Core; holding it back",
+                            identity.serialNumber(), identity.version());
+            run.heldBack++;
+            return;
+        }
 
         final CbomHeaderCounts counts = CbomHeaderCounts.from(entry.getCryptoStats());
         final StoreOutcome outcome = store(identity, counts, run);
@@ -1056,11 +1203,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 if (entry.hasWarnings()) {
                     logger
                             .getLogger()
-                            .warn("CBOM Sync: repository flagged CBOM serialNumber {} version {} with {}; header counts {}",
-                                    identity.serialNumber(), identity.version(), entry.getWarnings(),
-                                    entry.getCryptoStats() == null
-                                            ? "are left at zero until the asset ingest recounts them"
-                                            : "were taken from the feed as reported");
+                            .warn("CBOM Sync: repository flagged CBOM serialNumber {} version {} with {}; header counts are the feed's (or zero) until the asset ingest recounts them from the document",
+                                    identity.serialNumber(), identity.version(), entry.getWarnings());
                 }
                 resolveSkipIfRecorded(identity, skips, run, "is stored");
             }
@@ -1076,6 +1220,46 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
             }
             default -> throw new IllegalStateException("Unhandled store outcome " + outcome.kind());
         }
+    }
+
+    /**
+     * Whether a pass that lists from 0 leaves an entry Core neither holds nor has tombstoned unstored, because it may
+     * have been deleted before the upgrade to 2.20.0.
+     *
+     * <p>
+     * Up to 2.19 a delete removed the row and wrote no tombstone, so such an entry listed before the upgrade was
+     * deleted then, or never synced; Core cannot tell the two apart. Storing it would bring a deletion back for good,
+     * since the stored row is indistinguishable from a synced one, while holding it back loses nothing: the document
+     * stays in the repository. An entry with a skip row is not held back, because only 2.20 writes those, so Core met
+     * it after the upgrade. An entry without a creation time counts as listed before. An hourly pass with a watermark
+     * is not held back: what it lists is new to it. Nor is anything on a database where no earlier Core ever synced a
+     * repository, where a whole listing is how a repository older than the install comes in
+     * ({@link #readUpgradeInstant}).
+     */
+    private boolean isHeldBack(BomEntryDto entry, SyncIdentity identity, SyncRun run,
+            Map<SyncIdentity, CbomSyncSkip> skips) {
+        if (run.upgradedAt == null) {
+            return false;
+        }
+        final boolean listedBeforeUpgrade = entry.getCreatedAt() == null
+                || entry.getCreatedAt().toInstant().isBefore(run.upgradedAt);
+        return listedBeforeUpgrade && previousSkip(identity, skips) == null;
+    }
+
+    /**
+     * When this database started keeping tombstones, provided an earlier Core ran the sync job against a configured
+     * repository before then; null otherwise. Up to 2.19 a sync run with no repository configured was skipped and its
+     * history row removed, so a sync run older than the tombstones is the only sign a CBOM could have been deleted
+     * without one. Other jobs' history does not count: a database upgraded before its first repository was configured
+     * deleted nothing, and its first whole listing has to bring that repository in.
+     */
+    private Instant readUpgradeInstant() {
+        return schemaHistory
+                .installedOn(TOMBSTONE_MIGRATION_VERSION)
+                .filter(tombstonesSince -> scheduledJobHistoryRepository
+                        .existsByScheduledJobJobNameAndJobExecutionBefore(CbomSyncTask.NAME,
+                                Date.from(tombstonesSince)))
+                .orElse(null);
     }
 
     private void retrySkipped(SyncRun run, Map<SyncIdentity, CbomSyncSkip> skips) {
@@ -1771,6 +1955,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         final OffsetDateTime startedAt;
         /** The operator policy this run was started with; a setting changed mid-run waits for the next one. */
         final CbomSyncPolicy policy;
+        /**
+         * When this database started keeping tombstones, set only on a run that applies the hold-back; see
+         * {@link #isHeldBack}.
+         */
+        final Instant upgradedAt;
         final Set<SyncIdentity> attempted = new HashSet<>();
         /** Entries whose document read got no answer, awaiting the run's verdict. */
         final List<DeferredSkip> deferred = new ArrayList<>();
@@ -1793,6 +1982,7 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
         int alreadyPermanent;
         /** Feed entries an operator had deleted, which this run left deleted. */
         int tombstoned;
+        int heldBack;
         int successfulReads;
         int ingested;
         int ingestRefused;
@@ -1808,9 +1998,10 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
          */
         int ingestReads;
 
-        SyncRun(OffsetDateTime startedAt, CbomSyncPolicy policy) {
+        SyncRun(OffsetDateTime startedAt, CbomSyncPolicy policy, Instant upgradedAt) {
             this.startedAt = startedAt;
             this.policy = policy;
+            this.upgradedAt = upgradedAt;
         }
 
         String summary() {

@@ -33,6 +33,11 @@ class AttributeEngineJsonExtensionValueTest {
 
     private static final String CUSTOM_OID = "1.3.6.1.4.1.99999.1.1";
 
+    private static final String DEMO_MODULE = """
+            Demo DEFINITIONS IMPLICIT TAGS ::= BEGIN
+            Demo ::= SEQUENCE { count INTEGER, name UTF8String }
+            END""";
+
     // The OidHandler cache is process-wide static state shared across the whole test JVM.
     // Snapshot CERTIFICATE_EXTENSION before this class replaces it; restore it afterwards.
     private static Map<String, OidRecord> savedExtensionCache;
@@ -53,71 +58,52 @@ class AttributeEngineJsonExtensionValueTest {
     @BeforeEach
     void seedRegistry() {
         OidHandler.cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION, new HashMap<>());
-        register(CUSTOM_OID, ExtensionValueEncoding.DER,
-                "{\"type\":\"object\",\"properties\":{\"sequence\":{\"type\":\"array\",\"minItems\":2}},"
-                        + "\"required\":[\"sequence\"]}");
+        register(CUSTOM_OID, ExtensionValueEncoding.DER, DEMO_MODULE);
     }
 
     @Test
-    void acceptsAValueMatchingTheRegistrySchema() {
+    void acceptsAValueTheModuleDescribes() {
+        var definition = extensionDefinition(CUSTOM_OID);
+
+        List<ValidationError> errors = AttributeEngine
+                .validateJsonExtensionValues(definition, value(definition, "{\"count\":2,\"name\":\"gateway\"}"));
+
+        assertThat(errors).isEmpty();
+    }
+
+    @Test
+    void rejectsAValueMissingAMandatoryMember_namingIt() {
+        var definition = extensionDefinition(CUSTOM_OID);
+
+        List<ValidationError> errors = AttributeEngine
+                .validateJsonExtensionValues(definition, value(definition, "{\"count\":2}"));
+
+        assertThat(errors)
+                .singleElement()
+                .satisfies(error -> assertThat(error.getErrorDescription()).contains("$.name").contains("required"));
+    }
+
+    @Test
+    void rejectsAMemberTheExtensionDoesNotDeclare() {
         var definition = extensionDefinition(CUSTOM_OID);
 
         List<ValidationError> errors = AttributeEngine
                 .validateJsonExtensionValues(definition,
-                        value(definition, "{\"sequence\":[{\"integer\":2},{\"utf8String\":\"gateway\"}]}"));
-
-        assertThat(errors).isEmpty();
-    }
-
-    @Test
-    void rejectsAValueViolatingTheRegistrySchema_withTheRegistryWording() {
-        var definition = extensionDefinition(CUSTOM_OID);
-
-        List<ValidationError> errors = AttributeEngine
-                .validateJsonExtensionValues(definition, value(definition, "{\"sequence\":[{\"integer\":2}]}"));
+                        value(definition, "{\"count\":2,\"name\":\"g\",\"colour\":\"red\"}"));
 
         assertThat(errors)
                 .singleElement()
-                .satisfies(error -> assertThat(error.getErrorDescription())
-                        .contains("registered schema for extension " + CUSTOM_OID)
-                        .contains("$.sequence"));
+                .satisfies(
+                        error -> assertThat(error.getErrorDescription()).contains("$.colour").contains("not a member"));
     }
 
     @Test
-    void rejectsAGrammaticallyInvalidTree_beforeTheSchemaLayer() {
-        var definition = extensionDefinition(CUSTOM_OID);
-
-        List<ValidationError> errors = AttributeEngine
-                .validateJsonExtensionValues(definition, value(definition, "{\"sequence\":[{\"int\":2}]}"));
-
-        assertThat(errors)
-                .singleElement()
-                .satisfies(error -> assertThat(error.getErrorDescription())
-                        .contains("Unknown node type 'int'")
-                        .contains("$.sequence[0]")
-                        .doesNotContain("registered schema"));
-    }
-
-    @Test
-    void leavesALegacyBase64ValueAlone() {
-        // The legacy path was never shape-checked; only values starting with '{' are.
-        var definition = extensionDefinition(CUSTOM_OID);
-
-        List<ValidationError> errors = AttributeEngine
-                .validateJsonExtensionValues(definition, value(definition, "MAYBAf8CAQA="));
-
-        assertThat(errors).isEmpty();
-    }
-
-    @Test
-    void acceptsAnyValidTree_whenTheOidDeclaresNoSchema() {
+    void anOidNobodyHasDescribedTakesItsValueAsBytes() {
         register("1.3.6.1.4.1.99999.2.2", ExtensionValueEncoding.DER, null);
         var definition = extensionDefinition("1.3.6.1.4.1.99999.2.2");
 
-        List<ValidationError> errors = AttributeEngine
-                .validateJsonExtensionValues(definition, value(definition, "{\"set\":[{\"oid\":\"1.2.3\"}]}"));
-
-        assertThat(errors).isEmpty();
+        assertThat(AttributeEngine.validateJsonExtensionValues(definition, value(definition, "MAYBAf8CAQA=")))
+                .isEmpty();
     }
 
     @Test
@@ -132,56 +118,117 @@ class AttributeEngineJsonExtensionValueTest {
     }
 
     @Test
-    void appliesTheShippedBasicConstraintsSchemaForABuiltInEntry() {
+    void appliesTheShippedModuleForABuiltInEntry() {
         registerSystem("2.5.29.19");
         var definition = extensionDefinition("2.5.29.19");
 
         assertThat(AttributeEngine
-                .validateJsonExtensionValues(definition,
-                        value(definition, "{\"sequence\":[{\"boolean\":true},{\"integer\":0}]}")))
+                .validateJsonExtensionValues(definition, value(definition, "{\"cA\":true,\"pathLenConstraint\":0}")))
                 .isEmpty();
         assertThat(AttributeEngine
-                .validateJsonExtensionValues(definition, value(definition, "{\"sequence\":[{\"integer\":0}]}")))
-                .isNotEmpty();
+                .validateJsonExtensionValues(definition, value(definition, "{\"pathLenConstraint\":-1}"))).isNotEmpty();
     }
 
     @Test
-    void appliesTheShippedSchemaWhenTheRegistryHasNoEntry() {
+    void appliesTheShippedModuleWhenTheRegistryHasNoEntry() {
         var definition = extensionDefinition("2.5.29.19");
 
         assertThat(AttributeEngine
-                .validateJsonExtensionValues(definition, value(definition, "{\"sequence\":[{\"integer\":0}]}")))
-                .isNotEmpty();
+                .validateJsonExtensionValues(definition, value(definition, "{\"pathLenConstraint\":-1}"))).isNotEmpty();
     }
 
     @Test
-    void aCustomEntryDeclaringNoSchemaLeavesTheValueUnconstrained() {
-        // An operator's own entry is the effective one while it exists, so declaring no schema means
-        // unconstrained — not that the Core-shipped shape for the same OID starts applying.
+    void aCustomEntryDeclaringNoModuleLeavesTheValueUndescribed() {
+        // The refusal below is what proves the shipped module is not quietly standing in for the operator's
+        // entry: under it, -1 would fail its range instead.
         register("2.5.29.19", ExtensionValueEncoding.DER, null);
         var definition = extensionDefinition("2.5.29.19");
 
-        assertThat(AttributeEngine
-                .validateJsonExtensionValues(definition, value(definition, "{\"sequence\":[{\"integer\":0}]}")))
+        assertThat(AttributeEngine.validateJsonExtensionValues(definition, value(definition, "MAYBAf8CAQA=")))
                 .isEmpty();
+        assertThat(AttributeEngine
+                .validateJsonExtensionValues(definition, value(definition, "{\"pathLenConstraint\":-1}")))
+                .singleElement()
+                .satisfies(error -> assertThat(error.getErrorDescription()).contains("no registered ASN.1 module"));
     }
 
     @Test
-    void refusesAJsonTreeForAnExtensionThatHasATypedTarget() {
+    void anUnreadableStoredModuleIsReportedNotThrown() {
+        // A row written straight into the database bypasses registration; every request touching the OID must
+        // still get an answer rather than an escaping exception.
+        register("1.3.6.1.4.1.99999.4.4", ExtensionValueEncoding.DER, "this is not a module");
+        var definition = extensionDefinition("1.3.6.1.4.1.99999.4.4");
+
+        assertThat(AttributeEngine.validateJsonExtensionValues(definition, value(definition, "{\"a\":1}")))
+                .singleElement()
+                .satisfies(error -> assertThat(error.getErrorDescription())
+                        .contains("cannot be checked")
+                        .contains("1.3.6.1.4.1.99999.4.4"));
+    }
+
+    @Test
+    void aMalformedWrittenValueIsRefusedWithTheReason() {
+        var definition = extensionDefinition(CUSTOM_OID);
+
+        assertThat(AttributeEngine.validateJsonExtensionValues(definition, value(definition, "{\"count\":2,}")))
+                .singleElement()
+                .satisfies(error -> assertThat(error.getErrorDescription()).contains("not well-formed JSON"));
+    }
+
+    @Test
+    void aBareScalarValueIsWrittenNotBytes() {
+        register("1.3.6.1.4.1.99999.5.5", ExtensionValueEncoding.DER, """
+                M DEFINITIONS IMPLICIT TAGS ::= BEGIN
+                Tier ::= INTEGER (0..3)
+                END""");
+        var definition = extensionDefinition("1.3.6.1.4.1.99999.5.5");
+
+        assertThat(AttributeEngine.validateJsonExtensionValues(definition, value(definition, "2"))).isEmpty();
+        assertThat(AttributeEngine.validateJsonExtensionValues(definition, value(definition, "7")))
+                .singleElement()
+                .satisfies(error -> assertThat(error.getErrorDescription()).contains("permitted range"));
+    }
+
+    @Test
+    void refusesAWrittenValueForAnExtensionThatHasATypedTarget() {
         // Authoring a new opaque mapping for these OIDs is already refused; a legacy one must not gain a
         // second, weaker way in. The typed target draws on a closed vocabulary and cannot express a malformed
-        // value, which is exactly what a hand-written bit string can do.
+        // value, which is exactly what a written one can.
         registerSystem("2.5.29.15");
         var definition = extensionDefinition("2.5.29.15");
 
         assertThat(AttributeEngine
-                .validateJsonExtensionValues(definition,
-                        value(definition, "{\"bitString\":{\"value\":\"gA==\",\"padBits\":7}}")))
+                .validateJsonExtensionValues(definition, value(definition, "{\"value\":\"80\",\"length\":1}")))
                 .singleElement()
                 .satisfies(error -> assertThat(error.getErrorDescription()).contains("Key Usage"));
+    }
 
-        // Base64 DER through a legacy mapping is untouched.
+    @Test
+    void leavesALegacyBase64MappingToATypedTargetUntouched() {
+        // A definition stored before the typed targets existed keeps projecting its DER blob; base64 cannot
+        // begin with a character a written value starts with, so the two are told apart without ambiguity.
+        registerSystem("2.5.29.15");
+        var definition = extensionDefinition("2.5.29.15");
+
         assertThat(AttributeEngine.validateJsonExtensionValues(definition, value(definition, "AwIFoA=="))).isEmpty();
+    }
+
+    @Test
+    void everyDeclaredContentErrorIsReportedNotJustTheFirst() {
+        // Declared content with two bad values must name both; surfacing only the first sends the author round
+        // the loop once per mistake.
+        DataAttributeV3 definition = extensionDefinition("2.5.29.19");
+        definition
+                .setContent(List
+                        .of(new StringAttributeContentV3("{\"pathLenConstraint\":-1}"),
+                                new StringAttributeContentV3("{\"colour\":\"red\"}")));
+
+        AttributeException thrown = Assertions
+                .assertThrows(AttributeException.class,
+                        () -> AttributeEngine.validateJsonSchemaDeclarations(definition, null));
+
+        assertThat(thrown.getMessage()).contains("; ");
+        assertThat(thrown.getMessage().split("; ")).hasSizeGreaterThan(1);
     }
 
     private static void registerSystem(String oid) {
@@ -195,34 +242,15 @@ class AttributeEngineJsonExtensionValueTest {
                                 .build());
     }
 
-    private static void register(String oid, ExtensionValueEncoding encoding, String schema) {
+    private static void register(String oid, ExtensionValueEncoding encoding, String module) {
         OidHandler
                 .cacheOid(OidCategory.CERTIFICATE_EXTENSION, oid,
                         OidRecord
                                 .builder()
                                 .displayName("Test Extension")
                                 .valueEncoding(encoding)
-                                .valueSchema(schema)
+                                .valueSchema(module)
                                 .build());
-    }
-
-    @Test
-    void everyDeclaredContentErrorIsReportedNotJustTheFirst() {
-        // Declared content with two bad values must name both; surfacing only the first sends the author round
-        // the loop once per mistake.
-        DataAttributeV3 definition = extensionDefinition("2.5.29.19");
-        definition
-                .setContent(List
-                        .of(new StringAttributeContentV3("{\"sequence\":[{\"boolean\":false}]}"),
-                                new StringAttributeContentV3("{\"sequence\":[{\"boolean\":true},{\"integer\":-1}]}")));
-
-        AttributeException thrown = Assertions
-                .assertThrows(AttributeException.class,
-                        () -> AttributeEngine.validateJsonSchemaDeclarations(definition, null));
-
-        // Two distinct violations, joined rather than truncated to the first.
-        assertThat(thrown.getMessage()).contains("; ");
-        assertThat(thrown.getMessage().split("; ")).hasSizeGreaterThan(1);
     }
 
     private static DataAttributeV3 extensionDefinition(String oid) {

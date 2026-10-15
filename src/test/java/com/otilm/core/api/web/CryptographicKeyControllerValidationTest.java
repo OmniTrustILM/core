@@ -1,6 +1,7 @@
 package com.otilm.core.api.web;
 
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.util.ApplicationMessageConverters;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -22,7 +23,10 @@ class CryptographicKeyControllerValidationTest {
         var service = mock(CryptographicKeyExternalService.class);
         var controller = new CryptographicKeyControllerImpl();
         controller.setCryptographicKeyExternalService(service);
-        var mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        var mvc = MockMvcBuilders
+                .standaloneSetup(controller)
+                .setMessageConverters(ApplicationMessageConverters.get())
+                .build();
 
         // when
         var response = mvc

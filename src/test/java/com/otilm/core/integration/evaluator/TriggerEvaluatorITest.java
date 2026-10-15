@@ -20,12 +20,14 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.BitMaskEnum;
@@ -34,6 +36,7 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -70,6 +73,7 @@ import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -86,6 +90,7 @@ import com.otilm.core.service.NotificationProfileExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.WireMockPorts;
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -118,6 +123,9 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Autowired
     private TriggerEvaluator<Discovery> discoveryTriggerEvaluator;
+
+    @Autowired
+    private DiscoveryRepository discoveryRepository;
 
     @Autowired
     private TriggerEvaluator<Comment> commentTriggerEvaluator;
@@ -758,6 +766,110 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     }
 
     /**
+     * The item total is derived by the database, so a condition reads it off a run as loaded, which is how the
+     * discovery-finished handler hands its run to the evaluator. The run received 52 items, 48 of them certificates.
+     */
+    @Test
+    void aConditionOnTheItemTotalReadsTheTotalTheRunWasLoadedWith() throws RuleException {
+        Discovery stored = new Discovery();
+        stored.setName("item-total-condition");
+        stored.setConnectorUuid(UUID.randomUUID());
+        stored.setStatus(DiscoveryStatus.COMPLETED);
+        stored.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        stored.setLastAppliedSequence(52);
+        stored.setTotalCertificatesDiscovered(48);
+        stored = discoveryRepository.saveAndFlush(stored);
+        Discovery discovery = discoveryRepository.findByUuid(stored.getUuid()).orElseThrow();
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED.toString());
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue(50);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(52);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    /** A float holds integers exactly only up to 2^24, and an item total can outgrow that. */
+    @Test
+    void aConditionOnTheItemTotalComparesExactlyPastTheFloatRange() throws RuleException {
+        Discovery stored = new Discovery();
+        stored.setName("item-total-condition-large");
+        stored.setConnectorUuid(UUID.randomUUID());
+        stored.setStatus(DiscoveryStatus.COMPLETED);
+        stored.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        stored.setLastAppliedSequence(3_000_000_001L);
+        stored = discoveryRepository.saveAndFlush(stored);
+        Discovery discovery = discoveryRepository.findByUuid(stored.getUuid()).orElseThrow();
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED.toString());
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue(3_000_000_000L);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    @Test
+    void aConditionOnResourcesMatchesTheRunsTargetsByCode() throws RuleException {
+        Discovery discovery = new Discovery();
+        discovery.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_RESOURCES.toString());
+
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(Resource.CRYPTOGRAPHIC_KEY.getCode()));
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(List.of(Resource.SECRET.getCode()));
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(List.of(Resource.SECRET.getCode(), Resource.CRYPTOGRAPHIC_KEY.getCode()));
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue(Resource.CRYPTOGRAPHIC_KEY.getCode());
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(Resource.SECRET.getCode());
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        condition.setValue(null);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    @Test
+    void aConditionOnResourcesFindsAV1RunByTheCertificatesItTargets() throws RuleException {
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_RESOURCES.toString());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(Resource.CERTIFICATE.getCode()));
+
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator
+                        .evaluateConditionItem(condition, new Discovery(), Resource.DISCOVERY));
+    }
+
+    /**
      * Every datetime comparison operator, both outcomes, on an {@code OffsetDateTime} attribute — the branch matrix the
      * evaluator's operator lambdas carry since the timestamptz columns arrived. The certificate variant of the same
      * operators runs on {@code java.util.Date}, so both temporal types cover both branches of the normalizing helper.
@@ -1087,7 +1199,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                         listAttribute.getName(),
                         List
                                 .of(new StringAttributeContentV3("ref", "data1"),
-                                        new StringAttributeContentV3("ref", "data")));
+                                        new StringAttributeContentV3("ref", "data")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         ConditionItem newCondition = new ConditionItem();
         newCondition.setFieldSource(FilterFieldSource.CUSTOM);
@@ -1208,7 +1321,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .createCustomAttribute(singleAttributeRequest);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null,
-                        singleAttribute.getName(), List.of(new StringAttributeContentV3("ref", "data")));
+                        singleAttribute.getName(), List.of(new StringAttributeContentV3("ref", "data")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         ConditionItem newCondition = new ConditionItem();
         newCondition.setFieldSource(FilterFieldSource.CUSTOM);
@@ -1435,7 +1549,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .createCustomAttribute(categoryAttributeRequest);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null,
-                        categoryAttribute.getName(), List.of(new StringAttributeContentV3("ref", "Approved")));
+                        categoryAttribute.getName(), List.of(new StringAttributeContentV3("ref", "Approved")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         RequestAttributeV3 pendingAttribute = new RequestAttributeV3();
         pendingAttribute.setUuid(UUID.randomUUID());
@@ -1604,9 +1719,9 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Test
     void testSetRaProfile() throws RuleException, NotFoundException, CertificateException, IOException {
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         mockServer
                 .stubFor(WireMock
@@ -1616,7 +1731,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
         Connector connector = new Connector();
         connector.setName("authorityInstanceConnector");
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connectorRepository.save(connector);
@@ -1753,6 +1868,65 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testMappingRejectedByThePredefinedListKeepsTheStoredValue()
+            throws AttributeException, NotFoundException, RuleException {
+        CustomAttributeV3 pillar = new CustomAttributeV3();
+        pillar.setUuid(UUID.randomUUID().toString());
+        pillar.setName("pillarTarget");
+        pillar.setType(AttributeType.CUSTOM);
+        pillar.setContentType(AttributeContentType.STRING);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("pillarTarget");
+        properties.setList(true);
+        properties.setExtensibleList(false);
+        pillar.setProperties(properties);
+        pillar.setContent(List.of(new StringAttributeContentV3("Retail"), new StringAttributeContentV3("Corporate")));
+        attributeEngine.updateCustomAttributeDefinition(pillar, List.of(Resource.CERTIFICATE));
+        attributeEngine
+                .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null, "pillarTarget",
+                        List.of(new StringAttributeContentV3("Retail")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
+
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+        MetadataAttributeV2 metaAttr = new MetadataAttributeV2();
+        metaAttr.setContentType(AttributeContentType.STRING);
+        metaAttr.setName("pillarSource");
+        metaAttr.setUuid(UUID.randomUUID().toString());
+        metaAttr.setContent(List.of(new StringAttributeContentV2(null, "Unknown")));
+        metaAttr.setType(AttributeType.META);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("pillarSource");
+        metaAttr.setProperties(props);
+        attributeEngine
+                .updateMetadataAttributes(List.of(metaAttr),
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE, certificate.getUuid())
+                                .connector(connector.getUuid())
+                                .build());
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("pillarTarget|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("pillarSource|STRING");
+        executionItem.setData(null);
+
+        TriggerHistory triggerHistory = triggerService
+                .createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
+        certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
+
+        Assertions.assertEquals(1, triggerHistory.getRecords().size(), "the rejected mapping is recorded");
+        ResponseAttributeV3 stored = (ResponseAttributeV3) attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid())
+                .stream()
+                .filter(a -> a.getName().equals("pillarTarget"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals("Retail", stored.getContent().getFirst().getData().toString());
+    }
+
+    @Test
     void testSetCustomAttributeFromCustomAttribute()
             throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
         CustomAttributeCreateRequestDto sourceDto = new CustomAttributeCreateRequestDto();
@@ -1763,7 +1937,8 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         attributeService.createCustomAttribute(sourceDto);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null, "customSource",
-                        List.of(new StringAttributeContentV3("ref", "sourceValue")));
+                        List.of(new StringAttributeContentV3("ref", "sourceValue")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeCreateRequestDto targetDto = new CustomAttributeCreateRequestDto();
         targetDto.setName("customTarget2");

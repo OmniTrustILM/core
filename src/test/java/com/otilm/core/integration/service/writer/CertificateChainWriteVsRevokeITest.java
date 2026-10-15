@@ -2,7 +2,6 @@ package com.otilm.core.integration.service.writer;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.extension.Parameters;
 import com.github.tomakehurst.wiremock.extension.ServeEventListener;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
@@ -16,6 +15,7 @@ import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.service.CertificateChainService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
@@ -92,9 +92,9 @@ class CertificateChainWriteVsRevokeITest extends BaseSpringBootTest {
                 return "aiaRequestReceivedListener";
             }
         };
-        aiaServer = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort().extensions(aiaListener));
+        aiaServer = new WireMockServer(LoopbackWireMock.options().extensions(aiaListener));
         aiaServer.start();
-        String caIssuersUrl = "http://localhost:" + aiaServer.port() + "/aia/ca.cer";
+        String caIssuersUrl = LoopbackWireMock.url(aiaServer) + "/aia/ca.cer";
 
         // Real CA + EE pair. The EE certificate's AIA caIssuers URL points at WireMock.
         KeyPair caKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);

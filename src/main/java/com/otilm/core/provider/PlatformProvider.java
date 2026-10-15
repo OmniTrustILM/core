@@ -1,8 +1,9 @@
 package com.otilm.core.provider;
 
-import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import java.security.Provider;
 import java.security.Security;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,15 +15,16 @@ public class PlatformProvider extends Provider {
     public static final String PROVIDER_NAME = "PlatformProvider";
     private static final Logger logger = LoggerFactory.getLogger(PlatformProvider.class);
 
-    private PlatformProvider(String name, CryptographicOperationsSyncApiClient apiClient) {
+    private PlatformProvider(String name, KeyProviderAdapterFactory adapterFactory) {
         super(name, "1.0", "Platform Provider");
-        this.init(apiClient);
+        this.init(Objects.requireNonNull(adapterFactory, "adapterFactory must not be null"));
     }
 
     public static PlatformProvider getInstance(String name, boolean registerProvider,
-            CryptographicOperationsSyncApiClient apiClient) {
+            KeyProviderAdapterFactory adapterFactory) {
+        Objects.requireNonNull(name, "name must not be null");
         String instanceName = "%s-%s".formatted(PROVIDER_NAME, name);
-        PlatformProvider provider = new PlatformProvider(instanceName, apiClient);
+        PlatformProvider provider = new PlatformProvider(instanceName, adapterFactory);
 
         if (registerProvider) {
             if (Security.getProvider(provider.getName()) != null) {
@@ -36,58 +38,58 @@ public class PlatformProvider extends Provider {
         return provider;
     }
 
-    void init(CryptographicOperationsSyncApiClient apiClient) {
-        this.setupServices(apiClient);
+    void init(KeyProviderAdapterFactory adapterFactory) {
+        this.setupServices(adapterFactory);
     }
 
-    void setupServices(CryptographicOperationsSyncApiClient apiClient) {
+    void setupServices(KeyProviderAdapterFactory adapterFactory) {
         // Register Cipher algorithms for encryption and decryption
-        putService(new PlatformCipherProviderService(this, "Cipher", new PlatformCipherService(apiClient, "RSA")));
+        putService(new PlatformCipherProviderService(this, "Cipher", new PlatformCipherService(adapterFactory, "RSA")));
         putService(new PlatformCipherProviderService(this, "Cipher",
-                new PlatformCipherService(apiClient, "RSA/ECB/PKCS1Padding")));
+                new PlatformCipherService(adapterFactory, "RSA/ECB/PKCS1Padding")));
         putService(new PlatformCipherProviderService(this, "Cipher",
-                new PlatformCipherService(apiClient, "RSA/NONE/PKCS1Padding")));
+                new PlatformCipherService(adapterFactory, "RSA/NONE/PKCS1Padding")));
 
         // Register Signature algorithms for signing and verification
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "NONEwithRSA")));
+                new PlatformSignatureService(adapterFactory, "NONEwithRSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "MD5withRSA")));
+                new PlatformSignatureService(adapterFactory, "MD5withRSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA1withRSA")));
+                new PlatformSignatureService(adapterFactory, "SHA1withRSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA224withRSA")));
+                new PlatformSignatureService(adapterFactory, "SHA224withRSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA256withRSA")));
+                new PlatformSignatureService(adapterFactory, "SHA256withRSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA384withRSA")));
+                new PlatformSignatureService(adapterFactory, "SHA384withRSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA512withRSA")));
+                new PlatformSignatureService(adapterFactory, "SHA512withRSA")));
 
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "NONEwithRSA/PSS")));
+                new PlatformSignatureService(adapterFactory, "NONEwithRSA/PSS")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA1withRSA/PSS")));
+                new PlatformSignatureService(adapterFactory, "SHA1withRSA/PSS")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA224withRSA/PSS")));
+                new PlatformSignatureService(adapterFactory, "SHA224withRSA/PSS")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA256withRSA/PSS")));
+                new PlatformSignatureService(adapterFactory, "SHA256withRSA/PSS")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA384withRSA/PSS")));
+                new PlatformSignatureService(adapterFactory, "SHA384withRSA/PSS")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA512withRSA/PSS")));
+                new PlatformSignatureService(adapterFactory, "SHA512withRSA/PSS")));
 
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "NONEwithECDSA")));
+                new PlatformSignatureService(adapterFactory, "NONEwithECDSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA1withECDSA")));
+                new PlatformSignatureService(adapterFactory, "SHA1withECDSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA224withECDSA")));
+                new PlatformSignatureService(adapterFactory, "SHA224withECDSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA256withECDSA")));
+                new PlatformSignatureService(adapterFactory, "SHA256withECDSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA384withECDSA")));
+                new PlatformSignatureService(adapterFactory, "SHA384withECDSA")));
         putService(new PlatformSignatureProviderService(this, "Signature",
-                new PlatformSignatureService(apiClient, "SHA512withECDSA")));
+                new PlatformSignatureService(adapterFactory, "SHA512withECDSA")));
     }
 }

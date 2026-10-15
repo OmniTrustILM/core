@@ -58,6 +58,8 @@ import org.hibernate.type.SqlTypes;
         constraints = "identity_guard IN ('REFUTED_CERTIFICATE_DIGEST', 'BARE_CN_SUBJECT', 'REFUTED_OID')")
 @Check(name = "ck_crypto_asset_pqc_verdict",
         constraints = "pqc_verdict IN ('READY', 'NOT_READY', 'NOT_APPLICABLE', 'UNKNOWN')")
+@Check(name = "ck_crypto_asset_pqc_last_decided_verdict",
+        constraints = "pqc_last_decided_verdict IN ('READY', 'NOT_READY', 'NOT_APPLICABLE')")
 @Check(name = "ck_crypto_asset_oid_length", constraints = "length(oid) <= 255")
 @Check(name = "ck_crypto_asset_name_length", constraints = "length(name) <= 1024")
 public class CryptoAsset extends UniquelyIdentifiedAndAudited {
@@ -142,14 +144,15 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     @Column(name = "pqc_verdict", columnDefinition = "TEXT")
     private PqcVerdict pqcVerdict;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pqc_last_decided_verdict", columnDefinition = "TEXT")
+    private PqcVerdict pqcLastDecidedVerdict;
+
     @Column(name = "pqc_rule_id", columnDefinition = "TEXT")
     private String pqcRuleId;
 
     @Column(name = "pqc_reason", columnDefinition = "TEXT")
     private String pqcReason;
-
-    @Column(name = "pqc_ruleset_version")
-    private Integer pqcRulesetVersion;
 
     /**
      * When the current verdict <em>value</em> was decided. Unmoved by a re-evaluation that reaches the same verdict.
@@ -160,6 +163,22 @@ public class CryptoAsset extends UniquelyIdentifiedAndAudited {
     /** When the verdict was last evaluated, whether or not the value changed. */
     @Column(name = "pqc_evaluated_at")
     private OffsetDateTime pqcEvaluatedAt;
+
+    /** Advanced by every write that changes what the PQC rules read; see the sweep's work list. */
+    @Column(name = "input_revision", nullable = false)
+    private long inputRevision;
+
+    /** The {@code inputRevision} the stored verdict was evaluated at; null before the first evaluation. */
+    @Column(name = "pqc_evaluated_revision")
+    private Long pqcEvaluatedRevision;
+
+    /** The asset whose own verdict a reference rule carried over. No FK: the verdict outlives its target. */
+    @Column(name = "pqc_referenced_asset_uuid")
+    private UUID pqcReferencedAssetUuid;
+
+    /** What a certificate's or protocol's references read when its verdict was taken; see the sweep's work list. */
+    @Column(name = "pqc_reference_basis", columnDefinition = "TEXT")
+    private String pqcReferenceBasis;
 
     // Which fields the rule actually read, so a verdict can be re-justified without re-running the rule set.
     @SuppressWarnings("java:S1948")

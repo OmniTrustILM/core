@@ -443,8 +443,7 @@ class RoleAssignmentGuardITest extends BaseSpringBootTest {
     }
 
     // A system user's account state is as load-bearing as its role: disabling acme stops ACME enrolment just as
-    // surely as detaching its role would. The auth service refuses to update or delete a system user but not to
-    // disable one, so nothing rejected this before.
+    // surely as detaching its role would.
 
     @Test
     void disableUser_rejectsDisablingASystemUser() {

@@ -11,6 +11,7 @@ public class PostgresFunctionContributor implements FunctionContributor {
     public static final String JSONB_CONTAINS = "jsonb_contains";
     public static final String JSON_TEXT_ARRAY_CONTAINS = "json_text_array_contains";
     public static final String JSON_TEXT_ARRAY_CONTAINS_PATTERN = "CAST(?1 AS jsonb) @> CAST(?2 AS jsonb)";
+    public static final String TEXT_TO_JSONB = "text_to_jsonb";
     public static final String ARRAY_CONTAINS = "text_array_contains";
     public static final String ARRAY_ITEM_CONTAINS = "text_array_item_contains";
 
@@ -63,6 +64,14 @@ public class PostgresFunctionContributor implements FunctionContributor {
         functionContributions
                 .getFunctionRegistry()
                 .registerPattern(JSONB_CONTAINS, "jsonb_contains(?1, ?2::jsonb)", booleanType);
+        // A TEXT column holding JSON; the empty string it defaults to is not valid jsonb, so it reads as no value.
+        functionContributions
+                .getFunctionRegistry()
+                .registerPattern(TEXT_TO_JSONB, "CAST(NULLIF(?1, '') AS JSONB)",
+                        functionContributions
+                                .getTypeConfiguration()
+                                .getBasicTypeRegistry()
+                                .resolve(StandardBasicTypes.STRING));
         functionContributions
                 .getFunctionRegistry()
                 .registerPattern(JSON_TEXT_ARRAY_CONTAINS, JSON_TEXT_ARRAY_CONTAINS_PATTERN, booleanType);

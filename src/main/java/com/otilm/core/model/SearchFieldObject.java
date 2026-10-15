@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.UUID;
 import lombok.Data;
 
 @Data
@@ -37,6 +38,9 @@ public class SearchFieldObject {
 
     private List<String> contentItems;
 
+    /** The definition row the field was read from, which is what a caller's attribute permissions name. */
+    private UUID definitionUuid;
+
     public SearchFieldObject(AttributeContentType attributeContentType) {
         this.attributeContentType = attributeContentType;
     }
@@ -48,8 +52,9 @@ public class SearchFieldObject {
         this.attributeType = attributeType;
     }
 
-    public SearchFieldObject(String attributeName, AttributeContentType attributeContentType,
+    public SearchFieldObject(UUID definitionUuid, String attributeName, AttributeContentType attributeContentType,
             AttributeType attributeType, String label, boolean visible, BaseAttribute attributeDefinition) {
+        this.definitionUuid = definitionUuid;
         this.attributeName = attributeName;
         this.attributeContentType = attributeContentType;
         this.attributeType = attributeType;
@@ -83,6 +88,23 @@ public class SearchFieldObject {
             MetadataAttribute metadataAttribute = (MetadataAttribute) attributeDefinition;
             protectionLevel = metadataAttribute.getProperties().getProtectionLevel();
         }
+    }
+
+    /**
+     * A copy that can be merged without touching this one. {@code SearchHelper} merges rows sharing an identifier in
+     * place, so a row read from a cache is copied before it is merged. The content items list is shared: merging
+     * replaces it, never changes it.
+     */
+    public SearchFieldObject copy() {
+        SearchFieldObject copy = new SearchFieldObject(attributeName, attributeContentType, attributeType);
+        copy.setLabel(label);
+        copy.setList(list);
+        copy.setMultiSelect(multiSelect);
+        copy.setProtectionLevel(protectionLevel);
+        copy.setVisible(visible);
+        copy.setContentItems(contentItems);
+        copy.setDefinitionUuid(definitionUuid);
+        return copy;
     }
 
     public boolean isDateTimeFormat() {

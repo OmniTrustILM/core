@@ -52,13 +52,15 @@ class ApprovalGrantedITest extends AbstractApprovalWorkflowITest {
                 .pollInSameThread()
                 .atMost(5, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    List<CertificateEventHistoryDto> history = certHistoryService.getCertificateEventHistory(certUuid);
+                    List<CertificateEventHistoryDto> history = certHistoryService
+                            .getCertificateEventHistory(SecuredUUID.fromUUID(certUuid));
                     assertThat(history)
                             .as("Certificate history should contain APPROVAL_REQUEST event after createApproval()")
                             .anyMatch(h -> h.getEvent() == CertificateEvent.APPROVAL_REQUEST);
                 });
 
-        List<CertificateEventHistoryDto> historyAfterRequest = certHistoryService.getCertificateEventHistory(certUuid);
+        List<CertificateEventHistoryDto> historyAfterRequest = certHistoryService
+                .getCertificateEventHistory(SecuredUUID.fromUUID(certUuid));
         CertificateEventHistoryDto requestEvent = historyAfterRequest
                 .stream()
                 .filter(h -> h.getEvent() == CertificateEvent.APPROVAL_REQUEST)
@@ -84,13 +86,15 @@ class ApprovalGrantedITest extends AbstractApprovalWorkflowITest {
                 .pollInSameThread()
                 .atMost(5, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
-                    List<CertificateEventHistoryDto> history = certHistoryService.getCertificateEventHistory(certUuid);
+                    List<CertificateEventHistoryDto> history = certHistoryService
+                            .getCertificateEventHistory(SecuredUUID.fromUUID(certUuid));
                     assertThat(history)
                             .as("Certificate history should contain APPROVAL_CLOSE event after approveApprovalRecipient()")
                             .anyMatch(h -> h.getEvent() == CertificateEvent.APPROVAL_CLOSE);
                 });
 
-        List<CertificateEventHistoryDto> finalHistory = certHistoryService.getCertificateEventHistory(certUuid);
+        List<CertificateEventHistoryDto> finalHistory = certHistoryService
+                .getCertificateEventHistory(SecuredUUID.fromUUID(certUuid));
 
         assertThat(finalHistory)
                 .filteredOn(h -> h.getEvent() == CertificateEvent.APPROVAL_REQUEST

@@ -43,10 +43,8 @@ public class PlatformCipherSpi extends CipherSpi {
     }
 
     @Override
-    protected byte[] engineDoFinal(byte[] encryptedData, int inputOffset, int inputLen)
-            throws IllegalBlockSizeException, BadPaddingException {
+    protected byte[] engineDoFinal(byte[] encryptedData, int inputOffset, int inputLen) {
         if (operationMode == Cipher.DECRYPT_MODE) {
-            ;
             return cipherService.decrypt(encryptedData, privateKey);
         } else {
             throw new IllegalStateException("Encryption is not supported by this provider (yet)");

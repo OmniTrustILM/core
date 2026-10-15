@@ -21,35 +21,29 @@ public final class CbomUtil {
         return serialNumber;
     }
 
+    static final String INVALID_VERSION_MESSAGE = "Invalid CBOM version. Version must be an integer from 1 to 2147483647. Example: 1";
+
+    /**
+     * Checks the optional CycloneDX {@code version} field of an uploaded document: when present it must be a JSON
+     * integer of at least 1 that fits the {@code int} the platform stores. A decimal such as {@code 10.2}, a string or
+     * {@code null} is refused here, before the upload reaches the CBOM repository, which would refuse it too but only
+     * as a generic decoding or schema failure.
+     */
+    public static void validateVersion(Map<String, Object> content) throws ValidationException {
+        if (!content.containsKey("version")) {
+            return;
+        }
+        if (!(content.get("version") instanceof Integer version) || version < 1) {
+            throw new ValidationException(INVALID_VERSION_MESSAGE);
+        }
+    }
+
     public static int mustGetVersion(Map<String, Object> content) throws ValidationException {
         if (!content.containsKey("version")) {
             throw new ValidationException("version is required");
         }
-
-        Object versionObj = content.get("version");
-
-        if (versionObj == null) {
-            throw new ValidationException("version must not be null");
-        }
-
-        if (versionObj instanceof Integer) {
-            return (Integer) versionObj;
-        }
-
-        if (versionObj instanceof String) {
-            String versionStr = (String) versionObj;
-            if (versionStr.trim().isEmpty()) {
-                throw new ValidationException("version must not be empty or blank");
-            }
-            try {
-                return Integer.parseInt(versionStr.trim());
-            } catch (NumberFormatException e) {
-                throw new ValidationException("version must be a valid integer, got: '" + versionStr + "'");
-            }
-        }
-
-        throw new ValidationException(
-                "version must be an integer or a numeric string, got type: " + versionObj.getClass().getSimpleName());
+        validateVersion(content);
+        return (Integer) content.get("version");
     }
 
     public static Map<String, Object> getMetadata(Map<String, Object> content) throws ValidationException {

@@ -104,7 +104,14 @@ public class DiscoveryControllerImpl implements DiscoveryController {
     public ResponseEntity<?> createDiscovery(@RequestBody DiscoveryDto request)
             throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
         final DiscoveryDetailDto modal = discoveryService.createDiscovery(request, true);
-        discoveryService.runDiscoveryAsync(UUID.fromString(modal.getUuid()));
+        UUID discoveryUuid = UUID.fromString(modal.getUuid());
+        if (modal.getConnectorInterface() == null) {
+            discoveryService.runDiscoveryAsync(discoveryUuid);
+        } else {
+            // A v2 initiate answers once the connector has taken the run, so the caller can wait for it and hear a
+            // refusal of what they asked for, instead of finding a failed run later.
+            discoveryService.startDiscovery(discoveryUuid);
+        }
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()
                 .path("/{uuid}")

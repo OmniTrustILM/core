@@ -68,6 +68,7 @@ import com.otilm.core.service.writer.AcmeChallengeWriter;
 import com.otilm.core.util.AcmeCommonHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
+import com.otilm.core.util.LoopbackWireMock;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -179,12 +180,12 @@ class AcmeServiceITest extends BaseSpringBootTest {
     void setUp() throws JOSEException, NoSuchAlgorithmException, CertificateException, SignatureException,
             InvalidKeyException, NoSuchProviderException, OperatorCreationException {
         // prepare mock server
-        mockServer = new WireMockServer(0);
+        mockServer = new WireMockServer(LoopbackWireMock.options());
         mockServer.start();
 
         mockAcmeRolePermissions();
 
-        WireMock.configureFor("localhost", mockServer.port());
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
 
         mockServer
                 .stubFor(WireMock
@@ -214,7 +215,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
         b64UrlCertificate = Base64.getUrlEncoder().encodeToString(x509Certificate.getEncoded());
 
         Connector connector = new Connector();
-        connector.setUrl("http://localhost:" + mockServer.port());
+        connector.setUrl(LoopbackWireMock.url(mockServer));
         connector.setVersion(ConnectorVersion.V1);
         connector.setStatus(ConnectorStatus.CONNECTED);
         connector = connectorRepository.save(connector);

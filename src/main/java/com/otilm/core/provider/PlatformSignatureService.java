@@ -1,176 +1,93 @@
 package com.otilm.core.provider;
 
 import com.otilm.api.exception.ConnectorException;
-import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
-import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
-import com.otilm.api.model.connector.cryptography.operations.SignDataRequestDto;
-import com.otilm.api.model.connector.cryptography.operations.SignDataResponseDto;
-import com.otilm.api.model.connector.cryptography.operations.VerifyDataRequestDto;
-import com.otilm.api.model.connector.cryptography.operations.VerifyDataResponseDto;
-import com.otilm.api.model.connector.cryptography.operations.data.SignatureRequestData;
-import com.otilm.core.attribute.EcdsaSignatureAttributes;
-import com.otilm.core.attribute.RsaSignatureAttributes;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.NotSupportedException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.provider.key.PlatformPublicKey;
+import com.otilm.core.service.handler.key.KeyOperationValidator;
+import com.otilm.core.service.handler.key.KeyProviderAdapter;
+import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import java.security.SignatureException;
+import java.util.Base64;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.Objects;
+import lombok.Getter;
 
 public class PlatformSignatureService {
-
-    private static final Logger log = LoggerFactory.getLogger(PlatformSignatureService.class);
-
-    private final CryptographicOperationsSyncApiClient apiClient;
-    private final List<RequestAttribute> signatureAttributes;
+    private final KeyProviderAdapterFactory adapterFactory;
+    @Getter
     private final String algorithm;
 
-    public PlatformSignatureService(CryptographicOperationsSyncApiClient apiClient, String algorithm) {
-        this.apiClient = apiClient;
-        this.signatureAttributes = mapSignatureAttributesFromSignatureAlgorithm(algorithm);
-        this.algorithm = algorithm;
-    }
-
-    public List<RequestAttribute> mapSignatureAttributesFromSignatureAlgorithm(String algorithm) {
-        switch (algorithm) {
-            case "NONEwithRSA" -> {
-                return List.of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5));
-            }
-            case "MD5withRSA" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.MD5));
-            }
-            case "SHA1withRSA" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_1));
-            }
-            case "SHA224withRSA" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_224));
-            }
-            case "SHA256withRSA" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256));
-            }
-            case "SHA384withRSA" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_384));
-            }
-            case "SHA512withRSA" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PKCS1_v1_5),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_512));
-            }
-            case "NONEwithRSA/PSS" -> {
-                return List.of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS));
-            }
-            case "SHA1withRSA/PSS" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_1));
-            }
-            case "SHA224withRSA/PSS" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_224));
-            }
-            case "SHA256withRSA/PSS" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256));
-            }
-            case "SHA384withRSA/PSS" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_384));
-            }
-            case "SHA512withRSA/PSS" -> {
-                return List
-                        .of(RsaSignatureAttributes.buildRequestRsaSigScheme(RsaSignatureScheme.PSS),
-                                RsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_512));
-            }
-            case "NONEwithECDSA" -> {
-                return List.of();
-            }
-            case "SHA1withECDSA" -> {
-                return List.of(EcdsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_1));
-            }
-            case "SHA224withECDSA" -> {
-                return List.of(EcdsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_224));
-            }
-            case "SHA256withECDSA" -> {
-                return List.of(EcdsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_256));
-            }
-            case "SHA384withECDSA" -> {
-                return List.of(EcdsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_384));
-            }
-            case "SHA512withECDSA" -> {
-                return List.of(EcdsaSignatureAttributes.buildRequestDigest(DigestAlgorithm.SHA_512));
-            }
-            default ->
-                throw new IllegalArgumentException("No signatures attributes mapped for algorithm: " + algorithm);
-        }
-    }
-
-    public String getAlgorithm() {
-        return algorithm;
+    public PlatformSignatureService(KeyProviderAdapterFactory adapterFactory, String algorithm) {
+        this.adapterFactory = Objects.requireNonNull(adapterFactory, "adapterFactory must not be null");
+        this.algorithm = Objects.requireNonNull(algorithm, "algorithm must not be null");
     }
 
     public byte[] sign(PlatformPrivateKey privateKey, byte[] dataToSign) throws SignatureException {
-        SignDataRequestDto requestDto = new SignDataRequestDto();
-        requestDto.setSignatureAttributes(signatureAttributes);
-        SignatureRequestData signatureRequestData = new SignatureRequestData();
-        signatureRequestData.setData(dataToSign);
-        requestDto.setData(List.of(signatureRequestData));
-
-        log
-                .debug("Signing data on connector: {} with token instance: {} and key: {}",
-                        privateKey.getConnectorDto().getName(), privateKey.getTokenInstanceUuid(),
-                        privateKey.getKeyUuid());
-
+        Objects.requireNonNull(privateKey, "privateKey must not be null");
+        Objects.requireNonNull(dataToSign, "dataToSign must not be null");
         try {
-            SignDataResponseDto response = apiClient
-                    .signData(privateKey.getConnectorDto(), privateKey.getTokenInstanceUuid(), privateKey.getKeyUuid(),
-                            requestDto);
+            CryptographicKeyItemOperationModel keyItem = privateKey.keyItem();
+            KeyOperationValidator.requireAllowed(keyItem, KeyUsage.SIGN);
+            KeyProviderAdapter adapter = adapterFactory.forKeyItem(keyItem);
 
-            return response.getSignatures().get(0).getData();
+            SignDataRequestDto request = new SignDataRequestDto();
+            request.setSignatureAttributes(adapter.signatureAttributesFor(algorithm));
+            request.setData(List.of(data(dataToSign)));
 
+            SignDataResponseDto response = adapter.signData(keyItem, request);
+            return Base64.getDecoder().decode(response.getSignatures().getFirst().getData());
+        } catch (NotFoundException e) {
+            throw new SignatureException("The signing key, token profile or connector was not found.", e);
+        } catch (NotSupportedException e) {
+            throw new SignatureException("The key provider does not support the requested signature algorithm.", e);
         } catch (ConnectorException e) {
-            throw new SignatureException("Failed to sign on connector", e);
+            throw new SignatureException("The connector failed to sign the data.", e);
+        } catch (ValidationException | IllegalArgumentException e) {
+            throw new SignatureException("The signing request or connector result is invalid.", e);
         }
     }
 
     public boolean verify(PlatformPublicKey publicKey, byte[] signature, byte[] dataToVerify)
             throws SignatureException {
+        Objects.requireNonNull(publicKey, "publicKey must not be null");
+        Objects.requireNonNull(signature, "signature must not be null");
+        Objects.requireNonNull(dataToVerify, "dataToVerify must not be null");
         try {
-            VerifyDataRequestDto requestDto = new VerifyDataRequestDto();
-            requestDto.setSignatureAttributes(signatureAttributes);
+            CryptographicKeyItemOperationModel keyItem = publicKey.keyItem();
+            KeyOperationValidator.requireAllowed(keyItem, KeyUsage.VERIFY);
+            KeyProviderAdapter adapter = adapterFactory.forKeyItem(keyItem);
 
-            SignatureRequestData signatureRequest = new SignatureRequestData();
-            signatureRequest.setData(signature);
-            requestDto.setSignatures(List.of(signatureRequest));
+            VerifyDataRequestDto request = new VerifyDataRequestDto();
+            request.setSignatureAttributes(adapter.signatureAttributesFor(algorithm));
+            request.setSignatures(List.of(data(signature)));
+            request.setData(List.of(data(dataToVerify)));
 
-            SignatureRequestData signatureRequestData = new SignatureRequestData();
-            signatureRequestData.setData(publicKey.getData());
-            signatureRequestData.setData(signature);
-            requestDto.setSignatures(List.of(signatureRequestData));
-
-            VerifyDataResponseDto response = apiClient
-                    .verifyData(publicKey.getConnectorDto(), publicKey.getTokenInstanceUuid(), publicKey.getKeyUuid(),
-                            requestDto);
-
-            return response.getVerifications().get(0).isResult();
-
+            VerifyDataResponseDto response = adapter.verifyData(keyItem, request);
+            return response.getVerifications().getFirst().isResult();
+        } catch (NotFoundException e) {
+            throw new SignatureException("The verification key, token profile or connector was not found.", e);
+        } catch (NotSupportedException e) {
+            throw new SignatureException("The key provider does not support the requested signature algorithm.", e);
         } catch (ConnectorException e) {
-            throw new SignatureException("Failed to verify signature on connector", e);
+            throw new SignatureException("The connector failed to verify the signature.", e);
+        } catch (ValidationException | IllegalArgumentException e) {
+            throw new SignatureException("The verification request or connector result is invalid.", e);
         }
     }
 
+    private static SignatureRequestData data(byte[] bytes) {
+        SignatureRequestData data = new SignatureRequestData();
+        data.setData(Base64.getEncoder().encodeToString(bytes));
+        return data;
+    }
 }

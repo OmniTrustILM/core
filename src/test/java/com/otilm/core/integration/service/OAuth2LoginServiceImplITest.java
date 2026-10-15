@@ -5,6 +5,7 @@ import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.AuditLogInternalService;
@@ -162,7 +163,7 @@ class OAuth2LoginServiceImplITest {
         Assertions.assertTrue(exception.getMessage().contains("Unknown OAuth2 Provider"));
         verify(auditLogService, times(1))
                 .logAuthentication(eq(Operation.LOGIN), eq(OperationResult.FAILURE),
-                        contains("Unknown OAuth2 Provider"), eq("session-access-token"));
+                        contains("Unknown OAuth2 Provider"), eq(LogRedaction.REDACTED));
     }
 
     @Test

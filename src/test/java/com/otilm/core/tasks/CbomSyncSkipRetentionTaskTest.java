@@ -52,7 +52,9 @@ class CbomSyncSkipRetentionTaskTest {
     void aContendedSweepIsSkipped() {
         when(sweeper.sweep(anyInt())).thenReturn(CbomSyncSkipRetentionSweeper.SweepOutcome.skipped());
 
-        assertThatExceptionOfType(ScheduledJobSkippedException.class).isThrownBy(this::performJob);
+        assertThatExceptionOfType(ScheduledJobSkippedException.class)
+                .isThrownBy(this::performJob)
+                .withMessage("Another sweep is already running");
     }
 
     @Test
@@ -60,7 +62,9 @@ class CbomSyncSkipRetentionTaskTest {
         when(sweeper.sweep(anyInt()))
                 .thenReturn(new CbomSyncSkipRetentionSweeper.SweepOutcome(true, false, 0, 1, false));
 
-        assertThatExceptionOfType(ScheduledJobSkippedException.class).isThrownBy(this::performJob);
+        assertThatExceptionOfType(ScheduledJobSkippedException.class)
+                .isThrownBy(this::performJob)
+                .withMessage("Nothing past the retention window");
     }
 
     @Test

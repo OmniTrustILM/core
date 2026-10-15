@@ -1,11 +1,14 @@
 package com.otilm.core.integration.discovery;
 
+import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.DiscoveryMessageRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.listeners.discovery.DiscoveryRunReaper;
@@ -59,6 +62,8 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
     private DiscoveryWorkRepository workRepository;
     @Autowired
     private DiscoveryWorkWriter workWriter;
+    @Autowired
+    private DiscoveryMessageRepository messageRepository;
     @Autowired
     private ClusterOperationSynchronizer synchronizer;
     @Autowired
@@ -207,6 +212,10 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
         assertThat(workRepository.existsByDiscoveryUuid(run.getUuid()))
                 .as("terminal transition drops the run's agenda rows")
                 .isFalse();
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .extracting(DiscoveryMessage::getSeverity)
+                .as("the run was stopped on purpose, but nobody chose to lose it")
+                .containsExactly(DiscoveryMessageSeverity.WARNING);
     }
 
     @Test

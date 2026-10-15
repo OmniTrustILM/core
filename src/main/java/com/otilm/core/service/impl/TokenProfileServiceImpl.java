@@ -27,6 +27,8 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.mapper.crypto.TokenProfileDtoMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
+import com.otilm.core.model.crypto.ImmutableTokenProfileListModel;
+import com.otilm.core.model.crypto.KeyTypeAlgorithm;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenProfileListModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -118,13 +120,24 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     @Override
     @ExternalAuthorization(resource = Resource.TOKEN_PROFILE, action = ResourceAction.LIST,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.LIST)
-    public List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, SecurityFilter filter) {
+    public List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, List<String> importable,
+            SecurityFilter filter) {
         logger.info("Listing token profiles");
         filter.setParentRefProperty("tokenInstanceReferenceUuid");
-        List<TokenProfileListModel> tokenProfiles = enabled
-                .map(value -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter, value))
-                .orElseGet(() -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter));
-        return tokenProfiles.stream().map(TokenProfileDtoMapper::mapToDto).toList();
+        if (importable.isEmpty()) {
+            List<TokenProfileListModel> tokenProfiles = enabled
+                    .map(value -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter, value))
+                    .orElseGet(() -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter));
+            return tokenProfiles.stream().map(TokenProfileDtoMapper::mapToDto).toList();
+        }
+        List<KeyTypeAlgorithm> wanted = importable.stream().map(KeyTypeAlgorithm::parse).toList();
+        return tokenProfileRepository
+                .findWithTokenUsingSecurityFilter(filter, enabled)
+                .stream()
+                .filter(profile -> keyTransferCapabilityService.importsAsRecorded(profile, wanted))
+                .map(ImmutableTokenProfileListModel::from)
+                .map(TokenProfileDtoMapper::mapToDto)
+                .toList();
     }
 
     @Override

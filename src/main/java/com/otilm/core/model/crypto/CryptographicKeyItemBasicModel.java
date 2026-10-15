@@ -14,12 +14,18 @@ import java.util.UUID;
 
 /** Key-item snapshot for API mapping, without a reference back to the wrapper entity. */
 public record CryptographicKeyItemBasicModel(UUID uuid, UUID parentKeyUuid, String name, RemoteKeyReference reference,
-        KeyType type, KeyAlgorithm algorithm, KeyFormat format, String keyData, int length, KeyState state,
+        KeyType type, KeyAlgorithm algorithm, KeyFormat format, String keyData, Integer length, KeyState state,
         boolean enabled, List<KeyUsage> usages, KeyCompromiseReason reason, ComplianceStatus complianceStatus,
         boolean exportable) implements NamedModel {
 
     public CryptographicKeyItemBasicModel {
         usages = List.copyOf(usages);
+    }
+
+    @Override
+    public String toString() {
+        return "CryptographicKeyItemBasicModel[uuid=%s, name=%s, type=%s, format=%s, state=%s]"
+                .formatted(uuid, name, type, format, state);
     }
 
     public static CryptographicKeyItemBasicModel from(CryptographicKeyItem item) {

@@ -3,6 +3,7 @@ package com.otilm.core.service.impl;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.listview.ListViewFilterDto;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -37,24 +38,47 @@ public class ExtendedKeyUsageFilterNormalizer {
         }
         List<SearchFilterRequestDto> normalized = new ArrayList<>(filters.size());
         for (SearchFilterRequestDto filter : filters) {
-            if (filter.getFieldSource() != FilterFieldSource.PROPERTY
-                    || !FilterField.EXTENDED_KEY_USAGE.name().equals(filter.getFieldIdentifier())
-                    || (filter.getCondition() != FilterConditionOperator.EQUALS
-                            && filter.getCondition() != FilterConditionOperator.NOT_EQUALS)
-                    || filter.getValue() == null) {
+            normalized
+                    .add(matchesPurposes(filter)
+                            ? new SearchFilterRequestDto(filter.getFieldSource(), filter.getFieldIdentifier(),
+                                    filter.getCondition(), resolveValue(filter.getValue()))
+                            : filter);
+        }
+        return normalized;
+    }
+
+    /** The filters of a saved list view, resolved the same way; each keeps its {@code rebind}. */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public List<ListViewFilterDto> normalizeViewFilters(List<ListViewFilterDto> filters) {
+        if (filters == null) {
+            return null;
+        }
+        List<ListViewFilterDto> normalized = new ArrayList<>(filters.size());
+        for (ListViewFilterDto filter : filters) {
+            if (!matchesPurposes(filter)) {
                 normalized.add(filter);
                 continue;
             }
-
-            Serializable value = filter.getValue();
-            Serializable resolved = value instanceof List<?> values
-                    ? new ArrayList<>(values.stream().map(item -> resolve(item.toString())).toList())
-                    : resolve(value.toString());
-            normalized
-                    .add(new SearchFilterRequestDto(filter.getFieldSource(), filter.getFieldIdentifier(),
-                            filter.getCondition(), resolved));
+            ListViewFilterDto resolved = new ListViewFilterDto(filter.getFieldSource(), filter.getFieldIdentifier(),
+                    filter.getCondition(), resolveValue(filter.getValue()));
+            resolved.setRebind(filter.getRebind());
+            normalized.add(resolved);
         }
         return normalized;
+    }
+
+    private static boolean matchesPurposes(SearchFilterRequestDto filter) {
+        return filter.getFieldSource() == FilterFieldSource.PROPERTY
+                && FilterField.EXTENDED_KEY_USAGE.name().equals(filter.getFieldIdentifier())
+                && (filter.getCondition() == FilterConditionOperator.EQUALS
+                        || filter.getCondition() == FilterConditionOperator.NOT_EQUALS)
+                && filter.getValue() != null;
+    }
+
+    private Serializable resolveValue(Serializable value) {
+        return value instanceof List<?> values
+                ? new ArrayList<>(values.stream().map(item -> resolve(item.toString())).toList())
+                : resolve(value.toString());
     }
 
     private String resolve(String value) {

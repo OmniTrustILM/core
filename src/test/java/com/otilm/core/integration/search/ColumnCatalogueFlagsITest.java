@@ -15,7 +15,6 @@ import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecurityFilter;
-import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.TimeQualityConfigurationExternalService;
@@ -42,9 +41,6 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
 
     @Autowired
     private DiscoveryExternalService discoveryService;
-
-    @Autowired
-    private CbomExternalService cbomService;
 
     @Autowired
     private SigningRecordExternalService signingRecordService;
@@ -79,8 +75,7 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
     /**
      * Discovery is one of the listings that applies a requested sort, so its orderable property fields advertise it.
      * The catalogue promising an ordering the listing then discards is the failure this guards, in both directions: a
-     * wired listing must say so, and {@code CryptographicAssetSearchableFieldsITest.noFieldReportsSortable} holds the
-     * other side, where an unwired listing reports nothing sortable.
+     * wired listing must say so, and {@link #aPropertyFieldOfAnUnwiredListingIsNotSortable} holds the other side.
      */
     @Test
     void aPropertyFieldOfAWiredListingIsSortable() {
@@ -88,6 +83,14 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
                 FilterField.DISCOVERY_NAME.name()).orElseThrow();
 
         Assertions.assertEquals(true, name.getSortable());
+    }
+
+    @Test
+    void aPropertyFieldOfAnUnwiredListingIsNotSortable() {
+        SearchFieldDataDto name = SearchHelper.prepareSearch(FilterField.TIME_QUALITY_CONFIGURATION_NAME);
+
+        Assertions.assertTrue(SearchHelper.isOrderableField(FilterField.TIME_QUALITY_CONFIGURATION_NAME));
+        Assertions.assertEquals(false, name.getSortable());
     }
 
     /**
@@ -224,22 +227,17 @@ class ColumnCatalogueFlagsITest extends BaseSpringBootTest {
     }
 
     @Test
-    void aResourceWithoutCustomAttributesPublishesNoEmptyGroup() {
-        // CBOMs and signing records carry no custom attributes; the catalogue says so by leaving the group out
-        // rather than by publishing an empty one for the picker to render as a bare heading.
-        for (List<SearchFieldDataByGroupDto> catalogue : List
-                .of(cbomService.getSearchableFieldInformationByGroup(),
-                        signingRecordService.getSearchableFieldInformation())) {
-            Assertions
-                    .assertTrue(catalogue
-                            .stream()
-                            .noneMatch(group -> group.getSearchFieldData() == null
-                                    || group.getSearchFieldData().isEmpty()));
-            Assertions
-                    .assertTrue(catalogue
-                            .stream()
-                            .noneMatch(group -> group.getFilterFieldSource() == FilterFieldSource.CUSTOM));
-        }
+    void signingRecordsPublishNoEmptyCustomAttributeGroup() {
+        List<SearchFieldDataByGroupDto> catalogue = signingRecordService.getSearchableFieldInformation();
+        Assertions
+                .assertTrue(catalogue
+                        .stream()
+                        .noneMatch(
+                                group -> group.getSearchFieldData() == null || group.getSearchFieldData().isEmpty()));
+        Assertions
+                .assertTrue(catalogue
+                        .stream()
+                        .noneMatch(group -> group.getFilterFieldSource() == FilterFieldSource.CUSTOM));
     }
 
     private void registerCustomAttribute(String name, AttributeContentType contentType) throws Exception {

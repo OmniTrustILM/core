@@ -25,6 +25,7 @@ import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
+import com.otilm.core.service.handler.discovery.StagedMetadata;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.KeySizeUtil;
@@ -155,12 +156,16 @@ public class CertificateHandler {
         logger
                 .debug("Updating {} discovery certificate metadata definitions for connector {}",
                         metadataAttributes.size(), connectorName);
-        for (MetadataAttribute metadataAttribute : metadataAttributes) {
+        List<MetadataAttribute> orderedAttributes = metadataAttributes
+                .stream()
+                .sorted(AttributeEngine.METADATA_WRITE_ORDER)
+                .toList();
+        for (MetadataAttribute metadataAttribute : orderedAttributes) {
             try {
                 AttributeDefinition attributeDefinition = attributeEngine
                         .updateMetadataAttributeDefinition(metadataAttribute, connectorUuid);
                 attributeEngine
-                        .registerAttributeContentItems(attributeDefinition.getUuid(),
+                        .registerAttributeContentItems(attributeDefinition,
                                 metadataContentsMapping.get(metadataAttribute.getUuid()));
             } catch (AttributeException e) {
                 logger
@@ -197,7 +202,9 @@ public class CertificateHandler {
                 discoveryCertificate = CertificateUtil.prepareDiscoveryCertificate(existingCertificate, x509Cert);
                 discoveryCertificate.setDiscovery(discovery);
                 discoveryCertificate.setNewlyDiscovered(existingCertificate == null);
-                discoveryCertificate.setMeta(certificate.getMeta());
+                StagedMetadata.Sealed stagedMeta = StagedMetadata.seal(certificate.getMeta());
+                discoveryCertificate.setMeta(stagedMeta.meta());
+                discoveryCertificate.setProtectedMeta(stagedMeta.protectedMeta());
                 if (refsDedupeWithinRun) {
                     discoveryCertificate.setUniqueRef(certificate.getUuid());
                     // The v2 path alone carries these; see DiscoveryCertificate#sequence for what a v1 row gets.

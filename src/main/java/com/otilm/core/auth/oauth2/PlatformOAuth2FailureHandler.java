@@ -4,6 +4,7 @@ import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
+import com.otilm.core.logging.LogRedaction;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogInternalService;
@@ -45,7 +46,7 @@ public class PlatformOAuth2FailureHandler implements AuthenticationFailureHandle
                 OAuth2AccessToken oauth2AccessToken = (OAuth2AccessToken) request
                         .getSession()
                         .getAttribute(OAuth2Constants.ACCESS_TOKEN_SESSION_ATTRIBUTE);
-                accessToken = oauth2AccessToken.getTokenValue();
+                accessToken = LogRedaction.token(oauth2AccessToken.getTokenValue());
             } catch (Exception e) {
                 accessToken = null;
             }

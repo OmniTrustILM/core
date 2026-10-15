@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository;
 
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.core.dao.entity.Cbom;
+import jakarta.persistence.LockModeType;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,6 +18,16 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Cbom c WHERE c.uuid = :uuid")
+    Optional<Cbom> findForUpdateByUuid(@Param("uuid") UUID uuid);
+
+    @Query("SELECT c.serialNumber FROM Cbom c WHERE c.uuid = :uuid")
+    Optional<String> findSerialNumberByUuid(@Param("uuid") UUID uuid);
+
+    @Query("SELECT COUNT(c) > 0 FROM Cbom c WHERE c.uuid = :uuid AND c.assetsSyncedAt IS NOT NULL")
+    boolean hasCompletedAssetSync(@Param("uuid") UUID uuid);
 
     @Query("""
             SELECT c2
@@ -59,12 +71,13 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      *
      * <p>
      * <b>Ingested, not merely stored.</b> The write-off this answers is irreversible -- nothing in this application
-     * ever moves a row from {@code SYNCED} back to {@code PENDING} -- so it has to be earned by the newer revision
-     * actually contributing, not by its header row existing. After the upgrade that introduced the column every
-     * pre-existing row defaults to {@code PENDING}, which means a serial's revisions are commonly all unsynced at once:
-     * writing the older ones off against a newer row whose document turns out to be unreadable would leave the serial
-     * number contributing nothing at all, where before it contributed a stale-but-present inventory. The withdrawal
-     * half of supersession is already driven by a successful ingest, and this is the same test on the other half.
+     * moves a superseded row from {@code SYNCED} back to {@code PENDING}, and a migration that re-offers synced rows
+     * re-offers only revisions that still contribute sources -- so it has to be earned by the newer revision actually
+     * contributing, not by its header row existing. After the upgrade that introduced the column every pre-existing row
+     * defaults to {@code PENDING}, which means a serial's revisions are commonly all unsynced at once: writing the
+     * older ones off against a newer row whose document turns out to be unreadable would leave the serial number
+     * contributing nothing at all, where before it contributed a stale-but-present inventory. The withdrawal half of
+     * supersession is already driven by a successful ingest, and this is the same test on the other half.
      */
     @Query("""
             SELECT COUNT(newer) > 0
@@ -278,18 +291,17 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      * Records a success, unless the row is carrying the one error a success must not overwrite.
      *
      * <p>
-     * A state guard cannot express this. Success is written unconditionally on purpose -- the run that ingested the
-     * assets is the one entitled to say so -- but a deletion that withdrew the inventory and then failed to remove the
-     * header writes {@code FAILED} from outside any ingest, and an ingest run already past its last batch when that
-     * happened would put the row straight back to {@code SYNCED} with the error cleared. The row would then claim an
-     * inventory contribution that has been deleted, and sit on neither work list.
+     * The state and version guards suppress repeated or superseded successes. A deletion that withdrew the inventory
+     * and then failed to remove the header writes {@code FAILED} from outside any ingest. The error guard also stops an
+     * ingest run already past its last batch from putting that row back to {@code SYNCED} with the error cleared: it
+     * would claim an inventory contribution that has been deleted, and sit on neither work list.
      *
      * <p>
      * It does not deadlock the row into {@code FAILED}: the next backlog pass claims it through {@code markInProgress},
      * which clears the error, so the re-ingest that follows records its success normally.
      *
      * @param notOverError the error text this write refuses to displace
-     * @return 1 if the success was recorded, 0 if the row was carrying that error
+     * @return 1 if the row transitioned to the requested state, 0 if already there, superseded, or carrying that error
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -299,7 +311,13 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
                    c.assetSyncAttemptedAt = CURRENT_TIMESTAMP,
                    c.assetsSyncedAt = COALESCE(:syncedAt, c.assetsSyncedAt)
              WHERE c.uuid = :uuid
+               AND c.assetSyncState <> :state
                AND (c.assetSyncError IS NULL OR c.assetSyncError <> :notOverError)
+               AND NOT EXISTS (
+                   SELECT newer.uuid FROM Cbom newer
+                   WHERE newer.serialNumber = c.serialNumber
+                     AND newer.version > c.version
+                     AND newer.assetSyncState = :state)
             """)
     int updateAssetSyncStateUnlessError(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
             @Param("syncedAt") OffsetDateTime syncedAt, @Param("notOverError") String notOverError);
@@ -328,4 +346,22 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
             """)
     int updateAssetSyncStateKeepingAttempt(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
             @Param("error") String error, @Param("expectedStates") Collection<CbomAssetSyncState> expectedStates);
+
+    /**
+     * Replaces the header counts with a recount. Unconditional: a count is a function of the document, which a
+     * {@code (serial_number, version)} never changes, so two nodes writing it write the same values.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Cbom c
+               SET c.algorithmsCount = :algorithms,
+                   c.certificatesCount = :certificates,
+                   c.protocolsCount = :protocols,
+                   c.cryptoMaterialCount = :cryptoMaterial,
+                   c.totalAssetsCount = :totalAssets
+             WHERE c.uuid = :uuid
+            """)
+    int updateHeaderCounts(@Param("uuid") UUID uuid, @Param("algorithms") int algorithms,
+            @Param("certificates") int certificates, @Param("protocols") int protocols,
+            @Param("cryptoMaterial") int cryptoMaterial, @Param("totalAssets") int totalAssets);
 }

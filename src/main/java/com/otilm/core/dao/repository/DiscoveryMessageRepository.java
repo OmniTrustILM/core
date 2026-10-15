@@ -72,8 +72,9 @@ public interface DiscoveryMessageRepository extends JpaRepository<DiscoveryMessa
             @Param("maxPerCode") int maxPerCode, @Param("maxPerRun") int maxPerRun);
 
     /**
-     * As {@link #appendWithinBounds}, for the two messages that must land whatever the run has already collected: the
-     * reason a run ended, and the row saying that other messages were dropped.
+     * As {@link #appendWithinBounds}, for the messages that must land whatever the run has already collected: the
+     * reason a run ended, the count of targets the connector could not read, and the row saying that other messages
+     * were dropped.
      */
     @Modifying
     @Query(value = """
@@ -101,6 +102,8 @@ public interface DiscoveryMessageRepository extends JpaRepository<DiscoveryMessa
 
     /** The run's log, oldest first. Ordered by the identity column; see {@code DiscoveryMessage.id}. */
     List<DiscoveryMessage> findByDiscoveryUuidOrderByIdAsc(UUID discoveryUuid);
+
+    boolean existsByDiscoveryUuidAndCode(UUID discoveryUuid, String code);
 
     /** One page of the same, so paging is stable while a live run keeps appending. */
     Page<DiscoveryMessage> findByDiscoveryUuidOrderByIdAsc(UUID discoveryUuid, Pageable pageable);

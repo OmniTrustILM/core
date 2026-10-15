@@ -2,6 +2,7 @@ package com.otilm.core.cbom.pqc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.AsciiText;
@@ -12,6 +13,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -21,6 +24,11 @@ import org.springframework.stereotype.Component;
 /**
  * Decides one asset's post-quantum readiness. Pure: storing the result is the caller's separate call, which is what
  * lets the whole rule set be tested without Spring or a database.
+ *
+ * <p>
+ * Every catalogue rule that applies to the asset's type is evaluated and {@link PqcRuleOrder} selects the deciding one,
+ * so {@link #evaluate} and {@link #explain} are one computation: the explanation lays out the same candidates the
+ * verdict was selected from.
  *
  * <p>
  * {@link #fromStoredRow} is the only way to build a {@link PqcRuleInput}: every caller, ingest included, evaluates the
@@ -45,21 +53,35 @@ public class PqcEvaluator {
      */
     private static final String ONE_TIME_SIGNATURE = "ots";
 
-    /** Appended to the disposition's rule id when a component, not the family, decides. */
-    private static final String COMPONENT_RULE_SUFFIX = "-COMPONENT";
-
     private static final Set<String> STATEFUL_HASH_SIGNATURES = Set.of("LMS", "XMSS");
 
-    private static final PqcRule HYBRID_RULE = new PqcRule(PqcRules.HYBRID, PqcRuleInput::isHybrid, PqcVerdict.READY,
-            "A hybrid construction; its readiness is that of its post-quantum component",
-            List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.HYBRID_COMPONENTS, PqcRules.NAME, PqcRules.VARIANT));
+    /** The primitives whose size is a key length, so a construction over one is as strong as that key. */
+    private static final Set<String> KEYED_CIPHERS = Set.of("block-cipher", "stream-cipher");
+
+    /**
+     * The marker the normalizer keeps in the variant for a truncated digest: {@code SHA-512/224} carries {@code t224}.
+     */
+    private static final Pattern TRUNCATION_MARKER = Pattern.compile("t(\\d{2,5})");
+
+    private static final List<String> FAMILY_FIELDS = List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT);
+
+    private static final List<String> HYBRID_FIELDS = List
+            .of(PqcRules.ALGORITHM_FAMILY, PqcRules.HYBRID_COMPONENTS, PqcRules.NAME, PqcRules.VARIANT);
+
+    private static final List<String> COMPONENT_FIELDS = List
+            .of(PqcRules.ALGORITHM_FAMILY, PqcRules.HYBRID_COMPONENTS, PqcRules.VARIANT, PqcRules.NAME);
 
     private static final String RELATED_MATERIAL = "relatedCryptoMaterialProperties";
     private static final String ALGORITHM_PROPERTIES = "algorithmProperties";
 
     private static final String NIST_LEVEL = PqcRules.NIST_QUANTUM_SECURITY_LEVEL;
 
-    /** The ratified "the producer said nothing" spelling for a material type, per core#2196's ruling C10. */
+    private static final String NOT_MATCHED = "The rule's condition did not hold for this asset";
+
+    /** The leading {@link PqcRules#INPUT_FIELDS} the asset's own row answers; the rest are its references. */
+    private static final int OWN_INPUT_FIELDS = PqcRules.INPUT_FIELDS.indexOf(PqcRules.SUBJECT_PUBLIC_KEY_REF);
+
+    /** The ratified "the producer said nothing" spelling for a material type. */
     private static final String MATERIAL_TYPE_UNKNOWN = "unknown";
 
     /** The ratified spellings, indexed by their separator-insensitive lookup key. */
@@ -68,88 +90,607 @@ public class PqcEvaluator {
             .flatMap(Set::stream)
             .collect(Collectors.toMap(AsciiText::lookupKey, spelling -> spelling));
 
+    /** A rule whose id and reason are computed from what it reads, unlike a table rule's. */
+    @FunctionalInterface
+    private interface CodedRule {
+
+        /** @return the decision, or {@code null} when the rule's condition does not hold */
+        PqcDecision apply(Reading reading, Integer nistQuantumSecurityLevel);
+    }
+
     private final AssetNormalizer normalizer;
-    private final List<PqcRule> rules;
+    private final Map<String, PqcRule> tableRules;
+    private final Map<String, CodedRule> codedRules;
 
     public PqcEvaluator(AssetNormalizer normalizer) {
         this.normalizer = normalizer;
-        this.rules = PqcRules.rulesFor(normalizer, this::nameCarriesNoFinding, this::nameLeavesStrengthToSize);
+        Map<String, PqcRule> table = new LinkedHashMap<>();
+        PqcRules
+                .rulesFor(normalizer, this::nameCarriesNoFinding, this::nameLeavesStrengthToSize)
+                .forEach(rule -> table.put(rule.id(), rule));
+        this.tableRules = Map.copyOf(table);
+        this.codedRules = codedRules();
+    }
+
+    private Map<String, CodedRule> codedRules() {
+        Map<String, CodedRule> rules = new LinkedHashMap<>();
+        rules.put(PqcRules.CLASSICAL_LEGACY_COMPONENT, this::classicalLegacyComponent);
+        rules.put(PqcRules.HYBRID, this::hybrid);
+        rules.put(PqcRules.HYBRID_UNRESOLVED, this::hybridUnresolved);
+        rules.put(PqcRules.CLASSICAL_SHOR_COMPONENT, this::classicalShorComponent);
+        rules.put(PqcRules.FAMILY_UNRESOLVED, this::familyUnresolved);
+        rules.put(FamilyClass.SHOR_BREAKABLE.ruleId(), this::classicalShor);
+        rules.put(PqcRules.FAMILY_AMBIGUOUS_COMPONENT, this::ambiguousPrimitive);
+        rules.put(PqcRules.CONSTRUCTION_UNINSTANTIATED, this::constructionUninstantiated);
+        rules.put(PqcRules.PARAMETER_SET_UNREGISTERED, this::parameterSetUnregistered);
+        rules.put(PqcRules.SYMMETRIC_UNDERSIZED, this::symmetricUndersized);
+        rules.put(PqcRules.SYMMETRIC_UNSIZED, this::symmetricUnsized);
+        rules.put(FamilyClass.QUANTUM_RESISTANT_SYMMETRIC.ruleId(), this::symmetricReady);
+        rules.put(PqcRules.ONE_TIME_SIGNATURE, this::oneTimeSignature);
+        for (FamilyClass disposition : List
+                .of(FamilyClass.PQC_STANDARDIZED, FamilyClass.PQC_PRESTANDARD, FamilyClass.PQC_BROKEN,
+                        FamilyClass.PQC_HYBRID, FamilyClass.CLASSICAL_LEGACY)) {
+            rules.put(disposition.ruleId(), (reading, level) -> familyDisposition(reading, disposition, level));
+        }
+        rules.put(FamilyClass.FAMILY_AMBIGUOUS.ruleId(), this::familyAmbiguous);
+        return Map.copyOf(rules);
+    }
+
+    /** {@link #evaluate(PqcRuleInput, Integer, PqcReferences)} for an asset that references nothing. */
+    public PqcDecision evaluate(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
+        return evaluate(input, nistQuantumSecurityLevel, PqcReferences.NONE);
     }
 
     /**
-     * First match wins. @param nistQuantumSecurityLevel corroboration only; a parameter, so no predicate can reach it
+     * @param nistQuantumSecurityLevel corroboration only; a parameter, so no predicate can reach it
+     * @throws IllegalStateException when no catalogue rule applies to the asset's type
      */
-    public PqcDecision evaluate(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
-        for (PqcRule rule : rules) {
-            if (rule.matches().test(input)) {
-                return rule.id().equals(PqcRules.HYBRID)
-                        ? hybridDecision(input, hybridComponentsOf(input), rule, nistQuantumSecurityLevel)
-                        : decision(rule.verdict(), rule.id(), rule.reason(), rule.readsFields(), input,
-                                nistQuantumSecurityLevel);
+    public PqcDecision evaluate(PqcRuleInput input, Integer nistQuantumSecurityLevel, PqcReferences references) {
+        return PqcRuleOrder.select(candidates(input, nistQuantumSecurityLevel, references)).decision();
+    }
+
+    public PqcExplanation explain(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
+        return explain(input, nistQuantumSecurityLevel, PqcReferences.NONE);
+    }
+
+    /**
+     * {@link #evaluate}, with every catalogue rule the asset's type is tested against: matched or not, and which one
+     * the order selected.
+     */
+    public PqcExplanation explain(PqcRuleInput input, Integer nistQuantumSecurityLevel, PqcReferences references) {
+        List<PqcRuleOrder.Candidate> candidates = candidates(input, nistQuantumSecurityLevel, references);
+        PqcRuleOrder.Candidate decided = PqcRuleOrder.select(candidates);
+        List<PqcExplanation.Step> steps = new ArrayList<>(candidates.size());
+        for (PqcRuleOrder.Candidate candidate : candidates) {
+            steps.add(step(candidate, candidate == decided));
+        }
+        return new PqcExplanation(decided.decision(), steps);
+    }
+
+    private static PqcExplanation.Step step(PqcRuleOrder.Candidate candidate, boolean decided) {
+        PqcRuleCatalog.Entry entry = candidate.entry();
+        if (!candidate.matched()) {
+            return new PqcExplanation.Step(entry.id(), entry.title(), PqcExplanationStepOutcome.NOT_MATCHED, null,
+                    candidate.notMatched(), candidate.evidence(), null);
+        }
+        PqcDecision decision = candidate.decision();
+        PqcExplanationStepOutcome outcome;
+        if (!decided) {
+            outcome = PqcExplanationStepOutcome.MATCHED;
+        } else {
+            outcome = decision.referencedAssetUuid() == null
+                    ? PqcExplanationStepOutcome.DECIDED
+                    : PqcExplanationStepOutcome.RESOLVED;
+        }
+        return new PqcExplanation.Step(decision.ruleId(), entry.title(), outcome, decision.verdict(), decision.reason(),
+                decision.evaluatedFields(), decision.referencedAssetUuid());
+    }
+
+    /** Every catalogue rule for the asset's type, evaluated, in catalogue order. */
+    private List<PqcRuleOrder.Candidate> candidates(PqcRuleInput input, Integer level, PqcReferences references) {
+        List<PqcRuleCatalog.Entry> served = PqcRuleCatalog.servedFor(input.assetType());
+        if (served.isEmpty()) {
+            throw new IllegalStateException("No rule applies to an asset of type " + input.assetType());
+        }
+        List<PqcRuleOrder.Candidate> candidates = new ArrayList<>(served.size());
+        if (PqcReferenceRules.decides(input.assetType())) {
+            for (int position = 0; position < served.size(); position++) {
+                candidates.add(referenceCandidate(served.get(position), position, input, level, references));
+            }
+            return candidates;
+        }
+        Reading reading = new Reading(input);
+        for (int position = 0; position < served.size(); position++) {
+            candidates.add(candidate(served.get(position), position, reading, level));
+        }
+        return candidates;
+    }
+
+    private static PqcRuleOrder.Candidate referenceCandidate(PqcRuleCatalog.Entry entry, int position,
+            PqcRuleInput input, Integer level, PqcReferences references) {
+        PqcDecision decision = PqcReferenceRules.candidate(entry.id(), input, level, references);
+        if (decision != null) {
+            return new PqcRuleOrder.Candidate(entry, position, decision, null, null);
+        }
+        return new PqcRuleOrder.Candidate(entry, position, null, PqcReferenceRules.notMatched(entry.id(), references),
+                PqcReferenceRules
+                        .evidence(PqcReferenceRules.READS_FIELDS.get(entry.id()), input, level, references, null));
+    }
+
+    private PqcRuleOrder.Candidate candidate(PqcRuleCatalog.Entry entry, int position, Reading reading, Integer level) {
+        PqcDecision decision = decide(entry.id(), reading, level);
+        if (decision != null) {
+            return new PqcRuleOrder.Candidate(entry, position, decision, null, null);
+        }
+        return new PqcRuleOrder.Candidate(entry, position, null, NOT_MATCHED,
+                projectEvidence(readsFieldsOf(entry), reading.input, level, entry.id()));
+    }
+
+    private PqcDecision decide(String ruleId, Reading reading, Integer level) {
+        PqcRule table = tableRules.get(ruleId);
+        if (table != null) {
+            return table.matches().test(reading.input)
+                    ? decision(table.verdict(), ruleId, table.reason(), table.readsFields(), reading.input, level)
+                    : null;
+        }
+        CodedRule coded = codedRules.get(ruleId);
+        if (coded == null) {
+            throw new IllegalStateException("Catalogue entry " + ruleId + " has no rule");
+        }
+        return coded.apply(reading, level);
+    }
+
+    /** Every value the rules can read for this asset, in {@link PqcRules#INPUT_FIELDS} order; absent ones omitted. */
+    public static Map<String, Object> inputsOf(PqcRuleInput input, Integer nistQuantumSecurityLevel,
+            PqcReferences references) {
+        Map<String, Object> inputs = projectEvidence(PqcRules.INPUT_FIELDS.subList(0, OWN_INPUT_FIELDS), input,
+                nistQuantumSecurityLevel, "inputs");
+        inputs.putAll(PqcReferenceRules.inputs(references));
+        return inputs;
+    }
+
+    private List<String> readsFieldsOf(PqcRuleCatalog.Entry entry) {
+        if (entry.readsFields() != null) {
+            return entry.readsFields();
+        }
+        PqcRule table = tableRules.get(entry.id());
+        if (table == null) {
+            throw new IllegalStateException("Catalogue entry " + entry.id() + " is not in the table");
+        }
+        return table.readsFields();
+    }
+
+    // ---- The name's own decision, which the material size arms consult -----------------------------------------
+
+    /**
+     * What the asset's own name decides, with its declared size dropped: the coded rules alone, under the same order.
+     * The size arms consult it before claiming a row, so a key and the algorithm of the same name cannot be served
+     * opposite findings.
+     */
+    private PqcDecision nameDecision(PqcRuleInput input) {
+        Reading reading = new Reading(input.withoutMaterialSize());
+        List<PqcRuleCatalog.Entry> served = PqcRuleCatalog.servedFor(input.assetType());
+        List<PqcRuleOrder.Candidate> candidates = new ArrayList<>(served.size());
+        for (int position = 0; position < served.size(); position++) {
+            PqcRuleCatalog.Entry entry = served.get(position);
+            CodedRule coded = codedRules.get(entry.id());
+            if (coded != null) {
+                candidates.add(new PqcRuleOrder.Candidate(entry, position, coded.apply(reading, null), null, null));
             }
         }
-        return nameDecision(input, nistQuantumSecurityLevel);
-    }
-
-    /**
-     * What the asset's own name says about it. A hybrid decides before its family, because the family is whichever half
-     * the grammar elected; a weak component decides before an unbroken family.
-     *
-     * <p>
-     * Reached two ways. Past the rule table it is the answer -- an algorithm the grammar did not record as a hybrid, or
-     * key material the material rules did not claim. And the size arms consult it before claiming a row, so a key and
-     * the algorithm of the same name cannot be served opposite findings.
-     */
-    private PqcDecision nameDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
-        List<String> hybrid = hybridComponentsOf(input);
-        if (!hybrid.isEmpty()) {
-            return hybridDecision(input, hybrid, HYBRID_RULE, nistQuantumSecurityLevel);
-        }
-        return componentOrFamilyDecision(input, nistQuantumSecurityLevel);
+        return PqcRuleOrder.select(candidates).decision();
     }
 
     /**
      * Whether the asset's own name is free of a weak-crypto finding, which gates only the weak size arm: a key under
-     * 128 bits is weak whatever an {@code unknown} name leaves open, while a {@code notReady} name is the finding
+     * the floor is weak whatever an {@code unknown} name leaves open, while a {@code notReady} name is the finding
      * itself, and a finding must reach the row whatever tier it was keyed on.
      */
     private boolean nameCarriesNoFinding(PqcRuleInput input) {
-        return nameDecision(input.withoutMaterialSize(), null).verdict() != PqcVerdict.NOT_READY;
+        return nameDecision(input).verdict() != PqcVerdict.NOT_READY;
     }
 
     /**
      * Whether the name leaves the key's strength to its size, which gates the ready and unsized arms: the name clears
      * as ready, or names no family at all. The carve-out is the common case -- nearly every secret key in the corpus
      * names no family and resolves to {@code FAMILY-UNRESOLVED}, so without it the arms would be empty. An ambiguous,
-     * uninstantiated or unresolved-hybrid name is a question no key length answers, so the name decides it.
+     * uninstantiated or unresolved-hybrid name is a question no key length answers, so the name decides it. A name that
+     * would clear once a size is known -- an unsized {@code AES} -- leaves it to the size too.
      */
     private boolean nameLeavesStrengthToSize(PqcRuleInput input) {
-        PqcDecision byName = nameDecision(input.withoutMaterialSize(), null);
-        return byName.verdict() == PqcVerdict.READY || PqcRules.FAMILY_UNRESOLVED.equals(byName.ruleId());
+        PqcDecision byName = nameDecision(input);
+        return byName.verdict() == PqcVerdict.READY || PqcRules.FAMILY_UNRESOLVED.equals(byName.ruleId())
+                || PqcRules.SYMMETRIC_UNSIZED.equals(byName.ruleId());
     }
+
+    // ---- What the coded rules read ------------------------------------------------------------------------------
+
+    /**
+     * Everything the coded rules read out of one input, derived once.
+     *
+     * <p>
+     * A genuine hybrid is one whose components include a Shor-breakable half: the family rules do not apply to it,
+     * because its stored family is whichever half the grammar elected, and its classical half is what the construction
+     * is for and never the finding. The grammar also records a component list for a scheme whose parameter-set name
+     * carries a hash token -- {@code SLH-DSA-SHAKE-256f} -- and that is no hybrid, so the family rules decide it.
+     *
+     * <p>
+     * A family with no grammar rule survives into the variant as the asset's own name; when that is the only weak
+     * token, the asset <em>is</em> the family and the family rules read it as one.
+     */
+    private final class Reading {
+
+        private final PqcRuleInput input;
+        private final List<String> hybridComponents;
+        private final boolean genuineHybrid;
+        private final Map<String, FamilyClass> weakTokens;
+        private final boolean nameIsTheSoleWeakToken;
+        private final String family;
+        private final FamilyClass disposition;
+        private final boolean construction;
+        private final FamilyClass namedPrimitive;
+        private final String namedPrimitiveFamily;
+        private final boolean nonKeyPrimitive;
+        private final Set<Integer> admissibleParameterSets;
+        /** The sizes a construction's keyed cipher defines, or {@code null}: the AES sets behind {@code AES-CMAC}. */
+        private final Set<Integer> cipherParameterSets;
+        /** A truncation the name spells that its family enumerates its truncations without, or {@code null}. */
+        private final AssetNormalizer.UnregisteredTruncation unregisteredTruncation;
+        private final boolean parameterSetUnregistered;
+        /** A genuine hybrid's post-quantum component that spells a size its family does not define, or {@code null}. */
+        private final UnregisteredComponent unregisteredComponent;
+        private final Integer recordedSize;
+        /** The input the coded rules record as evidence: the effective family and the genuine hybrid components. */
+        private final PqcRuleInput evidence;
+
+        private Reading(PqcRuleInput input) {
+            this.input = input;
+            String stored = ratifiedFamily(input.algorithmFamily());
+            this.hybridComponents = hybridComponentsOf(input, stored);
+            this.genuineHybrid = hybridComponents.stream().anyMatch(PqcEvaluator.this::isShorBreakable);
+            this.weakTokens = weakSecondaryTokens(input);
+            this.nameIsTheSoleWeakToken = input.algorithmFamily() == null && weakTokens.size() == 1
+                    && weakTokens.containsKey(input.name());
+            this.family = nameIsTheSoleWeakToken ? ratifiedFamily(input.name()) : stored;
+            this.disposition = PqcFamilies.of(family);
+            this.construction = PqcFamilies.isConstruction(family);
+            this.namedPrimitiveFamily = construction ? namedPrimitiveFamily(input) : null;
+            this.namedPrimitive = construction ? namedPrimitive(input) : null;
+            this.nonKeyPrimitive = isCorroboratedNonKeyPrimitive(input, family);
+            this.admissibleParameterSets = disposition == null || construction
+                    ? null
+                    : normalizer.admissibleParameterSets(input.name(), family);
+            this.cipherParameterSets = construction ? cipherParameterSets(input, namedPrimitiveFamily) : null;
+            boolean sizeUnregistered = admissibleParameterSets != null && input.parameterSet() != null
+                    && !admissibleParameterSets.contains(input.parameterSet());
+            this.unregisteredTruncation = sizeUnregistered || admissibleParameterSets == null
+                    ? null
+                    : normalizer.unregisteredTruncation(input.name(), family);
+            this.parameterSetUnregistered = sizeUnregistered || unregisteredTruncation != null;
+            this.unregisteredComponent = genuineHybrid ? unregisteredComponent(hybridComponents) : null;
+            Integer ownSize = construction || nonKeyPrimitive || parameterSetUnregistered
+                    ? null
+                    : truncated(input, withinRatifiedSizeBand(input.parameterSet()));
+            this.recordedSize = recordedSizeBits(input,
+                    construction ? cipherKeySize(input, namedPrimitiveFamily) : ownSize);
+            PqcRuleInput withFamily = nameIsTheSoleWeakToken ? input.withAlgorithmFamily(family) : input;
+            this.evidence = withFamily.withHybridComponents(genuineHybrid ? hybridComponents : List.of());
+        }
+
+        private boolean symmetric() {
+            return disposition == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
+        }
+
+        /**
+         * Recorded with no size, in a family that defines sizes below the floor: {@code AES} may be AES-128, so family
+         * membership no longer vouches for it, and neither does {@code AES-CMAC}, whose key is the cipher's. A non-key
+         * primitive's size is no key size, so it is never unsized; a construction's key is its cipher's, whatever its
+         * primitive.
+         */
+        private boolean unsizedBelowTheFloor() {
+            Set<Integer> keySizes = construction ? cipherParameterSets : admissibleParameterSets;
+            return recordedSize == null && (construction || !nonKeyPrimitive) && keySizes != null
+                    && keySizes.stream().anyMatch(size -> size < PqcRules.MIN_SYMMETRIC_KEY_BITS);
+        }
+
+        /** A primitive is its own strength; a construction's is its named primitive's, when it names a sound one. */
+        private boolean instantiated() {
+            return !construction || namedPrimitive == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
+        }
+
+        private FamilyClass decisiveHybridComponent() {
+            return hybridComponents
+                    .stream()
+                    .map(PqcEvaluator.this::dispositionOfComponent)
+                    .filter(Objects::nonNull)
+                    .filter(FamilyClass::isPostQuantum)
+                    .min(FamilyClass.byHybridPrecedence())
+                    .orElse(null);
+        }
+    }
+
+    // ---- The coded rules ----------------------------------------------------------------------------------------
+
+    /**
+     * {@code HMAC-MD5} elects family {@code HMAC} and stores {@code md5} in the variant slot; {@code 3DES-CMAC} elects
+     * {@code CMAC} and stores {@code 3des,des}. Reading the family alone answered {@code ready} for both, erasing the
+     * finding the tokens were made identity-bearing to keep. Inside a hybrid the elected family counts too: the
+     * {@code PBKDF1} that {@code PBKDF1-X25519-ML-KEM-768} elects appears in no secondary token.
+     */
+    private PqcDecision classicalLegacyComponent(Reading reading, Integer level) {
+        boolean legacy = reading.weakTokens.containsValue(FamilyClass.CLASSICAL_LEGACY)
+                || (reading.genuineHybrid && reading.disposition == FamilyClass.CLASSICAL_LEGACY);
+        if (reading.nameIsTheSoleWeakToken || !legacy) {
+            return null;
+        }
+        return decision(PqcVerdict.NOT_READY, PqcRules.CLASSICAL_LEGACY_COMPONENT,
+                "A component named by this asset is already broken classically, so the construction inherits it",
+                COMPONENT_FIELDS, reading.evidence, level);
+    }
+
+    /**
+     * A hybrid's classical half is Shor-breakable by design -- that is what the construction is for -- so this rule
+     * does not read a genuine hybrid's tokens; the hybrid rule decides it by its post-quantum component.
+     */
+    private PqcDecision classicalShorComponent(Reading reading, Integer level) {
+        if (reading.genuineHybrid || reading.nameIsTheSoleWeakToken
+                || !reading.weakTokens.containsValue(FamilyClass.SHOR_BREAKABLE)) {
+            return null;
+        }
+        return decision(PqcVerdict.NOT_READY, PqcRules.CLASSICAL_SHOR_COMPONENT,
+                "A component named by this asset rests on factorisation or a discrete logarithm, so the construction "
+                        + "inherits its quantum vulnerability",
+                COMPONENT_FIELDS, reading.evidence, level);
+    }
+
+    /**
+     * A hybrid's readiness is its post-quantum component's, not the fact that it has one: {@code X25519-ML-KEM-768} is
+     * ready, {@code X25519-Kyber768} is not, because bare Kyber is a superseded draft. Among several post-quantum
+     * components {@link FamilyClass#byHybridPrecedence()} decides, so the answer does not depend on the order the name
+     * spelt them. A broken digest beside the halves is the component rule's finding, which outranks this one.
+     */
+    private PqcDecision hybrid(Reading reading, Integer level) {
+        if (!reading.genuineHybrid) {
+            return null;
+        }
+        FamilyClass decisive = reading.decisiveHybridComponent();
+        if (decisive == null) {
+            return null;
+        }
+        String reason = decisive.verdict() == PqcVerdict.READY
+                ? "A hybrid construction; its readiness is that of its post-quantum component"
+                : "A hybrid construction whose post-quantum component is not standardised: " + decisive.reason();
+        return decision(decisive.verdict(), PqcRules.HYBRID + "-" + decisive.ruleId(), reason, HYBRID_FIELDS,
+                reading.evidence, level);
+    }
+
+    /** Recorded as hybrid, but no component resolves to a post-quantum family; the classical half must not decide. */
+    private PqcDecision hybridUnresolved(Reading reading, Integer level) {
+        if (!reading.genuineHybrid || reading.decisiveHybridComponent() != null) {
+            return null;
+        }
+        return decision(PqcVerdict.UNKNOWN, PqcRules.HYBRID_UNRESOLVED,
+                "A hybrid construction whose post-quantum component resolves to no ratified family", HYBRID_FIELDS,
+                reading.evidence, level);
+    }
+
+    private PqcDecision familyUnresolved(Reading reading, Integer level) {
+        if (reading.genuineHybrid || reading.disposition != null) {
+            return null;
+        }
+        return decision(PqcVerdict.UNKNOWN, PqcRules.FAMILY_UNRESOLVED,
+                "The recorded properties resolve to no ratified algorithm family, so no rule can classify it",
+                List
+                        .of(PqcRules.ASSET_TYPE, PqcRules.MATERIAL_TYPE, PqcRules.ALGORITHM_FAMILY, PqcRules.NAME,
+                                PqcRules.VARIANT),
+                reading.evidence, level);
+    }
+
+    /**
+     * Every curve the tables ratify under GOST is a GOST R 34.10 curve, so a curve on an ambiguous family names the EC
+     * signature scheme; the hash and the block ciphers carry none. Exact, not a heuristic: the curve column is
+     * populated only from the ratified curve tables.
+     */
+    private PqcDecision classicalShor(Reading reading, Integer level) {
+        boolean shorBreakable = reading.disposition == FamilyClass.SHOR_BREAKABLE
+                || (reading.disposition == FamilyClass.FAMILY_AMBIGUOUS && reading.input.curve() != null);
+        if (reading.genuineHybrid || !shorBreakable) {
+            return null;
+        }
+        FamilyClass shor = FamilyClass.SHOR_BREAKABLE;
+        return decision(shor.verdict(), shor.ruleId(), shor.reason(),
+                List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.CURVE, PqcRules.VARIANT), reading.evidence, level);
+    }
+
+    private PqcDecision familyAmbiguous(Reading reading, Integer level) {
+        if (reading.genuineHybrid || reading.disposition != FamilyClass.FAMILY_AMBIGUOUS
+                || reading.input.curve() != null) {
+            return null;
+        }
+        FamilyClass ambiguous = FamilyClass.FAMILY_AMBIGUOUS;
+        return decision(ambiguous.verdict(), ambiguous.ruleId(), ambiguous.reason(), FAMILY_FIELDS, reading.evidence,
+                level);
+    }
+
+    private PqcDecision ambiguousPrimitive(Reading reading, Integer level) {
+        if (reading.genuineHybrid || !reading.symmetric() || !reading.construction
+                || reading.namedPrimitive != FamilyClass.FAMILY_AMBIGUOUS) {
+            return null;
+        }
+        return decision(PqcVerdict.UNKNOWN, PqcRules.FAMILY_AMBIGUOUS_COMPONENT,
+                "A construction built on a primitive whose family covers both a classically broken and an unbroken "
+                        + "member, and the recorded properties do not say which",
+                FAMILY_FIELDS, reading.evidence, level);
+    }
+
+    private PqcDecision constructionUninstantiated(Reading reading, Integer level) {
+        if (reading.genuineHybrid || !reading.symmetric() || !reading.construction || reading.namedPrimitive != null) {
+            return null;
+        }
+        return decision(PqcVerdict.UNKNOWN, PqcRules.CONSTRUCTION_UNINSTANTIATED,
+                "A construction whose strength is that of the primitive it is built on, which this record does not "
+                        + "name",
+                List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.PARAMETER_SET), reading.evidence, level);
+    }
+
+    /**
+     * There is no 64-bit AES and no ML-KEM-1000: a parameter set outside the family's registry enumeration is not a
+     * weak instantiation but a record of something that does not exist, so no strength rule reads the number. A hybrid
+     * is held to it by its post-quantum component, since the family rules do not read a hybrid:
+     * {@code X25519-ML-KEM-1000} is refused as {@code ML-KEM-1000} is. A truncation outside the family's enumeration is
+     * refused the same way, where the family enumerates its truncations: there is no {@code SHA-512/999}.
+     */
+    private PqcDecision parameterSetUnregistered(Reading reading, Integer level) {
+        if (reading.genuineHybrid) {
+            UnregisteredComponent component = reading.unregisteredComponent;
+            if (component == null) {
+                return null;
+            }
+            return decision(PqcVerdict.UNKNOWN, PqcRules.PARAMETER_SET_UNREGISTERED,
+                    "A hybrid construction whose " + component.family() + " component spells parameter set "
+                            + component.spelled() + ", which the " + component.family()
+                            + " family does not define; the registry admits " + admitted(component.admissible()),
+                    HYBRID_FIELDS, reading.evidence, level);
+        }
+        if (!reading.parameterSetUnregistered) {
+            return null;
+        }
+        if (reading.unregisteredTruncation != null) {
+            AssetNormalizer.UnregisteredTruncation truncation = reading.unregisteredTruncation;
+            return decision(PqcVerdict.UNKNOWN, PqcRules.PARAMETER_SET_UNREGISTERED,
+                    "The name truncates " + truncation.truncated() + " to " + truncation.truncation()
+                            + ", which is not a truncation the " + reading.family
+                            + " family defines; the registry admits " + truncation.admitted(),
+                    List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.VARIANT), reading.evidence,
+                    level);
+        }
+        return decision(PqcVerdict.UNKNOWN, PqcRules.PARAMETER_SET_UNREGISTERED,
+                "The recorded parameter set is not one the " + reading.family + " family defines; the registry admits "
+                        + admitted(reading.admissibleParameterSets),
+                List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.VARIANT), reading.evidence, level);
+    }
+
+    private static String admitted(Set<Integer> admissible) {
+        return new TreeSet<>(admissible).stream().map(String::valueOf).collect(Collectors.joining(", "));
+    }
+
+    private record UnregisteredComponent(String family, int spelled, Set<Integer> admissible) {
+    }
+
+    /** The first post-quantum component spelling a size its family's registry enumeration does not hold. */
+    private UnregisteredComponent unregisteredComponent(List<String> components) {
+        for (String component : components) {
+            String family = ratifiedFamily(FAMILY_SIZE_SUFFIX.matcher(component).replaceFirst(""));
+            FamilyClass disposition = PqcFamilies.of(family);
+            if (disposition == null || !disposition.isPostQuantum()) {
+                continue;
+            }
+            Integer spelled = normalizer.registrySizeSpelled(component, family);
+            Set<Integer> admissible = normalizer.admissibleParameterSets(component, family);
+            if (spelled != null && admissible != null && !admissible.contains(spelled)) {
+                return new UnregisteredComponent(family, spelled, admissible);
+            }
+        }
+        return null;
+    }
+
+    private PqcDecision symmetricUndersized(Reading reading, Integer level) {
+        if (reading.genuineHybrid || !reading.symmetric() || !reading.instantiated() || reading.recordedSize == null
+                || reading.recordedSize >= PqcRules.MIN_SYMMETRIC_KEY_BITS) {
+            return null;
+        }
+        return decision(PqcVerdict.NOT_READY, PqcRules.SYMMETRIC_UNDERSIZED,
+                "A symmetric or hash-based primitive whose recorded size is below the "
+                        + PqcRules.MIN_SYMMETRIC_KEY_BITS
+                        + "-bit floor this rule set holds symmetric and hash sizes to",
+                sizeEvidence(reading.input, reading.construction), reading.evidence, level);
+    }
+
+    private PqcDecision symmetricUnsized(Reading reading, Integer level) {
+        if (reading.genuineHybrid || !reading.symmetric() || !reading.instantiated() || reading.parameterSetUnregistered
+                || !reading.unsizedBelowTheFloor()) {
+            return null;
+        }
+        return decision(PqcVerdict.UNKNOWN, PqcRules.SYMMETRIC_UNSIZED,
+                "A symmetric or hash-based primitive recorded without a size, in a family that also defines sizes "
+                        + "below the " + PqcRules.MIN_SYMMETRIC_KEY_BITS + "-bit floor, so its strength cannot be "
+                        + "affirmed",
+                sizeEvidence(reading.input, reading.construction), reading.evidence, level);
+    }
+
+    /**
+     * Family membership is not a strength claim: a construction cannot make one without naming its primitive, a sized
+     * primitive cannot make one below the floor, an unsized one cannot where the family has smaller members, and a
+     * parameter set the family does not define vouches for nothing. A KDF, DRBG, MAC or XOF primitive's parameter set
+     * is an output or tag length, so it is not read as a size.
+     */
+    private PqcDecision symmetricReady(Reading reading, Integer level) {
+        if (reading.genuineHybrid || !reading.symmetric() || !reading.instantiated() || reading.parameterSetUnregistered
+                || reading.unsizedBelowTheFloor()
+                || (reading.recordedSize != null && reading.recordedSize < PqcRules.MIN_SYMMETRIC_KEY_BITS)) {
+            return null;
+        }
+        FamilyClass ready = FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
+        if (reading.recordedSize != null) {
+            return decision(ready.verdict(), ready.ruleId(), ready.reason(),
+                    sizeEvidence(reading.input, reading.construction), reading.evidence, level);
+        }
+        if (reading.nonKeyPrimitive) {
+            return decision(ready.verdict(), ready.ruleId(),
+                    reading.family + " is a " + AsciiText.fold(reading.input.primitive())
+                            + " construction over a symmetric or hash-based family: its parameter set is an output "
+                            + "or tag length rather than a key size, and no quantum algorithm breaks the family "
+                            + "outright",
+                    List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.PRIMITIVE, PqcRules.VARIANT), reading.evidence, level);
+        }
+        return decision(ready.verdict(), ready.ruleId(), ready.reason(), FAMILY_FIELDS, reading.evidence, level);
+    }
+
+    /**
+     * The LMS grammar keys LM-OTS, LMS and HSS-LMS alike and keeps the {@code ots} and {@code hss} discriminators in
+     * the residue on purpose: key reuse is what tells a one-time signature from the many-time scheme built over it.
+     */
+    private PqcDecision oneTimeSignature(Reading reading, Integer level) {
+        if (reading.genuineHybrid || reading.disposition != FamilyClass.PQC_STANDARDIZED
+                || !STATEFUL_HASH_SIGNATURES.contains(reading.family)
+                || secondaryTokens(reading.input).stream().noneMatch(token -> token.contains(ONE_TIME_SIGNATURE))) {
+            return null;
+        }
+        return decision(PqcVerdict.UNKNOWN, PqcRules.ONE_TIME_SIGNATURE,
+                "A one-time signature scheme, which SP 800-208 approves only as a component within LMS or XMSS and "
+                        + "not on its own, so the family alone cannot affirm it",
+                FAMILY_FIELDS, reading.evidence, level);
+    }
+
+    /** A family's own disposition. A ready one vouches for nothing when the parameter set is not the family's. */
+    private PqcDecision familyDisposition(Reading reading, FamilyClass disposition, Integer level) {
+        if (reading.genuineHybrid || reading.disposition != disposition
+                || (disposition.verdict() == PqcVerdict.READY && reading.parameterSetUnregistered)) {
+            return null;
+        }
+        return decision(disposition.verdict(), disposition.ruleId(), disposition.reason(), FAMILY_FIELDS,
+                reading.evidence, level);
+    }
+
+    // ---- What the name carries ----------------------------------------------------------------------------------
 
     /**
      * The hybrid components the grammar recorded, widened by the secondary tokens.
      *
      * <p>
      * {@code AssetNormalizer.hybridComponents} tests membership against its own {@code PQC_FAMILIES}, which holds 25
-     * tokens where the ratified tables name 33 pseudo-families -- the drift core#2196's ruling C12 exists to end. So
-     * {@code X25519-HAWK-512} recorded no components, elected its classical half and read {@code notReady} on that half
-     * alone, which is the one outcome ruling (b) forbids. The ratified tables answer for all 33.
+     * tokens where the ratified tables name 33 pseudo-families. So {@code X25519-HAWK-512} recorded no components,
+     * elected its classical half and read {@code notReady} on that half alone. The ratified tables answer for all 33.
      *
      * <p>
      * A name that alternates between schemes records no components on either path, so its classical half decides the
-     * row through {@link #componentOrFamilyDecision}.
+     * row through the component rules.
      */
-    private List<String> hybridComponentsOf(PqcRuleInput input) {
+    private List<String> hybridComponentsOf(PqcRuleInput input, String family) {
         if (!input.hybridComponents().isEmpty()) {
             return input.hybridComponents();
         }
-        if (PqcFamilies.of(ratifiedFamily(input.algorithmFamily())) != FamilyClass.SHOR_BREAKABLE) {
-            return List.of();
-        }
-        if (normalizer.namesAnAlternation(input.name())) {
-            // The same refusal as the normalizer's own derivation: an alternation names no one construction.
+        if (PqcFamilies.of(family) != FamilyClass.SHOR_BREAKABLE || normalizer.namesAnAlternation(input.name())) {
             return List.of();
         }
         List<String> components = new ArrayList<>();
@@ -162,44 +703,6 @@ public class PqcEvaluator {
             }
         }
         return List.copyOf(components);
-    }
-
-    /**
-     * A broken component decides before the family does.
-     *
-     * <p>
-     * {@code HMAC-MD5} elects family {@code HMAC} and stores {@code md5} in the variant slot; {@code 3DES-CMAC} elects
-     * {@code CMAC} and stores {@code 3des,des}; {@code ECIES-X25519-XSalsa20-Poly1305} elects {@code Poly1305} and
-     * stores its key agreement beside it. Reading the family alone answered {@code ready} for all three. The
-     * specification made those tokens identity-bearing precisely because dropping them "silently erases a weak-crypto
-     * finding -- the one outcome an inventory must never produce", and the verdict path was doing exactly that.
-     *
-     * <p>
-     * A family with no grammar rule -- {@code CMEA}, {@code Yarrow} -- survives into the variant as the asset's own
-     * name, and the component rule then blamed a component the asset does not have. When that is the only weak token,
-     * the asset <em>is</em> the family and is served as one.
-     */
-    private PqcDecision componentOrFamilyDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
-        Map<String, FamilyClass> weak = weakSecondaryTokens(input);
-        if (weak.isEmpty()) {
-            return familyDecision(input, nistQuantumSecurityLevel);
-        }
-        if (input.algorithmFamily() == null && weak.size() == 1 && weak.containsKey(input.name())) {
-            return familyDecision(input.withAlgorithmFamily(ratifiedFamily(input.name())), nistQuantumSecurityLevel);
-        }
-        // Already broken today outranks broken by a future quantum computer, whatever order the tokens came in.
-        FamilyClass weakest = weak.containsValue(FamilyClass.CLASSICAL_LEGACY)
-                ? FamilyClass.CLASSICAL_LEGACY
-                : FamilyClass.SHOR_BREAKABLE;
-        return decision(weakest.verdict(), weakest.ruleId() + COMPONENT_RULE_SUFFIX, componentReason(weakest),
-                List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.NAME), input, nistQuantumSecurityLevel);
-    }
-
-    private static String componentReason(FamilyClass weakest) {
-        return weakest == FamilyClass.CLASSICAL_LEGACY
-                ? "A component named by this asset is already broken classically, so the construction inherits it"
-                : "A component named by this asset rests on factorisation or a discrete logarithm, so the construction "
-                        + "inherits its quantum vulnerability";
     }
 
     /** The secondary tokens that are classically broken or Shor-breakable, with their dispositions, in token order. */
@@ -221,62 +724,6 @@ public class PqcEvaluator {
         return VARIANT_SEPARATORS.splitAsStream(input.variant()).filter(token -> !token.isEmpty()).toList();
     }
 
-    /**
-     * A hybrid's readiness is its post-quantum component's, not the fact that it has one: {@code X25519-ML-KEM-768} is
-     * ready, {@code X25519-Kyber768} is not, because bare Kyber is a superseded draft. What holds unconditionally is
-     * that the classical half never decides. Among several post-quantum components
-     * {@link FamilyClass#byHybridPrecedence()} decides, so the answer does not depend on the order the name spelt them.
-     */
-    private PqcDecision hybridDecision(PqcRuleInput input, List<String> components, PqcRule rule,
-            Integer nistQuantumSecurityLevel) {
-        if (components.stream().noneMatch(this::isShorBreakable)) {
-            // Not a hybrid, whatever the grammar recorded. AssetNormalizer counts any non-PQC secondary token as the
-            // classical half, and every FIPS 205 and RFC 8391 parameter-set name carries a hash token -- so
-            // SLH-DSA-SHAKE-256f and XMSSMT-SHA2_20/2_256 arrived here as hybrids. The verdict was right by luck,
-            // because the post-quantum half wins either way, but the rule id and reason on the wire were false and an
-            // operator filtering on PQC-STANDARDIZED missed every standards-spelled row. The hash token may still be
-            // a broken one, so ML-KEM-MD5 goes through the component check like any other name.
-            return componentOrFamilyDecision(input, nistQuantumSecurityLevel);
-        }
-        PqcRuleInput hybrid = input.withHybridComponents(components);
-        if (namesAClassicallyBrokenComponent(input)) {
-            FamilyClass legacy = FamilyClass.CLASSICAL_LEGACY;
-            return decision(legacy.verdict(), legacy.ruleId() + COMPONENT_RULE_SUFFIX, componentReason(legacy),
-                    List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.HYBRID_COMPONENTS, PqcRules.VARIANT, PqcRules.NAME),
-                    hybrid, nistQuantumSecurityLevel);
-        }
-        FamilyClass decisive = components
-                .stream()
-                .map(this::dispositionOfComponent)
-                .filter(Objects::nonNull)
-                .filter(FamilyClass::isPostQuantum)
-                .min(FamilyClass.byHybridPrecedence())
-                .orElse(null);
-        if (decisive == null) {
-            // Recorded as hybrid by the grammar, but no component resolves to a post-quantum family this table knows.
-            // Not notReady: the classical half must not decide a hybrid, which is the one thing ruling (b) settles.
-            return decision(PqcVerdict.UNKNOWN, "PQC-HYBRID-UNRESOLVED",
-                    "A hybrid construction whose post-quantum component resolves to no ratified family",
-                    rule.readsFields(), hybrid, nistQuantumSecurityLevel);
-        }
-        String reason = decisive.verdict() == PqcVerdict.READY
-                ? rule.reason()
-                : "A hybrid construction whose post-quantum component is not standardised: " + decisive.reason();
-        return decision(decisive.verdict(), rule.id() + "-" + decisive.ruleId(), reason, rule.readsFields(), hybrid,
-                nistQuantumSecurityLevel);
-    }
-
-    /**
-     * A hybrid's classical half is Shor-breakable by design -- that is what the construction is for -- so only a
-     * classically broken component overrules it. The MD5 in {@code X25519-ML-KEM-768-MD5} is not that classical half
-     * but a broken digest inside the construction. The elected family counts too: the secondary tokens exclude it, so
-     * the PBKDF1 that {@code PBKDF1-X25519-ML-KEM-768} elects appears in neither the variant nor those tokens.
-     */
-    private boolean namesAClassicallyBrokenComponent(PqcRuleInput input) {
-        return PqcFamilies.of(ratifiedFamily(input.algorithmFamily())) == FamilyClass.CLASSICAL_LEGACY
-                || weakSecondaryTokens(input).containsValue(FamilyClass.CLASSICAL_LEGACY);
-    }
-
     private boolean isShorBreakable(String component) {
         return dispositionOfComponent(component) == FamilyClass.SHOR_BREAKABLE;
     }
@@ -285,77 +732,44 @@ public class PqcEvaluator {
         return PqcFamilies.of(ratifiedFamily(FAMILY_SIZE_SUFFIX.matcher(component).replaceFirst("")));
     }
 
-    private PqcDecision familyDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
-        FamilyClass disposition = PqcFamilies.of(ratifiedFamily(input.algorithmFamily()));
-        if (disposition == null) {
-            return decision(PqcVerdict.UNKNOWN, PqcRules.FAMILY_UNRESOLVED,
-                    "The recorded properties resolve to no ratified algorithm family, so no rule can classify it",
-                    List
-                            .of(PqcRules.ASSET_TYPE, PqcRules.MATERIAL_TYPE, PqcRules.ALGORITHM_FAMILY, PqcRules.NAME,
-                                    PqcRules.VARIANT),
-                    input, nistQuantumSecurityLevel);
-        }
-        if (disposition == FamilyClass.FAMILY_AMBIGUOUS && input.curve() != null) {
-            // Every curve the tables ratify under GOST is a GOST R 34.10 curve, so a curve on an ambiguous family names
-            // the EC signature scheme; the hash and the block ciphers carry none. Exact, not a heuristic: the curve
-            // column is populated only from the ratified curve tables.
-            FamilyClass signature = FamilyClass.SHOR_BREAKABLE;
-            return decision(signature.verdict(), signature.ruleId(), signature.reason(),
-                    List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.CURVE, PqcRules.VARIANT), input,
-                    nistQuantumSecurityLevel);
-        }
-        if (disposition == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC) {
-            PqcDecision strength = symmetricStrengthDecision(input, nistQuantumSecurityLevel);
-            if (strength != null) {
-                return strength;
+    /**
+     * The family of the unbroken primitive a construction's secondary tokens name, the last one where they name
+     * several, or {@code null} when they name none.
+     */
+    private String namedPrimitiveFamily(PqcRuleInput input) {
+        String named = null;
+        for (String token : secondaryTokens(input)) {
+            String family = ratifiedFamilyOfToken(token);
+            if (PqcFamilies.of(family) == FamilyClass.QUANTUM_RESISTANT_SYMMETRIC
+                    && !PqcFamilies.isConstruction(family)) {
+                named = family;
             }
         }
-        if (disposition == FamilyClass.PQC_STANDARDIZED && isOneTimeSignature(input)) {
-            return decision(PqcVerdict.UNKNOWN, "PQC-ONE-TIME-SIGNATURE",
-                    "A one-time signature scheme, which SP 800-208 approves only as a component within LMS or XMSS and "
-                            + "not on its own, so the family alone cannot affirm it",
-                    List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT), input, nistQuantumSecurityLevel);
-        }
-        return decision(disposition.verdict(), disposition.ruleId(), disposition.reason(),
-                List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT), input, nistQuantumSecurityLevel);
+        return named;
     }
 
     /**
-     * What an unbroken symmetric or hash-based family's recorded strength says, or {@code null} when the family verdict
-     * stands. Family membership is not a strength claim: a construction cannot make one without naming its primitive,
-     * and a sized primitive cannot make one below the floor.
+     * The key length a construction's cipher spells -- the 128 of {@code AES-128-CMAC} -- or {@code null}. Only a size
+     * the cipher's registry variant spells and defines counts, so a trailing tag length is never read as a key: the 96
+     * of {@code AES-CMAC-96} is not where AES spells its size, and the 64 of {@code CMAC-AES-64} is no AES key. A hash
+     * primitive's number is a digest length, not a key, so an HMAC reads none.
      */
-    private PqcDecision symmetricStrengthDecision(PqcRuleInput input, Integer nistQuantumSecurityLevel) {
-        boolean construction = PqcFamilies.isConstruction(ratifiedFamily(input.algorithmFamily()));
-        if (construction) {
-            FamilyClass primitive = namedPrimitive(input);
-            if (primitive == FamilyClass.FAMILY_AMBIGUOUS) {
-                return decision(PqcVerdict.UNKNOWN, FamilyClass.FAMILY_AMBIGUOUS.ruleId() + COMPONENT_RULE_SUFFIX,
-                        "A construction built on a primitive whose family covers both a classically broken and an "
-                                + "unbroken member, and the recorded properties do not say which",
-                        List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT), input, nistQuantumSecurityLevel);
-            }
-            if (primitive == null) {
-                return decision(PqcVerdict.UNKNOWN, "CONSTRUCTION-UNINSTANTIATED",
-                        "A construction whose strength is that of the primitive it is built on, which this record "
-                                + "does not name",
-                        List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.PARAMETER_SET), input,
-                        nistQuantumSecurityLevel);
-            }
-        }
-        Integer bits = recordedSizeBits(input, construction);
-        if (bits == null) {
+    private Integer cipherKeySize(PqcRuleInput input, String cipherFamily) {
+        Set<Integer> admissible = cipherParameterSets(input, cipherFamily);
+        if (admissible == null) {
             return null;
         }
-        List<String> sized = sizeEvidence(input, construction);
-        if (bits >= PqcRules.MIN_SYMMETRIC_KEY_BITS) {
-            FamilyClass ready = FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
-            return decision(ready.verdict(), ready.ruleId(), ready.reason(), sized, input, nistQuantumSecurityLevel);
+        Integer spelled = normalizer.registrySizeSpelled(input.name(), cipherFamily);
+        return spelled != null && admissible.contains(spelled) ? spelled : null;
+    }
+
+    /** The key sizes the registry admits for a construction's keyed cipher, or {@code null} where it names none. */
+    private Set<Integer> cipherParameterSets(PqcRuleInput input, String cipherFamily) {
+        if (cipherFamily == null
+                || !KEYED_CIPHERS.contains(normalizer.tables().primitiveDefaults().get(cipherFamily))) {
+            return null;
         }
-        return decision(PqcVerdict.NOT_READY, "SYMMETRIC-UNDERSIZED",
-                "A symmetric or hash-based primitive whose recorded size is below 128 bits, so Grover's algorithm "
-                        + "leaves it with no adequate strength",
-                sized, input, nistQuantumSecurityLevel);
+        return normalizer.admissibleParameterSets(input.name(), cipherFamily);
     }
 
     /**
@@ -385,16 +799,36 @@ public class PqcEvaluator {
      * <p>
      * {@code materialSize} counts only on a material row. A producer bug stamps the material block onto algorithms too,
      * and there the row's own size is its parameter set -- a strayed size would otherwise decide {@code AES-64} ready
-     * and {@code AES-256} undersized. On a construction the parameter set is not a key size but its primitive's digest
-     * or a tag length, so only a material row's key counts. When a key's name spells a size too, the smaller decides: a
-     * declared size must not clear a key its own algorithm name fails.
+     * and {@code AES-256} undersized. When a key's name spells a size too, the smaller decides: a declared size must
+     * not clear a key its own algorithm name fails.
+     *
+     * @param named the size the name records: a primitive's parameter set, cut to its truncation for a truncated
+     * digest, or a construction's cipher key length; {@code null} for a non-key primitive's output length or a number
+     * the family does not define
      */
-    private Integer recordedSizeBits(PqcRuleInput input, boolean construction) {
-        Integer named = construction ? null : withinRatifiedSizeBand(input.parameterSet());
+    private static Integer recordedSizeBits(PqcRuleInput input, Integer named) {
         if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL && input.materialSize() != null) {
             return named == null ? input.materialSize() : Math.min(input.materialSize(), named);
         }
         return named;
+    }
+
+    /**
+     * A truncated digest is as long as its truncation: {@code SHA-512/224} records 512 as its parameter set and 224 as
+     * a marker, and its output is 224 bits.
+     */
+    private Integer truncated(PqcRuleInput input, Integer size) {
+        if (size == null) {
+            return null;
+        }
+        Integer shortest = size;
+        for (String token : secondaryTokens(input)) {
+            Matcher marker = TRUNCATION_MARKER.matcher(token);
+            if (marker.matches()) {
+                shortest = Math.min(shortest, Integer.parseInt(marker.group(1)));
+            }
+        }
+        return shortest;
     }
 
     /** The slots {@link #recordedSizeBits} reads for this row, so the evidence names only the size that decided. */
@@ -418,15 +852,6 @@ public class PqcEvaluator {
         return bits != null && bits >= normalizer.tables().sizeMin() && bits <= normalizer.tables().sizeMax()
                 ? bits
                 : null;
-    }
-
-    /**
-     * The LMS grammar keys LM-OTS, LMS and HSS-LMS alike and keeps the {@code ots} and {@code hss} discriminators in
-     * the residue on purpose: key reuse is what tells a one-time signature from the many-time scheme built over it.
-     */
-    private boolean isOneTimeSignature(PqcRuleInput input) {
-        return STATEFUL_HASH_SIGNATURES.contains(input.algorithmFamily())
-                && secondaryTokens(input).stream().anyMatch(token -> token.contains(ONE_TIME_SIGNATURE));
     }
 
     /**
@@ -463,28 +888,66 @@ public class PqcEvaluator {
      * {@code hybridComponents} is re-derived, not read: it is out-of-key by construction and has no column.
      *
      * <p>
-     * The material tier derives no family -- {@code AssetNormalizer} leaves it null for every
-     * {@code related-crypto-material} component, with or without an {@code algorithmRef} -- so a private key whose own
-     * name says {@code RSA-2048} reached the rules with nothing to classify. The name is a column, so reading the
-     * family out of it is available to every caller. Confined to material: on an algorithm row a null family is the
-     * normalizer's decision, a cipher suite above all, and stands. The same goes for the size the name spells, which
-     * the material tier also leaves unread.
+     * A material row is judged by its own name and its stored properties, never by its family, size, curve or primitive
+     * columns. Those hold what {@code CryptoAssetIdentity} copied from the algorithm the row references and the key's
+     * own declared {@code size}: filter slots, not evidence. Read here, half an algorithm decided the key -- the family
+     * of {@code X25519-Kyber768} is {@code ECDH} and its hybrid components have no column, so a shared secret under it
+     * read {@code CLASSICAL-SHOR} on the classical half alone -- and a referenced size outranked the one the key's own
+     * name spells. So the family, the size and the primitive come from the name: a key named {@code SHAKE128} is an
+     * XOF's, and its 128 is an output strength rather than its length. Confined to material: on an algorithm row a null
+     * family is the normalizer's decision, a cipher suite above all, and stands.
      */
     public PqcRuleInput fromStoredRow(CryptoAssetIdentityFields fields, JsonNode mergedCryptoProperties) {
         boolean material = fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL;
-        String family = ratifiedFamily(fields.algorithmFamily());
-        if (family == null && material) {
-            family = ratifiedFamily(normalizer.familyFromName(fields.name()));
-        }
-        Integer parameterSet = parameterSet(fields.parameterSet());
-        if (parameterSet == null && material) {
-            parameterSet = sizeFromName(fields.name(), family);
-        }
+        String family = material
+                ? ratifiedFamily(normalizer.familyFromName(fields.name()))
+                : ratifiedFamily(fields.algorithmFamily());
+        Integer parameterSet = material ? sizeFromName(fields.name(), family) : parameterSet(fields.parameterSet());
+        String curve = material ? null : fields.curve();
+        String primitive = material ? primitiveTheNameSpells(fields.name(), family) : storedPrimitive(fields, family);
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(fields.name(), family, secondary);
-        return new PqcRuleInput(fields.assetType(), family, parameterSet, fields.curve(), fields.mode(),
-                fields.padding(), variantOf(fields, secondary), fields.name(), hybrid,
-                materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties));
+        return new PqcRuleInput(fields.assetType(), family, parameterSet, curve, fields.mode(), fields.padding(),
+                variantOf(fields, secondary), fields.name(), hybrid, materialType(mergedCryptoProperties),
+                materialSize(mergedCryptoProperties), primitive);
+    }
+
+    /**
+     * The stored primitive, unless it is only the family's default where the name spells a registry variant with its
+     * own: a row stored before variant primitives were derived holds {@code hash} for {@code SHAKE128}, and the upsert
+     * keeps a stored primitive, so a re-ingest cannot repair it. A row whose producer declared the default on such a
+     * name cannot be told apart from a stale one and reads the same way: the name is what pins the primitive.
+     */
+    private String storedPrimitive(CryptoAssetIdentityFields fields, String family) {
+        String stored = fields.primitive();
+        String fromVariant = normalizer.primitiveFromRegistryVariant(fields.name(), family);
+        String familyDefault = family == null ? null : normalizer.tables().primitiveDefaults().get(family);
+        if (stored != null && fromVariant != null && familyDefault != null
+                && AsciiText.fold(stored).equals(AsciiText.fold(familyDefault))) {
+            return fromVariant;
+        }
+        return stored;
+    }
+
+    /**
+     * A non-key primitive only where the name agrees: a declared {@code kdf} on {@code AES-128} would otherwise lift
+     * AES's key length out of the floor. A family with no primitive of its own takes the declaration.
+     */
+    private boolean isCorroboratedNonKeyPrimitive(PqcRuleInput input, String family) {
+        if (input.primitive() == null || !PqcRules.NON_KEY_PRIMITIVES.contains(AsciiText.fold(input.primitive()))) {
+            return false;
+        }
+        String spelled = primitiveTheNameSpells(input.name(), family);
+        return spelled == null || PqcRules.NON_KEY_PRIMITIVES.contains(AsciiText.fold(spelled));
+    }
+
+    /** The primitive an undeclared algorithm of this name would derive: the registry variant's, else the family's. */
+    private String primitiveTheNameSpells(String name, String family) {
+        String fromVariant = normalizer.primitiveFromRegistryVariant(name, family);
+        if (fromVariant != null) {
+            return fromVariant;
+        }
+        return family == null ? null : normalizer.tables().primitiveDefaults().get(family);
     }
 
     /**
@@ -503,7 +966,10 @@ public class PqcEvaluator {
         return spelled != null ? spelled : normalizer.intrinsicParameterSet(name);
     }
 
-    /** The normalizer's routing vocabulary onto the column's enum; the unroutable tier has no producer spelling. */
+    /**
+     * The normalizer's routing vocabulary onto the column's enum. The unroutable value remains the column's answer for
+     * a component the normalizer routes nowhere; ingest no longer stores one.
+     */
     public static CryptographicAssetType assetTypeOf(String routed) {
         if (routed == null) {
             return CryptographicAssetType.UNROUTABLE;
@@ -532,8 +998,8 @@ public class PqcEvaluator {
 
     /**
      * The ratified {@code unknown} spelling reads as absent, and lookup is separator-insensitive because producers
-     * camelCase these vocabularies. core#2196's ruling C10 keeps {@code unknown} as a value; this is its second reader,
-     * and takes it as "the producer said nothing" rather than a fourth arm of the material partition.
+     * camelCase these vocabularies. {@code unknown} is kept as a value of the material-type vocabulary; this reader
+     * takes it as "the producer said nothing" rather than a fourth arm of the material partition.
      */
     static String materialType(JsonNode cryptoProperties) {
         JsonNode material = cryptoProperties == null ? null : cryptoProperties.get(RELATED_MATERIAL);
@@ -614,6 +1080,7 @@ public class PqcEvaluator {
         return switch (field) {
             case PqcRules.ASSET_TYPE -> input.assetType() == null ? null : input.assetType().getCode();
             case PqcRules.ALGORITHM_FAMILY -> input.algorithmFamily();
+            case PqcRules.PRIMITIVE -> input.primitive();
             case PqcRules.PARAMETER_SET -> input.parameterSet();
             case PqcRules.CURVE -> input.curve();
             case "mode" -> input.mode();

@@ -6,6 +6,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.auth.oauth2.AuthenticationSnapshotRequestFilter;
+import com.otilm.core.config.logging.MdcRequestFilter;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -120,6 +121,22 @@ public class WebAppConfig implements WebMvcConfigurer {
         FilterRegistrationBean<AuthenticationSnapshotRequestFilter> registrationBean = new FilterRegistrationBean<>();
 
         registrationBean.setFilter(new AuthenticationSnapshotRequestFilter());
+        registrationBean.addUrlPatterns("/*");
+        registrationBean.setOrder(Ordered.HIGHEST_PRECEDENCE);
+
+        return registrationBean;
+    }
+
+    /**
+     * Registered ahead of every other filter, including the Spring Security chains, so that what a request names in the
+     * MDC, from its actor to the objects its audit records name, never reaches the next request on the same pooled
+     * thread.
+     */
+    @Bean
+    public FilterRegistrationBean<MdcRequestFilter> mdcRequestFilter() {
+        FilterRegistrationBean<MdcRequestFilter> registrationBean = new FilterRegistrationBean<>();
+
+        registrationBean.setFilter(new MdcRequestFilter());
         registrationBean.addUrlPatterns("/*");
         registrationBean.setOrder(Ordered.HIGHEST_PRECEDENCE);
 

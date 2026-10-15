@@ -1,29 +1,44 @@
 package com.otilm.core.aop;
 
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
+import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
+import com.otilm.api.model.connector.secrets.content.BasicAuthSecretContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
+import com.otilm.api.model.core.secret.SecretRequestDto;
 import com.otilm.api.model.core.settings.SettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.core.logging.AuditLogEnhancer;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.messaging.jms.producers.AuditLogsProducer;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -152,11 +167,91 @@ class AuditLogAspectTest {
         verify(auditLogInternalService).log(named, AuditLogOutput.DATABASE);
     }
 
+    /** An operation may name its object by its UUID alone, and leave its name for the enhancer to fill in. */
+    @Test
+    void anObjectNamedByItsUuidAloneIsRecordedByIt() throws Throwable {
+        // given
+        LoggingHelper.clearLogResourceObject();
+        UUID objectUuid = UUID.randomUUID();
+        when(joinPoint.proceed()).thenAnswer(invocation -> {
+            LoggingHelper.putLogResourceInfo(Resource.CRYPTOGRAPHIC_KEY_ITEM, false, objectUuid.toString(), null);
+            return "released";
+        });
+        ArgumentCaptor<LogRecord> recorded = ArgumentCaptor.forClass(LogRecord.class);
+
+        // when
+        try {
+            aspect.log(joinPointOn("synchronousProbe"));
+        } finally {
+            LoggingHelper.clearLogResourceObject();
+        }
+
+        // then
+        verify(auditLogInternalService).log(recorded.capture(), eq(AuditLogOutput.DATABASE));
+        assertEquals(List.of(new ResourceObjectIdentity(null, objectUuid)), recorded.getValue().resource().objects());
+    }
+
+    /** A verbose record holds what the call was given, with its secrets redacted. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aVerboseRecordHoldsTheArgumentWithItsSecretRedacted() throws Throwable {
+        // given
+        LoggingSettingsDto verbose = auditLogsToTheDatabase();
+        verbose.getAuditLogs().setVerbose(true);
+        new SettingsCache().cacheSettings(SettingsSection.LOGGING, verbose);
+        SecretRequestDto request = new SecretRequestDto();
+        request.setName("probe");
+        request.setSecret(new BasicAuthSecretContent("alice", "basic-auth-password"));
+        when(joinPoint.proceed()).thenReturn("released");
+        ArgumentCaptor<LogRecord> recorded = ArgumentCaptor.forClass(LogRecord.class);
+
+        // when
+        aspect.log(joinPointOn("verboseProbe", new Class<?>[]{SecretRequestDto.class}, request));
+
+        // then
+        verify(auditLogInternalService).log(recorded.capture(), eq(AuditLogOutput.DATABASE));
+        Map<String, Object> recordedRequest = (Map<String, Object>) recorded.getValue().additionalData().get("request");
+        Map<String, Object> secret = (Map<String, Object>) recordedRequest.get("secret");
+        assertEquals("alice", secret.get("username"));
+        assertEquals("***", secret.get("password"));
+    }
+
+    /** A verbose record holds a secret attribute value redacted too. */
+    @Test
+    void aVerboseRecordHoldsASecretAttributeValueRedacted() throws Throwable {
+        // given
+        LoggingSettingsDto verbose = auditLogsToTheDatabase();
+        verbose.getAuditLogs().setVerbose(true);
+        new SettingsCache().cacheSettings(SettingsSection.LOGGING, verbose);
+        List<RequestAttribute> attributes = List
+                .of(new RequestAttributeV2(UUID.randomUUID(), "password", AttributeContentType.SECRET,
+                        List
+                                .of(new SecretAttributeContentV2(null,
+                                        new SecretAttributeContentData("attribute-secret-value")))));
+        when(joinPoint.proceed()).thenReturn("released");
+        ArgumentCaptor<LogRecord> captor = ArgumentCaptor.forClass(LogRecord.class);
+
+        // when
+        aspect.log(joinPointOn("verboseAttributesProbe", new Class<?>[]{List.class}, attributes));
+
+        // then
+        verify(auditLogInternalService).log(captor.capture(), eq(AuditLogOutput.DATABASE));
+        LogRecord logRecord = captor.getValue();
+        String recorded = ObjectMapperFactory.auditLog().writeValueAsString(logRecord.additionalData());
+        assertTrue(recorded.contains("\"secret\":\"***\""));
+        assertFalse(recorded.contains("attribute-secret-value"));
+    }
+
     private ProceedingJoinPoint joinPointOn(String probe) throws NoSuchMethodException {
+        return joinPointOn(probe, new Class<?>[0]);
+    }
+
+    private ProceedingJoinPoint joinPointOn(String probe, Class<?>[] parameterTypes, Object... arguments)
+            throws NoSuchMethodException {
         MethodSignature signature = mock(MethodSignature.class);
-        when(signature.getMethod()).thenReturn(Probe.class.getDeclaredMethod(probe));
+        when(signature.getMethod()).thenReturn(Probe.class.getDeclaredMethod(probe, parameterTypes));
         when(joinPoint.getSignature()).thenReturn(signature);
-        when(joinPoint.getArgs()).thenReturn(new Object[0]);
+        when(joinPoint.getArgs()).thenReturn(arguments);
         return joinPoint;
     }
 
@@ -182,6 +277,18 @@ class AuditLogAspectTest {
                 operation = Operation.EXPORT)
         void asynchronousProbe() {
             // only its annotation is read
+        }
+
+        @AuditLogged(module = Module.SECRETS, resource = Resource.SECRET, operation = Operation.CREATE,
+                synchronous = true)
+        void verboseProbe(SecretRequestDto request) {
+            // only its annotation and parameters are read
+        }
+
+        @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY_ITEM,
+                operation = Operation.EXPORT, synchronous = true)
+        void verboseAttributesProbe(List<RequestAttribute> exportAttributes) {
+            // only its annotation and parameters are read
         }
     }
 }

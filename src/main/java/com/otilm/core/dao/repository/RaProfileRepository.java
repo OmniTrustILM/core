@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public interface RaProfileRepository extends SecurityFilterRepository<RaProfile, Long> {
+public interface RaProfileRepository extends SecurityFilterRepository<RaProfile, UUID> {
 
     Optional<RaProfile> findByUuid(UUID uuid);
 
