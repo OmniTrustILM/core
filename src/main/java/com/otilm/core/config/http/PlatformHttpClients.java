@@ -48,9 +48,9 @@ public final class PlatformHttpClients {
      * {@code ProxyConfiguration} populates.
      * <p>
      * Connect and read timeouts are deliberately left to each consumer's
-     * {@link org.springframework.boot.http.client.ClientHttpRequestFactorySettings}: Boot applies the connection-config
-     * customizer <em>after</em> mapping those settings, so setting them here would silently overwrite what a consumer
-     * passed to {@code build(settings)}. Only the lease timeout, which no setting maps to, is fixed for everyone.
+     * {@link org.springframework.boot.http.client.HttpClientSettings}: Boot applies the connection-config customizer
+     * <em>after</em> mapping those settings, so setting them here would silently overwrite what a consumer passed to
+     * {@code build(settings)}. Only the lease timeout, which no setting maps to, is fixed for everyone.
      */
     public static HttpComponentsClientHttpRequestFactoryBuilder requestFactoryBuilder() {
         return ClientHttpRequestFactoryBuilder

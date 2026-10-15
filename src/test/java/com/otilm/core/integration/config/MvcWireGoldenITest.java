@@ -18,6 +18,7 @@ class MvcWireGoldenITest extends BaseSpringBootTest {
     private RequestMappingHandlerAdapter handlerAdapter;
 
     @Test
+    @SuppressWarnings("removal")
     void jsonResponsesUseTheJackson2MapperOfThe35Line() {
         HttpMessageConverter<?> json = handlerAdapter
                 .getMessageConverters()

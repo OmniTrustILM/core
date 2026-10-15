@@ -1,18 +1,20 @@
 package com.otilm.core.provisioning;
 
 import com.otilm.core.config.http.PlatformHttpClients;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.BufferingClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
@@ -51,8 +53,9 @@ public class ProvisioningApiConfig {
     }
 
     @Bean
+    @SuppressWarnings("removal")
     public RestClient provisioningRestClient(ClientHttpRequestInterceptor provisioningHttpLoggingInterceptor) {
-        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings
+        HttpClientSettings settings = HttpClientSettings
                 .defaults()
                 .withConnectTimeout(provisioningApiProperties.connectTimeout())
                 .withReadTimeout(provisioningApiProperties.readTimeout());
@@ -65,6 +68,11 @@ public class ProvisioningApiConfig {
                 .requestFactory(new BufferingClientHttpRequestFactory(factory))
                 .defaultHeader("X-API-Key", provisioningApiProperties.apiKey())
                 .requestInterceptor(provisioningHttpLoggingInterceptor)
+                .configureMessageConverters(
+                        converters -> converters
+                                .registerDefaults()
+                                .withJsonConverter(new MappingJackson2HttpMessageConverter(
+                                        ObjectMapperFactory.restClientDefault())))
                 .build();
     }
 

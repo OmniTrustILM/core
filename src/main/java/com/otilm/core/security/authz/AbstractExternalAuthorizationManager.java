@@ -23,7 +23,7 @@ public abstract class AbstractExternalAuthorizationManager<T> implements Authori
      * and a subclass that cannot decide both come back as an explicit denial instead.
      */
     @Override
-    public AuthorizationDecision authorize(Supplier<Authentication> authenticationSupplier, T object) {
+    public AuthorizationDecision authorize(Supplier<? extends Authentication> authenticationSupplier, T object) {
         Authentication authentication = authenticationSupplier.get();
         if (!(authentication instanceof PlatformAuthenticationToken
                 || authentication instanceof AnonymousAuthenticationToken)) {
@@ -43,23 +43,6 @@ public abstract class AbstractExternalAuthorizationManager<T> implements Authori
             return checkInternal((AnonymousAuthenticationToken) authentication, object);
         }
 
-    }
-
-    /**
-     * Delegates to {@link #authorize}, which holds the decision.
-     *
-     * <p>
-     * This override cannot simply be deleted while we are on Spring Security 6.5, where {@code check} is both abstract
-     * and deprecated. Spring Security 7 removes it and widens the surviving {@code authorize} to
-     * {@code Supplier<? extends Authentication>}, so that upgrade both drops this method and changes the signature
-     * above.
-     *
-     * @deprecated removed in Spring Security 7; call {@link #authorize} instead.
-     */
-    @Deprecated(forRemoval = true)
-    @Override
-    public AuthorizationDecision check(Supplier<Authentication> authenticationSupplier, T object) {
-        return authorize(authenticationSupplier, object);
     }
 
     protected abstract AuthorizationDecision checkInternal(PlatformAuthenticationToken authentication, T object);

@@ -97,7 +97,7 @@ class ExceptionHandlingAdviceConnectorTest {
 
     @Test
     void connectorProblem422StaysVerbatim() {
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY,
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT,
                 advice.handleConnectorProblemException(problem(422, "rejected")).getStatusCode());
     }
 

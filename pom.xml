@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.otilm</groupId>
         <artifactId>dependencies</artifactId>
-        <version>1.4.3-SNAPSHOT</version>
+        <version>2.20.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>core</artifactId>
@@ -52,7 +52,8 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <!-- Remove after upgrading parent spring boot dependency to 3.5.9+ -->
+            <!-- Boot 4.1 manages Testcontainers 2.x. Core stays on the 1.x line, which is verified to
+                 coexist with JUnit 6.0.3. -->
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
@@ -78,6 +79,28 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- Boot 4 split the monolithic jars; these used to arrive transitively. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-http-client</artifactId>
+        </dependency>
+        <!-- OpenTelemetry instruments RestClient beans only when this module's RestClientCustomizer is present. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jackson2</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-session</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jms</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -153,6 +176,10 @@
         </dependency>
 
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
@@ -169,7 +196,7 @@
         </dependency>
         <dependency>
             <groupId>org.hibernate.orm</groupId>
-            <artifactId>hibernate-jpamodelgen</artifactId>
+            <artifactId>hibernate-processor</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -220,6 +247,17 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- @AutoConfigureMockMvc moved into this module in Boot 4. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -353,8 +391,8 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
             <plugin>
-                <groupId>org.hibernate.orm.tooling</groupId>
-                <artifactId>hibernate-enhance-maven-plugin</artifactId>
+                <groupId>org.hibernate.orm</groupId>
+                <artifactId>hibernate-maven-plugin</artifactId>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
