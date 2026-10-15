@@ -15,7 +15,6 @@ import com.otilm.api.model.connector.cryptography.token.TokenInstanceDto;
 import com.otilm.api.model.connector.cryptography.token.TokenInstanceRequestDto;
 import com.otilm.api.model.connector.cryptography.token.TokenInstanceStatusDto;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
-import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
@@ -73,12 +72,6 @@ public class TokenProviderV1Adapter
     public List<BaseAttribute> listTokenProfileAttributes(TokenInstanceBasicModel tokenInstance)
             throws ConnectorException {
         return tokenApiClient.listTokenProfileAttributes(connectorInfo, tokenInstance.tokenInstanceUuid());
-    }
-
-    @Override
-    public List<KeyUsage> listSupportedKeyUsages(TokenInstanceBasicModel tokenInstance) {
-        // The v1 connector protocol has no operation for discovering supported key usages.
-        return Arrays.stream(KeyUsage.values()).toList();
     }
 
     @Override

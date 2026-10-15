@@ -5,7 +5,6 @@ import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.operations.RandomDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.RandomDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
@@ -48,15 +47,6 @@ public interface TokenProviderAdapter {
      * @throws ConnectorException if the connector operation fails
      */
     List<BaseAttribute> listTokenProfileAttributes(TokenInstanceBasicModel tokenInstance) throws ConnectorException;
-
-    /**
-     * Lists the key usages supported by the specified token instance.
-     *
-     * @param tokenInstance the token instance for which to determine supported key usages
-     * @return the supported key usages
-     * @throws ConnectorException if the connector operation fails
-     */
-    List<KeyUsage> listSupportedKeyUsages(TokenInstanceBasicModel tokenInstance) throws ConnectorException;
 
     /**
      * Lists the key request types supported for the specified token profile.

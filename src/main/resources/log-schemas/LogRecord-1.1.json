@@ -97,7 +97,6 @@
         "retry",
         "compromise",
         "destroy",
-        "listKeyUsages",
         "updateKeyUsage",
         "listKeyRequestTypes",
         "encrypt",
