@@ -53,6 +53,20 @@ class ObjectMapperFactoryTest {
     }
 
     /**
+     * Keeps the null members Spring 6.2's {@code RestClient.builder()} wrote, which {@link ObjectMapperFactory#wire()}
+     * leaves out.
+     */
+    @Test
+    void restClientDefaultWritesNullMembers() throws JsonProcessingException {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("absent", null);
+
+        String json = ObjectMapperFactory.restClientDefault().writeValueAsString(request);
+
+        assertThat(json).isEqualTo("{\"absent\":null}");
+    }
+
+    /**
      * Guards the reason the export keeps its own recipe. An explicit module list suppresses discovery, and the export
      * would record {@code ERROR_SERIALIZATION} instead of data.
      */
