@@ -9,8 +9,6 @@ public class PostgresFunctionContributor implements FunctionContributor {
 
     public static final String BIT_AND_FUNCTION = "bitand";
     public static final String JSONB_CONTAINS = "jsonb_contains";
-    public static final String JSON_TEXT_ARRAY_CONTAINS = "json_text_array_contains";
-    public static final String JSON_TEXT_ARRAY_CONTAINS_PATTERN = "CAST(?1 AS jsonb) @> CAST(?2 AS jsonb)";
     public static final String TEXT_TO_JSONB = "text_to_jsonb";
     public static final String ARRAY_CONTAINS = "text_array_contains";
     public static final String ARRAY_ITEM_CONTAINS = "text_array_item_contains";
@@ -72,9 +70,6 @@ public class PostgresFunctionContributor implements FunctionContributor {
                                 .getTypeConfiguration()
                                 .getBasicTypeRegistry()
                                 .resolve(StandardBasicTypes.STRING));
-        functionContributions
-                .getFunctionRegistry()
-                .registerPattern(JSON_TEXT_ARRAY_CONTAINS, JSON_TEXT_ARRAY_CONTAINS_PATTERN, booleanType);
         functionContributions
                 .getFunctionRegistry()
                 .registerPattern(ARRAY_CONTAINS, ARRAY_CONTAINS_PATTERN, booleanType);

@@ -586,7 +586,8 @@ public enum FilterField {
     }
 
     public boolean isNativeArrayField() {
-        return this.type == SearchFieldTypeEnum.NATIVE_ARRAY;
+        return this.type == SearchFieldTypeEnum.NATIVE_ARRAY
+                || this.type == SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY;
     }
 
     public static List<FilterField> getEnumsForResource(Resource resource) {

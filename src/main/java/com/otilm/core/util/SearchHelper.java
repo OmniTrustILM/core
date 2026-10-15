@@ -336,7 +336,6 @@ public class SearchHelper {
      */
     public static boolean isOrderableField(final FilterField filterField) {
         return filterField.getFieldAttribute() != null && !filterField.isNativeArrayField()
-                && filterField.getType() != SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY
                 && filterField.getJsonPath() == null && filterField.getExpectedValue() == null
                 && !isBitMaskField(filterField) && !FilterFieldSets.SHARING_AN_ATTRIBUTE.contains(filterField);
     }

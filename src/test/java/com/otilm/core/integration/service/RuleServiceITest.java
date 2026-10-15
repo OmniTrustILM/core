@@ -144,25 +144,41 @@ class RuleServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void rejectsExtendedKeyUsageConditionsOnCreateAndUpdate() {
-        ConditionItemRequestDto ekuItem = new ConditionItemRequestDto();
-        ekuItem.setFieldSource(FilterFieldSource.PROPERTY);
-        ekuItem.setFieldIdentifier(FilterField.EXTENDED_KEY_USAGE.name());
-        ekuItem.setOperator(FilterConditionOperator.EQUALS);
-        ekuItem.setValue("1.3.6.1.5.5.7.3.1");
-
+    void storesExtendedKeyUsageConditionValuesAsOids() throws AlreadyExistException, NotFoundException {
         ConditionRequestDto createRequest = new ConditionRequestDto();
-        createRequest.setName("Unsupported EKU condition");
+        createRequest.setName("EKU condition");
         createRequest.setResource(Resource.CERTIFICATE);
         createRequest.setType(ConditionType.CHECK_FIELD);
-        createRequest.setItems(List.of(ekuItem));
-        Assertions.assertThrows(ValidationException.class, () -> ruleService.createCondition(createRequest));
+        createRequest.setItems(List.of(extendedKeyUsageItem(FilterConditionOperator.EQUALS, "serverAuth")));
+        ConditionDto created = ruleService.createCondition(createRequest);
+        Assertions.assertEquals("1.3.6.1.5.5.7.3.1", created.getItems().getFirst().getValue());
 
         UpdateConditionRequestDto updateRequest = new UpdateConditionRequestDto();
-        updateRequest.setItems(List.of(ekuItem));
-        Assertions
-                .assertThrows(ValidationException.class,
-                        () -> ruleService.updateCondition(conditionDto.getUuid(), updateRequest));
+        updateRequest
+                .setItems(List
+                        .of(extendedKeyUsageItem(FilterConditionOperator.NOT_EQUALS,
+                                List.of("TLS Web Client Authentication", "1.2.3.4.5"))));
+        String uuid = created.getUuid();
+        ConditionDto updated = ruleService.updateCondition(uuid, updateRequest);
+        Assertions.assertEquals(List.of("1.3.6.1.5.5.7.3.2", "1.2.3.4.5"), updated.getItems().getFirst().getValue());
+
+        // A substring is matched as written, not resolved.
+        updateRequest.setItems(List.of(extendedKeyUsageItem(FilterConditionOperator.CONTAINS, "1.3.6.1.4.1.311")));
+        updated = ruleService.updateCondition(uuid, updateRequest);
+        Assertions.assertEquals("1.3.6.1.4.1.311", updated.getItems().getFirst().getValue());
+
+        // Custom purposes are named by OID in rules.
+        updateRequest.setItems(List.of(extendedKeyUsageItem(FilterConditionOperator.EQUALS, "Private EKU Purpose")));
+        Assertions.assertThrows(ValidationException.class, () -> ruleService.updateCondition(uuid, updateRequest));
+    }
+
+    private static ConditionItemRequestDto extendedKeyUsageItem(FilterConditionOperator operator, Object value) {
+        ConditionItemRequestDto item = new ConditionItemRequestDto();
+        item.setFieldSource(FilterFieldSource.PROPERTY);
+        item.setFieldIdentifier(FilterField.EXTENDED_KEY_USAGE.name());
+        item.setOperator(operator);
+        item.setValue(value);
+        return item;
     }
 
     @Test

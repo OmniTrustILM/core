@@ -4,7 +4,6 @@ import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.ConditionDto;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.api.model.core.workflows.ConditionRequestDto;
@@ -20,7 +19,6 @@ import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.repository.workflows.ConditionItemRepository;
 import com.otilm.core.dao.repository.workflows.ConditionRepository;
 import com.otilm.core.dao.repository.workflows.RuleRepository;
-import com.otilm.core.enums.FilterField;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -40,6 +38,7 @@ public class RuleServiceImpl implements RuleExternalService {
 
     private ConditionRepository conditionRepository;
     private ConditionItemRepository conditionItemRepository;
+    private ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer;
     private RuleRepository ruleRepository;
 
     @Autowired
@@ -50,6 +49,11 @@ public class RuleServiceImpl implements RuleExternalService {
     @Autowired
     public void setConditionItemRepository(ConditionItemRepository conditionItemRepository) {
         this.conditionItemRepository = conditionItemRepository;
+    }
+
+    @Autowired
+    public void setExtendedKeyUsageFilterNormalizer(ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer) {
+        this.extendedKeyUsageFilterNormalizer = extendedKeyUsageFilterNormalizer;
     }
 
     @Autowired
@@ -161,17 +165,13 @@ public class RuleServiceImpl implements RuleExternalService {
                     || conditionItemRequestDto.getOperator() == null) {
                 throw new ValidationException("Missing field source, field identifier or operator in a condition.");
             }
-            if (conditionItemRequestDto.getFieldSource() == FilterFieldSource.PROPERTY
-                    && FilterField.EXTENDED_KEY_USAGE.name().equals(conditionItemRequestDto.getFieldIdentifier())) {
-                throw new ValidationException("Extended Key Usage cannot be used in rule conditions.");
-            }
 
             ConditionItem conditionItem = new ConditionItem();
             conditionItem.setCondition(condition);
             conditionItem.setFieldSource(conditionItemRequestDto.getFieldSource());
             conditionItem.setFieldIdentifier(conditionItemRequestDto.getFieldIdentifier());
             conditionItem.setOperator(conditionItemRequestDto.getOperator());
-            conditionItem.setValue(conditionItemRequestDto.getValue());
+            conditionItem.setValue(extendedKeyUsageFilterNormalizer.normalizeConditionValue(conditionItemRequestDto));
             conditionItemRepository.save(conditionItem);
 
             conditionItems.add(conditionItem);

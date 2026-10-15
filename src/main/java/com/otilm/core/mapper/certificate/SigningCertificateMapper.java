@@ -4,7 +4,6 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.model.signing.SigningCertificate;
-import com.otilm.core.util.MetaDefinitions;
 
 import java.util.List;
 import java.util.UUID;
@@ -29,7 +28,7 @@ public class SigningCertificateMapper {
                 : List.of();
         return new SigningCertificate(cert.getUuid(), cert.getCommonName(), cert.isArchived(), cert.getState(),
                 cert.getValidationStatus(),
-                List.copyOf(MetaDefinitions.deserializeArrayString(cert.getExtendedKeyUsage())),
+                cert.getExtendedKeyUsage() == null ? List.of() : List.copyOf(cert.getExtendedKeyUsage()),
                 cert.getExtendedKeyUsageCritical(), cert.getQcCompliance(), keyUuid, tokenInstanceReferenceUuid,
                 tokenProfileUuid, keyItemUuids, cert.getKeyUsageBitMask(), cert.getSubjectType());
     }

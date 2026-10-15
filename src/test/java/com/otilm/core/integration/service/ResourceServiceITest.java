@@ -364,11 +364,11 @@ class ResourceServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void certificateRuleFieldsExcludeExtendedKeyUsage() throws NotFoundException {
+    void certificateRuleFieldsOfferExtendedKeyUsage() throws NotFoundException {
         assertThat(resourceService.listResourceRuleFilterFields(Resource.CERTIFICATE, false))
                 .flatExtracting(SearchFieldDataByGroupDto::getSearchFieldData)
                 .extracting(SearchFieldDataDto::getFieldIdentifier)
-                .doesNotContain(FilterField.EXTENDED_KEY_USAGE.name());
+                .contains(FilterField.EXTENDED_KEY_USAGE.name());
     }
 
     @Test

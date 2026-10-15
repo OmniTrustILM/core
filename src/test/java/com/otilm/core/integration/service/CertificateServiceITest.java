@@ -603,8 +603,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
             SearchFieldDataDto extendedKeyUsage = certificateService
                     .getSearchableFieldInformationByGroup()
                     .stream()
-                    .filter(group -> group.getFilterFieldSource() == FilterFieldSource.PROPERTY)
-                    .flatMap(group -> group.getSearchFieldData().stream())
+                    .filter(fieldGroup -> fieldGroup.getFilterFieldSource() == FilterFieldSource.PROPERTY)
+                    .flatMap(fieldGroup -> fieldGroup.getSearchFieldData().stream())
                     .filter(field -> "EXTENDED_KEY_USAGE".equals(field.getFieldIdentifier()))
                     .findFirst()
                     .orElseThrow();
@@ -615,6 +615,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(extendedKeyUsage.isMultiValue()).isFalse();
             assertThat(extendedKeyUsage.getConditions())
                     .containsExactlyInAnyOrder(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
+                            FilterConditionOperator.CONTAINS, FilterConditionOperator.NOT_CONTAINS,
                             FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY);
             assertThat(extendedKeyUsage.getValue()).isNull();
         }
@@ -2974,7 +2975,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             List<String> extendedKeyUsages, boolean extendedKeyUsageCritical, Boolean qcCompliance) {
         Certificate cert = createCertificateEntity(testCaseName, key, certificateState, validationStatus, archived);
         if (!extendedKeyUsages.isEmpty()) {
-            cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsages));
+            cert.setExtendedKeyUsage(extendedKeyUsages);
         }
         cert.setExtendedKeyUsageCritical(extendedKeyUsageCritical);
         cert.setUsage(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE));

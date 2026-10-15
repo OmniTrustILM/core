@@ -304,16 +304,38 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     }
 
     @Test
-    void certificateRuleRejectsExtendedKeyUsageCondition() {
-        certificate.setExtendedKeyUsage("[\"1.3.6.1.5.5.7.3.1\"]");
+    void certificateRuleEvaluatesExtendedKeyUsageMembership() throws RuleException {
+        String serverAuth = "1.3.6.1.5.5.7.3.1";
+        String clientAuth = "1.3.6.1.5.5.7.3.2";
+        String codeSigning = "1.3.6.1.5.5.7.3.3";
+        certificate.setExtendedKeyUsage(List.of(serverAuth, clientAuth));
         condition.setFieldSource(FilterFieldSource.PROPERTY);
         condition.setFieldIdentifier(FilterField.EXTENDED_KEY_USAGE.name());
-        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
-        condition.setValue("1.3.6.1.5.5.7.3.1");
 
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.EQUALS, serverAuth));
         Assertions
-                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+                .assertTrue(
+                        extendedKeyUsageCondition(FilterConditionOperator.EQUALS, List.of(codeSigning, clientAuth)));
+        Assertions.assertFalse(extendedKeyUsageCondition(FilterConditionOperator.EQUALS, codeSigning));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_EQUALS, codeSigning));
+        Assertions
+                .assertFalse(extendedKeyUsageCondition(FilterConditionOperator.NOT_EQUALS,
+                        List.of(codeSigning, serverAuth)));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.CONTAINS, "1.3.6.1.5.5.7.3"));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_CONTAINS, "1.3.6.1.4.1.311"));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_EMPTY, null));
+        Assertions.assertFalse(extendedKeyUsageCondition(FilterConditionOperator.EMPTY, null));
+
+        certificate.setExtendedKeyUsage(null);
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.EMPTY, null));
+        Assertions.assertFalse(extendedKeyUsageCondition(FilterConditionOperator.EQUALS, serverAuth));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_EQUALS, serverAuth));
+    }
+
+    private boolean extendedKeyUsageCondition(FilterConditionOperator operator, Object value) throws RuleException {
+        condition.setOperator(operator);
+        condition.setValue(value);
+        return certificateTriggerEvaluator.evaluateConditionItem(condition, certificate, Resource.CERTIFICATE);
     }
 
     @Test

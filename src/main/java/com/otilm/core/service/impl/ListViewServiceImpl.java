@@ -48,9 +48,11 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Saved list views are addressed through their owner, so another user's view answers 404 rather than 403 - it is not
@@ -65,7 +67,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     private ClusterOperationSynchronizer clusterSynchronizer;
     private EntityManager entityManager;
     private ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer;
-    private TransactionTemplate transactionTemplate;
+    private PlatformTransactionManager transactionManager;
 
     @Autowired
     public void setListViewRepository(ListViewRepository listViewRepository) {
@@ -98,8 +100,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     }
 
     @Autowired
-    public void setTransactionTemplate(TransactionTemplate transactionTemplate) {
-        this.transactionTemplate = transactionTemplate;
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        this.transactionManager = transactionManager;
     }
 
     @Override
@@ -135,7 +137,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
 
     /**
      * Runs outside a transaction up to the write: resolving the caller's attribute permissions and custom EKU names
-     * both ask the policy engine, which must not be waited on with a transaction open.
+     * both ask the policy engine, which must not be waited on with a transaction open. The write then runs in a
+     * transaction of its own, rolled back unless it commits.
      */
     @Override
     @AnyPrincipalEndpoint
@@ -143,23 +146,24 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     public ListViewDto createView(ListViewRequestDto request) throws AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
-        List<ListViewFilterDto> filters = extendedKeyUsageFilterNormalizer.normalizeViewFilters(request.getFilters());
+        List<ListViewFilterDto> filters = extendedKeyUsageFilterNormalizer
+                .normalizeViewFilters(resource, request.getFilters());
         List<NamedField> named = namedFields(request);
         Supplier<CustomAttributeContentFilter> contentFilter = contentFilterFor(named);
         Catalogue catalogue = catalogueOf(resource, named, contentFilter);
         validateRequest(resource, request, filters, Set.of(), List.of(), catalogue);
         Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, named, contentFilter);
 
+        TransactionStatus transaction = transactionManager.getTransaction(TransactionDefinition.withDefaults());
         try {
-            return transactionTemplate.execute(status -> {
-                try {
-                    return createViewInTransaction(userUuid, request, filters, catalogue, definitions, contentFilter);
-                } catch (AlreadyExistException e) {
-                    throw new CheckedListViewException(e);
-                }
-            });
-        } catch (CheckedListViewException e) {
-            throw (AlreadyExistException) e.getCause();
+            ListViewDto created = createViewInTransaction(userUuid, request, filters, catalogue, definitions,
+                    contentFilter);
+            transactionManager.commit(transaction);
+            return created;
+        } finally {
+            if (!transaction.isCompleted()) {
+                transactionManager.rollback(transaction);
+            }
         }
     }
 
@@ -188,26 +192,23 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = ownView(uuid, userUuid).getResource();
-        List<ListViewFilterDto> filters = extendedKeyUsageFilterNormalizer.normalizeViewFilters(request.getFilters());
+        List<ListViewFilterDto> filters = extendedKeyUsageFilterNormalizer
+                .normalizeViewFilters(resource, request.getFilters());
         List<NamedField> named = namedFields(request);
         Supplier<CustomAttributeContentFilter> contentFilter = contentFilterFor(named);
         Catalogue catalogue = catalogueOf(resource, named, contentFilter);
         Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, named, contentFilter);
 
+        TransactionStatus transaction = transactionManager.getTransaction(TransactionDefinition.withDefaults());
         try {
-            return transactionTemplate.execute(status -> {
-                try {
-                    return editViewInTransaction(uuid, userUuid, request, filters, catalogue, definitions,
-                            contentFilter);
-                } catch (NotFoundException | AlreadyExistException e) {
-                    throw new CheckedListViewException(e);
-                }
-            });
-        } catch (CheckedListViewException e) {
-            if (e.getCause() instanceof NotFoundException notFound) {
-                throw notFound;
+            ListViewDto edited = editViewInTransaction(uuid, userUuid, request, filters, catalogue, definitions,
+                    contentFilter);
+            transactionManager.commit(transaction);
+            return edited;
+        } finally {
+            if (!transaction.isCompleted()) {
+                transactionManager.rollback(transaction);
             }
-            throw (AlreadyExistException) e.getCause();
         }
     }
 
@@ -229,12 +230,6 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         applyRequest(view, request, filters, new Binder(resource, catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions, contentFilter);
-    }
-
-    private static final class CheckedListViewException extends RuntimeException {
-        private CheckedListViewException(Exception cause) {
-            super(cause);
-        }
     }
 
     @Override

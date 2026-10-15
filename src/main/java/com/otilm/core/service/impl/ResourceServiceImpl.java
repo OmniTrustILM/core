@@ -210,9 +210,8 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
         }
         List<SearchFieldDataDto> fieldDataDtos = new ArrayList<>();
         for (FilterField filterField : filterFields) {
-            // Listing-only predicates, JSON paths and JSON-array memberships cannot be evaluated as rule conditions.
+            // Listing-only predicates and JSON paths cannot be evaluated as rule conditions.
             if (filterField == FilterField.CBOM_HAS_CONTRIBUTED_ASSETS || filterField.getJsonPath() != null
-                    || filterField.getType() == SearchFieldTypeEnum.EXTENDED_KEY_USAGE_ARRAY
                     || (settable && !filterField.isSettable())) {
                 continue;
             }

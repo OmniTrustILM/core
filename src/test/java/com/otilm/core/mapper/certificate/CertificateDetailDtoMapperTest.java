@@ -28,6 +28,7 @@ import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
 import java.security.NoSuchAlgorithmException;
 import java.util.Date;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Assertions;
@@ -98,8 +99,8 @@ class CertificateDetailDtoMapperTest {
         // QC statements branch (all four sub-fields to cover qcType and qcCcLegislation branches)
         certificate.setQcCompliance(true);
         certificate.setQcSscd(true);
-        certificate.setQcType("[\"ESIGN\"]");
-        certificate.setQcCcLegislation("[\"CZ\"]");
+        certificate.setQcType(List.of("ESIGN"));
+        certificate.setQcCcLegislation(List.of("CZ"));
 
         // issuerCertificateUuid branch
         UUID issuerUuid = UUID.randomUUID();

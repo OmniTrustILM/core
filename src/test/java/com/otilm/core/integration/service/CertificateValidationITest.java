@@ -1166,12 +1166,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         Certificate ca = insertedCa.get();
         Assertions.assertTrue(ca.getQcCompliance(), "qcCompliance must be persisted");
         Assertions.assertFalse(ca.getQcSscd(), "qcSscd must be persisted as false");
-        Assertions
-                .assertEquals(List.of("ESIGN"), MetaDefinitions.deserializeArrayString(ca.getQcType()),
-                        "qcType must be persisted");
-        Assertions
-                .assertEquals(List.of("CZ"), MetaDefinitions.deserializeArrayString(ca.getQcCcLegislation()),
-                        "qcCcLegislation must be persisted");
+        Assertions.assertEquals(List.of("ESIGN"), ca.getQcType(), "qcType must be persisted");
+        Assertions.assertEquals(List.of("CZ"), ca.getQcCcLegislation(), "qcCcLegislation must be persisted");
 
         // Idempotency: a second validate must not re-download the CA (issuer is now in inventory).
         mockServer.resetRequests();

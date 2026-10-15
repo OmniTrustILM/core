@@ -64,7 +64,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.TransactionDefinition;
@@ -1517,6 +1516,20 @@ class ListViewServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void extendedKeyUsageNamesAreLeftToTheCatalogueOnAnotherResource() {
+        ListViewRequestDto request = request("Keys by EKU", column("CKI_NAME"));
+        request.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        request
+                .setFilters(List
+                        .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "No Such Purpose")));
+
+        ValidationException refused = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(refused.getMessage().contains("has no field EXTENDED_KEY_USAGE"), refused.getMessage());
+    }
+
+    @Test
     void savingAViewCannotProbeCustomEkuNamesWithoutOidListPermission() {
         String customOid = "1.2.3.4.5.1802";
         var currentCache = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
@@ -1531,16 +1544,19 @@ class ListViewServiceITest extends BaseSpringBootTest {
                     .setFilters(List
                             .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
                                     FilterConditionOperator.EQUALS, "Private EKU Purpose")));
-            AccessDeniedException known = Assertions
-                    .assertThrows(AccessDeniedException.class, () -> listViewService.createView(request));
+            ValidationException known = Assertions
+                    .assertThrows(ValidationException.class, () -> listViewService.createView(request));
 
             request
                     .setFilters(List
                             .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
                                     FilterConditionOperator.EQUALS, "Unknown EKU Purpose")));
-            AccessDeniedException unknown = Assertions
-                    .assertThrows(AccessDeniedException.class, () -> listViewService.createView(request));
-            Assertions.assertEquals(known.getMessage(), unknown.getMessage());
+            ValidationException unknown = Assertions
+                    .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+            Assertions
+                    .assertEquals(known.getMessage().replace("Private", ""),
+                            unknown.getMessage().replace("Unknown", ""));
+            Assertions.assertTrue(listViewService.listViews(Resource.CERTIFICATE).isEmpty());
         } finally {
             if (original == null) {
                 OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, customOid);
