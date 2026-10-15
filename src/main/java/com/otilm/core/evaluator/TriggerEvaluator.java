@@ -40,6 +40,7 @@ import com.otilm.core.dao.entity.workflows.TriggerHistoryRecord;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.ResourceToClass;
 import com.otilm.core.messaging.model.NotificationMessage;
+import com.otilm.core.security.authz.SecurityResourceFilter;
 import com.otilm.core.service.TriggerInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.FilterPredicatesBuilder;
@@ -82,8 +83,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
     protected static final Logger logger = LoggerFactory.getLogger(TriggerEvaluator.class);
     private static final String DATETIME_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX";
 
-    private AttributeEngine attributeEngine;
-
+    protected AttributeEngine attributeEngine;
     private TriggerInternalService triggerService;
     private ApplicationEventPublisher applicationEventPublisher;
 
@@ -230,7 +230,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         return false;
     }
 
-    private boolean evaluatePropertyConditionItem(T object, Resource resource, String fieldIdentifier,
+    protected boolean evaluatePropertyConditionItem(T object, Resource resource, String fieldIdentifier,
             FilterConditionOperator operator, Object conditionValue) throws RuleException {
         Object objectValue;
         FilterField filterField;
@@ -619,7 +619,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 AttributeDefinitionUtils.convertContentItemsFromObject(actionData), object);
     }
 
-    private void performSetFieldAttributeExecution(Resource resource, String fieldIdentifier,
+    protected void performSetFieldAttributeExecution(Resource resource, String fieldIdentifier,
             List<BaseAttributeContentV3<?>> attributeContents, T object)
             throws RuleException, NotFoundException, AttributeException {
         UUID objectUuid;
@@ -631,9 +631,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         if (objectUuid == null) {
             throw new RuleException("Cannot set custom attributes for an object not in database.");
         }
+        SecurityResourceFilter securityFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
         attributeEngine
                 .updateObjectCustomAttributeContent(resource, objectUuid, null,
-                        parseNameAndContentType(fieldIdentifier)[0], attributeContents);
+                        parseNameAndContentType(fieldIdentifier)[0], attributeContents, securityFilter);
     }
 
     /**
@@ -713,7 +714,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         return true;
     }
 
-    private static String[] parseNameAndContentType(String fieldIdentifier) throws RuleException {
+    protected static String[] parseNameAndContentType(String fieldIdentifier) throws RuleException {
         String[] parts = fieldIdentifier.split("\\|", 2);
         if (parts.length < 2 || parts[0].isEmpty() || parts[1].isEmpty()) {
             throw new RuleException(

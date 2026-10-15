@@ -229,63 +229,77 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                 AttributeContentType.INTEGER);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        intAttribute.getName(), List.of(new IntegerAttributeContentV3("ref", 1)));
+                        intAttribute.getName(), List.of(new IntegerAttributeContentV3("ref", 1)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        intAttribute.getName(), List.of(new IntegerAttributeContentV3("ref", 2)));
+                        intAttribute.getName(), List.of(new IntegerAttributeContentV3("ref", 2)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto decimalAttribute = createCustomAttribute("decimal",
                 AttributeContentType.FLOAT);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        decimalAttribute.getName(), List.of(new FloatAttributeContentV3("ref", 0.5f)));
+                        decimalAttribute.getName(), List.of(new FloatAttributeContentV3("ref", 0.5f)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        decimalAttribute.getName(), List.of(new FloatAttributeContentV3("ref", 1.5f)));
+                        decimalAttribute.getName(), List.of(new FloatAttributeContentV3("ref", 1.5f)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto booleanAttribute = createCustomAttribute("boolean",
                 AttributeContentType.BOOLEAN);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        booleanAttribute.getName(), List.of(new BooleanAttributeContentV3("ref", true)));
+                        booleanAttribute.getName(), List.of(new BooleanAttributeContentV3("ref", true)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        booleanAttribute.getName(), List.of(new BooleanAttributeContentV3("ref", false)));
+                        booleanAttribute.getName(), List.of(new BooleanAttributeContentV3("ref", false)),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto attribute = createCustomAttribute("string", AttributeContentType.STRING);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        attribute.getName(), List.of(new StringAttributeContentV3("ref", "value1")));
+                        attribute.getName(), List.of(new StringAttributeContentV3("ref", "value1")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        attribute.getName(), List.of(new StringAttributeContentV3("ref", "value2")));
+                        attribute.getName(), List.of(new StringAttributeContentV3("ref", "value2")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto dateAttribute = createCustomAttribute("date", AttributeContentType.DATE);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.parse("2025-05-16"))));
+                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.parse("2025-05-16"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.parse("2025-05-20"))));
+                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.parse("2025-05-20"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto dateTimeAttribute = createCustomAttribute("datetime",
                 AttributeContentType.DATETIME);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
                         dateTimeAttribute.getName(),
-                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.parse("2018-12-26T20:28:33.213+05:30"))));
+                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.parse("2018-12-26T20:28:33.213+05:30"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
                         dateTimeAttribute.getName(),
-                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.parse("2018-12-28T20:28:33.213+05:30"))));
+                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.parse("2018-12-28T20:28:33.213+05:30"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         CustomAttributeDefinitionDetailDto timeAttribute = createCustomAttribute("time", AttributeContentType.TIME);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        timeAttribute.getName(), List.of(new TimeAttributeContentV3(LocalTime.parse("10:15:45"))));
+                        timeAttribute.getName(), List.of(new TimeAttributeContentV3(LocalTime.parse("10:15:45"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        timeAttribute.getName(), List.of(new TimeAttributeContentV3(LocalTime.parse("11:15:45"))));
+                        timeAttribute.getName(), List.of(new TimeAttributeContentV3(LocalTime.parse("11:15:45"))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         criteriaBuilder = entityManager.getCriteriaBuilder();
         criteriaQuery = criteriaBuilder.createQuery(Certificate.class);
@@ -1498,10 +1512,12 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                 AttributeContentType.DATE);
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
-                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.now().plusDays(3))));
+                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.now().plusDays(3))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
-                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.now().minusDays(3))));
+                        dateAttribute.getName(), List.of(new DateAttributeContentV3(LocalDate.now().minusDays(3))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         searchRequestDto
                 .setFilters(List
@@ -1525,11 +1541,13 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate1.getUuid(), null,
                         dateTimeAttribute.getName(),
-                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.now().plusDays(3).plusHours(5))));
+                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.now().plusDays(3).plusHours(5))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate2.getUuid(), null,
                         dateTimeAttribute.getName(),
-                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.now().minusDays(3).minusHours(5))));
+                        List.of(new DateTimeAttributeContentV3(ZonedDateTime.now().minusDays(3).minusHours(5))),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         searchRequestDto
                 .setFilters(List
@@ -2305,7 +2323,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CRYPTOGRAPHIC_KEY, key.getUuid(), null, attr.getName(),
-                        List.of(new StringAttributeContentV3("ref", "key_value")));
+                        List.of(new StringAttributeContentV3("ref", "key_value")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
 
         SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto

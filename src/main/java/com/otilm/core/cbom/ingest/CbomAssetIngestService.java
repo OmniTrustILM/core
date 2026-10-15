@@ -98,6 +98,8 @@ public class CbomAssetIngestService {
     /** Shared: building one per document is measurable on a large inventory. */
     private static final ObjectMapper JSON_COLUMN = ObjectMapperFactory.jsonColumn();
 
+    private static final String VERDICT_FAILED_METRIC = "crypto_asset.ingest.verdict_failed";
+
     /**
      * How many refusals earned by the document's own content a CBOM is offered before the backlog gives up on it.
      *
@@ -241,7 +243,8 @@ public class CbomAssetIngestService {
     }
 
     /**
-     * What this CBOM's ingest is settled as without its document, if anything -- the kill switch, and supersession.
+     * What this CBOM's ingest is settled as without its document, if anything -- the kill switch, supersession, or a
+     * row already synced by another attempt.
      *
      * <p>
      * Public because a caller that has still to <em>fetch</em> the document should ask first: {@link #ingest} calls it
@@ -266,6 +269,9 @@ public class CbomAssetIngestService {
             // caller.
             return Optional.of(supersede(cbomUuid, cbomRepository.findAssetSyncState(cbomUuid).orElse(null), policy));
         }
+        if (cbomRepository.findAssetSyncState(cbomUuid).orElse(null) == CbomAssetSyncState.SYNCED) {
+            return Optional.of(IngestOutcome.INGESTED);
+        }
         return Optional.empty();
     }
 
@@ -274,7 +280,16 @@ public class CbomAssetIngestService {
         // Captured before the claim overwrites it, so a unit that finds the lock taken can put the row back in the
         // list it came from rather than leaving it IN_PROGRESS for work no node is doing.
         final CbomAssetSyncState entryState = cbomRepository.findAssetSyncState(cbomUuid).orElse(null);
-        runInOwnTransaction(() -> stateWriter.markInProgress(cbomUuid));
+        if (transactionHandler.runInNewTransaction(() -> stateWriter.markInProgress(cbomUuid)) == 0) {
+            CbomAssetSyncState currentState = cbomRepository.findAssetSyncState(cbomUuid).orElse(null);
+            if (currentState == CbomAssetSyncState.SYNCED) {
+                return IngestOutcome.INGESTED;
+            }
+            if (currentState == null) {
+                return IngestOutcome.DELETED;
+            }
+            return IngestOutcome.LOCKED_ELSEWHERE;
+        }
 
         final CbomAssetExtractor.Extraction extraction;
         try {
@@ -340,6 +355,9 @@ public class CbomAssetIngestService {
                     log.debug("CBOM asset ingest: CBOM {} was deleted while its assets were being ingested", cbomUuid);
                     return IngestOutcome.DELETED;
                 }
+                if (outcome == BatchOutcome.ALREADY_SYNCED) {
+                    return IngestOutcome.INGESTED;
+                }
             }
             final BatchOutcome referenced = writeReferences(cbomUuid, assets, seenAt, policy.assetBatchSize());
             if (referenced == BatchOutcome.LOCKED_ELSEWHERE) {
@@ -365,7 +383,16 @@ public class CbomAssetIngestService {
             return fail(cbomUuid, "storing the cryptographic assets failed: " + safeReason(e));
         }
 
-        runInOwnTransaction(() -> stateWriter.markSynced(cbomUuid, seenAt));
+        int transitioned = transactionHandler.runInNewTransaction(() -> stateWriter.markSynced(cbomUuid, seenAt));
+        if (transitioned == 0 && cbomRepository.hasIngestedLaterVersion(cbomUuid)) {
+            return supersede(cbomUuid, entryState, policy);
+        }
+        if (transitioned == 0) {
+            CbomAssetSyncState finalState = cbomRepository.findAssetSyncState(cbomUuid).orElse(null);
+            if (finalState != CbomAssetSyncState.SYNCED) {
+                return finalState == null ? IngestOutcome.DELETED : IngestOutcome.FAILED;
+            }
+        }
         log
                 .debug("CBOM asset ingest: CBOM {} ingested {} assets, {} components skipped", cbomUuid, assets.size(),
                         extraction.skips().size());
@@ -450,7 +477,9 @@ public class CbomAssetIngestService {
         /** A newer revision took the URN while this document was being written. */
         SUPERSEDED,
         /** An operator deleted the CBOM header while this document was being written. */
-        DELETED
+        DELETED,
+        /** Another attempt completed the same CBOM between batches. */
+        ALREADY_SYNCED
     }
 
     /**
@@ -477,6 +506,9 @@ public class CbomAssetIngestService {
         // then updates no row, because there is no row. One indexed lookup, next to the one already here.
         if (!cbomRepository.existsById(cbomUuid)) {
             return BatchOutcome.DELETED;
+        }
+        if (cbomRepository.findAssetSyncState(cbomUuid).orElse(null) == CbomAssetSyncState.SYNCED) {
+            return BatchOutcome.ALREADY_SYNCED;
         }
         // Before the first crypto_asset row lock any writer below will take. Re-entrant within the transaction, so
         // taking it here costs the writers' own acquisitions nothing.
@@ -653,29 +685,55 @@ public class CbomAssetIngestService {
      * matters most on the first ingest, when the sweep has the largest backlog it will ever have.
      *
      * <p>
-     * Being a latency decision, it must not be able to fail the unit of work. A row the rules cannot evaluate is
-     * counted and left unstamped, which is exactly how the sweep finds it later; letting the exception out would roll
-     * back the whole batch -- every identity and source write in it -- and fail the document for ever, since the retry
-     * would meet the same row.
+     * Being a latency decision, it must not be able to fail the unit of work. A row the rules cannot evaluate receives
+     * the same explicit UNKNOWN verdict as the sweep records. A verdict write that fails leaves the row stale for the
+     * sweep; letting that exception out would roll back the whole batch and fail the document.
      */
     private void stampVerdicts(Set<UUID> assetUuids) {
         final List<PqcStaleVerdictRow> rows = assetRepository.verdictRowsByUuids(assetUuids);
         final Map<UUID, List<PqcReferences.Reference>> references = referenceReader.load(rows);
         for (PqcStaleVerdictRow row : rows) {
-            try {
-                final JsonNode merged = mergedPayload(row);
-                final PqcReferences read = PqcReferenceReader.forRow(row, merged, references);
-                final PqcDecision decision = evaluator
-                        .evaluate(evaluator.fromStoredRow(row.fields(), merged),
-                                PqcEvaluator.nistQuantumSecurityLevel(merged), read);
-                assetWriter.applyPqcVerdict(row.uuid(), decision, read.basis());
-            } catch (RuntimeException e) {
-                meterRegistry.counter("crypto_asset.ingest.verdict_failed").increment();
-                // The uuid, never the identity key: this line reaches an operator's log aggregator.
-                log
-                        .warn("CBOM asset ingest: stamping the post-quantum verdict failed for cryptographic asset {}; leaving it to the sweep",
-                                row.uuid(), e);
-            }
+            stampVerdict(row, references);
+        }
+    }
+
+    private void stampVerdict(PqcStaleVerdictRow row, Map<UUID, List<PqcReferences.Reference>> references) {
+        try {
+            PqcReferences read = referencesForVerdict(row, references);
+            assetWriter.applyPqcVerdict(row, evaluateVerdict(row, read), read.basis());
+        } catch (RuntimeException e) {
+            meterRegistry.counter(VERDICT_FAILED_METRIC).increment();
+            log
+                    .warn("CBOM asset ingest: stamping the post-quantum verdict failed for cryptographic asset {}; leaving it to the sweep",
+                            row.uuid(), e);
+        }
+    }
+
+    private PqcReferences referencesForVerdict(PqcStaleVerdictRow row,
+            Map<UUID, List<PqcReferences.Reference>> references) {
+        try {
+            return PqcReferenceReader.forRow(row, mergedPayload(row), references);
+        } catch (RuntimeException e) {
+            meterRegistry.counter(VERDICT_FAILED_METRIC).increment();
+            log
+                    .warn("CBOM asset ingest: PQC references failed for cryptographic asset {}; evaluating without references",
+                            row.uuid(), e);
+            return PqcReferences.NONE;
+        }
+    }
+
+    private PqcDecision evaluateVerdict(PqcStaleVerdictRow row, PqcReferences references) {
+        try {
+            final JsonNode merged = mergedPayload(row);
+            return evaluator
+                    .evaluate(evaluator.fromStoredRow(row.fields(), merged),
+                            PqcEvaluator.nistQuantumSecurityLevel(merged), references);
+        } catch (RuntimeException e) {
+            meterRegistry.counter(VERDICT_FAILED_METRIC).increment();
+            log
+                    .warn("CBOM asset ingest: PQC evaluation failed for cryptographic asset {}; recording UNKNOWN",
+                            row.uuid(), e);
+            return PqcDecision.evaluationFailed();
         }
     }
 

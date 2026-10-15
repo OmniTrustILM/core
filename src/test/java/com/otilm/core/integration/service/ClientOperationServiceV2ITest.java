@@ -102,6 +102,7 @@ import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.model.crypto.AttributesWithOwner;
@@ -236,6 +237,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @MockitoSpyBean
     private CertificateInternalService certificateService;
+
+    @MockitoSpyBean
+    private ActionProducer actionProducer;
 
     @MockitoSpyBean
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -485,6 +489,91 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .assertDoesNotThrow(() -> clientOperationService
                         .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
                                 request, null));
+    }
+
+    @Test
+    void issueCertificate_runsTheBeforeDispatchStepWithTheNewCertificate() throws Exception {
+        stubIssueEndpoints();
+        List<UUID> seen = new ArrayList<>();
+        List<CertificateState> stateWhenRun = new ArrayList<>();
+
+        ClientCertificateDataResponseDto response = clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), null, uuid -> {
+                            seen.add(uuid);
+                            stateWhenRun.add(certificateRepository.findByUuid(uuid).orElseThrow().getState());
+                        });
+
+        Assertions.assertEquals(List.of(UUID.fromString(response.getUuid())), seen);
+        Assertions.assertEquals(List.of(CertificateState.REQUESTED), stateWhenRun);
+    }
+
+    @Test
+    void issueCertificate_failsTheCertificateAndQueuesNothing_whenTheBeforeDispatchStepFails() throws Exception {
+        stubIssueEndpoints();
+        List<UUID> seen = new ArrayList<>();
+        SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        ClientCertificateIssueRequestDto request = issueRequest();
+
+        Assertions
+                .assertThrows(CertificateOperationException.class, () -> clientOperationInternalService
+                        .issueCertificate(authorityUuid, raProfileUuid, request, null, uuid -> {
+                            seen.add(uuid);
+                            throw new IllegalStateException("link failed");
+                        }));
+
+        Assertions.assertEquals(1, seen.size());
+        Assertions
+                .assertEquals(CertificateState.FAILED,
+                        certificateRepository.findByUuid(seen.getFirst()).orElseThrow().getState());
+        verify(actionProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void issueCertificate_failsTheCertificate_whenTheIssueCannotBeQueuedAfterTheBeforeDispatchStep() throws Exception {
+        stubIssueEndpoints();
+        doThrow(new IllegalStateException("broker down")).when(actionProducer).produceMessage(any());
+        List<UUID> seen = new ArrayList<>();
+        SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        ClientCertificateIssueRequestDto request = issueRequest();
+
+        Assertions
+                .assertThrows(IllegalStateException.class, () -> clientOperationInternalService
+                        .issueCertificate(authorityUuid, raProfileUuid, request, null, seen::add));
+
+        Assertions.assertEquals(1, seen.size());
+        Assertions
+                .assertEquals(CertificateState.FAILED,
+                        certificateRepository.findByUuid(seen.getFirst()).orElseThrow().getState());
+    }
+
+    private void stubIssueEndpoints() throws Exception {
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
+    }
+
+    private ClientCertificateIssueRequestDto issueRequest() {
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
+        request.setRequest(SAMPLE_PKCS10);
+        request.setAttributes(List.of());
+        return request;
     }
 
     @Test
@@ -2104,6 +2193,33 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificate.setCertificateRequestUuid(csr.getUuid());
         certificateRepository.save(certificate);
         return certificate.getUuid();
+    }
+
+    @Test
+    void issueCertificateAction_pushesToLocationLinkedAfterTheClaim() throws Exception {
+        UUID certUuid = prepareCertificateForIssuance();
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push"))
+                        .willReturn(WireMock.okJson("{\"withKey\": true}")));
+        // A pending certificate can be linked to a location at any time before it is issued.
+        doAnswer(inv -> {
+            placeOnLocation(certUuid, "linked-after-claim");
+            return inv.callRealMethod();
+        }).when(certificateService).issueRequestedCertificate(any(), any(), any());
+
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+        mockServer
+                .verify(1,
+                        WireMock
+                                .postRequestedFor(
+                                        WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push")));
     }
 
     @Test

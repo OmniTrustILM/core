@@ -115,6 +115,27 @@ class ScheduledJobHistoryWriterITest extends BaseSpringBootTest {
         assertFalse(scheduledJobHistoryRepository.existsByScheduledJobUuid(scheduledJob.getUuid()));
     }
 
+    /**
+     * Two finishers can reach one run, a scheduled discovery's own hand-back and its ending event; the first outcome
+     * stands rather than whichever writes last.
+     */
+    @Test
+    void aRunClosedTwice_keepsItsFirstOutcome() {
+        ScheduledJobHistory started = writer.recordStarted(scheduledJob);
+
+        assertTrue(writer
+                .recordFinished(started.getUuid(),
+                        new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED, "first")));
+        assertFalse(writer
+                .recordFinished(started.getUuid(),
+                        new ScheduledTaskResult(SchedulerJobExecutionStatus.CANCELLED, "second")));
+        writer.recordFailed(started.getUuid(), "third");
+
+        ScheduledJobHistory row = scheduledJobHistoryRepository.findById(started.getUuid()).orElseThrow();
+        assertEquals(SchedulerJobExecutionStatus.FAILED, row.getSchedulerExecutionStatus());
+        assertEquals("first", row.getResultMessage());
+    }
+
     @Test
     void aVanishedRow_isReportedByEveryFinalizer() {
         ScheduledJobHistory started = writer.recordStarted(scheduledJob);

@@ -30,9 +30,11 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
+import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryStatusTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
+import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
@@ -81,6 +83,8 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     private DiscoveryWorkRepository workRepository;
     @Autowired
     private DiscoveryMessageRepository messageRepository;
+    @Autowired
+    private DiscoveryMessageWriter messageWriter;
     @Autowired
     private DiscoveryWorkWriter workWriter;
     @Autowired
@@ -462,6 +466,126 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.CANCELLED);
         assertThat(agenda(run)).isEmpty();
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .singleElement()
+                .satisfies(ending -> {
+                    assertThat(ending.getCode()).isEqualTo(DiscoveryMessageCode.RUN_ENDED.code());
+                    assertThat(ending.getSeverity())
+                            .as("nobody here asked for this cancel, so the run lost its work without anything failing")
+                            .isEqualTo(DiscoveryMessageSeverity.WARNING);
+                });
+    }
+
+    @Test
+    void completedAnswerReportingFailedTargets_filesOneWarningCountingThem() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("filed when the connector finishes, not on every answer that repeats it")
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.getCode()).isEqualTo(DiscoveryMessageCode.TARGETS_FAILED.code());
+                    assertThat(message.getSeverity()).isEqualTo(DiscoveryMessageSeverity.WARNING);
+                    assertThat(message.getOccurrences()).isEqualTo(3);
+                });
+    }
+
+    @Test
+    void aConnectorThatCompletesAgain_filesTheTargetsWarningOnce() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 5, 3));
+        worker.tick(run.getUuid(), 0);
+        answers(statusResponse(DiscoveryRunState.RUNNING));
+        worker.tick(run.getUuid(), 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("the same failed targets are not counted a second time")
+                .singleElement()
+                .extracting(DiscoveryMessage::getOccurrences)
+                .isEqualTo(3L);
+    }
+
+    @Test
+    void failedTargetsReportedOnlyOnALaterCompletedAnswer_stillFileTheWarning() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(statusResponse(DiscoveryRunState.COMPLETED));
+        worker.tick(run.getUuid(), 0);
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("progress is optional on every answer, so the counts can arrive after the first completed one")
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.getCode()).isEqualTo(DiscoveryMessageCode.TARGETS_FAILED.code());
+                    assertThat(message.getOccurrences()).isEqualTo(3);
+                });
+    }
+
+    @Test
+    void completedAnswerOnARunWhoseLogIsFull_stillFilesTheTargetsWarning() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        // One kind of problem per message, one past the per-run bound, so the log is full before the run completes.
+        for (int i = 1; i <= 51; i++) {
+            messageWriter
+                    .append(run.getUuid(),
+                            new DiscoveryMessageDraft(DiscoveryMessageSeverity.INFO, "code" + i, "a problem", 1));
+        }
+        answers(completedWithTargets(10, 5, 3));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("the count of unreadable targets lands on its own row, not folded into the suppression row")
+                .filteredOn(message -> DiscoveryMessageCode.TARGETS_FAILED.code().equals(message.getCode()))
+                .singleElement()
+                .extracting(DiscoveryMessage::getOccurrences)
+                .isEqualTo(3L);
+    }
+
+    @Test
+    void completedAnswerWhoseTargetsWereOnlyEmpty_filesNothing() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        answers(completedWithTargets(10, 10, 0));
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(messageRepository.findByDiscoveryUuidOrderByIdAsc(run.getUuid()))
+                .as("a target with nothing on it is a normal outcome")
+                .isEmpty();
+        assertThat(reload(run).getProgress().getTargetsEmpty()).isEqualTo(10L);
+    }
+
+    @Test
+    void progressReportingOnlyEmptyTargets_isRecorded() throws Exception {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.RUNNING);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsEmpty(4L);
+        response.setProgress(progress);
+        answers(response);
+
+        worker.tick(run.getUuid(), 0);
+
+        assertThat(reload(run).getProgress())
+                .as("a report of empty targets alone still says something")
+                .isNotNull()
+                .extracting(DiscoveryProgressDto::getTargetsEmpty)
+                .isEqualTo(4L);
     }
 
     @Test
@@ -781,6 +905,16 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
         DiscoveryStatusResponseDto response = new DiscoveryStatusResponseDto();
         response.setState(state);
         response.setHighestSequence(0L);
+        return response;
+    }
+
+    private static DiscoveryStatusResponseDto completedWithTargets(long processed, long empty, long failed) {
+        DiscoveryStatusResponseDto response = statusResponse(DiscoveryRunState.COMPLETED);
+        DiscoveryProgressDto progress = new DiscoveryProgressDto();
+        progress.setTargetsProcessed(processed);
+        progress.setTargetsEmpty(empty);
+        progress.setTargetsFailed(failed);
+        response.setProgress(progress);
         return response;
     }
 

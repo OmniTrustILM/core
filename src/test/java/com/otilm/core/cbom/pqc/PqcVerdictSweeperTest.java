@@ -233,7 +233,7 @@ class PqcVerdictSweeperTest {
     /** The stored payload is not JSON, so the row throws before any rule runs. */
     private static PqcStaleVerdictRow unreadablePayload() {
         return new PqcStaleVerdictRow(UUID.randomUUID(), CryptographicAssetType.ALGORITHM, "boom", null, null, null,
-                null, null, null, null, null, "{\"relatedCryptoMaterialProperties\": ", 7L);
+                null, null, null, null, null, "{\"relatedCryptoMaterialProperties\": ", 7L, null, null);
     }
 
     private static UUID last(List<PqcStaleVerdictRow> page) {
@@ -245,7 +245,7 @@ class PqcVerdictSweeperTest {
         for (int i = 0; i < count; i++) {
             rows
                     .add(new PqcStaleVerdictRow(UUID.randomUUID(), CryptographicAssetType.ALGORITHM, "RSA", null, "rsa",
-                            null, "2048", null, null, null, null, null, i + 1L));
+                            null, "2048", null, null, null, null, null, i + 1L, null, null));
         }
         return rows;
     }

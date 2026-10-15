@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.otilm.api.interfaces.client.v1.NotificationInstanceSyncApiClient;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.events.data.CbomSyncedEventData;
 import com.otilm.api.model.common.events.data.CertificateRegisteredEventData;
 import com.otilm.api.model.common.events.data.CommentEventData;
+import com.otilm.api.model.common.events.data.CryptoAssetPqcNotReadyEventData;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -74,6 +76,76 @@ class NotificationListenerTest {
                 // transaction -- which is what this unencumbered unit context wants.
                 new TransactionHandler(), mock(PendingNotificationWriter.class),
                 mock(NotificationObjectDataService.class));
+    }
+
+    @Test
+    void notReadyAssetNotificationIncludesTheCapturedReason() {
+        UUID assetUuid = UUID.randomUUID();
+        UUID recipientUuid = UUID.randomUUID();
+        CryptoAssetPqcNotReadyEventData data = new CryptoAssetPqcNotReadyEventData();
+        data.setCryptoAssetUuid(assetUuid);
+        data.setName("RSA-2048");
+        data.setPqcReason("RSA is vulnerable to quantum attacks");
+        NotificationMessage message = new NotificationMessage(ResourceEvent.CRYPTO_ASSET_PQC_NOT_READY,
+                Resource.CRYPTO_ASSET, assetUuid, null,
+                List.of(new NotificationRecipient(RecipientType.USER, recipientUuid)), data);
+
+        listener().processMessage(message);
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationService)
+                .createNotificationForUser(text.capture(), isNull(), eq(recipientUuid.toString()),
+                        eq(Resource.CRYPTO_ASSET), eq(assetUuid.toString()), isNull());
+        assertTrue(text.getValue().contains("RSA-2048"));
+        assertTrue(text.getValue().contains("is not post-quantum ready"));
+        assertTrue(text.getValue().contains("RSA is vulnerable to quantum attacks"));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" "})
+    void notReadyAssetNotificationFallsBackWhenNameAndReasonAreAbsent(String absent) {
+        UUID assetUuid = UUID.randomUUID();
+        UUID recipientUuid = UUID.randomUUID();
+        CryptoAssetPqcNotReadyEventData data = new CryptoAssetPqcNotReadyEventData();
+        data.setCryptoAssetUuid(assetUuid);
+        data.setName(absent);
+        data.setPqcReason(absent);
+        NotificationMessage message = new NotificationMessage(ResourceEvent.CRYPTO_ASSET_PQC_NOT_READY,
+                Resource.CRYPTO_ASSET, assetUuid, null,
+                List.of(new NotificationRecipient(RecipientType.USER, recipientUuid)), data);
+
+        listener().processMessage(message);
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationService)
+                .createNotificationForUser(text.capture(), isNull(), eq(recipientUuid.toString()),
+                        eq(Resource.CRYPTO_ASSET), eq(assetUuid.toString()), isNull());
+        assertTrue(text.getValue().contains(assetUuid.toString()));
+        assertTrue(text.getValue().contains("No PQC reason is available"));
+        assertFalse(text.getValue().contains("null"));
+    }
+
+    @Test
+    void cbomSyncedNotificationNamesTheSerialNumberAndVersion() {
+        UUID cbomUuid = UUID.randomUUID();
+        UUID recipientUuid = UUID.randomUUID();
+        CbomSyncedEventData data = new CbomSyncedEventData();
+        data.setCbomUuid(cbomUuid);
+        data.setSerialNumber("urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79");
+        data.setVersion(2);
+        NotificationMessage message = new NotificationMessage(ResourceEvent.CBOM_SYNCED, Resource.CBOM, cbomUuid, null,
+                List.of(new NotificationRecipient(RecipientType.USER, recipientUuid)), data);
+
+        listener().processMessage(message);
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notificationService)
+                .createNotificationForUser(text.capture(), isNull(), eq(recipientUuid.toString()), eq(Resource.CBOM),
+                        eq(cbomUuid.toString()), isNull());
+        assertEquals(
+                "CBOM 'urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79' version 2 has finished cryptographic asset sync",
+                text.getValue());
     }
 
     @Test

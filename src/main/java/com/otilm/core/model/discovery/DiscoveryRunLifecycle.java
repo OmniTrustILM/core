@@ -2,12 +2,13 @@ package com.otilm.core.model.discovery;
 
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
 import java.util.EnumSet;
 import java.util.Set;
 
 /**
  * Run-level bookkeeping shared by the ingestor and the tick workers: which statuses are final, and what a run's ending
- * means for its message log.
+ * means for its message log and its scheduled job.
  */
 public final class DiscoveryRunLifecycle {
 
@@ -47,13 +48,32 @@ public final class DiscoveryRunLifecycle {
 
     /**
      * How much the message recording a run's ending matters, which is the run's own outcome: a run that completed
-     * cleanly says so for the record, and one that failed or was cancelled lost the work it was doing.
+     * cleanly says so for the record, and so does one a user cancelled, since it did what it was told. A cancel nobody
+     * asked for lost the run's work without anything failing, and only a run that failed is an error.
+     *
+     * @param endedByUser whether a user asked for this ending
      */
-    public static DiscoveryMessageSeverity severityOf(DiscoveryStatus terminalStatus) {
+    public static DiscoveryMessageSeverity severityOf(DiscoveryStatus terminalStatus, boolean endedByUser) {
         return switch (terminalStatus) {
             case COMPLETED -> DiscoveryMessageSeverity.INFO;
             case WARNING -> DiscoveryMessageSeverity.WARNING;
+            case CANCELLED -> endedByUser ? DiscoveryMessageSeverity.INFO : DiscoveryMessageSeverity.WARNING;
             default -> DiscoveryMessageSeverity.ERROR;
+        };
+    }
+
+    /**
+     * What a scheduled run's ending means for its job execution. WARNING counts as success: the run finished and
+     * imported what it could, and the warning is about individual items rather than the job. A cancel a user asked for
+     * is neither; every other cancel, and every failure, did not deliver what the schedule asked for.
+     *
+     * @param endedByUser whether a user asked for this ending
+     */
+    public static SchedulerJobExecutionStatus executionStatusOf(DiscoveryStatus terminalStatus, boolean endedByUser) {
+        return switch (terminalStatus) {
+            case CANCELLED -> endedByUser ? SchedulerJobExecutionStatus.CANCELLED : SchedulerJobExecutionStatus.FAILED;
+            case FAILED -> SchedulerJobExecutionStatus.FAILED;
+            default -> SchedulerJobExecutionStatus.SUCCESS;
         };
     }
 }

@@ -90,6 +90,17 @@ class OAuth2UtilUserInfoTest {
         Assertions.assertThrows(HttpServerErrorException.class, () -> OAuth2Util.getUserInfo(userInfoUrl, "the-token"));
     }
 
+    /** Jackson 3 rejects a body with anything after its first JSON value. */
+    @Test
+    void testGetUserInfo_ReadsTheFirstJsonValueLikeJackson2() {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/userinfo"))
+                        .willReturn(WireMock.okJson("{\"sub\":\"abc\"} {\"sub\":\"other\"}")));
+
+        Assertions.assertEquals("abc", OAuth2Util.getUserInfo(userInfoUrl, "the-token").get("sub"));
+    }
+
     /**
      * The client must keep honouring the JVM default authenticator that {@code ProxyConfiguration} installs, and must
      * not lose the bearer token while answering the proxy's 407 challenge. WireMock stands in for the proxy: a forward

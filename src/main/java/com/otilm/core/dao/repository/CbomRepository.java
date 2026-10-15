@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository;
 
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.core.dao.entity.Cbom;
+import jakarta.persistence.LockModeType;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,6 +18,16 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Cbom c WHERE c.uuid = :uuid")
+    Optional<Cbom> findForUpdateByUuid(@Param("uuid") UUID uuid);
+
+    @Query("SELECT c.serialNumber FROM Cbom c WHERE c.uuid = :uuid")
+    Optional<String> findSerialNumberByUuid(@Param("uuid") UUID uuid);
+
+    @Query("SELECT COUNT(c) > 0 FROM Cbom c WHERE c.uuid = :uuid AND c.assetsSyncedAt IS NOT NULL")
+    boolean hasCompletedAssetSync(@Param("uuid") UUID uuid);
 
     @Query("""
             SELECT c2
@@ -279,18 +291,17 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
      * Records a success, unless the row is carrying the one error a success must not overwrite.
      *
      * <p>
-     * A state guard cannot express this. Success is written unconditionally on purpose -- the run that ingested the
-     * assets is the one entitled to say so -- but a deletion that withdrew the inventory and then failed to remove the
-     * header writes {@code FAILED} from outside any ingest, and an ingest run already past its last batch when that
-     * happened would put the row straight back to {@code SYNCED} with the error cleared. The row would then claim an
-     * inventory contribution that has been deleted, and sit on neither work list.
+     * The state and version guards suppress repeated or superseded successes. A deletion that withdrew the inventory
+     * and then failed to remove the header writes {@code FAILED} from outside any ingest. The error guard also stops an
+     * ingest run already past its last batch from putting that row back to {@code SYNCED} with the error cleared: it
+     * would claim an inventory contribution that has been deleted, and sit on neither work list.
      *
      * <p>
      * It does not deadlock the row into {@code FAILED}: the next backlog pass claims it through {@code markInProgress},
      * which clears the error, so the re-ingest that follows records its success normally.
      *
      * @param notOverError the error text this write refuses to displace
-     * @return 1 if the success was recorded, 0 if the row was carrying that error
+     * @return 1 if the row transitioned to the requested state, 0 if already there, superseded, or carrying that error
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -300,7 +311,13 @@ public interface CbomRepository extends SecurityFilterRepository<Cbom, UUID> {
                    c.assetSyncAttemptedAt = CURRENT_TIMESTAMP,
                    c.assetsSyncedAt = COALESCE(:syncedAt, c.assetsSyncedAt)
              WHERE c.uuid = :uuid
+               AND c.assetSyncState <> :state
                AND (c.assetSyncError IS NULL OR c.assetSyncError <> :notOverError)
+               AND NOT EXISTS (
+                   SELECT newer.uuid FROM Cbom newer
+                   WHERE newer.serialNumber = c.serialNumber
+                     AND newer.version > c.version
+                     AND newer.assetSyncState = :state)
             """)
     int updateAssetSyncStateUnlessError(@Param("uuid") UUID uuid, @Param("state") CbomAssetSyncState state,
             @Param("syncedAt") OffsetDateTime syncedAt, @Param("notOverError") String notOverError);

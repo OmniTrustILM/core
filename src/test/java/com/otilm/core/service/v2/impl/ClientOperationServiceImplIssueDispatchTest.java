@@ -11,6 +11,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
@@ -59,6 +60,7 @@ class ClientOperationServiceImplIssueDispatchTest {
     private ConnectorCapabilityService capabilityService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private EventProducer eventProducer;
+    private CertificateLocationRepository certificateLocationRepository;
 
     private UUID certUuid;
     private Certificate certificate;
@@ -76,10 +78,12 @@ class ClientOperationServiceImplIssueDispatchTest {
         capabilityService = mock(ConnectorCapabilityService.class);
         certificateEventHistoryService = mock(CertificateEventHistoryInternalService.class);
         eventProducer = mock(EventProducer.class);
+        certificateLocationRepository = mock(CertificateLocationRepository.class);
 
         service = new ClientOperationServiceImpl();
         service.setCertificateRepository(certificateRepository);
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
+        service.setCertificateLocationRepository(certificateLocationRepository);
         service.setAdapterFactory(adapterFactory);
         service.setCertificateService(certificateService);
         service.setTransactionManager(transactionManager);
@@ -143,6 +147,21 @@ class ClientOperationServiceImplIssueDispatchTest {
         // then
         verify(adapter).issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any());
         verify(certificateService).issueRequestedCertificate(certUuid, certificateData, List.of());
+    }
+
+    @Test
+    void stillRaisesTheActionEvent_whenTheLocationLookupFailsAfterIssuance() throws Exception {
+        // given
+        when(adapter.issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        when(certificateLocationRepository.findByCertificateUuid(certUuid))
+                .thenThrow(new IllegalStateException("db down"));
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        verify(eventProducer).produceMessage(ArgumentMatchers.any());
     }
 
     @Test

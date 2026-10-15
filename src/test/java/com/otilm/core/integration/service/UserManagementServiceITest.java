@@ -1,6 +1,5 @@
 package com.otilm.core.integration.service;
 
-import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -38,20 +37,17 @@ import com.otilm.core.service.CertificateUploadService;
 import com.otilm.core.service.UserManagementExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
-import com.otilm.core.util.SessionTableHelper;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
@@ -93,9 +89,6 @@ class UserManagementServiceITest extends BaseSpringBootTest {
     @Autowired
     private FindByIndexNameSessionRepository sessionRepository;
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-
     @MockitoBean
     UserManagementApiClient userManagementApiClient;
 
@@ -104,11 +97,6 @@ class UserManagementServiceITest extends BaseSpringBootTest {
 
     @MockitoBean
     AuthenticationCache authenticationCache;
-
-    @AfterAll
-    void tearDownSessionTables() {
-        SessionTableHelper.dropSessionTables(jdbcTemplate);
-    }
 
     @Test
     void testDoNotUseArchivedCertificates() {
@@ -291,8 +279,8 @@ class UserManagementServiceITest extends BaseSpringBootTest {
                 "High");
         RequestAttribute userAttribute = registerCustomAttribute(Resource.USER, "departmentForbidden", "Sales");
         when(userManagementApiClient.createUser(any())).thenReturn(userDetailDto());
-        // The caller may edit the certificate attribute but not the user one, which the content validation filters
-        // out silently -- so the refusal only happens once the user attributes are written.
+        // Content validation filters out the forbidden user attribute; the permission check rejects it when the
+        // user attribute update is attempted, after the certificate attributes have been stored.
         restrictObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS, List.of(certificateAttribute.getUuid()));
 
         AddUserRequestDto request = new AddUserRequestDto();
@@ -301,7 +289,7 @@ class UserManagementServiceITest extends BaseSpringBootTest {
         request.setCertificateCustomAttributes(List.of(certificateAttribute));
         request.setCustomAttributes(List.of(userAttribute));
 
-        Assertions.assertThrows(AttributeException.class, () -> userManagementService.createUser(request));
+        Assertions.assertThrows(ValidationException.class, () -> userManagementService.createUser(request));
 
         Assertions
                 .assertEquals(List.of("High"),
@@ -594,7 +582,6 @@ class UserManagementServiceITest extends BaseSpringBootTest {
 
     @Test
     void removeDisabledAndDeletedUserSession() {
-        SessionTableHelper.createSessionTables(jdbcTemplate);
         UUID userUuid = UUID.randomUUID();
         createSession(userUuid);
         Assertions.assertFalse(sessionRepository.findByPrincipalName(userUuid.toString()).isEmpty());
@@ -612,7 +599,6 @@ class UserManagementServiceITest extends BaseSpringBootTest {
      */
     @Test
     void deleteUserRemovesTheirSavedListViews() {
-        SessionTableHelper.createSessionTables(jdbcTemplate);
         UUID deletedUser = UUID.randomUUID();
         UUID survivingUser = UUID.randomUUID();
         saveListView(deletedUser, "Theirs");

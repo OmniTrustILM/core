@@ -1,6 +1,7 @@
 package com.otilm.core.provisioning;
 
 import com.otilm.core.config.http.PlatformHttpClients;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -52,6 +53,7 @@ public class ProvisioningApiConfig {
     }
 
     @Bean
+    @SuppressWarnings("removal")
     public RestClient provisioningRestClient(ClientHttpRequestInterceptor provisioningHttpLoggingInterceptor) {
         HttpClientSettings settings = HttpClientSettings
                 .defaults()
@@ -66,9 +68,11 @@ public class ProvisioningApiConfig {
                 .requestFactory(new BufferingClientHttpRequestFactory(factory))
                 .defaultHeader("X-API-Key", provisioningApiProperties.apiKey())
                 .requestInterceptor(provisioningHttpLoggingInterceptor)
-                .configureMessageConverters(converters -> converters
-                        .registerDefaults()
-                        .withJsonConverter(new MappingJackson2HttpMessageConverter()))
+                .configureMessageConverters(
+                        converters -> converters
+                                .registerDefaults()
+                                .withJsonConverter(new MappingJackson2HttpMessageConverter(
+                                        ObjectMapperFactory.restClientDefault())))
                 .build();
     }
 

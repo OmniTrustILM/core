@@ -35,6 +35,15 @@ public final class ObjectMapperFactory {
     }
 
     /**
+     * The mapper {@code RestClient.builder()} chose by default on Spring 6.2, which the provisioning and OAuth2
+     * provider clients keep. It writes null members, which {@link #wire()} leaves out.
+     */
+    @SuppressWarnings("removal")
+    public static ObjectMapper restClientDefault() {
+        return Jackson2ObjectMapperBuilder.json().build();
+    }
+
+    /**
      * {@link #wire()} for what the platform logs or records about a request. The given introspector comes before the
      * mapper's own, so it can replace how a property is written, and a value with no visible property is written as an
      * empty object rather than failing: the write-only {@code Passphrase} and {@code UploadedFile} are such values.

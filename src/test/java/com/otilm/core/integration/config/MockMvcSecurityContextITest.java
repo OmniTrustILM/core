@@ -4,7 +4,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.test.context.TestSecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -29,7 +29,7 @@ class MockMvcSecurityContextITest extends BaseSpringBootTest {
 
     @Test
     void requestWithoutContextIsRejected() throws Exception {
-        SecurityContextHolder.clearContext();
+        TestSecurityContextHolder.clearContext();
         mockMvc.perform(get("/v1/proxies")).andExpect(status().isUnauthorized());
     }
 }

@@ -10,6 +10,7 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * The report's shape, as a pure function of one extraction.
@@ -51,6 +52,24 @@ class IngestFindingRollupTest {
             assertThat(row.componentName()).isEqualTo("broken");
             assertThat(row.detail()).contains("IllegalArgumentException");
         });
+    }
+
+    /** A skipped component's own findings are reported beside its skip, under its name. */
+    @Test
+    void aSkipsFindingsAreReportedAsFindings() {
+        IngestFindingRollup.Rollup report = IngestFindingRollup
+                .of(extraction(List.of(),
+                        List
+                                .of(new CbomAssetExtractor.Skip("unrouted", "no asset type",
+                                        List.of("a key material value was dropped"))),
+                        List.of()));
+
+        assertThat(report.rows())
+                .extracting(IngestFindingRollup.Row::kind, IngestFindingRollup.Row::componentName,
+                        IngestFindingRollup.Row::detail)
+                .containsExactly(tuple(CbomIngestFindingKind.FINDING, "unrouted", "a key material value was dropped"),
+                        tuple(CbomIngestFindingKind.SKIP, "unrouted",
+                                "the component could not be turned into an asset: no asset type"));
     }
 
     /** A duplicated ref is a property of the document's reference graph, so no one component answers for it. */
