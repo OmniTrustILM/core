@@ -88,6 +88,48 @@ class Rfc9440CertificateDecoderTest {
                 () -> ForwardedClientCertificateParser.parse(oversizedDer))).hasMessageContaining("limit");
     }
 
+    @Test
+    void rejectsRepeatedParametersBeforeTheParserSizesABufferPerValue() {
+        String leaf = ":" + LEAF_DER + ":" + ";p=x".repeat(15000);
+        List<String> noCompanions = List.of();
+        long allocated = allocatedBytes(() -> assertThat(assertThrows(IllegalArgumentException.class,
+                () -> Rfc9440CertificateDecoder.decode(leaf, noCompanions))).hasMessageContaining("limit"));
+        assertThat(allocated).isLessThan(16L << 20);
+    }
+
+    @Test
+    void rejectsInnerListCompanionsBeforeParsingTheirItems() {
+        String leaf = ":" + LEAF_DER + ":";
+        var innerList = List.of("(" + "a ".repeat(30000) + ")");
+        long allocated = allocatedBytes(
+                () -> assertSafeFailure(() -> Rfc9440CertificateDecoder.decode(leaf, innerList)));
+        assertThat(allocated).isLessThan(16L << 20);
+    }
+
+    @Test
+    void countsParameterOccurrencesAcrossLeafAndCompanions() {
+        int leafParameters = ForwardedCertificateLimits.PARAMETERS / 2;
+        String leaf = ":" + LEAF_DER + ":" + ";p".repeat(leafParameters);
+        var chain = List
+                .of(":" + ISSUER_DER + ":" + ";p".repeat(ForwardedCertificateLimits.PARAMETERS - leafParameters));
+        assertThat(Rfc9440CertificateDecoder.decode(leaf, chain)).hasSize(2);
+        assertThat(assertThrows(IllegalArgumentException.class,
+                () -> Rfc9440CertificateDecoder.decode(leaf + ";p", chain))).hasMessageContaining("limit");
+    }
+
+    @Test
+    void ignoresDelimitersInsideQuotedParameterValues() {
+        String quoted = ";p=\"" + "(;".repeat(ForwardedCertificateLimits.PARAMETERS + 1) + "\\\"\"";
+        assertThat(Rfc9440CertificateDecoder.decode(":" + LEAF_DER + ":" + quoted, List.of())).hasSize(1);
+    }
+
+    private static long allocatedBytes(Runnable action) {
+        var threads = (com.sun.management.ThreadMXBean) java.lang.management.ManagementFactory.getThreadMXBean();
+        long before = threads.getCurrentThreadAllocatedBytes();
+        action.run();
+        return threads.getCurrentThreadAllocatedBytes() - before;
+    }
+
     private static MockHttpServletRequest request(String leaf) {
         var request = new MockHttpServletRequest();
         request.addHeader("Custom-Cert", leaf);

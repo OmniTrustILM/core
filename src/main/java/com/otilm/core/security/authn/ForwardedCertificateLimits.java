@@ -6,6 +6,7 @@ final class ForwardedCertificateLimits {
     static final int CERTIFICATES = 16;
     static final int COMPANION_LINES = 16;
     static final int XFCC_PAIRS = 128;
+    static final int PARAMETERS = 16;
 
     private ForwardedCertificateLimits() {
     }
@@ -37,6 +38,13 @@ final class ForwardedCertificateLimits {
         if (count > CERTIFICATES) {
             throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
                     "Certificate count limit exceeded");
+        }
+    }
+
+    static void parameterCount(int count) {
+        if (count > PARAMETERS) {
+            throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                    "Certificate parameter limit exceeded");
         }
     }
 

@@ -56,31 +56,54 @@ final class Rfc9440CertificateDecoder {
             throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
                     "RFC companion occurrence limit exceeded");
         }
-        int members = 0;
+        FieldStructure structure = new FieldStructure();
+        structure.count(leafValue, false);
         int lines = 0;
         for (String value : values) {
             bytes = ForwardedCertificateLimits.headerBytes(value, bytes + (lines++ == 0 ? 0 : 1));
-            members = countMembers(value, members);
+            structure.count(value, true);
         }
     }
 
-    private static int countMembers(String value, int precedingMembers) {
-        int members = precedingMembers + (value.isBlank() ? 0 : 1);
-        boolean quoted = false;
-        boolean escaped = false;
-        for (int i = 0; i < value.length(); i++) {
-            char character = value.charAt(i);
-            if (escaped) {
-                escaped = false;
-            } else if (quoted && character == '\\') {
-                escaped = true;
-            } else if (character == '"') {
-                quoted = !quoted;
-            } else if (!quoted && character == ',') {
-                members++;
+    /**
+     * The Structured Fields parser sizes the buffer of every token, string and byte sequence it reads to the whole
+     * field, so its work grows with the field length times the number of values. Members and parameter occurrences are
+     * counted before parsing to bound that number; an inner list never holds a certificate, so it is refused unread.
+     */
+    private static final class FieldStructure {
+        private int members;
+        private int parameters;
+
+        private void count(String value, boolean companion) {
+            if (companion && !value.isBlank()) {
+                ForwardedCertificateLimits.certificateCount(++members + 1);
             }
-            ForwardedCertificateLimits.certificateCount(members + 1);
+            boolean quoted = false;
+            boolean escaped = false;
+            for (int i = 0; i < value.length(); i++) {
+                char character = value.charAt(i);
+                if (escaped) {
+                    escaped = false;
+                } else if (quoted && character == '\\') {
+                    escaped = true;
+                } else if (character == '"') {
+                    quoted = !quoted;
+                } else if (!quoted) {
+                    countDelimiter(character, companion);
+                }
+            }
         }
-        return members;
+
+        private void countDelimiter(char character, boolean companion) {
+            if (character == '(') {
+                throw new ForwardedClientCertificateParser.InvalidCertificateHeaderException(
+                        "RFC certificate field contains an inner list");
+            }
+            if (character == ';') {
+                ForwardedCertificateLimits.parameterCount(++parameters);
+            } else if (companion && character == ',') {
+                ForwardedCertificateLimits.certificateCount(++members + 1);
+            }
+        }
     }
 }
