@@ -14,7 +14,6 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
@@ -356,17 +355,6 @@ public class TokenInstanceServiceImpl implements TokenInstanceExternalService, T
         return tokenProviderAdapterFactory
                 .forToken(tokenInstanceReference)
                 .listTokenProfileAttributes(tokenInstanceReference);
-    }
-
-    @Override
-    @ExternalAuthorization(resource = Resource.TOKEN, action = ResourceAction.ANY)
-    public List<KeyUsage> listSupportedKeyUsages(SecuredUUID tokenInstanceUuid)
-            throws NotFoundException, ConnectorException {
-        logger.info("Listing supported Key Usages of token instance with uuid: '{}'", tokenInstanceUuid);
-        TokenInstanceFullModel tokenInstanceReference = getTokenInstanceModel(tokenInstanceUuid);
-        return tokenProviderAdapterFactory
-                .forToken(tokenInstanceReference)
-                .listSupportedKeyUsages(tokenInstanceReference);
     }
 
     @Override

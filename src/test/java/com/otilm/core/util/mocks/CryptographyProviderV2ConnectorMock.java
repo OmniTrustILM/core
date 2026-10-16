@@ -150,14 +150,6 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         return this;
     }
 
-    public CryptographyProviderV2ConnectorMock stubTokenProfileKeyUsages(String responseJson) {
-        server
-                .stubFor(WireMock
-                        .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/tokenProfile/keyUsages"))
-                        .willReturn(WireMock.okJson(responseJson)));
-        return this;
-    }
-
     public CryptographyProviderV2ConnectorMock stubKeyRequestTypes(String responseJson) {
         server
                 .stubFor(WireMock
@@ -345,22 +337,6 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
     }
 
-    public CryptographyProviderV2ConnectorMock stubTokenProfileKeyUsagesWithoutBody() {
-        server
-                .stubFor(WireMock
-                        .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/tokenProfile/keyUsages"))
-                        .willReturn(WireMock.ok()));
-        return this;
-    }
-
-    public CryptographyProviderV2ConnectorMock stubTokenProfileKeyUsagesError() {
-        server
-                .stubFor(WireMock
-                        .post(WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/tokenProfile/keyUsages"))
-                        .willReturn(WireMock.serverError()));
-        return this;
-    }
-
     public CryptographyProviderV2ConnectorMock stubTokenOperations() {
         return stubTokenAttributes("[]").stubTokenStatus("{\"status\":\"Connected\"}").stubTokenProfileAttributes("[]");
     }
@@ -386,20 +362,6 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         server
                 .verify(postRequestedFor(
                         WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/tokenProfile/attributes"))
-                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
-    }
-
-    public void verifyScopedTokenProfileKeyUsagesRequest(String expectedRequestJson) {
-        server
-                .verify(postRequestedFor(
-                        WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/tokenProfile/keyUsages"))
-                        .withRequestBody(WireMock.equalToJson(expectedRequestJson)));
-    }
-
-    public void verifyScopedTokenProfileKeyUsagesRequestContaining(String expectedRequestJson) {
-        server
-                .verify(postRequestedFor(
-                        WireMock.urlPathEqualTo("/v2/cryptographyProvider/tokens/tokenProfile/keyUsages"))
                         .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
     }
 
