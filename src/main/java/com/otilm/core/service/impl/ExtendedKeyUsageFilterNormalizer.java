@@ -40,7 +40,6 @@ public class ExtendedKeyUsageFilterNormalizer {
         this.authorizationEnforcer = authorizationEnforcer;
     }
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<SearchFilterRequestDto> normalize(List<SearchFilterRequestDto> filters) {
         if (filters == null) {
             return null;

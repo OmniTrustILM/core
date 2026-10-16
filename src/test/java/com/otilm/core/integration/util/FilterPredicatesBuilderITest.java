@@ -1852,11 +1852,11 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     void extendedKeyUsageFiltersMatchIndividualOids() {
         String serverAuth = "1.3.6.1.5.5.7.3.1";
         String clientAuth = "1.3.6.1.5.5.7.3.2";
-        String ipsecUser = "1.3.6.1.5.5.7.3.10";
+        String dvcs = "1.3.6.1.5.5.7.3.10";
         String timeStamping = "1.3.6.1.5.5.7.3.8";
         String custom = "1.2.3.4.5.6";
         certificate1.setExtendedKeyUsage(List.of(serverAuth, clientAuth));
-        certificate2.setExtendedKeyUsage(List.of(ipsecUser, timeStamping, custom));
+        certificate2.setExtendedKeyUsage(List.of(dvcs, timeStamping, custom));
         certificateRepository.saveAll(List.of(certificate1, certificate2));
         UUID first = certificate1.getUuid();
         UUID second = certificate2.getUuid();
@@ -1873,7 +1873,7 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
         // Any of the selected values; names and OIDs may be mixed.
         Assertions
                 .assertEquals(Set.of(first, second), extendedKeyUsageMatches(FilterConditionOperator.EQUALS,
-                        (Serializable) List.of(clientAuth, ipsecUser)));
+                        (Serializable) List.of(clientAuth, dvcs)));
         Assertions
                 .assertEquals(Set.of(first, second), extendedKeyUsageMatches(FilterConditionOperator.EQUALS,
                         (Serializable) List.of("serverAuth", custom)));
@@ -1886,7 +1886,7 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                 .assertEquals(Set.of(none), extendedKeyUsageMatches(FilterConditionOperator.NOT_EQUALS,
                         (Serializable) List.of(clientAuth, timeStamping)));
 
-        // CONTAINS matches within an OID: id-kp-serverAuth is a prefix of id-kp-ipsecUser.
+        // CONTAINS matches within an OID: id-kp-serverAuth (...3.1) is a prefix of id-kp-dvcs (...3.10).
         Assertions
                 .assertEquals(Set.of(first, second),
                         extendedKeyUsageMatches(FilterConditionOperator.CONTAINS, serverAuth));

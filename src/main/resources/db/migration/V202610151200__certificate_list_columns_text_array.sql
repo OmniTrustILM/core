@@ -1,4 +1,4 @@
--- The three list-valued X.509 properties were stored as JSON text. Builds before 2024 wrote the text null for a
+-- The three list-valued X.509 properties were stored as JSON text. Builds before 2.16.0 wrote the text null for a
 -- certificate without the extension, and an empty list was written as [] -- both mean the property is absent.
 -- ALTER ... USING cannot run a subquery, so the conversion goes through a function dropped again below.
 CREATE FUNCTION json_text_array_to_text_array(value TEXT) RETURNS TEXT[]
