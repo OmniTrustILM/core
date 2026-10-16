@@ -286,6 +286,23 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
     }
 
     @Test
+    void internalRuleStoresExtendedKeyUsageNamesAsOids() throws Exception {
+        ConditionItemRequestDto conditionItemRequestDto = new ConditionItemRequestDto();
+        conditionItemRequestDto.setFieldSource(FilterFieldSource.PROPERTY);
+        conditionItemRequestDto.setFieldIdentifier(FilterField.EXTENDED_KEY_USAGE.name());
+        conditionItemRequestDto.setOperator(FilterConditionOperator.EQUALS);
+        conditionItemRequestDto.setValue("codeSigning");
+
+        ComplianceInternalRuleRequestDto req = new ComplianceInternalRuleRequestDto();
+        req.setName("TestInternalRule_Eku");
+        req.setResource(Resource.CERTIFICATE);
+        req.setConditionItems(List.of(conditionItemRequestDto));
+        ComplianceRuleListDto created = complianceProfileService.createComplianceInternalRule(req);
+
+        Assertions.assertEquals("1.3.6.1.5.5.7.3.3", created.getConditionItems().getFirst().getValue());
+    }
+
+    @Test
     void testUpdateInternalRule() throws Exception {
         ConditionItemRequestDto conditionItemRequestDto = new ConditionItemRequestDto();
         conditionItemRequestDto.setFieldSource(FilterFieldSource.PROPERTY);

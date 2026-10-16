@@ -492,7 +492,7 @@ public class CertificateUtil {
                             modal.getSerialNumber(), modal.getSubjectDn(), e.getMessage());
         }
         if (extendedKeyUsage != null) {
-            modal.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsage));
+            modal.setExtendedKeyUsage(List.copyOf(extendedKeyUsage));
             modal
                     .setExtendedKeyUsageCritical(certificate.getCriticalExtensionOIDs() != null
                             && certificate.getCriticalExtensionOIDs().contains(Extension.extendedKeyUsage.getId()));
@@ -509,14 +509,8 @@ public class CertificateUtil {
         if (qc != null) {
             modal.setQcCompliance(qc.qcCompliance());
             modal.setQcSscd(qc.qcSscd());
-            modal
-                    .setQcType(qc.qcType() != null
-                            ? MetaDefinitions.serializeArrayString(qc.qcType().stream().map(QcType::name).toList())
-                            : null);
-            modal
-                    .setQcCcLegislation(qc.qcCcLegislation() != null
-                            ? MetaDefinitions.serializeArrayString(qc.qcCcLegislation())
-                            : null);
+            modal.setQcType(qc.qcType() != null ? qc.qcType().stream().map(QcType::name).toList() : null);
+            modal.setQcCcLegislation(qc.qcCcLegislation() != null ? List.copyOf(qc.qcCcLegislation()) : null);
         }
 
         modal.setKeyUsage(CertificateUtil.keyUsageExtractor(certificate.getKeyUsage()));

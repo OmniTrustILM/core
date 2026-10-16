@@ -272,6 +272,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         }
 
         FilterFieldType fieldType = filterField.getType().getFieldType();
+        // The listing treats a missing array as one holding nothing, so NOT_CONTAINS matches it there too.
+        if (objectValue == null && filterField.isNativeArrayField()) {
+            objectValue = List.of();
+        }
 
         // Apply comparing function on value in object and value in condition, based on operator and field type, return
         // whether the condition is satisfied

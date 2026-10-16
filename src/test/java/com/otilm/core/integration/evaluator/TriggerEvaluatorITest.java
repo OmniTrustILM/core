@@ -100,6 +100,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -301,6 +302,47 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         Assertions
                 .assertTrue(certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void certificateRuleEvaluatesExtendedKeyUsageMembership() throws RuleException {
+        String serverAuth = "1.3.6.1.5.5.7.3.1";
+        String clientAuth = "1.3.6.1.5.5.7.3.2";
+        String codeSigning = "1.3.6.1.5.5.7.3.3";
+        certificate.setExtendedKeyUsage(List.of(serverAuth, clientAuth));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.EXTENDED_KEY_USAGE.name());
+
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.EQUALS, serverAuth));
+        Assertions
+                .assertTrue(
+                        extendedKeyUsageCondition(FilterConditionOperator.EQUALS, List.of(codeSigning, clientAuth)));
+        Assertions.assertFalse(extendedKeyUsageCondition(FilterConditionOperator.EQUALS, codeSigning));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_EQUALS, codeSigning));
+        Assertions
+                .assertFalse(extendedKeyUsageCondition(FilterConditionOperator.NOT_EQUALS,
+                        List.of(codeSigning, serverAuth)));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.CONTAINS, "1.3.6.1.5.5.7.3"));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_CONTAINS, "1.3.6.1.4.1.311"));
+        Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_EMPTY, null));
+        Assertions.assertFalse(extendedKeyUsageCondition(FilterConditionOperator.EMPTY, null));
+
+        // A certificate without the extension answers like the inventory filter, whether stored as NULL or as {}.
+        for (List<String> absent : Arrays.asList(null, List.<String>of())) {
+            certificate.setExtendedKeyUsage(absent);
+            Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.EMPTY, null));
+            Assertions.assertFalse(extendedKeyUsageCondition(FilterConditionOperator.NOT_EMPTY, null));
+            Assertions.assertFalse(extendedKeyUsageCondition(FilterConditionOperator.EQUALS, serverAuth));
+            Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_EQUALS, serverAuth));
+            Assertions.assertFalse(extendedKeyUsageCondition(FilterConditionOperator.CONTAINS, "1.3.6.1.5.5.7.3"));
+            Assertions.assertTrue(extendedKeyUsageCondition(FilterConditionOperator.NOT_CONTAINS, "1.3.6.1.5.5.7.3"));
+        }
+    }
+
+    private boolean extendedKeyUsageCondition(FilterConditionOperator operator, Object value) throws RuleException {
+        condition.setOperator(operator);
+        condition.setValue(value);
+        return certificateTriggerEvaluator.evaluateConditionItem(condition, certificate, Resource.CERTIFICATE);
     }
 
     @Test

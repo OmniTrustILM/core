@@ -28,7 +28,6 @@ import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.ProducerMocks;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
@@ -156,7 +155,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
         cert.setKey(key);
         cert.setKeyUuid(key.getUuid());
         cert.setValidationStatus(CertificateValidationStatus.VALID);
-        cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(SystemOid.TIME_STAMPING.getOid())));
+        cert.setExtendedKeyUsage(List.of(SystemOid.TIME_STAMPING.getOid()));
         cert.setExtendedKeyUsageCritical(Boolean.TRUE);
         cert.setQcCompliance(Boolean.TRUE);
         return certificateRepository.saveAndFlush(cert);

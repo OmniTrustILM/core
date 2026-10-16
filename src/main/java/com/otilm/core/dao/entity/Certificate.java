@@ -148,8 +148,9 @@ public class Certificate extends UniquelyIdentifiedAndAudited
     @Column(name = "signature_algorithm")
     private String signatureAlgorithm;
 
-    @Column(name = "extended_key_usage")
-    private String extendedKeyUsage;
+    @Column(name = "extended_key_usage", columnDefinition = "text[]")
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<String> extendedKeyUsage;
 
     @Column(name = "extended_key_usage_critical")
     private Boolean extendedKeyUsageCritical;
@@ -160,11 +161,13 @@ public class Certificate extends UniquelyIdentifiedAndAudited
     @Column(name = "qc_sscd")
     private Boolean qcSscd;
 
-    @Column(name = "qc_type")
-    private String qcType;
+    @Column(name = "qc_type", columnDefinition = "text[]")
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<String> qcType;
 
-    @Column(name = "qc_cc_legislation")
-    private String qcCcLegislation;
+    @Column(name = "qc_cc_legislation", columnDefinition = "text[]")
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<String> qcCcLegislation;
 
     @Column(name = "key_usage", nullable = false)
     private int keyUsage;
@@ -414,6 +417,26 @@ public class Certificate extends UniquelyIdentifiedAndAudited
 
     public int getKeyUsageBitMask() {
         return keyUsage;
+    }
+
+    /**
+     * The list columns as the native insert binds them. A {@code List} bound through SpEL is expanded into one
+     * parameter per element, which an array column refuses.
+     */
+    public String[] extendedKeyUsageArray() {
+        return toSqlArray(extendedKeyUsage);
+    }
+
+    public String[] qcTypeArray() {
+        return toSqlArray(qcType);
+    }
+
+    public String[] qcCcLegislationArray() {
+        return toSqlArray(qcCcLegislation);
+    }
+
+    private static String[] toSqlArray(List<String> values) {
+        return values == null ? null : values.toArray(String[]::new);
     }
 
     public void setUsage(List<CertificateKeyUsage> usage) {

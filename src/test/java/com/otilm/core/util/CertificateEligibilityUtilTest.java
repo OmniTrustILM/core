@@ -135,7 +135,7 @@ class CertificateEligibilityUtilTest {
         certificate.setArchived(archived);
 
         if (!extendedKeyUsages.isEmpty()) {
-            certificate.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsages));
+            certificate.setExtendedKeyUsage(extendedKeyUsages);
         }
         certificate.setExtendedKeyUsageCritical(extendedKeyUsageCritical);
         if (qcCompliance != null) {

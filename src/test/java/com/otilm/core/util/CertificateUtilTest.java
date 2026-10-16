@@ -223,7 +223,7 @@ class CertificateUtilTest {
         Certificate entity = new Certificate();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertNotNull(entity.getQcType(), "qcType should not be null");
-        List<String> types = MetaDefinitions.deserializeArrayString(entity.getQcType());
+        List<String> types = entity.getQcType();
         Assertions.assertTrue(types.contains(QcType.ESIGN.name()), "ESIGN should be present");
         Assertions.assertTrue(types.contains(QcType.ESEAL.name()), "ESEAL should be present");
         Assertions.assertTrue(types.contains(QcType.WEB.name()), "WEB should be present");
@@ -236,7 +236,7 @@ class CertificateUtilTest {
         Certificate entity = new Certificate();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertNotNull(entity.getQcCcLegislation(), "qcCcLegislation should not be null");
-        List<String> countries = MetaDefinitions.deserializeArrayString(entity.getQcCcLegislation());
+        List<String> countries = entity.getQcCcLegislation();
         Assertions.assertTrue(countries.contains("DE"), "DE should be present");
         Assertions.assertTrue(countries.contains("FR"), "FR should be present");
     }
@@ -249,9 +249,9 @@ class CertificateUtilTest {
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertTrue(entity.getQcCompliance(), "qcCompliance should be true");
         Assertions.assertTrue(entity.getQcSscd(), "qcSscd should be true");
-        List<String> types = MetaDefinitions.deserializeArrayString(entity.getQcType());
+        List<String> types = entity.getQcType();
         Assertions.assertEquals(List.of(QcType.ESIGN.name()), types, "qcType should contain ESIGN");
-        List<String> countries = MetaDefinitions.deserializeArrayString(entity.getQcCcLegislation());
+        List<String> countries = entity.getQcCcLegislation();
         Assertions.assertEquals(List.of("AT"), countries, "qcCcLegislation should contain AT");
     }
 

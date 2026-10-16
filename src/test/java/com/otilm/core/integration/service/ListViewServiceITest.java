@@ -8,6 +8,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeUpdateRequestDto;
+import com.otilm.api.model.client.certificate.CertificateSearchRequestDto;
 import com.otilm.api.model.client.certificate.SearchSortRequestDto;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.Resource;
@@ -21,6 +22,7 @@ import com.otilm.api.model.core.listview.ListViewRequestDto;
 import com.otilm.api.model.core.listview.ListViewSortRequestDto;
 import com.otilm.api.model.core.listview.ListViewUpdateRequestDto;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
@@ -28,13 +30,20 @@ import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.ListView;
 import com.otilm.core.dao.repository.ListViewRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
+import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
+import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.ListViewExternalService;
 import com.otilm.core.service.ListViewInternalService;
+import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.io.Serializable;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -45,6 +54,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
@@ -57,6 +67,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class ListViewServiceITest extends BaseSpringBootTest {
@@ -68,6 +79,9 @@ class ListViewServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private ListViewInternalService listViewInternalService;
+
+    @Autowired
+    private CertificateServiceImpl certificateService;
 
     @Autowired
     private ListViewRepository listViewRepository;
@@ -1430,6 +1444,126 @@ class ListViewServiceITest extends BaseSpringBootTest {
         ListViewDto created = listViewService.createView(request);
 
         Assertions.assertEquals("CERTIFICATE_PROTOCOL", created.getFilters().getFirst().getFieldIdentifier());
+    }
+
+    @Test
+    void savedExtendedKeyUsageViewsKeepOidsAfterCustomNameChanges() throws AlreadyExistException, NotFoundException {
+        String customOid = "1.2.3.4.5.1802";
+        AtomicBoolean oidCheckInTransaction = new AtomicBoolean(true);
+        Mockito
+                .when(opaClient.checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    OpaRequestedResource checked = invocation.getArgument(1);
+                    if (Resource.OID.getCode().equals(checked.getProperties().get("name"))
+                            && ResourceAction.LIST.getCode().equals(checked.getProperties().get("action"))) {
+                        oidCheckInTransaction.set(TransactionSynchronizationManager.isActualTransactionActive());
+                    }
+                    return new OpaResourceAccessResult(true, List.of());
+                });
+        var currentCache = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
+        OidRecord original = currentCache == null ? null : currentCache.get(customOid);
+        OidHandler
+                .cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid,
+                        OidRecord.builder().displayName("Private EKU Purpose").build());
+        try {
+            ListViewRequestDto create = request("EKU view", column("COMMON_NAME"));
+            create
+                    .setFilters(List
+                            .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                    FilterConditionOperator.EQUALS, "Private EKU Purpose")));
+            ListViewDto created = listViewService.createView(create);
+            Assertions.assertEquals(customOid, created.getFilters().getFirst().getValue());
+
+            ListViewUpdateRequestDto edit = update("EKU view", column("COMMON_NAME"));
+            edit
+                    .setFilters(List
+                            .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                    FilterConditionOperator.EQUALS,
+                                    (Serializable) List.of("Private EKU Purpose", "serverAuth"))));
+            ListViewDto edited = listViewService.editView(created.getUuid(), edit);
+            Assertions.assertEquals(List.of(customOid, "1.3.6.1.5.5.7.3.1"), edited.getFilters().getFirst().getValue());
+            Assertions.assertFalse(oidCheckInTransaction.get());
+
+            OidHandler
+                    .cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid,
+                            OidRecord.builder().displayName("Renamed EKU Purpose").build());
+            ListViewDto stored = listViewService.listViews(Resource.CERTIFICATE).getFirst();
+            Assertions.assertEquals(List.of(customOid, "1.3.6.1.5.5.7.3.1"), stored.getFilters().getFirst().getValue());
+            CertificateSearchRequestDto search = new CertificateSearchRequestDto();
+            search.setFilters(List.copyOf(stored.getFilters()));
+            Assertions.assertDoesNotThrow(() -> certificateService.listCertificates(new SecurityFilter(), search));
+            OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, customOid);
+            Assertions.assertDoesNotThrow(() -> certificateService.listCertificates(new SecurityFilter(), search));
+        } finally {
+            if (original == null) {
+                OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, customOid);
+            } else {
+                OidHandler.cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid, original);
+            }
+        }
+    }
+
+    @Test
+    void unknownExtendedKeyUsageNameIsRejectedBeforeViewIsSaved() {
+        ListViewRequestDto request = request("Unknown EKU", column("COMMON_NAME"));
+        request
+                .setFilters(List
+                        .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "No Such Purpose")));
+
+        Assertions.assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(listViewService.listViews(Resource.CERTIFICATE).isEmpty());
+    }
+
+    @Test
+    void extendedKeyUsageNamesAreLeftToTheCatalogueOnAnotherResource() {
+        ListViewRequestDto request = request("Keys by EKU", column("CKI_NAME"));
+        request.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        request
+                .setFilters(List
+                        .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                FilterConditionOperator.EQUALS, "No Such Purpose")));
+
+        ValidationException refused = Assertions
+                .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+        Assertions.assertTrue(refused.getMessage().contains("has no field EXTENDED_KEY_USAGE"), refused.getMessage());
+    }
+
+    @Test
+    void savingAViewCannotProbeCustomEkuNamesWithoutOidListPermission() {
+        String customOid = "1.2.3.4.5.1802";
+        var currentCache = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
+        OidRecord original = currentCache == null ? null : currentCache.get(customOid);
+        OidHandler
+                .cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid,
+                        OidRecord.builder().displayName("Private EKU Purpose").build());
+        try {
+            denyResourceAccess(Resource.OID, ResourceAction.LIST);
+            ListViewRequestDto request = request("Private EKU", column("COMMON_NAME"));
+            request
+                    .setFilters(List
+                            .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                    FilterConditionOperator.EQUALS, "Private EKU Purpose")));
+            ValidationException known = Assertions
+                    .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+
+            request
+                    .setFilters(List
+                            .of(new ListViewFilterDto(FilterFieldSource.PROPERTY, "EXTENDED_KEY_USAGE",
+                                    FilterConditionOperator.EQUALS, "Unknown EKU Purpose")));
+            ValidationException unknown = Assertions
+                    .assertThrows(ValidationException.class, () -> listViewService.createView(request));
+            Assertions
+                    .assertEquals(known.getMessage().replace("Private", ""),
+                            unknown.getMessage().replace("Unknown", ""));
+            Assertions.assertTrue(listViewService.listViews(Resource.CERTIFICATE).isEmpty());
+        } finally {
+            if (original == null) {
+                OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, customOid);
+            } else {
+                OidHandler.cacheOid(OidCategory.EXTENDED_KEY_USAGE, customOid, original);
+            }
+        }
     }
 
     @Test
