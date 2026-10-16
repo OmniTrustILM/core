@@ -46,7 +46,6 @@ import org.mockito.ArgumentCaptor;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -80,19 +79,6 @@ class TokenProviderV2AdapterTest {
         adapter = new TokenProviderV2Adapter(connectorApiFactory, attributeEngine, operationAttributeResolver,
                 new OutboundSecretContainment(new ObjectMapper()), connector, operationsClient);
         token = token(connectorUuid);
-    }
-
-    @Test
-    void listSupportedKeyUsages_throwsConnectorException_forNullResponse() throws Exception {
-        // given
-        when(tokenApiClient.listTokenProfileKeyUsages(any(), any())).thenReturn(null);
-
-        // when
-        Executable listUsages = () -> adapter.listSupportedKeyUsages(token);
-
-        // then
-        ConnectorException exception = assertThrows(ConnectorException.class, listUsages);
-        assertTrue(exception.getMessage().contains("Connector returned no Key Usages"));
     }
 
     @Test

@@ -18,7 +18,6 @@ import com.otilm.api.model.connector.cryptography.v2.token.TokenScopedRequestV2D
 import com.otilm.api.model.connector.cryptography.v2.token.TokenStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.token.TokenStatusV2;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceStatusDetailDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
@@ -89,16 +88,6 @@ public class TokenProviderV2Adapter implements TokenProviderAdapter {
         List<BaseAttribute> definitions = requireAttributeList(response, connectorInfo, "token-profile attributes");
         persistAttributeDefinitions(tokenInstance.connectorUuid(), request, definitions, "token-profile attributes");
         return definitions;
-    }
-
-    @Override
-    public List<KeyUsage> listSupportedKeyUsages(TokenInstanceBasicModel tokenInstance) throws ConnectorException {
-        List<KeyUsage> response = tokenApiClient
-                .listTokenProfileKeyUsages(connectorInfo, tokenScopedRequest(tokenInstance));
-        if (response == null) {
-            throw new ConnectorException("Connector returned no Key Usages", connectorInfo);
-        }
-        return response;
     }
 
     @Override
