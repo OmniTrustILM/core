@@ -479,7 +479,22 @@ class SchedulerServiceMockedTest {
     void testEnableScheduledJob_WhenNotFound_ThrowsNotFoundException() {
         when(scheduledJobsRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.empty());
 
-        assertThrows(NotFoundException.class, () -> schedulerService.enableScheduledJob(JOB_UUID.toString()));
+        final NotFoundException exception = assertThrows(NotFoundException.class,
+                () -> schedulerService.enableScheduledJob(JOB_UUID.toString()));
+
+        assertEquals("Object of type 'ScheduledJob' identified by " + JOB_UUID + " is not found.",
+                exception.getMessage());
+    }
+
+    @Test
+    void testDisableScheduledJob_WhenNotFound_ThrowsNotFoundException() {
+        when(scheduledJobsRepository.findByUuid(any(SecuredUUID.class))).thenReturn(Optional.empty());
+
+        final NotFoundException exception = assertThrows(NotFoundException.class,
+                () -> schedulerService.disableScheduledJob(JOB_UUID.toString()));
+
+        assertEquals("Object of type 'ScheduledJob' identified by " + JOB_UUID + " is not found.",
+                exception.getMessage());
     }
 
     @Test
