@@ -167,7 +167,7 @@ jobs:
         run: printf '%s\n' "$ARG" > mvnarg.txt
 
       - name: Upload the resolved interfaces argument
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: interfaces-mvnarg
           path: mvnarg.txt
@@ -210,7 +210,7 @@ jobs:
     name: Formatting and lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -232,7 +232,7 @@ jobs:
     needs: resolve-interfaces
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -252,7 +252,7 @@ jobs:
         run: tar -czf compiled.tar.gz target/classes target/test-classes
 
       - name: Upload compiled output
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compiled
           path: compiled.tar.gz
@@ -267,7 +267,7 @@ jobs:
       matrix:
         group: [non-integration, integration-core, integration-service-1, integration-service-2]
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -277,7 +277,7 @@ jobs:
           cache: maven
 
       - name: Download compiled output
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: compiled
 
@@ -291,7 +291,7 @@ jobs:
         run: mvn -B -U -ntp test -Ptest-${{ matrix.group }} -Dmaven.compiler.skip=true $MVNARG
 
       - name: Upload coverage exec
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: jacoco-exec-${{ matrix.group }}
           path: target/jacoco.exec
@@ -302,7 +302,7 @@ jobs:
     needs: [test, resolve-interfaces]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -312,7 +312,7 @@ jobs:
           cache: maven
 
       - name: Download compiled output
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: compiled
 
@@ -320,25 +320,25 @@ jobs:
         run: tar -xzf compiled.tar.gz
 
       - name: Download non-integration coverage exec
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: jacoco-exec-non-integration
           path: jacoco-partial/group1
 
       - name: Download integration-core coverage exec
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: jacoco-exec-integration-core
           path: jacoco-partial/group2
 
       - name: Download integration-service-1 coverage exec
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: jacoco-exec-integration-service-1
           path: jacoco-partial/group3
 
       - name: Download integration-service-2 coverage exec
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: jacoco-exec-integration-service-2
           path: jacoco-partial/group4
@@ -362,21 +362,21 @@ jobs:
 
       # Upload PR number artifact
       - name: Upload PR number artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pr-number
           path: pr-number.txt
 
       # Upload compiled classes
       - name: Upload Compiled Classes
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compiled-classes
           path: target/classes
 
       # Upload Jacoco XML report(s)
       - name: Upload Coverage Reports
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-reports
           path: target/site/jacoco/jacoco.xml
@@ -388,7 +388,7 @@ jobs:
     needs: resolve-interfaces
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The generator is deterministic on any CPython 3.7+, so this pin is not a requirement
       # of the script - it pins the interpreter the proof is carried out on, so a runner image
