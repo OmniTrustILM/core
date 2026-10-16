@@ -1,8 +1,8 @@
 package com.otilm.core.cbom.ingest;
 
+import com.otilm.api.model.core.cbom.CbomIngestFindingKind;
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
-import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -40,17 +40,17 @@ class IngestFindingRollupTest {
         assertThat(report.dropped()).isZero();
     }
 
-    /** A skip is what yielded no asset at all, and it names the failure class rather than the payload. */
+    /** A skip is what yielded no asset at all, and it says why rather than quoting the payload. */
     @Test
     void skipsAreTheirOwnKind() {
         IngestFindingRollup.Rollup report = IngestFindingRollup
-                .of(extraction(List.of(), List.of(new CbomAssetExtractor.Skip("broken", "IllegalArgumentException")),
+                .of(extraction(List.of(), List.of(new CbomAssetExtractor.Skip("broken", "reading it failed")),
                         List.of()));
 
         assertThat(report.rows()).singleElement().satisfies(row -> {
             assertThat(row.kind()).isEqualTo(CbomIngestFindingKind.SKIP);
             assertThat(row.componentName()).isEqualTo("broken");
-            assertThat(row.detail()).contains("IllegalArgumentException");
+            assertThat(row.detail()).contains("reading it failed");
         });
     }
 
@@ -99,8 +99,7 @@ class IngestFindingRollupTest {
         assets.add(asset("also", "the same thing happened twice"));
 
         IngestFindingRollup.Rollup report = IngestFindingRollup
-                .of(extraction(assets, List.of(new CbomAssetExtractor.Skip("broken", "IllegalStateException")),
-                        List.of()));
+                .of(extraction(assets, List.of(new CbomAssetExtractor.Skip("broken", "reading it failed")), List.of()));
 
         assertThat(report.rows())
                 .filteredOn(row -> row.kind() == CbomIngestFindingKind.FINDING)

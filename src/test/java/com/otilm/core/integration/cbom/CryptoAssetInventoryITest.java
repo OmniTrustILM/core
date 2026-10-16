@@ -1,10 +1,13 @@
 package com.otilm.core.integration.cbom;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
+import com.otilm.api.model.core.cbom.CbomIngestFindingDto;
+import com.otilm.api.model.core.cbom.CbomIngestFindingKind;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -33,8 +36,8 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.evaluator.CryptoAssetTriggerEvaluator;
-import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CbomExternalService;
 import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
 import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
@@ -1363,9 +1366,95 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
                 .anySatisfy(finding -> assertThat(finding.getDetail())
                         .contains("producer inlined a value")
                         .contains("private-key"));
-        assertThat(String.valueOf(findings(leanCbom.getUuid()))).doesNotContain(SECRET_MARKER);
-        assertThat(findings(leanCbom.getUuid()))
-                .allSatisfy(finding -> assertThat(finding.getOccurrences()).isPositive());
+        assertThat(findings(leanCbom.getUuid())).allSatisfy(finding -> {
+            assertThat(finding.getDetail()).doesNotContain(SECRET_MARKER);
+            assertThat(finding.getComponentName())
+                    .satisfiesAnyOf(name -> assertThat(name).isNull(),
+                            name -> assertThat(name).doesNotContain(SECRET_MARKER));
+            assertThat(finding.getOccurrences()).isPositive();
+        });
+    }
+
+    /**
+     * The same rule at the one place a client reads the report: every served member names the member the secret was
+     * inlined under and carries nothing of its value.
+     */
+    @Test
+    void theServedReportNamesTheMemberAndNeverItsValue() throws NotFoundException {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), inlinedPrivateKey(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        List<CbomIngestFindingDto> report = servedReport(leanCbom.getUuid());
+
+        assertThat(report).anySatisfy(line -> {
+            assertThat(line.getKind()).isEqualTo(CbomIngestFindingKind.FINDING);
+            assertThat(line.getComponentName()).isEqualTo("a-signing-key");
+            assertThat(line.getDetail()).contains("producer inlined a value").contains("under member value");
+        });
+        assertThat(report).allSatisfy(line -> {
+            assertThat(line.getDetail()).doesNotContain(SECRET_MARKER);
+            assertThat(line.getComponentName())
+                    .satisfiesAnyOf(name -> assertThat(name).isNull(),
+                            name -> assertThat(name).doesNotContain(SECRET_MARKER));
+            assertThat(line.getOccurrences()).isPositive();
+            assertThat(line.getRecordedAt()).isNotNull();
+        });
+    }
+
+    /** A refused document serves the lines that explain the refusal, beside the reason the row carries. */
+    @Test
+    void aRefusedDocumentServesTheReportThatExplainsIt() throws NotFoundException {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
+
+        assertThat(cbom(leanCbom.getUuid()).getAssetSyncError()).contains("the ingest findings name them");
+        assertThat(servedReport(leanCbom.getUuid())).singleElement().satisfies(line -> {
+            assertThat(line.getKind()).isEqualTo(CbomIngestFindingKind.FINDING);
+            assertThat(line.getComponentName()).isNull();
+            assertThat(line.getDetail()).contains("bom-ref dup").contains("more than once");
+            assertThat(line.getOccurrences()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void aDocumentNoAttemptHasReadServesAnEmptyReport() throws NotFoundException {
+        assertThat(servedReport(leanCbom.getUuid())).isEmpty();
+    }
+
+    @Test
+    void anUnknownCbomHasNoReport() {
+        SecuredUUID unknown = SecuredUUID.fromUUID(UUID.randomUUID());
+
+        assertThatThrownBy(() -> cbomService.listCbomIngestFindings(unknown)).isInstanceOf(NotFoundException.class);
+    }
+
+    /**
+     * Served by kind and then by detail, not in the order the document raised the lines: the document below names its
+     * skipped component first and its secret-key material before its private-key material.
+     */
+    @Test
+    void theReportIsServedByKindThenByDetail() throws NotFoundException {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), skippedComponentAndTwoInlinedSecrets(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        List<CbomIngestFindingDto> report = servedReport(leanCbom.getUuid());
+
+        assertThat(report)
+                .extracting(CbomIngestFindingDto::getKind)
+                .containsExactly(CbomIngestFindingKind.FINDING, CbomIngestFindingKind.FINDING,
+                        CbomIngestFindingKind.SKIP);
+        assertThat(report.get(0).getDetail()).contains("private-key");
+        assertThat(report.get(1).getDetail()).contains("secret-key");
+        assertThat(report.get(2).getComponentName()).isEqualTo("(a component name with no valid encoding)");
+        assertThat(report.get(2).getDetail()).endsWith("reading it failed").doesNotContain("Exception");
+        assertThat(report)
+                .extracting(CbomIngestFindingDto::getRecordedAt)
+                .as("one attempt stamps its whole report once")
+                .containsOnly(report.get(0).getRecordedAt());
+    }
+
+    private List<CbomIngestFindingDto> servedReport(UUID cbomUuid) throws NotFoundException {
+        return cbomService.listCbomIngestFindings(SecuredUUID.fromUUID(cbomUuid));
     }
 
     /**
@@ -1680,6 +1769,19 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
     private static JsonNode inlinedPrivateKey() {
         return CbomIngestTestFixtures
                 .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"a-signing-key\","
+                        + "\"cryptoProperties\":{\"assetType\":\"related-crypto-material\","
+                        + "\"relatedCryptoMaterialProperties\":{\"type\":\"private-key\",\"value\":\"" + SECRET_MARKER
+                        + "\"}}}]}");
+    }
+
+    private static JsonNode skippedComponentAndTwoInlinedSecrets() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"\\ud800\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"name\":\"a-shared-secret\","
+                        + "\"cryptoProperties\":{\"assetType\":\"related-crypto-material\","
+                        + "\"relatedCryptoMaterialProperties\":{\"type\":\"secret-key\",\"value\":\"" + SECRET_MARKER
+                        + "\"}}}," + "{\"type\":\"cryptographic-asset\",\"name\":\"a-signing-key\","
                         + "\"cryptoProperties\":{\"assetType\":\"related-crypto-material\","
                         + "\"relatedCryptoMaterialProperties\":{\"type\":\"private-key\",\"value\":\"" + SECRET_MARKER
                         + "\"}}}]}");
