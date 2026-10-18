@@ -1,7 +1,5 @@
 package com.otilm.core.integration.migration;
 
-import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
@@ -10,6 +8,7 @@ import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.DateAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.DateTimeAttributeContentV3;
@@ -21,7 +20,6 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.serialization.AttributeContentJson;
-import com.otilm.core.serialization.ObjectMapperFactory;
 import db.migration.V202610181200__RepairDateAttributeContent;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -31,8 +29,10 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.flywaydb.core.api.migration.Context;
 import org.junit.jupiter.api.Test;
@@ -43,17 +43,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Rows of Date, Time and Datetime attributes stored before 2.20.0 hold a number or an array, which the search casts
- * reject and the Datetime reader cannot parse. The repair has to leave each one exactly as a write of the same value
- * stores it today, or the lookup by value misses it and the definition holds the value twice.
+ * The stored values are written out literally, in the shapes the column mapper of releases before 2.20.0 left in the
+ * database: generating them with today's Jackson would hide any change between the serializer that wrote them and the
+ * deserializer that reads them back.
  */
 class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
 
-    /** The column mapper as it stood before dates were written as text. */
-    private static final ObjectWriter PRE_2_20_COLUMN_WRITER = ObjectMapperFactory
-            .jsonColumn()
-            .enable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-            .writerFor(AttributeContent.class);
+    private static final ZonedDateTime HALF_PAST_NINE = ZonedDateTime.of(2026, 1, 15, 9, 30, 0, 0, ZoneOffset.UTC);
 
     @Autowired
     private DataSource dataSource;
@@ -64,53 +60,81 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
     @Autowired
     private AttributeContentItemRepository attributeContentItemRepository;
 
+    private final AtomicInteger placeholderSequence = new AtomicInteger();
+
     @Test
     void migrate_rewritesEachValueAsAWriteOfItStoresItToday() throws Exception {
         UUID dateDefinition = definition("validUntil", AttributeContentType.DATE, ProtectionLevel.NONE);
         UUID timeDefinition = definition("maintenanceAt", AttributeContentType.TIME, ProtectionLevel.NONE);
         UUID datetimeDefinition = definition("reviewedAt", AttributeContentType.DATETIME, ProtectionLevel.NONE);
-        LocalDate date = LocalDate.of(2026, 3, 29);
-        LocalTime wholeMinute = LocalTime.of(18, 0);
-        LocalTime withSeconds = LocalTime.of(18, 0, 5);
-        ZonedDateTime enteredWithOffset = ZonedDateTime.of(2026, 1, 15, 11, 30, 0, 123_000_000, ZoneOffset.ofHours(2));
-        ZonedDateTime beforeTheEpoch = ZonedDateTime.of(1969, 12, 31, 23, 59, 59, 500_000_000, ZoneOffset.UTC);
-
-        UUID dateCertificate = certificateHoldingPre220Value(dateDefinition, new DateAttributeContentV3(date));
-        UUID wholeMinuteCertificate = certificateHoldingPre220Value(timeDefinition,
-                new TimeAttributeContentV3(wholeMinute));
-        UUID withSecondsCertificate = certificateHoldingPre220Value(timeDefinition,
-                new TimeAttributeContentV3(withSeconds));
-        UUID offsetCertificate = certificateHoldingPre220Value(datetimeDefinition,
-                new DateTimeAttributeContentV3(enteredWithOffset));
-        UUID epochCertificate = certificateHoldingPre220Value(datetimeDefinition,
-                new DateTimeAttributeContentV3(beforeTheEpoch));
+        UUID dateCertificate = certificateHoldingStored(dateDefinition,
+                "{\"reference\": \"ref-date\", \"data\": [2026, 3, 29], \"contentType\": \"date\"}");
+        UUID wholeMinuteCertificate = certificateHoldingStored(timeDefinition,
+                "{\"reference\": null, \"data\": [18, 0], \"contentType\": \"time\"}");
+        UUID withSecondsCertificate = certificateHoldingStored(timeDefinition,
+                "{\"reference\": \"ref-time\", \"data\": [18, 0, 5], \"contentType\": \"time\"}");
+        UUID datetimeCertificate = certificateHoldingStored(datetimeDefinition,
+                "{\"reference\": \"ref-datetime\", \"data\": 1768469400.123000000, \"contentType\": \"datetime\"}");
+        UUID beforeTheEpochCertificate = certificateHoldingStored(datetimeDefinition,
+                "{\"reference\": null, \"data\": -1.000000000, \"contentType\": \"datetime\"}");
 
         runMigration();
 
-        assertRepaired(dateCertificate, dateDefinition, new DateAttributeContentV3(date), "date");
-        assertRepaired(wholeMinuteCertificate, timeDefinition, new TimeAttributeContentV3(wholeMinute), "time");
-        assertRepaired(withSecondsCertificate, timeDefinition, new TimeAttributeContentV3(withSeconds), "time");
-        assertRepaired(offsetCertificate, datetimeDefinition,
-                new DateTimeAttributeContentV3(enteredWithOffset.withZoneSameInstant(ZoneOffset.UTC)), "timestamptz");
-        assertRepaired(epochCertificate, datetimeDefinition, new DateTimeAttributeContentV3(beforeTheEpoch),
+        assertRepaired(dateCertificate, dateDefinition,
+                referenced(new DateAttributeContentV3(LocalDate.of(2026, 3, 29)), "ref-date"), "date");
+        assertRepaired(wholeMinuteCertificate, timeDefinition, new TimeAttributeContentV3(LocalTime.of(18, 0)), "time");
+        assertRepaired(withSecondsCertificate, timeDefinition,
+                referenced(new TimeAttributeContentV3(LocalTime.of(18, 0, 5)), "ref-time"), "time");
+        ZonedDateTime withMillis = HALF_PAST_NINE.plusNanos(123_000_000);
+        assertRepaired(datetimeCertificate, datetimeDefinition,
+                new DateTimeAttributeContentV3("ref-datetime", withMillis), "timestamptz");
+        ZonedDateTime beforeTheEpoch = ZonedDateTime.of(1969, 12, 31, 23, 59, 59, 0, ZoneOffset.UTC);
+        assertRepaired(beforeTheEpochCertificate, datetimeDefinition, new DateTimeAttributeContentV3(beforeTheEpoch),
                 "timestamptz");
 
-        assertThat(storedDatetime(offsetCertificate, "reviewedAt").toInstant())
-                .as("the stored number was the exact instant: only the offset it was entered with is gone")
-                .isEqualTo(enteredWithOffset.toInstant());
-        assertThat(storedDatetime(epochCertificate, "reviewedAt"))
-                .as("a value before 1970 was stored as negative seconds and positive nanoseconds")
-                .isEqualTo(beforeTheEpoch);
+        assertThat(storedDatetime(datetimeCertificate, "reviewedAt"))
+                .as("the number held the instant, which comes back in UTC")
+                .isEqualTo(withMillis);
+        assertThat(storedDatetime(beforeTheEpochCertificate, "reviewedAt")).isEqualTo(beforeTheEpoch);
+    }
+
+    /**
+     * The migration selects by content type alone, so a definition a connector owns is repaired like a custom one. Its
+     * version 2 rows were broken only where 2.19 and earlier decrypted them, when the definition's encryption was
+     * turned off, and they carry no content type of their own.
+     */
+    @Test
+    void migrate_repairsDefinitionsAConnectorOwns() throws Exception {
+        UUID metadataDefinition = definition("notAfter", AttributeContentType.DATETIME, ProtectionLevel.NONE);
+        UUID metadataCertificate = certificateHoldingStored(metadataDefinition,
+                "{\"reference\": null, \"data\": 1768469400.000000000, \"contentType\": \"datetime\"}");
+        UUID dataDateDefinition = definition("issuedOn", AttributeContentType.DATE, ProtectionLevel.NONE);
+        UUID dataDateCertificate = certificateHoldingStored(dataDateDefinition,
+                "{\"reference\": null, \"data\": [2026, 3, 29], \"contentType\": null}");
+        UUID dataDatetimeDefinition = definition("issuedAfter", AttributeContentType.DATETIME, ProtectionLevel.NONE);
+        UUID dataDatetimeCertificate = certificateHoldingStored(dataDatetimeDefinition,
+                "{\"reference\": \"ref-issued\", \"data\": 1768469400.000000000, \"contentType\": null}");
+        ownedByConnector(metadataDefinition, AttributeType.META, 3);
+        ownedByConnector(dataDateDefinition, AttributeType.DATA, 2);
+        ownedByConnector(dataDatetimeDefinition, AttributeType.DATA, 2);
+
+        runMigration();
+
+        assertRepaired(metadataCertificate, metadataDefinition, new DateTimeAttributeContentV3(HALF_PAST_NINE),
+                "timestamptz");
+        assertRepaired(dataDateCertificate, dataDateDefinition,
+                new BaseAttributeContentV2<>(null, LocalDate.of(2026, 3, 29)), "date");
+        assertRepaired(dataDatetimeCertificate, dataDatetimeDefinition,
+                new BaseAttributeContentV2<>("ref-issued", HALF_PAST_NINE), "timestamptz");
     }
 
     @Test
     void migrate_foldsARepairedValueIntoTheRowAWriteAfterTheUpgradeStoredForIt() throws Exception {
         UUID definitionUuid = definition("reviewedAt", AttributeContentType.DATETIME, ProtectionLevel.NONE);
-        DateTimeAttributeContentV3 value = new DateTimeAttributeContentV3(
-                ZonedDateTime.of(2026, 1, 15, 9, 30, 0, 0, ZoneOffset.UTC));
-        UUID beforeUpgrade = certificateHoldingPre220Value(definitionUuid, value);
+        UUID beforeUpgrade = certificateHoldingStored(definitionUuid,
+                "{\"reference\": null, \"data\": 1768469400.000000000, \"contentType\": \"datetime\"}");
         UUID brokenItem = itemOf(beforeUpgrade, definitionUuid);
-        UUID afterUpgrade = certificateHolding(definitionUuid, value);
+        UUID afterUpgrade = certificateWriting(definitionUuid, new DateTimeAttributeContentV3(HALF_PAST_NINE));
         UUID textItem = itemOf(afterUpgrade, definitionUuid);
         assertThat(textItem)
                 .as("the lookup by value misses the broken row, so the write stored a second one")
@@ -123,27 +147,49 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         assertThat(storedJsonOrNull(brokenItem)).as("the broken row folds into the one holding its value").isNull();
         assertThat(itemOf(beforeUpgrade, definitionUuid)).isEqualTo(textItem);
         assertThat(mappingCount(afterUpgrade, textItem)).isEqualTo(1);
-        assertThat(storedDatetime(beforeUpgrade, "reviewedAt")).isEqualTo(value.getData());
-        assertThat(storedDatetime(afterUpgrade, "reviewedAt")).isEqualTo(value.getData());
+        assertThat(storedDatetime(beforeUpgrade, "reviewedAt")).isEqualTo(HALF_PAST_NINE);
+        assertThat(storedDatetime(afterUpgrade, "reviewedAt")).isEqualTo(HALF_PAST_NINE);
     }
 
     @Test
     void migrate_foldsBrokenRowsThatRepairToTheSameValueIntoOne() throws Exception {
-        UUID definitionUuid = definition("reviewedAt", AttributeContentType.DATETIME, ProtectionLevel.NONE);
-        DateTimeAttributeContentV3 value = new DateTimeAttributeContentV3(
-                ZonedDateTime.of(2026, 1, 15, 9, 30, 0, 123_000_000, ZoneOffset.UTC));
-        UUID first = certificateHoldingPre220Value(definitionUuid, value);
-        UUID second = certificateHolding(definitionUuid,
-                new DateTimeAttributeContentV3(ZonedDateTime.of(2026, 1, 15, 9, 31, 0, 0, ZoneOffset.UTC)));
-        // The same instant at another written precision: a second row, which jsonb keeps apart from the first.
-        storeJson(itemOf(second, definitionUuid),
-                "{\"reference\": null, \"data\": 1768469400.123, \"contentType\": \"datetime\"}");
+        UUID definitionUuid = definition("maintenanceAt", AttributeContentType.TIME, ProtectionLevel.NONE);
+        UUID first = certificateHoldingStored(definitionUuid,
+                "{\"reference\": null, \"data\": [18, 0], \"contentType\": \"time\"}");
+        // The same time with its zero seconds written out: a second row, which jsonb keeps apart from the first.
+        UUID second = certificateHoldingStored(definitionUuid,
+                "{\"reference\": null, \"data\": [18, 0, 0], \"contentType\": \"time\"}");
 
         runMigration();
 
         assertThat(itemOf(first, definitionUuid)).isEqualTo(itemOf(second, definitionUuid));
-        assertThat(storedDatetime(first, "reviewedAt")).isEqualTo(value.getData());
-        assertThat(storedDatetime(second, "reviewedAt")).isEqualTo(value.getData());
+        assertRepaired(first, definitionUuid, new TimeAttributeContentV3(LocalTime.of(18, 0)), "time");
+    }
+
+    @Test
+    void migrate_repairsMoreRowsThanOneBatchStages() throws Exception {
+        UUID definitionUuid = definition("validUntil", AttributeContentType.DATE, ProtectionLevel.NONE);
+        int rows = 1001;
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement insert = connection.prepareStatement("""
+                        INSERT INTO attribute_content_item (uuid, attribute_definition_uuid, json)
+                        SELECT gen_random_uuid(), ?, jsonb_build_object('reference', NULL, 'contentType', 'date',
+                               'data', jsonb_build_array(extract(YEAR FROM day)::INT, extract(MONTH FROM day)::INT,
+                                                         extract(DAY FROM day)::INT))
+                          FROM generate_series(DATE '2000-01-01', DATE '2000-01-01' + ?, INTERVAL '1 day') AS day
+                        """)) {
+            insert.setObject(1, definitionUuid);
+            insert.setInt(2, rows - 1);
+            assertThat(insert.executeUpdate()).isEqualTo(rows);
+        }
+
+        runMigration();
+
+        assertThat(textValueCount(definitionUuid)).isEqualTo(rows);
+        LocalDate lastDay = LocalDate.of(2000, 1, 1).plusDays(rows - 1L);
+        assertThat(attributeContentItemRepository
+                .findPlaintextUuid(definitionUuid, AttributeContentJson.render(new DateAttributeContentV3(lastDay))))
+                .isNotNull();
     }
 
     @Test
@@ -152,40 +198,57 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         UUID integerDefinition = definition("retries", AttributeContentType.INTEGER, ProtectionLevel.NONE);
         UUID encryptedDefinition = definition("sealedAt", AttributeContentType.DATETIME, ProtectionLevel.ENCRYPTED);
         UUID dateDefinition = definition("validUntil", AttributeContentType.DATE, ProtectionLevel.NONE);
-
-        UUID olderTextItem = itemOf(
-                certificateHolding(datetimeDefinition,
-                        new DateTimeAttributeContentV3(ZonedDateTime.of(2024, 8, 27, 13, 40, 19, 0, ZoneOffset.UTC))),
-                datetimeDefinition);
+        List<UUID> untouched = new ArrayList<>();
         // Releases before typed content stored the text the client sent, in the @JsonFormat pattern.
-        storeJson(olderTextItem,
-                "{\"reference\": null, \"data\": \"2024-08-27T13:40:19.000Z\", \"contentType\": \"datetime\"}");
-        UUID integerItem = itemOf(certificateHolding(integerDefinition, new IntegerAttributeContentV3(5)),
-                integerDefinition);
-        UUID encryptedItem = itemOf(
-                certificateHolding(encryptedDefinition,
-                        new DateTimeAttributeContentV3(ZonedDateTime.of(2026, 1, 15, 9, 30, 0, 0, ZoneOffset.UTC))),
-                encryptedDefinition);
-        UUID unknownShapeItem = itemOf(
-                certificateHolding(dateDefinition, new DateAttributeContentV3(LocalDate.of(2026, 3, 29))),
-                dateDefinition);
-        storeJson(unknownShapeItem, "{\"reference\": null, \"data\": 20260329, \"contentType\": \"date\"}");
-        // Arrays no java.time value serializes to: one bad row must not stop the upgrade.
-        UUID shortArrayItem = itemOf(
-                certificateHolding(dateDefinition, new DateAttributeContentV3(LocalDate.of(2026, 3, 30))),
-                dateDefinition);
-        storeJson(shortArrayItem, "{\"reference\": null, \"data\": [2026, 3], \"contentType\": \"date\"}");
-        UUID impossibleDateItem = itemOf(
-                certificateHolding(dateDefinition, new DateAttributeContentV3(LocalDate.of(2026, 3, 31))),
-                dateDefinition);
-        storeJson(impossibleDateItem, "{\"reference\": null, \"data\": [2026, 2, 30], \"contentType\": \"date\"}");
-        List<UUID> untouched = List
-                .of(olderTextItem, integerItem, encryptedItem, unknownShapeItem, shortArrayItem, impossibleDateItem);
+        untouched
+                .add(storedItem(datetimeDefinition,
+                        "{\"reference\": null, \"data\": \"2024-08-27T13:40:19.000Z\", \"contentType\": \"datetime\"}"));
+        untouched
+                .add(itemOf(certificateWriting(integerDefinition, new IntegerAttributeContentV3(5)),
+                        integerDefinition));
+        // The guard on encryption, not the placeholder's null value, keeps an encrypted row out.
+        untouched
+                .add(storedItem(encryptedDefinition,
+                        "{\"reference\": null, \"data\": 1768469400.000000000, \"contentType\": \"datetime\"}"));
+        // Shapes no java.time value serializes to: one bad row must not stop the upgrade.
+        untouched
+                .add(storedItem(dateDefinition,
+                        "{\"reference\": null, \"data\": 20260329, \"contentType\": \"date\"}"));
+        untouched
+                .add(storedItem(dateDefinition,
+                        "{\"reference\": null, \"data\": [2026, 3], \"contentType\": \"date\"}"));
+        untouched
+                .add(storedItem(dateDefinition,
+                        "{\"reference\": null, \"data\": [2026, 2, 30], \"contentType\": \"date\"}"));
+        // The column mapper always wrote nine decimal places; a number without them came from somewhere else.
+        untouched
+                .add(storedItem(datetimeDefinition,
+                        "{\"reference\": null, \"data\": 1768469400, \"contentType\": \"datetime\"}"));
+        // Before Jackson 2.21 this text held -0.5 seconds, and from 2.21 it holds -1.5: which one is unknowable.
+        untouched
+                .add(storedItem(datetimeDefinition,
+                        "{\"reference\": null, \"data\": -1.500000000, \"contentType\": \"datetime\"}"));
         List<String> before = untouched.stream().map(this::storedJsonOrNull).toList();
 
         runMigration();
 
         assertThat(untouched.stream().map(this::storedJsonOrNull).toList()).isEqualTo(before);
+    }
+
+    @Test
+    void migrate_holdsOffWritesToTheContentTablesUntilItCommits() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                migrate(connection);
+                assertThat(locksHeld(connection))
+                        .containsExactlyInAnyOrder("attribute_content_item ShareRowExclusiveLock",
+                                "attribute_content_2_object ShareRowExclusiveLock");
+            } finally {
+                connection.rollback();
+                connection.setAutoCommit(true);
+            }
+        }
     }
 
     // --- helpers ---
@@ -207,14 +270,21 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                Context context = mock(Context.class);
-                when(context.getConnection()).thenReturn(connection);
-                new V202610181200__RepairDateAttributeContent().migrate(context);
+                migrate(connection);
                 connection.commit();
+            } catch (Exception e) {
+                connection.rollback();
+                throw e;
             } finally {
                 connection.setAutoCommit(true);
             }
         }
+    }
+
+    private static void migrate(Connection connection) throws SQLException {
+        Context context = mock(Context.class);
+        when(context.getConnection()).thenReturn(connection);
+        new V202610181200__RepairDateAttributeContent().migrate(context);
     }
 
     private UUID definition(String name, AttributeContentType contentType, ProtectionLevel protectionLevel)
@@ -231,7 +301,18 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         return attributeEngine.updateCustomAttributeDefinition(attribute, List.of(Resource.CERTIFICATE)).getUuid();
     }
 
-    private UUID certificateHolding(UUID definitionUuid, AttributeContent content)
+    private void ownedByConnector(UUID definitionUuid, AttributeType type, int version) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement update = connection
+                        .prepareStatement("UPDATE attribute_definition SET type = ?, version = ? WHERE uuid = ?")) {
+            update.setString(1, type.name());
+            update.setInt(2, version);
+            update.setObject(3, definitionUuid);
+            assertThat(update.executeUpdate()).isEqualTo(1);
+        }
+    }
+
+    private UUID certificateWriting(UUID definitionUuid, AttributeContent content)
             throws NotFoundException, AttributeException {
         UUID certificateUuid = certificateRepository.save(new Certificate()).getUuid();
         attributeEngine
@@ -240,10 +321,51 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         return certificateUuid;
     }
 
-    private UUID certificateHoldingPre220Value(UUID definitionUuid, AttributeContent content) throws Exception {
-        UUID certificateUuid = certificateHolding(definitionUuid, content);
-        storeJson(itemOf(certificateUuid, definitionUuid), PRE_2_20_COLUMN_WRITER.writeValueAsString(content));
+    /**
+     * A certificate whose value of the definition is stored as the given JSON. The engine writes a distinct placeholder
+     * of the definition's content type first, so the row and its mapping are the engine's own and no other certificate
+     * shares the row.
+     */
+    private UUID certificateHoldingStored(UUID definitionUuid, String storedJson) throws Exception {
+        UUID certificateUuid = certificateWriting(definitionUuid, placeholder(contentTypeOf(definitionUuid)));
+        storeJson(itemOf(certificateUuid, definitionUuid), storedJson);
         return certificateUuid;
+    }
+
+    private UUID storedItem(UUID definitionUuid, String storedJson) throws Exception {
+        return itemOf(certificateHoldingStored(definitionUuid, storedJson), definitionUuid);
+    }
+
+    private AttributeContent placeholder(AttributeContentType contentType) {
+        int sequence = placeholderSequence.incrementAndGet();
+        return switch (contentType) {
+            case DATE -> new DateAttributeContentV3(LocalDate.of(1990, 1, 1).plusDays(sequence));
+            case TIME -> new TimeAttributeContentV3(LocalTime.of(1, 0).plusMinutes(sequence));
+            case DATETIME -> new DateTimeAttributeContentV3(
+                    ZonedDateTime.of(1990, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).plusSeconds(sequence));
+            default -> throw new IllegalArgumentException("No placeholder for " + contentType);
+        };
+    }
+
+    private static <T extends AttributeContent> T referenced(T content, String reference) {
+        if (content instanceof DateAttributeContentV3 date) {
+            date.setReference(reference);
+        } else if (content instanceof TimeAttributeContentV3 time) {
+            time.setReference(reference);
+        }
+        return content;
+    }
+
+    private AttributeContentType contentTypeOf(UUID definitionUuid) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement select = connection
+                        .prepareStatement("SELECT content_type FROM attribute_definition WHERE uuid = ?")) {
+            select.setObject(1, definitionUuid);
+            try (ResultSet rows = select.executeQuery()) {
+                rows.next();
+                return AttributeContentType.valueOf(rows.getString(1));
+            }
+        }
     }
 
     private ZonedDateTime storedDatetime(UUID certificateUuid, String attributeName) {
@@ -310,6 +432,36 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
                 return rows.getObject(1);
             }
         }
+    }
+
+    private long textValueCount(UUID definitionUuid) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement select = connection.prepareStatement("""
+                        SELECT count(*) FROM attribute_content_item
+                         WHERE attribute_definition_uuid = ? AND jsonb_typeof(json->'data') = 'string'
+                        """)) {
+            select.setObject(1, definitionUuid);
+            try (ResultSet rows = select.executeQuery()) {
+                rows.next();
+                return rows.getLong(1);
+            }
+        }
+    }
+
+    private static List<String> locksHeld(Connection connection) throws SQLException {
+        List<String> locks = new ArrayList<>();
+        try (PreparedStatement select = connection.prepareStatement("""
+                SELECT relation.relname, held.mode FROM pg_locks held
+                  JOIN pg_class relation ON relation.oid = held.relation
+                 WHERE held.pid = pg_backend_pid() AND held.granted
+                   AND relation.relname IN ('attribute_content_item', 'attribute_content_2_object')
+                   AND held.mode = 'ShareRowExclusiveLock'
+                """); ResultSet rows = select.executeQuery()) {
+            while (rows.next()) {
+                locks.add(rows.getString(1) + " " + rows.getString(2));
+            }
+        }
+        return locks;
     }
 
     private void mapAlso(UUID certificateUuid, UUID itemUuid) throws SQLException {

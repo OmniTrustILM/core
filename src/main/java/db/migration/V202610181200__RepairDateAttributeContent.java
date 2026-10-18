@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.DateAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.DateTimeAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.TimeAttributeContentV3;
@@ -15,6 +16,8 @@ import org.flywaydb.core.api.migration.Context;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Serializable;
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -29,17 +32,22 @@ import java.util.UUID;
 /**
  * Rewrites the Date, Time and Datetime attribute values that releases before 2.20.0 stored as numbers and arrays. Their
  * column mapper wrote a Date as {@code [year, month, day]}, a Time as {@code [hour, minute, second, nano]} with trailing
- * zeros left out, and a Datetime as decimal epoch seconds: the search casts reject all three, and a Datetime cannot be
- * read back at all. Only typed content was written that way, so only rows carrying a {@code contentType} are in scope.
+ * zeros left out, and a Datetime as epoch seconds with nine decimal places: the search casts reject all three, and a
+ * Datetime cannot be read back at all. It wrote that way whatever held a {@code java.time} value: typed version 3
+ * content, and the version 2 content those releases decrypted when a definition's encryption was turned off, which
+ * carries no content type of its own.
  * <p>
  * Each value is decoded by the recipe that wrote it and rendered as a write of it renders it today, so the lookup by
  * value finds it. A Datetime comes back in UTC: the number held the exact instant, but not the offset it was entered
- * with. A row in any other shape is left as it is and logged.
+ * with. A row in any other shape is left as it is and logged, and so is a Datetime before 1970 with a fraction of a
+ * second: Jackson 2.21 changed how it writes and reads one, so its text means two instants a second apart depending on
+ * the release that wrote it.
  * <p>
  * The values are decoded one row at a time, but staged and written back in a few set-based statements, so the time the
  * migration holds Core's startup does not grow with a round trip per row. Repaired values a definition then holds twice
- * - because a write after the upgrade could not match its value to the number, or two numbers held one instant - fold
- * onto one row, as {@code V202610061000} folds duplicates: a row that was already text is the one kept.
+ * - because a write after the upgrade could not match its value to the number, or two shapes held one value - fold onto
+ * one row, and a row that was already text is the one kept. Writes to the two tables wait until the migration commits:
+ * during a rolling update the previous release keeps writing while it runs.
  */
 // Flyway requires the V<timestamp>__Name class name to resolve the migration version; it cannot match S101's
 // class-name pattern.
@@ -52,15 +60,22 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
 
     private static final ObjectMapper JSON_COLUMN = ObjectMapperFactory.jsonColumn();
 
+    private static final String LOCK_CONTENT_TABLES = """
+            LOCK TABLE attribute_content_item, attribute_content_2_object IN SHARE ROW EXCLUSIVE MODE
+            """;
+
     private static final String SELECT_BROKEN_ITEMS = """
             SELECT item.uuid, item.attribute_definition_uuid, definition.content_type,
+                   jsonb_typeof(item.json->'contentType') = 'string' AS typed,
                    item.json->'data' AS data, item.json->>'reference' AS reference
               FROM attribute_content_item item
               JOIN attribute_definition definition ON definition.uuid = item.attribute_definition_uuid
              WHERE item.encrypted_data IS NULL
-               AND jsonb_typeof(item.json->'contentType') = 'string'
+               AND jsonb_typeof(item.json->'contentType') IN ('string', 'null')
                AND ((definition.content_type IN ('DATE', 'TIME') AND jsonb_typeof(item.json->'data') = 'array')
-                 OR (definition.content_type = 'DATETIME' AND jsonb_typeof(item.json->'data') = 'number'))
+                 OR (definition.content_type = 'DATETIME'
+                     AND CASE WHEN jsonb_typeof(item.json->'data') = 'number'
+                              THEN scale((item.json->>'data')::NUMERIC) = 9 ELSE FALSE END))
             """;
 
     private static final String CREATE_REPAIRED = """
@@ -76,9 +91,11 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
             VALUES (?, ?, CAST(? AS jsonb))
             """;
 
+    private static final String ANALYZE_REPAIRED = "ANALYZE repaired_date_attribute_content";
+
     /**
      * Pairs each repaired row with the row its value is kept in. Values are matched on the text the column's digest is
-     * taken from, as {@code V202610061000} matches them, and a row that was already text sorts first.
+     * taken from, as {@code V202610061000} matches them.
      */
     private static final String CREATE_FOLD = """
             CREATE TEMP TABLE repaired_date_attribute_content_fold AS
@@ -140,8 +157,8 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
 
     private static final String DROP_STAGING = "DROP TABLE repaired_date_attribute_content_fold, repaired_date_attribute_content";
 
-    private record BrokenItem(UUID uuid, UUID definitionUuid, AttributeContentType contentType, String data,
-            String reference) {
+    private record BrokenItem(UUID uuid, UUID definitionUuid, AttributeContentType contentType, boolean typed,
+            String data, String reference) {
     }
 
     @Override
@@ -153,8 +170,10 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
     public void migrate(Context context) throws SQLException {
         Connection connection = context.getConnection();
         try (Statement statement = connection.createStatement()) {
+            statement.execute(LOCK_CONTENT_TABLES);
             statement.execute(CREATE_REPAIRED);
             int skipped = stageRepairedValues(connection);
+            statement.execute(ANALYZE_REPAIRED);
             statement.execute(CREATE_FOLD);
             statement.executeUpdate(MOVE_FOLDED_MAPPINGS);
             statement.executeUpdate(DELETE_REPEATED_MAPPINGS);
@@ -179,13 +198,8 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
             try (ResultSet rows = select.executeQuery(SELECT_BROKEN_ITEMS)) {
                 while (rows.next()) {
                     BrokenItem item = brokenItem(rows);
-                    String repairedJson;
-                    try {
-                        repairedJson = AttributeContentJson.render(repairedContent(item));
-                    } catch (JsonProcessingException | DateTimeException e) {
-                        logger.warn("Leaving attribute content item {} as it is: its {} value is not in the shape the"
-                                + " column mapper wrote before 2.20.0. Cause: {}", item.uuid(), item.contentType(),
-                                e.getMessage());
+                    String repairedJson = repairedJson(item);
+                    if (repairedJson == null) {
                         skipped++;
                         continue;
                     }
@@ -210,30 +224,62 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
         UUID uuid = row.getObject("uuid", UUID.class);
         UUID definitionUuid = row.getObject("attribute_definition_uuid", UUID.class);
         AttributeContentType contentType = AttributeContentType.valueOf(row.getString("content_type"));
-        return new BrokenItem(uuid, definitionUuid, contentType, row.getString("data"), row.getString("reference"));
+        return new BrokenItem(uuid, definitionUuid, contentType, row.getBoolean("typed"), row.getString("data"),
+                row.getString("reference"));
+    }
+
+    /** The row's value as a write of it stores it today, or {@code null} when the row is left as it is. */
+    private static String repairedJson(BrokenItem item) {
+        if (item.contentType() == AttributeContentType.DATETIME && isBeforeTheEpochWithAFraction(item.data())) {
+            logger.warn("Leaving attribute content item {} as it is: its Datetime value is before 1970 with a fraction of"
+                    + " a second, which releases on Jackson 2.20 and earlier stored as a different instant than later"
+                    + " ones.", item.uuid());
+            return null;
+        }
+        try {
+            Serializable value = decodedValue(item);
+            AttributeContent content = item.typed() ? typedContent(item, value)
+                    : new BaseAttributeContentV2<>(item.reference(), value);
+            return AttributeContentJson.render(content);
+        } catch (JsonProcessingException | DateTimeException e) {
+            logger.warn("Leaving attribute content item {} as it is: its {} value is not in the shape the column mapper"
+                    + " wrote before 2.20.0. Cause: {}", item.uuid(), item.contentType(), e.getMessage());
+            return null;
+        }
+    }
+
+    private static boolean isBeforeTheEpochWithAFraction(String epochSeconds) {
+        BigDecimal value = new BigDecimal(epochSeconds);
+        return value.signum() < 0 && value.stripTrailingZeros().scale() > 0;
     }
 
     /**
      * Reads the stored value with the column recipe, whose date deserializers take back the arrays and decimal seconds
-     * its serializers wrote, exactly: the stored text reaches the parser, so no double rounds the nanoseconds.
+     * its serializers wrote: the stored text reaches the parser, so no double rounds the nanoseconds.
      */
-    private static AttributeContent repairedContent(BrokenItem item) throws JsonProcessingException {
+    private static Serializable decodedValue(BrokenItem item) throws JsonProcessingException {
         return switch (item.contentType()) {
-            case DATE -> {
-                DateAttributeContentV3 content = new DateAttributeContentV3(
-                        JSON_COLUMN.readValue(item.data(), LocalDate.class));
-                content.setReference(item.reference());
-                yield content;
-            }
-            case TIME -> {
-                TimeAttributeContentV3 content = new TimeAttributeContentV3(
-                        JSON_COLUMN.readValue(item.data(), LocalTime.class));
-                content.setReference(item.reference());
-                yield content;
-            }
-            case DATETIME -> new DateTimeAttributeContentV3(item.reference(),
-                    JSON_COLUMN.readValue(item.data(), ZonedDateTime.class));
+            case DATE -> JSON_COLUMN.readValue(item.data(), LocalDate.class);
+            case TIME -> JSON_COLUMN.readValue(item.data(), LocalTime.class);
+            case DATETIME -> JSON_COLUMN.readValue(item.data(), ZonedDateTime.class);
             default -> throw new IllegalStateException("Content type " + item.contentType() + " is not repaired");
+        };
+    }
+
+    private static AttributeContent typedContent(BrokenItem item, Serializable value) {
+        return switch (value) {
+            case LocalDate date -> {
+                DateAttributeContentV3 content = new DateAttributeContentV3(date);
+                content.setReference(item.reference());
+                yield content;
+            }
+            case LocalTime time -> {
+                TimeAttributeContentV3 content = new TimeAttributeContentV3(time);
+                content.setReference(item.reference());
+                yield content;
+            }
+            case ZonedDateTime dateTime -> new DateTimeAttributeContentV3(item.reference(), dateTime);
+            default -> throw new IllegalStateException("No content type holds " + value.getClass().getSimpleName());
         };
     }
 }
