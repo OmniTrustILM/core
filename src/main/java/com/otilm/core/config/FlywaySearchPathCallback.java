@@ -1,7 +1,7 @@
 package com.otilm.core.config;
 
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import org.flywaydb.core.api.FlywayException;
 import org.flywaydb.core.api.callback.Callback;
 import org.flywaydb.core.api.callback.Context;
@@ -15,9 +15,9 @@ import org.springframework.stereotype.Component;
  * Behind PgBouncer in transaction pool mode, session state does not follow the client connection: the pool's
  * session-level {@code search_path} lands on whichever server connection served it, and a migration transaction may run
  * on another one. Flyway sets the search path itself only when its one-time {@code SHOW search_path} does not already
- * report the schema, so a migration referencing tables unqualified could fail with "relation does not exist".
- * {@code SET LOCAL} is scoped to the transaction, which PgBouncer keeps on one server connection. A migration that runs
- * outside a transaction gets no such pinning and must schema-qualify its objects.
+ * report the schema, so a migration referencing tables unqualified could fail with "relation does not exist". A
+ * transaction-local setting stays with the transaction, which PgBouncer keeps on one server connection. A migration
+ * that runs outside a transaction gets no such pinning and must schema-qualify its objects.
  */
 @Component
 public class FlywaySearchPathCallback implements Callback {
@@ -38,8 +38,11 @@ public class FlywaySearchPathCallback implements Callback {
         if (schema == null) {
             return;
         }
-        try (Statement statement = context.getConnection().createStatement()) {
-            statement.execute("SET LOCAL search_path TO " + quoteIdentifier(schema));
+        try (PreparedStatement statement = context
+                .getConnection()
+                .prepareStatement("SELECT set_config('search_path', ?, true)")) {
+            statement.setString(1, quoteIdentifier(schema));
+            statement.execute();
         } catch (SQLException e) {
             throw new FlywayException("Failed to set search_path to schema " + schema, e);
         }

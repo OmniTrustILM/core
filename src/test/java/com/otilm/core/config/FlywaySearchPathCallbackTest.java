@@ -2,18 +2,24 @@ package com.otilm.core.config;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Properties;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.flywaydb.core.api.callback.Context;
 import org.flywaydb.core.api.callback.Event;
 import org.flywaydb.core.api.configuration.ClassicConfiguration;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.core.io.ClassPathResource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -21,6 +27,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -37,7 +44,7 @@ class FlywaySearchPathCallbackTest {
     private static final Network NETWORK = Network.newNetwork();
 
     @Container
-    private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:15-alpine")
+    private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(minimumSupportedPostgres())
             .withNetwork(NETWORK)
             .withNetworkAliases("postgres");
 
@@ -90,13 +97,28 @@ class FlywaySearchPathCallbackTest {
         ClassicConfiguration configuration = new ClassicConfiguration();
         configuration.setSchemas(new String[]{"core", "audit"});
         configuration.setDefaultSchema("audit");
-        Statement statement = mock(Statement.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
 
         // when
         new FlywaySearchPathCallback().handle(Event.BEFORE_EACH_MIGRATE, context(configuration, statement));
 
         // then
-        verify(statement).execute("SET LOCAL search_path TO \"audit\"");
+        verify(statement).setString(1, "\"audit\"");
+        verify(statement).execute();
+    }
+
+    @Test
+    void handle_scopesSearchPathToTheMigrationTransaction() throws SQLException {
+        // given
+        ClassicConfiguration configuration = new ClassicConfiguration();
+        configuration.setSchemas(new String[]{"core"});
+        Context context = context(configuration, mock(PreparedStatement.class));
+
+        // when
+        new FlywaySearchPathCallback().handle(Event.BEFORE_EACH_MIGRATE, context);
+
+        // then
+        verify(context.getConnection()).prepareStatement("SELECT set_config('search_path', ?, true)");
     }
 
     @Test
@@ -104,19 +126,19 @@ class FlywaySearchPathCallbackTest {
         // given
         ClassicConfiguration configuration = new ClassicConfiguration();
         configuration.setSchemas(new String[]{"we\"ird"});
-        Statement statement = mock(Statement.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
 
         // when
         new FlywaySearchPathCallback().handle(Event.BEFORE_EACH_MIGRATE, context(configuration, statement));
 
         // then
-        verify(statement).execute("SET LOCAL search_path TO \"we\"\"ird\"");
+        verify(statement).setString(1, "\"we\"\"ird\"");
     }
 
     @Test
     void handle_leavesSearchPathAlone_whenNoSchemaConfigured() throws SQLException {
         // given
-        Statement statement = mock(Statement.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
 
         // when
         new FlywaySearchPathCallback()
@@ -126,9 +148,10 @@ class FlywaySearchPathCallbackTest {
         verifyNoInteractions(statement);
     }
 
-    private static Context context(ClassicConfiguration configuration, Statement statement) throws SQLException {
+    private static Context context(ClassicConfiguration configuration, PreparedStatement statement)
+            throws SQLException {
         Connection connection = mock(Connection.class);
-        when(connection.createStatement()).thenReturn(statement);
+        when(connection.prepareStatement(anyString())).thenReturn(statement);
         Context context = mock(Context.class);
         when(context.getConfiguration()).thenReturn(configuration);
         when(context.getConnection()).thenReturn(connection);
@@ -174,6 +197,19 @@ class FlywaySearchPathCallbackTest {
             resultSet.next();
             return resultSet.getString(1);
         }
+    }
+
+    // The minimum supported PostgreSQL version is pinned once, in the shared test datasource URL.
+    private static String minimumSupportedPostgres() {
+        YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
+        yaml.setResources(new ClassPathResource("application.yml"));
+        Properties properties = yaml.getObject();
+        String url = properties == null ? null : properties.getProperty("spring.datasource.url");
+        Matcher matcher = Pattern.compile("^jdbc:tc:postgresql:([^:/]+)://").matcher(url == null ? "" : url);
+        if (!matcher.find()) {
+            throw new IllegalStateException("No Testcontainers PostgreSQL image in spring.datasource.url: " + url);
+        }
+        return "postgres:" + matcher.group(1);
     }
 
     private static Connection directConnection(String database) throws SQLException {
