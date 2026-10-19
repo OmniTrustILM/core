@@ -27,6 +27,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.Month;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -77,11 +78,14 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
                 "{\"reference\": \"ref-datetime\", \"data\": 1768469400.123000000, \"contentType\": \"datetime\"}");
         UUID beforeTheEpochCertificate = certificateHoldingStored(datetimeDefinition,
                 "{\"reference\": null, \"data\": -1.000000000, \"contentType\": \"datetime\"}");
+        // The column mapper wrote the epoch itself as 0.0, its one value without nine decimal places.
+        UUID epochCertificate = certificateHoldingStored(datetimeDefinition,
+                "{\"reference\": null, \"data\": 0.0, \"contentType\": \"datetime\"}");
 
         runMigration();
 
         assertRepaired(dateCertificate, dateDefinition,
-                referenced(new DateAttributeContentV3(LocalDate.of(2026, 3, 29)), "ref-date"), "date");
+                referenced(new DateAttributeContentV3(LocalDate.of(2026, Month.MARCH, 29)), "ref-date"), "date");
         assertRepaired(wholeMinuteCertificate, timeDefinition, new TimeAttributeContentV3(LocalTime.of(18, 0)), "time");
         assertRepaired(withSecondsCertificate, timeDefinition,
                 referenced(new TimeAttributeContentV3(LocalTime.of(18, 0, 5)), "ref-time"), "time");
@@ -96,6 +100,8 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
                 .as("the number held the instant, which comes back in UTC")
                 .isEqualTo(withMillis);
         assertThat(storedDatetime(beforeTheEpochCertificate, "reviewedAt")).isEqualTo(beforeTheEpoch);
+        ZonedDateTime epoch = ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+        assertRepaired(epochCertificate, datetimeDefinition, new DateTimeAttributeContentV3(epoch), "timestamptz");
     }
 
     /**
@@ -123,7 +129,7 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         assertRepaired(metadataCertificate, metadataDefinition, new DateTimeAttributeContentV3(HALF_PAST_NINE),
                 "timestamptz");
         assertRepaired(dataDateCertificate, dataDateDefinition,
-                new BaseAttributeContentV2<>(null, LocalDate.of(2026, 3, 29)), "date");
+                new BaseAttributeContentV2<>(null, LocalDate.of(2026, Month.MARCH, 29)), "date");
         assertRepaired(dataDatetimeCertificate, dataDatetimeDefinition,
                 new BaseAttributeContentV2<>("ref-issued", HALF_PAST_NINE), "timestamptz");
     }
@@ -186,7 +192,7 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         runMigration();
 
         assertThat(textValueCount(definitionUuid)).isEqualTo(rows);
-        LocalDate lastDay = LocalDate.of(2000, 1, 1).plusDays(rows - 1L);
+        LocalDate lastDay = LocalDate.of(2000, Month.JANUARY, 1).plusDays(rows - 1L);
         assertThat(attributeContentItemRepository
                 .findPlaintextUuid(definitionUuid, AttributeContentJson.render(new DateAttributeContentV3(lastDay))))
                 .isNotNull();
@@ -198,6 +204,7 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         UUID integerDefinition = definition("retries", AttributeContentType.INTEGER, ProtectionLevel.NONE);
         UUID encryptedDefinition = definition("sealedAt", AttributeContentType.DATETIME, ProtectionLevel.ENCRYPTED);
         UUID dateDefinition = definition("validUntil", AttributeContentType.DATE, ProtectionLevel.NONE);
+        UUID timeDefinition = definition("maintenanceAt", AttributeContentType.TIME, ProtectionLevel.NONE);
         List<UUID> untouched = new ArrayList<>();
         // Releases before typed content stored the text the client sent, in the @JsonFormat pattern.
         untouched
@@ -220,6 +227,9 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
         untouched
                 .add(storedItem(dateDefinition,
                         "{\"reference\": null, \"data\": [2026, 2, 30], \"contentType\": \"date\"}"));
+        // An empty array decodes to no value at all, typed or not.
+        untouched.add(storedItem(dateDefinition, "{\"reference\": null, \"data\": [], \"contentType\": \"date\"}"));
+        untouched.add(storedItem(timeDefinition, "{\"reference\": null, \"data\": [], \"contentType\": null}"));
         // The column mapper always wrote nine decimal places; a number without them came from somewhere else.
         untouched
                 .add(storedItem(datetimeDefinition,
@@ -339,7 +349,7 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
     private AttributeContent placeholder(AttributeContentType contentType) {
         int sequence = placeholderSequence.incrementAndGet();
         return switch (contentType) {
-            case DATE -> new DateAttributeContentV3(LocalDate.of(1990, 1, 1).plusDays(sequence));
+            case DATE -> new DateAttributeContentV3(LocalDate.of(1990, Month.JANUARY, 1).plusDays(sequence));
             case TIME -> new TimeAttributeContentV3(LocalTime.of(1, 0).plusMinutes(sequence));
             case DATETIME -> new DateTimeAttributeContentV3(
                     ZonedDateTime.of(1990, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).plusSeconds(sequence));

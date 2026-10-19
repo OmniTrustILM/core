@@ -2,14 +2,15 @@ package db.migration;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.DateAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.DateTimeAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.TimeAttributeContentV3;
-import com.otilm.core.serialization.AttributeContentJson;
-import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.util.DatabaseMigration;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
@@ -32,16 +33,16 @@ import java.util.UUID;
 /**
  * Rewrites the Date, Time and Datetime attribute values that releases before 2.20.0 stored as numbers and arrays. Their
  * column mapper wrote a Date as {@code [year, month, day]}, a Time as {@code [hour, minute, second, nano]} with trailing
- * zeros left out, and a Datetime as epoch seconds with nine decimal places: the search casts reject all three, and a
- * Datetime cannot be read back at all. It wrote that way whatever held a {@code java.time} value: typed version 3
- * content, and the version 2 content those releases decrypted when a definition's encryption was turned off, which
- * carries no content type of its own.
+ * zeros left out, and a Datetime as epoch seconds with nine decimal places, the epoch itself as {@code 0.0}: the search
+ * casts reject all three, and a Datetime cannot be read back at all. It wrote that way whatever held a
+ * {@code java.time} value: typed version 3 content, and the version 2 content those releases decrypted when a
+ * definition's encryption was turned off, which carries no content type of its own.
  * <p>
- * Each value is decoded by the recipe that wrote it and rendered as a write of it renders it today, so the lookup by
- * value finds it. A Datetime comes back in UTC: the number held the exact instant, but not the offset it was entered
- * with. A row in any other shape is left as it is and logged, and so is a Datetime before 1970 with a fraction of a
- * second: Jackson 2.21 changed how it writes and reads one, so its text means two instants a second apart depending on
- * the release that wrote it.
+ * Each value is decoded and rendered as text the way 2.20.0 writes it, so the lookup by value finds it. A Datetime
+ * comes back in UTC: the number held the exact instant, but not the offset it was entered with. Rows in a shape that
+ * mapper never wrote are not selected. A selected row that does not decode to a value is left as it is and logged, and
+ * so is a Datetime before 1970 with a fraction of a second: Jackson 2.21 changed how it writes and reads one, so its
+ * text means two instants a second apart depending on the release that wrote it.
  * <p>
  * The values are decoded one row at a time, but staged and written back in a few set-based statements, so the time the
  * migration holds Core's startup does not grow with a round trip per row. Repaired values a definition then holds twice
@@ -58,7 +59,16 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
 
     private static final int BATCH_SIZE = 500;
 
-    private static final ObjectMapper JSON_COLUMN = ObjectMapperFactory.jsonColumn();
+    /**
+     * The column recipe as 2.20.0 states it, pinned here: a migration has to decode and write the same on every release
+     * that runs it, and the application's recipe moves with the release.
+     */
+    private static final ObjectMapper COLUMN_MAPPER = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+    /** Writes content through its declared type, as Hibernate writes the column. */
+    private static final ObjectWriter CONTENT_WRITER = COLUMN_MAPPER.writerFor(AttributeContent.class);
 
     private static final String LOCK_CONTENT_TABLES = """
             LOCK TABLE attribute_content_item, attribute_content_2_object IN SHARE ROW EXCLUSIVE MODE
@@ -75,7 +85,8 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
                AND ((definition.content_type IN ('DATE', 'TIME') AND jsonb_typeof(item.json->'data') = 'array')
                  OR (definition.content_type = 'DATETIME'
                      AND CASE WHEN jsonb_typeof(item.json->'data') = 'number'
-                              THEN scale((item.json->>'data')::NUMERIC) = 9 ELSE FALSE END))
+                              THEN scale((item.json->>'data')::NUMERIC) = 9 OR item.json->>'data' = '0.0'
+                              ELSE FALSE END))
             """;
 
     private static final String CREATE_REPAIRED = """
@@ -238,9 +249,14 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
         }
         try {
             Serializable value = decodedValue(item);
+            if (value == null) {
+                logger.warn("Leaving attribute content item {} as it is: its {} value decodes to no value.", item.uuid(),
+                        item.contentType());
+                return null;
+            }
             AttributeContent content = item.typed() ? typedContent(item, value)
                     : new BaseAttributeContentV2<>(item.reference(), value);
-            return AttributeContentJson.render(content);
+            return CONTENT_WRITER.writeValueAsString(content);
         } catch (JsonProcessingException | DateTimeException e) {
             logger.warn("Leaving attribute content item {} as it is: its {} value is not in the shape the column mapper"
                     + " wrote before 2.20.0. Cause: {}", item.uuid(), item.contentType(), e.getMessage());
@@ -254,14 +270,14 @@ public class V202610181200__RepairDateAttributeContent extends BaseJavaMigration
     }
 
     /**
-     * Reads the stored value with the column recipe, whose date deserializers take back the arrays and decimal seconds
-     * its serializers wrote: the stored text reaches the parser, so no double rounds the nanoseconds.
+     * Decodes the arrays and decimal seconds from the stored text, so no double rounds the nanoseconds. An empty array
+     * decodes to {@code null}.
      */
     private static Serializable decodedValue(BrokenItem item) throws JsonProcessingException {
         return switch (item.contentType()) {
-            case DATE -> JSON_COLUMN.readValue(item.data(), LocalDate.class);
-            case TIME -> JSON_COLUMN.readValue(item.data(), LocalTime.class);
-            case DATETIME -> JSON_COLUMN.readValue(item.data(), ZonedDateTime.class);
+            case DATE -> COLUMN_MAPPER.readValue(item.data(), LocalDate.class);
+            case TIME -> COLUMN_MAPPER.readValue(item.data(), LocalTime.class);
+            case DATETIME -> COLUMN_MAPPER.readValue(item.data(), ZonedDateTime.class);
             default -> throw new IllegalStateException("Content type " + item.contentType() + " is not repaired");
         };
     }
