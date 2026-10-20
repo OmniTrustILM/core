@@ -1,6 +1,5 @@
 package com.otilm.core.mapper.certificate;
 
-import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.certificate.CertificateExtensionDto;
 import com.otilm.core.extension.ExtensionType;
 import com.otilm.core.extension.ExtensionTypes;
@@ -48,8 +47,9 @@ public class CertificateExtensionDtoMapper {
             if (type.isPresent()) {
                 dto.setJer(JerDecoder.decode(octets, type.get()));
             }
-        } catch (ValidationException e) {
-            logger.warn("Extension {} is listed without its decoded form: {}", oid, e.getMessage());
+        } catch (RuntimeException | StackOverflowError e) {
+            // The decoder parses the whole value recursively, so a deeply nested one overflows the stack.
+            logger.warn("Extension {} is listed without its decoded form", oid, e);
         }
         return dto;
     }

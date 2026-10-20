@@ -7,6 +7,7 @@ import com.otilm.core.extension.ExtensionTypes;
 import com.otilm.core.extension.JerCodec;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Base64;
 import java.util.HashMap;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CertificateExtensionDtoMapperTest {
 
@@ -33,6 +35,8 @@ class CertificateExtensionDtoMapperTest {
     private static final String NAME_CONSTRAINTS = "2.5.29.30";
     private static final String UNDESCRIBED = "1.2.3.4.5";
     private static final String BROKEN_MODULE = "1.2.3.4.6";
+    private static final String TEXT_MODULE = "1.2.3.4.7";
+    private static final String TLS_FEATURE = "1.3.6.1.5.5.7.1.24";
 
     // The OidHandler cache is process-wide static state shared across the whole test JVM.
     private static Map<String, OidRecord> savedExtensionCache;
@@ -56,6 +60,14 @@ class CertificateExtensionDtoMapperTest {
         OidHandler
                 .cacheOid(OidCategory.CERTIFICATE_EXTENSION, BROKEN_MODULE,
                         OidRecord.builder().displayName("Broken").valueSchema("this is not an ASN.1 module").build());
+        OidHandler
+                .cacheOid(OidCategory.CERTIFICATE_EXTENSION, TEXT_MODULE,
+                        OidRecord
+                                .builder()
+                                .displayName("Text")
+                                .valueSchema(
+                                        "TextModule DEFINITIONS ::= BEGIN Text ::= SEQUENCE { name UTF8String } END")
+                                .build());
     }
 
     private static Extensions extensions(Object... oidCriticalValue) throws IOException {
@@ -165,11 +177,60 @@ class CertificateExtensionDtoMapperTest {
 
     @Test
     void unreadableRegisteredModuleListsDerOnly() throws IOException {
+        assertThatThrownBy(() -> ExtensionTypes.resolve(BROKEN_MODULE)).isNotNull();
+
         List<CertificateExtensionDto> dtos = CertificateExtensionDtoMapper
                 .toDtos(extensions(BROKEN_MODULE, false, EMPTY_SEQUENCE));
 
         assertThat(dtos).hasSize(1);
         assertThat(dtos.get(0).getJer()).isNull();
+    }
+
+    @Test
+    void invalidUtf8ListsDerOnly() throws IOException {
+        byte[] invalidUtf8 = {0x30, 0x04, 0x0C, 0x02, (byte) 0xC3, 0x28};
+
+        List<CertificateExtensionDto> dtos = CertificateExtensionDtoMapper
+                .toDtos(extensions(TEXT_MODULE, false, invalidUtf8, PRIVATE_KEY_USAGE_PERIOD, false,
+                        privateKeyUsagePeriod(1)));
+
+        assertThat(dtos).hasSize(2);
+        assertThat(dtos.get(0).getOid()).isEqualTo(TEXT_MODULE);
+        assertThat(dtos.get(0).getJer()).isNull();
+        assertThat(dtos.get(0).getDer()).isEqualTo(Base64.getEncoder().encodeToString(invalidUtf8));
+        assertThat(dtos.get(1).getJer()).isNotNull();
+    }
+
+    @Test
+    void deeplyNestedValueListsDerOnly() throws IOException {
+        byte[] nested = {0x30, 0x00};
+        while (nested.length < 20_000) {
+            nested = wrapInSequence(nested);
+        }
+
+        List<CertificateExtensionDto> dtos = CertificateExtensionDtoMapper
+                .toDtos(extensions(TLS_FEATURE, false, nested));
+
+        assertThat(dtos).hasSize(1);
+        assertThat(dtos.get(0).getJer()).isNull();
+        assertThat(dtos.get(0).getDer()).isNotEmpty();
+    }
+
+    private static byte[] wrapInSequence(byte[] content) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(0x30);
+        if (content.length < 128) {
+            out.write(content.length);
+        } else if (content.length < 256) {
+            out.write(0x81);
+            out.write(content.length);
+        } else {
+            out.write(0x82);
+            out.write(content.length >> 8);
+            out.write(content.length & 0xFF);
+        }
+        out.writeBytes(content);
+        return out.toByteArray();
     }
 
     @Test
