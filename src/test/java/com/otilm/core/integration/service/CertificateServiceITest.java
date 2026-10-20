@@ -39,6 +39,7 @@ import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateExtensionDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
@@ -123,6 +124,7 @@ import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.CertificateEventHistoryExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
+import com.otilm.core.service.cmp.CmpTestUtil;
 import com.otilm.core.service.handler.authority.lifecycle.InvalidTransitionException;
 import com.otilm.core.service.impl.CertificateServiceImpl;
 import com.otilm.core.util.AuthHelper;
@@ -161,7 +163,20 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
+import org.bouncycastle.asn1.DERBitString;
+import org.bouncycastle.asn1.crmf.CertReqMessages;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
+import org.bouncycastle.asn1.x509.ExtensionsGenerator;
+import org.bouncycastle.asn1.x509.GeneralName;
+import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.OperatorCreationException;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.pkcs.PKCS10CertificationRequestBuilder;
+import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.AfterEach;
@@ -178,6 +193,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
@@ -2010,6 +2026,144 @@ class CertificateServiceITest extends BaseSpringBootTest {
     }
 
     // ── Relations ────────────────────────────────────────────────────────────
+    @Nested
+    class CertificateExtensions {
+
+        private static final int DIGITAL_SIGNATURE = 0x80;
+
+        @Test
+        void getCertificateExtensionsListsBasicConstraintsWithJer() throws Exception {
+            // given
+            storeContent(Base64.getEncoder().encodeToString(CertificateTestUtil.createCACertificate().getEncoded()));
+
+            // when
+            List<CertificateExtensionDto> extensions = certificateService
+                    .getCertificateExtensions(certificate.getSecuredUuid());
+
+            // then
+            assertThat(extensions).singleElement().satisfies(extension -> {
+                assertThat(extension.getOid()).isEqualTo("2.5.29.19");
+                assertThat(extension.isCritical()).isTrue();
+                assertThat(extension.getJer()).isNotNull();
+            });
+        }
+
+        @Test
+        void getCertificateExtensionsOfCertificateWithoutContentIsEmpty() throws Exception {
+            // given
+            certificate.setCertificateContent(null);
+            certificate.setCertificateContentId(null);
+            certificateRepository.save(certificate);
+
+            // when / then
+            assertThat(certificateService.getCertificateExtensions(certificate.getSecuredUuid())).isEmpty();
+        }
+
+        @Test
+        void getCertificateExtensionsOfUnknownCertificateIsNotFound() {
+            // when / then
+            assertThatThrownBy(() -> certificateService
+                    .getCertificateExtensions(SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")))
+                    .isInstanceOf(NotFoundException.class);
+        }
+
+        @Test
+        void getCertificateRequestExtensionsReadsPkcs10ExtensionRequest() throws Exception {
+            // given
+            ExtensionsGenerator generator = new ExtensionsGenerator();
+            generator.addExtension(Extension.keyUsage, true, new DERBitString(DIGITAL_SIGNATURE));
+            generator
+                    .addExtension(Extension.subjectAlternativeName, false,
+                            new GeneralNames(new GeneralName(GeneralName.dNSName, "host.example.com")));
+            storeRequest(pkcs10(generator.generate()), CertificateRequestFormat.PKCS10);
+
+            // when
+            List<CertificateExtensionDto> extensions = certificateService
+                    .getCertificateRequestExtensions(certificate.getSecuredUuid());
+
+            // then
+            assertThat(extensions)
+                    .extracting(CertificateExtensionDto::getOid)
+                    .containsExactlyInAnyOrder("2.5.29.15", "2.5.29.17");
+            assertThat(extensions).allSatisfy(extension -> assertThat(extension.getDer()).isNotBlank());
+        }
+
+        @Test
+        void getCertificateRequestExtensionsReadsCrmfTemplateExtensions() throws Exception {
+            // given
+            var builder = CmpTestUtil.createCrmf(new X500Name("CN=issuer"), new X500Name("CN=host.example.com"));
+            builder.addExtension(Extension.keyUsage, true, new DERBitString(DIGITAL_SIGNATURE));
+            byte[] encoded = new CertReqMessages(builder.build().toASN1Structure()).getEncoded();
+            storeRequest(Base64.getEncoder().encodeToString(encoded), CertificateRequestFormat.CRMF);
+
+            // when
+            List<CertificateExtensionDto> extensions = certificateService
+                    .getCertificateRequestExtensions(certificate.getSecuredUuid());
+
+            // then
+            assertThat(extensions).singleElement().satisfies(extension -> {
+                assertThat(extension.getOid()).isEqualTo("2.5.29.15");
+                assertThat(extension.isCritical()).isTrue();
+            });
+        }
+
+        @Test
+        void getCertificateRequestExtensionsWithoutRequestIsEmpty() throws Exception {
+            // when / then
+            assertThat(certificateService.getCertificateRequestExtensions(certificate.getSecuredUuid())).isEmpty();
+        }
+
+        @Test
+        void getCertificateRequestExtensionsWithoutExtensionRequestAttributeIsEmpty() throws Exception {
+            // given
+            storeRequest(pkcs10(null), CertificateRequestFormat.PKCS10);
+
+            // when / then
+            assertThat(certificateService.getCertificateRequestExtensions(certificate.getSecuredUuid())).isEmpty();
+        }
+
+        @Test
+        void deniesBothEndpointsWhenCertificateDetailIsDenied() {
+            // given
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+            SecuredUUID uuid = certificate.getSecuredUuid();
+
+            // when / then
+            assertThatThrownBy(() -> certificateService.getCertificateExtensions(uuid))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+            assertThatThrownBy(() -> certificateService.getCertificateRequestExtensions(uuid))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+        }
+
+        private void storeContent(String base64) {
+            CertificateContent content = certificateContentRepository
+                    .save(aCertificateContent().withContent(base64).build());
+            certificate.setCertificateContent(content);
+            certificate.setCertificateContentId(content.getId());
+            certificateRepository.save(certificate);
+        }
+
+        private void storeRequest(String base64, CertificateRequestFormat format) {
+            CertificateRequestEntity request = aCertificateRequest().withContent(base64).build();
+            request.setCertificateRequestFormat(format);
+            certificateRequestRepository.save(request);
+            certificate.setCertificateRequest(request);
+            certificate.setCertificateRequestUuid(request.getUuid());
+            certificateRepository.save(certificate);
+        }
+
+        private String pkcs10(Extensions extensions) throws Exception {
+            KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            PKCS10CertificationRequestBuilder builder = new JcaPKCS10CertificationRequestBuilder(
+                    new X500Name("CN=host.example.com"), keyPair.getPublic());
+            if (extensions != null) {
+                builder.addAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, extensions);
+            }
+            ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(keyPair.getPrivate());
+            return Base64.getEncoder().encodeToString(builder.build(signer).getEncoded());
+        }
+    }
+
     @Nested
     class Relations {
 

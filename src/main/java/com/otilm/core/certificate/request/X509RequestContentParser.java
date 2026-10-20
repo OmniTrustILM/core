@@ -342,7 +342,7 @@ public final class X509RequestContentParser {
         return re;
     }
 
-    private static Extensions extractExtensions(CertificateRequest request) {
+    public static Extensions extractExtensions(CertificateRequest request) {
         if (request instanceof Pkcs10CertificateRequest p10) {
             for (Attribute attribute : p10.getJcaObject().getAttributes()) {
                 if (attribute.getAttrType().equals(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest)) {

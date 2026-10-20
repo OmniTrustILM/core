@@ -19,6 +19,7 @@ import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateContentDto;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
+import com.otilm.api.model.core.certificate.CertificateExtensionDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateRelationsDto;
@@ -180,6 +181,20 @@ public interface CertificateExternalService {
      * @return {@link CertificateRelationsDto} containing related certificates.
      */
     CertificateRelationsDto getCertificateRelations(SecuredUUID uuid) throws NotFoundException;
+
+    /**
+     * Lists the extensions of the issued certificate, each with its DER value and, where it can be decoded, its JER. A
+     * certificate without content has none.
+     */
+    List<CertificateExtensionDto> getCertificateExtensions(SecuredUUID uuid)
+            throws NotFoundException, CertificateException, IOException;
+
+    /**
+     * Lists the extensions the requester asked for in the stored certificate request, which the issued certificate may
+     * not carry. A certificate without a request has none.
+     */
+    List<CertificateExtensionDto> getCertificateRequestExtensions(SecuredUUID uuid)
+            throws NotFoundException, CertificateException, IOException;
 
     /**
      * Associates the given certificate with the subject certificate.

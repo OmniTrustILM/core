@@ -31,6 +31,7 @@ import com.otilm.api.model.core.certificate.CertificateContentDto;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
+import com.otilm.api.model.core.certificate.CertificateExtensionDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateRelationsDto;
@@ -320,6 +321,20 @@ public class CertificateControllerImpl implements CertificateController {
     public CertificateRelationsDto getCertificateRelations(@LogResource(uuid = true) UUID uuid)
             throws NotFoundException {
         return certificateService.getCertificateRelations(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DETAIL)
+    public List<CertificateExtensionDto> getCertificateExtensions(@LogResource(uuid = true) UUID uuid)
+            throws NotFoundException, CertificateException, IOException {
+        return certificateService.getCertificateExtensions(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DETAIL)
+    public List<CertificateExtensionDto> getCertificateRequestExtensions(@LogResource(uuid = true) UUID uuid)
+            throws NotFoundException, CertificateException, IOException {
+        return certificateService.getCertificateRequestExtensions(SecuredUUID.fromUUID(uuid));
     }
 
     @Override

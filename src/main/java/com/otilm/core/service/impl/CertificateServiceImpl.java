@@ -41,6 +41,7 @@ import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
+import com.otilm.api.model.core.certificate.CertificateExtensionDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
@@ -80,6 +81,7 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
+import com.otilm.core.certificate.request.X509RequestContentParser;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
@@ -124,6 +126,7 @@ import com.otilm.core.events.handlers.CertificateStatusChangedEventHandler;
 import com.otilm.core.events.handlers.discovery.DiscoveredCertificateImport;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
 import com.otilm.core.exception.UnsupportedAuthorityVersionException;
+import com.otilm.core.mapper.certificate.CertificateExtensionDtoMapper;
 import com.otilm.core.mapper.certificate.SigningCertificateMapper;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
@@ -226,6 +229,7 @@ import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.cms.ContentInfo;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.cert.jcajce.JcaCertStore;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.cms.CMSProcessableByteArray;
 import org.bouncycastle.cms.CMSSignedDataGenerator;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
@@ -2926,6 +2930,38 @@ public class CertificateServiceImpl
 
         certificateRepository.updateCertificateIssuerDN(escapedOid, newCode, escapedOldCode);
         certificateRepository.updateCertificateSubjectDN(escapedOid, newCode, escapedOldCode);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
+    public List<CertificateExtensionDto> getCertificateExtensions(SecuredUUID uuid)
+            throws NotFoundException, CertificateException, IOException {
+        Certificate certificate = getCertificateEntity(uuid);
+        if (certificate.getCertificateContent() == null) {
+            return List.of();
+        }
+        X509Certificate x509 = CertificateUtil.getX509Certificate(certificate.getCertificateContent().getContent());
+        return CertificateExtensionDtoMapper.toDtos(new JcaX509CertificateHolder(x509).getExtensions());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
+    public List<CertificateExtensionDto> getCertificateRequestExtensions(SecuredUUID uuid)
+            throws NotFoundException, CertificateException, IOException {
+        Certificate certificate = getCertificateEntity(uuid);
+        CertificateRequestEntity requestEntity = certificate.getCertificateRequest();
+        if (requestEntity == null) {
+            return List.of();
+        }
+        CertificateRequest request;
+        try {
+            request = CertificateRequestUtils
+                    .createCertificateRequest(requestEntity.getContentData(),
+                            requestEntity.getCertificateRequestFormat());
+        } catch (CertificateRequestException e) {
+            throw new IOException("Stored certificate request cannot be parsed", e);
+        }
+        return CertificateExtensionDtoMapper.toDtos(X509RequestContentParser.extractExtensions(request));
     }
 
     @Override
