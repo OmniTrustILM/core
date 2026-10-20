@@ -140,6 +140,7 @@ import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
@@ -167,11 +168,14 @@ import org.bouncycastle.asn1.DERBitString;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
@@ -2025,7 +2029,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
     }
 
-    // ── Relations ────────────────────────────────────────────────────────────
+    // ── Certificate extensions ───────────────────────────────────────────────
     @Nested
     class CertificateExtensions {
 
@@ -2046,6 +2050,34 @@ class CertificateServiceITest extends BaseSpringBootTest {
                 assertThat(extension.isCritical()).isTrue();
                 assertThat(extension.getJer()).isNotNull();
             });
+        }
+
+        @Test
+        void getCertificateExtensionsKeepsEncodedOrder() throws Exception {
+            // given
+            KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X500Name name = new X500Name("CN=ordered");
+            Date notBefore = new Date();
+            JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(name, BigInteger.ONE, notBefore,
+                    new Date(notBefore.getTime() + 86_400_000L), name, keyPair.getPublic());
+            builder.addExtension(Extension.keyUsage, true, new DERBitString(DIGITAL_SIGNATURE));
+            builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
+            builder
+                    .addExtension(Extension.subjectAlternativeName, false,
+                            new GeneralNames(new GeneralName(GeneralName.dNSName, "host.example.com")));
+            X509Certificate x509 = new JcaX509CertificateConverter()
+                    .getCertificate(
+                            builder.build(new JcaContentSignerBuilder("SHA256withRSA").build(keyPair.getPrivate())));
+            storeContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
+
+            // when
+            List<CertificateExtensionDto> extensions = certificateService
+                    .getCertificateExtensions(certificate.getSecuredUuid());
+
+            // then
+            assertThat(extensions)
+                    .extracting(CertificateExtensionDto::getOid)
+                    .containsExactly("2.5.29.15", "2.5.29.19", "2.5.29.17");
         }
 
         @Test
@@ -2084,7 +2116,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // then
             assertThat(extensions)
                     .extracting(CertificateExtensionDto::getOid)
-                    .containsExactlyInAnyOrder("2.5.29.15", "2.5.29.17");
+                    .containsExactly("2.5.29.15", "2.5.29.17");
             assertThat(extensions).allSatisfy(extension -> assertThat(extension.getDer()).isNotBlank());
         }
 
@@ -2093,6 +2125,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given
             var builder = CmpTestUtil.createCrmf(new X500Name("CN=issuer"), new X500Name("CN=host.example.com"));
             builder.addExtension(Extension.keyUsage, true, new DERBitString(DIGITAL_SIGNATURE));
+            builder.addExtension(Extension.basicConstraints, false, new BasicConstraints(false));
             byte[] encoded = new CertReqMessages(builder.build().toASN1Structure()).getEncoded();
             storeRequest(Base64.getEncoder().encodeToString(encoded), CertificateRequestFormat.CRMF);
 
@@ -2101,10 +2134,11 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .getCertificateRequestExtensions(certificate.getSecuredUuid());
 
             // then
-            assertThat(extensions).singleElement().satisfies(extension -> {
-                assertThat(extension.getOid()).isEqualTo("2.5.29.15");
-                assertThat(extension.isCritical()).isTrue();
-            });
+            assertThat(extensions)
+                    .extracting(CertificateExtensionDto::getOid)
+                    .containsExactly("2.5.29.15", "2.5.29.19");
+            assertThat(extensions.getFirst().isCritical()).isTrue();
+            assertThat(extensions.getLast().isCritical()).isFalse();
         }
 
         @Test
@@ -2164,6 +2198,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
     }
 
+    // ── Relations ────────────────────────────────────────────────────────────
     @Nested
     class Relations {
 

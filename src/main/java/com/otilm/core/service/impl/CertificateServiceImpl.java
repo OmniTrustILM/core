@@ -2959,7 +2959,8 @@ public class CertificateServiceImpl
                     .createCertificateRequest(requestEntity.getContentData(),
                             requestEntity.getCertificateRequestFormat());
         } catch (CertificateRequestException e) {
-            throw new IOException("Stored certificate request cannot be parsed", e);
+            log.warn("Stored certificate request of certificate {} cannot be parsed", uuid, e);
+            throw new IOException("Stored certificate request of certificate %s cannot be parsed".formatted(uuid), e);
         }
         return CertificateExtensionDtoMapper.toDtos(X509RequestContentParser.extractExtensions(request));
     }
