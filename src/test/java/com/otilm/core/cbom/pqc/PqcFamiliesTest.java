@@ -219,7 +219,7 @@ class PqcFamiliesTest {
                 .of()
                 .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(artifact));
 
-        assertThat(digest).isEqualTo("c6791750bfe3193b107466f5c37e6ae45572a5ac9099dd1ddadac9a2b163336e");
+        assertThat(digest).isEqualTo("7d847642b3379c3ca968c3bee45b7a5ae94ae4f4e90686b9944c1de11be78986");
     }
 
     /** FN-DSA is the standardised name for Falcon and appears in no ratified table under any spelling. */

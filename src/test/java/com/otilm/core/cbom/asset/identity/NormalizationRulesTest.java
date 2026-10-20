@@ -238,6 +238,80 @@ class NormalizationRulesTest {
         assertThat(asset.findings()).singleElement().asString().contains(family).contains(witness).contains("refuted");
     }
 
+    /**
+     * A signature scheme spelled before its digest is the scheme, however the two are joined.
+     *
+     * <p>
+     * DSA and RSA rank below the digests in the grammar, because every other signature family contains one and a bare
+     * RSA is a pseudo-family. Their digest-suffixed rules admitted one hyphen and nothing else, so {@code dsa-1024 with
+     * sha-1} elected SHA-1 and the glued {@code dsaWithSHA1} elected nothing. The constructions that are genuinely
+     * named by their digest, and the families already ranked above it, are listed with them so the rule cannot widen
+     * past the shape.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "dsa-1024 with sha-1, DSA",
+            "DSA with SHA-256, DSA",
+            "dsa_with_SHA256, DSA",
+            "dsaWithSHA1, DSA",
+            "DSA-SHA1, DSA",
+            "DSA-1024-SHA1, DSA",
+            "DSA-2048 with SHA-256, DSA",
+            "dsa-3072 with sha3-256, DSA",
+            "rsa-2048 with sha-256, RSASSA-PKCS1",
+            "RSA with SHA-256, RSASSA-PKCS1",
+            "RSA-2048-SHA-256, RSASSA-PKCS1",
+            "RSA-2048 with MD5, RSASSA-PKCS1",
+            "rsaWithSHA1, RSASSA-PKCS1",
+            "RSASHA512, RSASSA-PKCS1",
+            "RSA-PSS with SHA-256, RSASSA-PSS",
+            "SM2 with SM3, SM2",
+            "ECDSA with SHA-256, ECDSA",
+            "Ed25519 with SHA-512, EdDSA",
+            "ML-DSA-65 with SHA-512, ML-DSA",
+            "SLH-DSA-SHA2-128s, SLH-DSA",
+            "DSA-1024, DSA",
+            "RSA-2048, RSA",
+            "HMAC-SHA-1, HMAC",
+            "PBKDF2WithHmacSHA256, PBKDF2",
+            "HKDF-SHA-256, HKDF",
+            "X25519 with ML-KEM-768, ECDH",
+            "design with sha-1, SHA-1",
+            "SHA-256, SHA-2"})
+    void aSignatureNamedBeforeItsDigestKeepsTheSignatureFamily(String name, String family) {
+        assertThat(normalize(name).family()).isEqualTo(family);
+    }
+
+    /**
+     * The name agreeing with its own arc is what lets the two witnesses corroborate, and what lets the spelling merge
+     * with the digest-first spellings of the same scheme and with the row a producer declared the family on.
+     */
+    @Test
+    void aSignatureNamedBeforeItsDigestCorroboratesItsArcAndMergesWithItsOtherSpellings() {
+        JsonNode undeclared = algorithmComponent("dsa-1024 with sha-1", "{}", "\"oid\":\"1.2.840.10040.4.3\",");
+        JsonNode declared = algorithmComponent("dsa-1024 with sha-1", "{\"algorithmFamily\":\"DSA\"}",
+                "\"oid\":\"1.2.840.10040.4.3\",");
+        NormalizedAsset asset = normalize(undeclared);
+
+        assertThat(asset.family()).isEqualTo("DSA");
+        assertThat(asset.familySource()).isEqualTo("corroborated");
+        assertThat(asset.oidConflict()).isFalse();
+        assertThat(asset.parameterSet()).isEqualTo(1024);
+        assertThat(asset.primitive()).isEqualTo("signature");
+        assertThat(asset.findings()).isEmpty();
+        assertThat(IDENTITY.of(undeclared).guard()).isNull();
+        assertThat(keyOf(undeclared)).isEqualTo(keyOf(declared));
+
+        assertThat(keyOfAlgorithm("DSA with SHA-256"))
+                .isEqualTo(keyOfAlgorithm("SHA256withDSA"))
+                .isEqualTo(keyOfAlgorithm("DSA-SHA256"));
+        assertThat(keyOfAlgorithm("rsa-2048 with sha-256")).isEqualTo(keyOfAlgorithm("RSA-2048-SHA256"));
+        assertThat(keyOfAlgorithm("dsa-1024 with sha-1"))
+                .describedAs("the digest stays identity-bearing")
+                .isNotEqualTo(keyOfAlgorithm("dsa-1024 with sha-256"))
+                .isNotEqualTo(keyOfAlgorithm("DSA-1024"));
+    }
+
     /** A declared size the family defines stands even against the size the name spells; the clash is reported. */
     @Test
     void aDeclaredAdmissibleSizeOutranksTheSpelledOneAndIsReported() {
