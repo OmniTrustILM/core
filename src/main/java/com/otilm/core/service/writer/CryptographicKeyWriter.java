@@ -455,6 +455,7 @@ public class CryptographicKeyWriter {
         keyEventHistoryService
                 .addEventHistory(origin.event(), origin.status(), origin.historyMessage(), null, publicKey.getUuid());
         storeItemMetadata(item, publicKey.getUuid(), profile.tokenInstance(), key);
+        certificateService.updateCertificateKeys(key.uuid(), publicKey.getFingerprint());
     }
 
     private static KeyItemOrigin importOrigin(TokenProfileFullModel profile, UUID keyReference, boolean quarantined) {

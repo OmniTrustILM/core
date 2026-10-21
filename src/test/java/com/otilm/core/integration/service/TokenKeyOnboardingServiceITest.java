@@ -29,6 +29,7 @@ import com.otilm.api.model.core.cryptography.key.TokenKeyOnboardingResultDto;
 import com.otilm.api.model.core.cryptography.key.TokenKeyStatus;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -85,6 +86,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
+import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
@@ -410,6 +412,14 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         return certificateRepository
                 .saveAndFlush(issuedCertificateCarrying(publicKey).withKeyUuid(keyUuid).build())
                 .getUuid();
+    }
+
+    /** A hybrid certificate whose alternative key carries the public key. */
+    private UUID hybridCertificateWithAlternativeKey(PublicKey altPublicKey) throws Exception {
+        Certificate certificate = issuedCertificateCarrying(rsaPublicKey()).build();
+        certificate.setHybridCertificate(true);
+        certificate.setAltKeyFingerprint(fingerprintOf(altPublicKey));
+        return certificateRepository.saveAndFlush(certificate).getUuid();
     }
 
     private CertificateBuilder issuedCertificateCarrying(PublicKey publicKey) throws Exception {
@@ -817,6 +827,23 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void linksTheCertificateCarryingThePublicKeyAsItsAlternativeKey_whenItOnboardsTheKeyAgain() throws Exception {
+            // given
+            var publicKey = rsaPublicKey();
+            var certificateUuid = hybridCertificateWithAlternativeKey(publicKey);
+            tokenLists(aListedKeyPair().withPublicKey(publicKey).build());
+            removeFromInventory(onboardTheFirstListedPair().getKeyUuid());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(certificateRepository.findById(certificateUuid).orElseThrow().getAltKeyUuid())
+                    .isEqualTo(result.getKeyUuid());
+        }
+
+        @Test
         void readsTheSelectedPairAgainFromTheToken_whenItOnboardsIt() throws Exception {
             // given
             tokenLists(aListedKeyPair().build());
@@ -936,6 +963,23 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void linksTheOtherCertificatesCarryingThePublicKey_whenItJoinsTheRecord() throws Exception {
+            // given
+            var publicKey = rsaPublicKey();
+            var record = recordHolding("certKey_signer", publicKey);
+            var unlinkedCertificate = certificateCarrying(publicKey);
+            tokenLists(aListedKeyPair().withPublicKey(publicKey).build());
+            var selection = theFirstListedPair();
+
+            // when
+            onboard(selection);
+
+            // then
+            assertThat(certificateRepository.findById(unlinkedCertificate).orElseThrow().getKeyUuid())
+                    .isEqualTo(record);
+        }
+
+        @Test
         void skipsTheKeyPair_whenTheCallerMayNotUpdateTheRecord() throws Exception {
             // given
             var publicKey = rsaPublicKey();
@@ -1038,6 +1082,47 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(skipped.getKeyName()).isEqualTo(label);
             assertThat(skipped.getReason()).contains(label);
             assertThat(cryptographicKeyRepository.existsByName(againName)).isFalse();
+        }
+
+        @Test
+        void readsTheRepeatedKeyPairOnce_whenTheSelectionRepeatsIt() throws Exception {
+            // given
+            tokenLists(aListedKeyPair().build());
+            var once = theFirstListedPair();
+            var again = theFirstListedPairNamed("again");
+
+            // when
+            onboardTogether(once, again);
+
+            // then
+            connectorMock.verifyKeyListingRequestContaining("""
+                    {"keyRequestType": "keyPair", "offset": 0, "limit": 1, "keyMetaFilter": [[{"name": "keyId"}]]}
+                    """);
+        }
+
+        /**
+         * The second selection names a handle the token lacks, so the token's answer stays within the read's limit and
+         * each selection is judged on its own.
+         */
+        @Test
+        void refusesTheSelection_whenTheTokenHoldsTwoKeyPairsUnderItsHandle() throws Exception {
+            // given
+            var handle = "shared-id";
+            tokenLists(aListedKeyPair().withKeyId(handle).withLabel("first").build(),
+                    aListedKeyPair().withKeyId(handle).withLabel("second").build());
+            var shared = new TokenKeySelectionDto(keyIdMeta(handle), null);
+            var gone = new TokenKeySelectionDto(keyIdMeta("gone-id"), null);
+
+            // when
+            List<TokenKeyOnboardingResultDto> results = onboardTogether(shared, gone);
+
+            // then
+            assertThat(results)
+                    .extracting(TokenKeyOnboardingResultDto::isOnboarded, TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(tuple(false, "The key storage holds more than one key pair under this handle."),
+                            tuple(false, "The key storage no longer holds this key pair."));
+            assertThat(cryptographicKeyRepository.existsByName("first")).isFalse();
+            assertThat(cryptographicKeyRepository.existsByName("second")).isFalse();
         }
 
         @Test

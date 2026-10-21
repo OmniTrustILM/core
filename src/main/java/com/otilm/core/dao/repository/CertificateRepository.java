@@ -186,7 +186,8 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
 
     Optional<Certificate> findByUserUuid(UUID userUuid);
 
-    List<Certificate> findByPublicKeyFingerprint(String fingerprint);
+    List<Certificate> findByPublicKeyFingerprintOrAltKeyFingerprint(String publicKeyFingerprint,
+            String altKeyFingerprint);
 
     @Query("""
              SELECT COUNT(*) FROM Certificate c LEFT JOIN c.raProfile rp

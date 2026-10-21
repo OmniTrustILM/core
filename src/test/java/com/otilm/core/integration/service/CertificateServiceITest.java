@@ -1713,6 +1713,26 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
     }
 
+    // ── Key links ────────────────────────────────────────────────────────────
+    @Nested
+    class KeyLinks {
+
+        @Test
+        void linksNoCertificate_whenTheKeyHasNoFingerprint() {
+            // given
+            CryptographicKey key = cryptographicKeyRepository.save(aCryptographicKey().build());
+
+            // when
+            certificateService.updateCertificateKeys(key.getUuid(), null);
+
+            // then
+            Certificate stored = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            assertThat(stored.getPublicKeyFingerprint()).isNull();
+            assertThat(stored.getKeyUuid()).isNull();
+            assertThat(stored.getAltKeyUuid()).isNull();
+        }
+    }
+
     // ── EventHistory ─────────────────────────────────────────────────────────
     @Nested
     class EventHistory {

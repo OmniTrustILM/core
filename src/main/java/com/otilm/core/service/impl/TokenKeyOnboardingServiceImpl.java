@@ -38,6 +38,7 @@ import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.util.CryptographyUtil;
 import com.otilm.core.util.UniqueViolations;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -65,6 +66,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     static final int MAX_PAIRS_PER_REREAD = ListKeysRequestV2Dto.MAX_LIMIT;
 
     static final String GONE = "The key storage no longer holds this key pair.";
+    static final String AMBIGUOUS = "The key storage holds more than one key pair under this handle.";
     static final String HELD = "Key %s already holds this key pair.";
     static final String NOT_ACTIVE = "Key %s holds this public key without a token instance, but it is not active, so "
             + "the private key cannot join it.";
@@ -136,10 +138,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, customAttributes);
         SecurityResourceFilter customAttributePermissions = attributeEngine
                 .loadCustomAttributesSecurityResourceFilter();
-        List<List<MetadataAttribute>> selectedPairMeta = selections
-                .stream()
-                .map(TokenKeySelectionDto::getKeyPairMeta)
-                .toList();
+        List<List<MetadataAttribute>> selectedPairMeta = distinctHandles(selections);
         Set<String> importingBeforeReread = importingOn(profile);
         ProviderKeyPairPage reread = keyProviderAdapterFactory
                 .forToken(profile.tokenInstance())
@@ -151,6 +150,18 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             response.getResults().add(onboard(onboarding, selection));
         }
         return response;
+    }
+
+    /** Each handle the selections name, once, so the token answers it with one key pair at most. */
+    private static List<List<MetadataAttribute>> distinctHandles(List<TokenKeySelectionDto> selections) {
+        List<List<MetadataAttribute>> handles = new ArrayList<>();
+        for (TokenKeySelectionDto selection : selections) {
+            List<MetadataAttribute> handle = selection.getKeyPairMeta();
+            if (handles.stream().noneMatch(named -> KeyMetaMatcher.matches(handle, named))) {
+                handles.add(handle);
+            }
+        }
+        return handles;
     }
 
     /**
@@ -293,18 +304,22 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = TokenKeyOnboardingResultDto
                 .builder()
                 .keyPairMeta(selection.getKeyPairMeta());
-        Optional<ProviderKeyPair> pair = onboarding
+        List<ProviderKeyPair> named = onboarding
                 .reread()
                 .stream()
                 .filter(candidate -> KeyMetaMatcher.matches(selection.getKeyPairMeta(), candidate.keyPairMeta()))
-                .findFirst();
-        if (pair.isEmpty()) {
+                .toList();
+        if (named.isEmpty()) {
             return skipped(result, GONE);
         }
-        Standing standing = standingOf(pair.get(), onboarding.inventory());
+        if (named.size() > 1) {
+            return skipped(result, AMBIGUOUS);
+        }
+        ProviderKeyPair pair = named.getFirst();
+        Standing standing = standingOf(pair, onboarding.inventory());
         return switch (standing.status()) {
-            case ONBOARDABLE -> onboardAsKeyOfItsOwn(onboarding, selection, pair.get(), standing, result);
-            case ONBOARDABLE_INTO_KEY -> onboardIntoRecord(onboarding, pair.get(), standing, result);
+            case ONBOARDABLE -> onboardAsKeyOfItsOwn(onboarding, selection, pair, standing, result);
+            case ONBOARDABLE_INTO_KEY -> onboardIntoRecord(onboarding, pair, standing, result);
             default -> refused(result, standing);
         };
     }
