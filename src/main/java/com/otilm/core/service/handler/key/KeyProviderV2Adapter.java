@@ -58,6 +58,9 @@ import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairOperationStatusResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyPairV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
@@ -65,6 +68,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyOperationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.TransferableKeyTypeV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.UnaddressableKeyV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
@@ -96,6 +100,9 @@ import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.model.crypto.ProviderKeyItem;
+import com.otilm.core.model.crypto.ProviderKeyPair;
+import com.otilm.core.model.crypto.ProviderKeyPairPage;
+import com.otilm.core.model.crypto.ProviderUnaddressableKey;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
@@ -132,6 +139,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private static final String NO_DESTROY_HANDLE = "V2 key destruction requires a non-empty metadata handle.";
     private static final String IMPORT_FAILED = "The connector failed to import the key.";
     private static final String IMPORT_UNREPORTED = "The connector failed to report on the key import.";
+    private static final String LIST_REFUSED = "The connector refused to list the key pairs (%s).";
+    private static final String LIST_FAILED = "The connector failed to list the key pairs.";
+    private static final String NAMED_ON_ONBOARDING = null;
+    private static final KeyMaterial KEPT_ON_TOKEN = null;
 
     private final CryptographicKeyRepository cryptographicKeyRepository;
     private final Consumer<KeyOperationScope> scopeValidator;
@@ -222,8 +233,8 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             return keyItems;
         }
         if (body instanceof SecretKeyDataResponseV2Dto secretKey) {
-            ProviderKeyItem secretKeyItem = toCreatedKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(),
-                    null);
+            ProviderKeyItem secretKeyItem = toKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(),
+                    KEPT_ON_TOKEN);
             log
                     .info("A secret key has been created for token profile {} through connector {}; Key reference: {}",
                             tokenProfile.toIdentifierString(), connectorInfo.getUuid(),
@@ -267,21 +278,23 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     private List<ProviderKeyItem> toCreatedKeyPair(KeyPairDataResponseV2Dto response, String keyName) {
         PublicKeyDataResponseV2Dto publicKey = response.getPublicKeyData();
-        byte[] publicKeySpki = publicKey.getKeyData().getPublicKeySpki();
-        String serializedPublicKeyValue = Base64.getEncoder().encodeToString(publicKeySpki);
-        KeyMaterial publicKeyMaterial = new KeyMaterial(KeyFormat.SPKI, serializedPublicKeyValue);
-        String publicKeyName = keyName + " public key";
-        ProviderKeyItem publicKeyItem = toCreatedKeyItem(publicKeyName, publicKey.getKeyData(), publicKey.getKeyMeta(),
-                publicKeyMaterial);
+        String publicKeyName = ProviderKeyPair.publicKeyName(keyName);
+        ProviderKeyItem publicKeyItem = toKeyItem(publicKeyName, publicKey.getKeyData(), publicKey.getKeyMeta(),
+                spkiMaterial(publicKey));
 
         PrivateKeyDataResponseV2Dto privateKey = response.getPrivateKeyData();
-        String privateKeyName = keyName + " private key";
-        ProviderKeyItem privateKeyItem = toCreatedKeyItem(privateKeyName, privateKey.getKeyData(),
-                privateKey.getKeyMeta(), null);
+        String privateKeyName = ProviderKeyPair.privateKeyName(keyName);
+        ProviderKeyItem privateKeyItem = toKeyItem(privateKeyName, privateKey.getKeyData(), privateKey.getKeyMeta(),
+                KEPT_ON_TOKEN);
         return List.of(publicKeyItem, privateKeyItem);
     }
 
-    private ProviderKeyItem toCreatedKeyItem(String name, KeyDataV2Dto data, List<MetadataAttribute> keyMeta,
+    private static KeyMaterial spkiMaterial(PublicKeyDataResponseV2Dto publicKey) {
+        byte[] publicKeySpki = publicKey.getKeyData().getPublicKeySpki();
+        return new KeyMaterial(KeyFormat.SPKI, Base64.getEncoder().encodeToString(publicKeySpki));
+    }
+
+    private ProviderKeyItem toKeyItem(String name, KeyDataV2Dto data, List<MetadataAttribute> keyMeta,
             KeyMaterial material) {
         KeyType type = switch (data.getType()) {
             case PUBLIC -> KeyType.PUBLIC_KEY;
@@ -298,6 +311,68 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throws ConnectorException {
         return transferable(keyManagementSyncApiClient
                 .listExportableKeyTypes(connectorInfo, tokenProfileScopedRequest(tokenProfile)));
+    }
+
+    @Override
+    public ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit,
+            List<List<MetadataAttribute>> keyPairMetaFilter) throws ConnectorException {
+        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
+        ListKeysRequestV2Dto request = ListKeysRequestV2Dto
+                .builder()
+                .scope(scope)
+                .keyRequestType(KeyRequestType.KEY_PAIR)
+                .offset(offset)
+                .limit(limit)
+                .keyMetaFilter(keyPairMetaFilter)
+                .build();
+        ListKeysResponseV2Dto page = sendList(request);
+        // The listed metadata reaches the caller and the inventory, so it gets the same containment as a schema.
+        assertNoExpandedSecretEchoed(scope, page);
+        // The client refuses a page holding a key of another type than the request lists.
+        List<ProviderKeyPair> keyPairs = page
+                .getItems()
+                .stream()
+                .map(ListedKeyPairV2Dto.class::cast)
+                .map(this::toListedKeyPair)
+                .toList();
+        List<ProviderUnaddressableKey> unaddressableKeys = orEmpty(page.getUnaddressableKeys())
+                .stream()
+                .map(KeyProviderV2Adapter::toUnaddressableKey)
+                .toList();
+        return new ProviderKeyPairPage(keyPairs, unaddressableKeys, page.getTotalItems());
+    }
+
+    private static ProviderUnaddressableKey toUnaddressableKey(UnaddressableKeyV2Dto listed) {
+        KeyDataV2Dto keyData = listed.getKeyData();
+        return new ProviderUnaddressableKey(listed.getLabel(), keyData.getAlgorithm(), keyData.getLength());
+    }
+
+    /**
+     * The request carries the token's and the profile's secrets, so the connector's words are dropped when the listing
+     * does not succeed: a refusal is named by its error code, anything else is a failure.
+     */
+    private ListKeysResponseV2Dto sendList(ListKeysRequestV2Dto request) throws ConnectorServerException {
+        try {
+            return keyManagementSyncApiClient.listKeys(connectorInfo, request);
+        } catch (ConnectorException | RuntimeException e) {
+            if (e instanceof ConnectorProblemException problem && isRefusal(problem.getProblemDetail())) {
+                throw new ValidationException(ValidationError
+                        .create(LIST_REFUSED.formatted(problem.getProblemDetail().getErrorCode().name())));
+            }
+            throw connectorFault(LIST_FAILED);
+        }
+    }
+
+    private ProviderKeyPair toListedKeyPair(ListedKeyPairV2Dto listed) {
+        PrivateKeyDataResponseV2Dto privateKey = listed.getPrivateKeyData();
+        ProviderKeyItem privateKeyItem = toKeyItem(NAMED_ON_ONBOARDING, privateKey.getKeyData(),
+                privateKey.getKeyMeta(), KEPT_ON_TOKEN);
+        PublicKeyDataResponseV2Dto publicKey = listed.getPublicKeyData();
+        ProviderKeyItem publicKeyItem = publicKey == null
+                ? null
+                : toKeyItem(NAMED_ON_ONBOARDING, publicKey.getKeyData(), publicKey.getKeyMeta(),
+                        spkiMaterial(publicKey));
+        return new ProviderKeyPair(listed.getKeyPairMeta(), listed.getLabel(), privateKeyItem, publicKeyItem);
     }
 
     @Override
@@ -881,7 +956,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         List<ProviderKeyItem> items = switch (body) {
             case KeyPairDataResponseV2Dto keyPair -> toCreatedKeyPair(keyPair, keyName);
             case SecretKeyDataResponseV2Dto secretKey ->
-                List.of(toCreatedKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(), null));
+                List.of(toKeyItem(keyName, secretKey.getKeyData(), secretKey.getKeyMeta(), KEPT_ON_TOKEN));
         };
         return new ImportAnswer.Imported(body.getKeyRequestType(), items);
     }
@@ -1061,8 +1136,8 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         }
     }
 
-    private static List<RequestAttribute> orEmpty(List<RequestAttribute> attributes) {
-        return attributes == null ? List.of() : attributes;
+    private static <T> List<T> orEmpty(List<T> listed) {
+        return listed == null ? List.of() : listed;
     }
 
     private static IdentifiedBatch<CipherDataV2Dto> cipherBatch(List<CipherRequestData> items) {

@@ -39,6 +39,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenInstanceInternalService;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
+import com.otilm.core.service.handler.KeyListGates;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import com.otilm.core.service.writer.TokenProfileWriter;
@@ -60,6 +61,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     private TokenInstanceInternalService tokenInstanceService;
     private AttributeEngine attributeEngine;
     private KeyTransferCapabilityService keyTransferCapabilityService;
+    private KeyListGates keyListGates;
     private TokenProfileRepository tokenProfileRepository;
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     private TokenProviderAdapterFactory tokenProviderAdapterFactory;
@@ -68,6 +70,11 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     @Autowired
     public void setKeyTransferCapabilityService(KeyTransferCapabilityService keyTransferCapabilityService) {
         this.keyTransferCapabilityService = keyTransferCapabilityService;
+    }
+
+    @Autowired
+    public void setKeyListGates(KeyListGates keyListGates) {
+        this.keyListGates = keyListGates;
     }
 
     @Autowired
@@ -121,10 +128,10 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
     @ExternalAuthorization(resource = Resource.TOKEN_PROFILE, action = ResourceAction.LIST,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.LIST)
     public List<TokenProfileDto> listTokenProfiles(Optional<Boolean> enabled, List<String> importable,
-            SecurityFilter filter) {
+            boolean keyListable, SecurityFilter filter) {
         logger.info("Listing token profiles");
         filter.setParentRefProperty("tokenInstanceReferenceUuid");
-        if (importable.isEmpty()) {
+        if (importable.isEmpty() && !keyListable) {
             List<TokenProfileListModel> tokenProfiles = enabled
                     .map(value -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter, value))
                     .orElseGet(() -> tokenProfileRepository.findListModelsUsingSecurityFilter(filter));
@@ -134,7 +141,8 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
         return tokenProfileRepository
                 .findWithTokenUsingSecurityFilter(filter, enabled)
                 .stream()
-                .filter(profile -> keyTransferCapabilityService.importsAsRecorded(profile, wanted))
+                .filter(profile -> wanted.isEmpty() || keyTransferCapabilityService.importsAsRecorded(profile, wanted))
+                .filter(profile -> !keyListable || keyListGates.isAvailable(profile))
                 .map(ImmutableTokenProfileListModel::from)
                 .map(TokenProfileDtoMapper::mapToDto)
                 .toList();
@@ -305,6 +313,7 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
                                 .connector(profile.connectorUuid())
                                 .build()));
         dto.setKeyTransfer(keyTransferCapabilityService.capabilityOf(profile));
+        dto.setKeyListAvailable(keyListGates.isAvailable(profile));
         return dto;
     }
 

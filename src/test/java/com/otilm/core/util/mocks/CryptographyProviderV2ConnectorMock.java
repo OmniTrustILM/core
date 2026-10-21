@@ -14,6 +14,7 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,7 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String IMPORT_STATUS_SCENARIO = "import status";
     private static final String IMPORT_SCENARIO = "imports";
     private static final String DESTROY_KEY = "/v2/cryptographyProvider/keys/destroy";
+    private static final String LIST_KEYS = "/v2/cryptographyProvider/keys/list";
 
     CryptographyProviderV2ConnectorMock() {
         stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
@@ -499,6 +501,36 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .post(WireMock.urlPathEqualTo(IMPORT_KEY_RESULT))
                         .willReturn(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
         return this;
+    }
+
+    /** Answers every key listing with the page, whatever it asks for. */
+    public CryptographyProviderV2ConnectorMock stubKeyListing(ListKeysResponseV2Dto page)
+            throws JsonProcessingException {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(LIST_KEYS))
+                        .willReturn(WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(page))));
+        return this;
+    }
+
+    /** Runs the observation on each key listing request, before the provider answers it. */
+    public void onKeyListingRequest(Runnable observation) {
+        Objects.requireNonNull(observation, "observation must not be null");
+        server.addMockServiceRequestListener((request, response) -> {
+            if (request.getUrl().equals(LIST_KEYS)) {
+                observation.run();
+            }
+        });
+    }
+
+    public void verifyKeyListingRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(LIST_KEYS)));
+    }
+
+    public void verifyKeyListingRequestContaining(String expectedRequestJson) {
+        server
+                .verify(postRequestedFor(WireMock.urlPathEqualTo(LIST_KEYS))
+                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
     }
 
     public CryptographyProviderV2ConnectorMock stubDestroyKey() {

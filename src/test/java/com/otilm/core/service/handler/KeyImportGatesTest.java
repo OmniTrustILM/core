@@ -321,7 +321,8 @@ class KeyImportGatesTest {
 
         // then
         assertThat(refused.getMessage())
-                .isEqualTo("Key certKey_SuperAdmin holds the same public key in a token without its private key.");
+                .isEqualTo("Key certKey_SuperAdmin holds the same public key under a token instance, without its "
+                        + "private key.");
         verify(authorizationEnforcer, never())
                 .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), any(SecuredUUID.class));
     }

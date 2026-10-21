@@ -55,7 +55,7 @@ class CryptographicKeyServiceImplValidationTest {
     @BeforeEach
     void setUp() {
         CryptographicKeyWriter writer = new CryptographicKeyWriter(keyRepository, itemRepository, null, null, null,
-                null, null, null, history, null);
+                null, null, null, history, null, null);
         service.setCryptographicKeyRepository(keyRepository);
         service.setCryptographicKeyItemRepository(itemRepository);
         service.setCryptographicKeyWriter(writer);

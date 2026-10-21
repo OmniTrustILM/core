@@ -15,6 +15,7 @@ import static com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder
 
 public class CryptographicKeyFullModelBuilder {
 
+    private String name = "signing-key";
     private List<CryptographicKeyItemBasicModel> items = List.of(aKeyItemSnapshot().build());
     private Set<GroupModel> groups = Set.of();
     private List<KeyCertificateAssociationModel> associations = List.of();
@@ -25,6 +26,11 @@ public class CryptographicKeyFullModelBuilder {
 
     public static CryptographicKeyFullModelBuilder aKeySnapshot() {
         return new CryptographicKeyFullModelBuilder();
+    }
+
+    public CryptographicKeyFullModelBuilder withName(String name) {
+        this.name = name;
+        return this;
     }
 
     public CryptographicKeyFullModelBuilder withItems(List<CryptographicKeyItemBasicModel> items) {
@@ -61,8 +67,8 @@ public class CryptographicKeyFullModelBuilder {
     public ImmutableCryptographicKeyFullModel build() {
         UUID tokenProfileUuid = tokenProfile == null ? null : tokenProfile.uuid();
         UUID tokenInstanceUuid = tokenInstance == null ? null : tokenInstance.uuid();
-        return new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), "signing-key", "Application signing",
-                tokenProfileUuid, tokenInstanceUuid, tokenProfile, tokenInstance, groups,
-                OffsetDateTime.parse("2026-09-10T10:00:00Z"), ownerUuid, ownerName, items, associations);
+        return new ImmutableCryptographicKeyFullModel(UUID.randomUUID(), name, "Application signing", tokenProfileUuid,
+                tokenInstanceUuid, tokenProfile, tokenInstance, groups, OffsetDateTime.parse("2026-09-10T10:00:00Z"),
+                ownerUuid, ownerName, items, associations);
     }
 }

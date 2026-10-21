@@ -110,6 +110,14 @@ public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Se
                 && items.iterator().next().getType() == KeyType.PUBLIC_KEY;
     }
 
+    /** The public key of a public-key-only key, which is its sole item. */
+    public CryptographicKeyItem solePublicKeyItem() {
+        if (!isPublicKeyOnly()) {
+            throw new IllegalStateException("Key %s holds more than its public key.".formatted(getUuid()));
+        }
+        return items.iterator().next();
+    }
+
     /** Whether every item of the key is active, or yet to become so. */
     public boolean isActive() {
         return items.stream().allMatch(item -> ACTIVE_STATES.contains(item.getState()));

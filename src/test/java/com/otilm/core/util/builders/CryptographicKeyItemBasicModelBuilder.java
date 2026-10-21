@@ -13,6 +13,9 @@ import java.util.UUID;
 
 public class CryptographicKeyItemBasicModelBuilder {
 
+    private String name = "signing-key";
+    private KeyType type = KeyType.PRIVATE_KEY;
+    private KeyState state = KeyState.ACTIVE;
     private RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
     private List<KeyUsage> usages = List.of(KeyUsage.SIGN);
     private ComplianceStatus complianceStatus = ComplianceStatus.OK;
@@ -22,6 +25,21 @@ public class CryptographicKeyItemBasicModelBuilder {
 
     public static CryptographicKeyItemBasicModelBuilder aKeyItemSnapshot() {
         return new CryptographicKeyItemBasicModelBuilder();
+    }
+
+    public CryptographicKeyItemBasicModelBuilder withName(String name) {
+        this.name = name;
+        return this;
+    }
+
+    public CryptographicKeyItemBasicModelBuilder withType(KeyType type) {
+        this.type = type;
+        return this;
+    }
+
+    public CryptographicKeyItemBasicModelBuilder withState(KeyState state) {
+        this.state = state;
+        return this;
     }
 
     public CryptographicKeyItemBasicModelBuilder withReference(RemoteKeyReference reference) {
@@ -40,9 +58,8 @@ public class CryptographicKeyItemBasicModelBuilder {
     }
 
     public CryptographicKeyItemBasicModel build() {
-        return new CryptographicKeyItemBasicModel(UUID.randomUUID(), UUID.randomUUID(), "signing-key", reference,
-                KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, format, keyData, 2048, KeyState.ACTIVE, true, usages, null,
-                complianceStatus, exportable);
+        return new CryptographicKeyItemBasicModel(UUID.randomUUID(), UUID.randomUUID(), name, reference, type,
+                KeyAlgorithm.RSA, format, keyData, 2048, state, true, usages, null, complianceStatus, exportable);
     }
 
     public CryptographicKeyItemBasicModelBuilder withKeyData(String keyData) {
