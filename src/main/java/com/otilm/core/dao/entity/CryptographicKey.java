@@ -113,7 +113,7 @@ public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Se
     /** The public key of a public-key-only key, which is its sole item. */
     public CryptographicKeyItem solePublicKeyItem() {
         if (!isPublicKeyOnly()) {
-            throw new IllegalStateException("Key %s holds more than its public key.".formatted(getUuid()));
+            throw new IllegalStateException("Key %s is not public-key-only.".formatted(getUuid()));
         }
         return items.iterator().next();
     }

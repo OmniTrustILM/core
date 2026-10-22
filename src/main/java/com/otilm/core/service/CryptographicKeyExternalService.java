@@ -193,9 +193,8 @@ public interface CryptographicKeyExternalService {
     void destroyKey(List<String> uuids) throws ConnectorException, NotFoundException;
 
     /**
-     * Deletes a key's records and leaves the key on its token, where a later listing offers it for onboarding again.
-     * The token must hold the key's private key, its connector must list keys, and no item of the key may be
-     * compromised.
+     * Deletes a key's records and leaves the key on its token. The token must hold the key's private key, its connector
+     * must list keys, and no item of the key may be compromised.
      *
      * @throws ValidationException for a key that cannot be removed from the inventory, with the reason
      */

@@ -52,7 +52,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,7 +76,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     private static final Logger logger = LoggerFactory.getLogger(TokenKeyOnboardingServiceImpl.class);
 
     static final String GONE = "The key storage no longer holds this key pair.";
-    static final String AMBIGUOUS = "The key storage holds more than one key pair under this handle.";
+    static final String AMBIGUOUS_PAIR = "The key storage holds more than one key pair under this handle.";
     static final String HELD = "Key %s already holds this key pair.";
     static final String NOT_ACTIVE = "Key %s holds this public key without a token instance, but it is not active, so "
             + "the private key cannot join it.";
@@ -179,7 +182,6 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return response;
     }
 
-    /** A failure refuses its own selection only, so the caller learns the outcome of every other one. */
     private TokenKeyOnboardingResultDto onboardOrReportFailure(Onboarding onboarding, TokenKeySelectionDto selection,
             ProviderKeyPairResolution resolution) {
         try {
@@ -198,15 +200,18 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
      * on its own, so a request that fails later still lists the keys it onboarded.
      */
     private void listInAuditRecord(List<OnboardedKey> onboardedKeys) {
-        // The override is request-scoped: outside an HTTP request there is none, and the audit reads none.
-        if (RequestContextHolder.getRequestAttributes() != null) {
+        if (inRequestScope()) {
             auditOperationDataOverride.set(new OnboardedKeys(onboardedKeys));
         }
     }
 
+    private static boolean inRequestScope() {
+        return RequestContextHolder.getRequestAttributes() != null;
+    }
+
     /**
-     * Makes a lone onboarded key the audit record's resource. Only a completed request does this, so the record of a
-     * failed one does not read as that key's failure.
+     * Makes a lone onboarded key the audit record's resource. Only a completed request does this, so a failed request's
+     * record lists its keys in the operation data alone.
      */
     private static void nameLoneKeyInAuditRecord(List<OnboardedKey> onboardedKeys) {
         if (onboardedKeys.size() == 1) {
@@ -264,7 +269,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /**
-     * One query each for the pairs' holders, unsettled imports and taken labels, however many pairs a page lists.
+     * One query each for the pairs' holders, unsettled imports and likely names, however many pairs a page lists.
      *
      * @param importingAlready fingerprints of unsettled imports read earlier, which count as importing too
      */
@@ -274,22 +279,21 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                 .map(TokenKeyOnboardingServiceImpl::fingerprintOf)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        Set<String> labels = pairs
+        Set<String> likelyNames = pairs
                 .stream()
-                .map(ProviderKeyPair::label)
-                .filter(TokenKeyOnboardingServiceImpl::isLabelled)
-                .map(String::strip)
+                .flatMap(TokenKeyOnboardingServiceImpl::likelyNamesOf)
                 .collect(Collectors.toSet());
         Map<String, PublicKeyHolderSummary> holders = new HashMap<>(cryptographicKeyWriter.holdersOf(fingerprints));
         Set<String> importing = new HashSet<>(importingAlready);
         if (!fingerprints.isEmpty()) {
             importing.addAll(keyImportRepository.findImportingSpkiFingerprints(fingerprints, KeyImportState.UNSETTLED));
         }
-        Set<String> takenNames = new HashSet<>();
-        if (!labels.isEmpty()) {
-            takenNames.addAll(cryptographicKeyRepository.findNamesIn(labels));
+        Map<String, Boolean> nameTaken = new HashMap<>();
+        if (!likelyNames.isEmpty()) {
+            Set<String> taken = Set.copyOf(cryptographicKeyRepository.findNamesIn(likelyNames));
+            likelyNames.forEach(name -> nameTaken.put(name, taken.contains(name)));
         }
-        return new Inventory(holders, importing, takenNames);
+        return new Inventory(holders, importing, nameTaken, cryptographicKeyRepository::existsByName);
     }
 
     private Standing standingOf(ProviderKeyPair pair, Inventory inventory) {
@@ -343,12 +347,21 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return label != null && !label.isBlank();
     }
 
-    private static String suggestedName(String label, String fingerprint, Inventory inventory) {
-        if (isLabelled(label) && !inventory.takenNames().contains(label.strip())) {
-            return label.strip();
+    /** The names a key pair is most likely suggested: its label, and the shortest name its fingerprint makes. */
+    private static Stream<String> likelyNamesOf(ProviderKeyPair pair) {
+        String fingerprint = fingerprintOf(pair);
+        if (fingerprint == null) {
+            return Stream.empty();
         }
+        String shortestFingerprinted = withFingerprintPrefix(pair.label(), fingerprint, FINGERPRINT_PREFIX_LENGTH);
+        return isLabelled(pair.label())
+                ? Stream.of(pair.label().strip(), shortestFingerprinted)
+                : Stream.of(shortestFingerprinted);
+    }
+
+    private static String withFingerprintPrefix(String label, String fingerprint, int prefixLength) {
         String base = isLabelled(label) ? label.strip() : UNLABELLED_NAME;
-        return "%s (%s)".formatted(base, fingerprint.substring(0, FINGERPRINT_PREFIX_LENGTH));
+        return "%s (%s)".formatted(base, fingerprint.substring(0, prefixLength));
     }
 
     /**
@@ -362,7 +375,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return switch (resolution.outcome()) {
             case FOUND -> onboardFoundPair(onboarding, selection, resolution.keyPair(), result);
             case NOT_FOUND -> skipped(result, GONE);
-            case AMBIGUOUS -> skipped(result, AMBIGUOUS);
+            case AMBIGUOUS -> skipped(result, AMBIGUOUS_PAIR);
             case UNREADABLE -> skipped(result, UNREADABLE_PAIR);
             case INVALID_HANDLE -> skipped(result, UNRECOGNISED_HANDLE);
         };
@@ -384,7 +397,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result)
             throws AttributeException, NotFoundException {
         String name = selection.getName() == null || selection.getName().isBlank()
-                ? suggestedName(pair.label(), standing.fingerprint(), onboarding.inventory())
+                ? onboarding.inventory().suggestedName(pair.label(), standing.fingerprint())
                 : selection.getName().strip();
         if (cryptographicKeyRepository.existsByName(name)) {
             return skipped(result, CryptographicKeyWriter.NAME_TAKEN.formatted(name));
@@ -485,24 +498,42 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     /**
      * What the inventory and the unsettled imports hold of the key pairs a token listed or resolved. Each key an
      * onboarding registers is added, so selecting its key pair again finds it held. Its name and each suggested name
-     * count as taken, so a later key pair with the same label is suggested the label with its fingerprint's prefix.
+     * count as taken, so a later key pair with the same label is suggested the label with a prefix of its fingerprint,
+     * lengthened until no key has the name.
      *
      * @param holders the keys holding the pairs' public keys, by fingerprint
      * @param importing the fingerprints of the pairs' public keys that an unsettled import holds
-     * @param takenNames the pairs' labels that keys have as names
+     * @param nameTaken whether a key has the name or a listed key pair was suggested it, for each name checked
+     * @param inInventory whether a key has a name not checked yet
      */
     private record Inventory(Map<String, PublicKeyHolderSummary> holders, Set<String> importing,
-            Set<String> takenNames) {
+            Map<String, Boolean> nameTaken, Predicate<String> inInventory) {
 
         void add(String fingerprint, PublicKeyHolderSummary holder) {
             holders.put(fingerprint, holder);
-            takenNames.add(holder.keyName());
+            nameTaken.put(holder.keyName(), true);
         }
 
         String suggestName(String label, String fingerprint) {
-            String name = suggestedName(label, fingerprint, this);
-            takenNames.add(name);
+            String name = suggestedName(label, fingerprint);
+            nameTaken.put(name, true);
             return name;
+        }
+
+        String suggestedName(String label, String fingerprint) {
+            if (isLabelled(label) && isFree(label.strip())) {
+                return label.strip();
+            }
+            return IntStream
+                    .rangeClosed(FINGERPRINT_PREFIX_LENGTH, fingerprint.length())
+                    .mapToObj(prefixLength -> withFingerprintPrefix(label, fingerprint, prefixLength))
+                    .filter(this::isFree)
+                    .findFirst()
+                    .orElseGet(() -> withFingerprintPrefix(label, fingerprint, fingerprint.length()));
+        }
+
+        private boolean isFree(String name) {
+            return !nameTaken.computeIfAbsent(name, inInventory::test);
         }
     }
 

@@ -592,6 +592,23 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void suggestsALongerFingerprintPrefix_whenKeysHaveTheLabelAndItsShortPrefix() throws Exception {
+            // given
+            var label = "signer";
+            var publicKey = rsaPublicKey();
+            String fingerprint = fingerprintOf(publicKey);
+            recordHolding(label, rsaPublicKey());
+            recordHolding("%s (%s)".formatted(label, fingerprint.substring(0, 8)), rsaPublicKey());
+            tokenLists(aListedKeyPair().withLabel(label).withPublicKey(publicKey).build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry.getSuggestedName()).isEqualTo("%s (%s)".formatted(label, fingerprint.substring(0, 9)));
+        }
+
+        @Test
         void namesTheRecordInsteadOfAName_whenACertificateBroughtThePublicKeyIn() throws Exception {
             // given
             var recordName = "certKey_held";
@@ -970,6 +987,25 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void namesTheKeyWithALongerFingerprintPrefix_whenKeysHaveTheLabelAndItsShortPrefix() throws Exception {
+            // given
+            var label = "signer";
+            var publicKey = rsaPublicKey();
+            String fingerprint = fingerprintOf(publicKey);
+            recordHolding(label, rsaPublicKey());
+            recordHolding("%s (%s)".formatted(label, fingerprint.substring(0, 8)), rsaPublicKey());
+            tokenLists(aListedKeyPair().withLabel(label).withPublicKey(publicKey).build());
+            var selection = theFirstListedPair();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result.isOnboarded()).isTrue();
+            assertThat(result.getKeyName()).isEqualTo("%s (%s)".formatted(label, fingerprint.substring(0, 9)));
+        }
+
+        @Test
         void linksTheCertificateCarryingThePublicKey_whenItCreatesTheKey() throws Exception {
             // given
             var publicKey = rsaPublicKey();
@@ -1189,10 +1225,6 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .isEqualTo(profileUuid);
         }
 
-        /**
-         * Two objects on the token may hold one key pair; the first onboarded joins the record, the second finds it
-         * held.
-         */
         @Test
         void findsTheKeyPairHeld_whenASecondObjectOnTheTokenHoldsIt() throws Exception {
             // given

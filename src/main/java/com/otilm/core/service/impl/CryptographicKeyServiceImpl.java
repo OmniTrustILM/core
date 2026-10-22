@@ -1241,7 +1241,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         return item.type() == KeyType.PRIVATE_KEY && !DESTROYED_STATES.contains(item.state());
     }
 
-    /** Deletes the key's records; the key stays in its key storage, where a later listing offers it for onboarding. */
+    /** Deletes the key's records; the key stays in its key storage. */
     private void removeFromInventory(KeyRemovalCandidate candidate) {
         Map<UUID, KeyState> itemStatesRead = candidate
                 .items()
