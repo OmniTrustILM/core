@@ -6,6 +6,7 @@ import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.RuleException;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
@@ -369,6 +370,36 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         Assertions
                 .assertFalse(certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testApprovalRuleEvaluatorOnStatusProperty() throws RuleException {
+        Approval approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(List.of(ApprovalStatusEnum.PENDING.name()));
+
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        approval.setStatus(ApprovalStatusEnum.APPROVED);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        approval.setStatus(null);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
     }
 
     @Test

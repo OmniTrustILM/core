@@ -281,7 +281,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 if (objectValue == null) {
                     return evaluateAbsentValue(operator);
                 }
-                if (filterField.getEnumClass() != null) {
+                if (filterField == FilterField.APPROVAL_STATUS) {
+                    // ApprovalStatusEnum lacks @JsonValue, so rule filters store its constant names.
+                    objectValue = ((Enum<?>) objectValue).name();
+                } else if (filterField.getEnumClass() != null) {
                     objectValue = ((IPlatformEnum) objectValue).getCode();
                 }
                 return comparison.test(objectValue, conditionValue);
