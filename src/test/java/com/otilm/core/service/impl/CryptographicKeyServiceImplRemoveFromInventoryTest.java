@@ -299,9 +299,10 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
             var undeletable = aKeyPair("undeletable-pair").build();
             inventoryHolds(first, undeletable);
             denyOnTheKey(ResourceAction.DELETE, undeletable);
+            List<String> selection = uuidsOf(first, undeletable);
 
             // when / then
-            assertThatThrownBy(() -> service.removeKeysFromInventory(uuidsOf(first, undeletable)))
+            assertThatThrownBy(() -> service.removeKeysFromInventory(selection))
                     .isInstanceOf(AccessDeniedException.class);
             verifyNoInteractions(writer, cache);
         }
@@ -313,9 +314,10 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
             var onAForbiddenToken = aKeyPair("forbidden-token-pair").build();
             inventoryHolds(first, onAForbiddenToken);
             denyOnItsToken(ResourceAction.MEMBERS, onAForbiddenToken);
+            List<String> selection = uuidsOf(first, onAForbiddenToken);
 
             // when / then
-            assertThatThrownBy(() -> service.removeKeysFromInventory(uuidsOf(first, onAForbiddenToken)))
+            assertThatThrownBy(() -> service.removeKeysFromInventory(selection))
                     .isInstanceOf(AccessDeniedException.class);
             verifyNoInteractions(writer, cache);
         }
@@ -395,9 +397,10 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
                     .withItems(pairItems(KeyState.COMPROMISED, KeyState.ACTIVE))
                     .build();
             inventoryHolds(compromised);
+            SecuredUUID compromisedUuid = SecuredUUID.fromUUID(compromised.uuid());
 
             // when / then
-            assertThatThrownBy(() -> service.removeKeyFromInventory(SecuredUUID.fromUUID(compromised.uuid())))
+            assertThatThrownBy(() -> service.removeKeyFromInventory(compromisedUuid))
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(NOT_REMOVABLE.formatted(compromised.name(), COMPROMISED));
             verifyNoInteractions(writer, cache);

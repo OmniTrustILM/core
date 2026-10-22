@@ -3,6 +3,7 @@ package com.otilm.core.service.impl;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -17,12 +18,16 @@ import com.otilm.api.model.core.cryptography.key.TokenKeyDto;
 import com.otilm.api.model.core.cryptography.key.TokenKeyListResponseDto;
 import com.otilm.api.model.core.cryptography.key.TokenKeyOnboardingResultDto;
 import com.otilm.api.model.core.cryptography.key.TokenKeyStatus;
+import com.otilm.core.aop.AuditOperationDataOverride;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyBasicModel;
+import com.otilm.core.model.crypto.OnboardedKeys;
+import com.otilm.core.model.crypto.OnboardedKeys.OnboardedKey;
 import com.otilm.core.model.crypto.ProviderKeyPair;
 import com.otilm.core.model.crypto.ProviderKeyPairPage;
 import com.otilm.core.model.crypto.ProviderUnaddressableKey;
@@ -48,11 +53,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
 
 /**
  * Reads the token outside any transaction and saves each onboarded key in a transaction of its own. This keeps a slow
@@ -61,6 +69,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(propagation = Propagation.NOT_SUPPORTED, rollbackFor = Exception.class)
 public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternalService {
+
+    private static final Logger logger = LoggerFactory.getLogger(TokenKeyOnboardingServiceImpl.class);
 
     /** The selection is read again in one listing, within the connector's page cap. */
     static final int MAX_PAIRS_PER_REREAD = ListKeysRequestV2Dto.MAX_LIMIT;
@@ -80,10 +90,12 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             + ListKeysRequestV2Dto.MAX_LIMIT + " key pairs.";
     static final String PAGE_BEYOND_LAST_OFFSET = "The page must start at most " + Integer.MAX_VALUE
             + " key pairs into the listing.";
-    static final String TOO_MANY = "An onboarding selects at most " + MAX_PAIRS_PER_REREAD + " key pairs.";
+    static final String TOO_MANY_PAIRS = "The key storage holds more than " + MAX_PAIRS_PER_REREAD
+            + " key pairs under the selected handles.";
+    static final String PAIRS_LEFT_OUT = "The key storage left out some key pairs under the selected handles.";
+    static final String ONBOARDING_FAILED = "Failed to onboard the key pair.";
     private static final String UNLABELLED_NAME = "Onboarded key";
     private static final int FINGERPRINT_PREFIX_LENGTH = 8;
-    private static final Set<UUID> KEEP_GROUPS = null;
 
     private final KeyListGates keyListGates;
     private final KeyImportGates keyImportGates;
@@ -92,6 +104,8 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     private final KeyImportRepository keyImportRepository;
     private final CryptographicKeyWriter cryptographicKeyWriter;
     private final AttributeEngine attributeEngine;
+
+    private AuditOperationDataOverride auditOperationDataOverride;
 
     public TokenKeyOnboardingServiceImpl(KeyListGates keyListGates, KeyImportGates keyImportGates,
             KeyProviderAdapterFactory keyProviderAdapterFactory, CryptographicKeyRepository cryptographicKeyRepository,
@@ -106,6 +120,11 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         this.attributeEngine = attributeEngine;
     }
 
+    @Autowired
+    public void setAuditOperationDataOverride(AuditOperationDataOverride auditOperationDataOverride) {
+        this.auditOperationDataOverride = auditOperationDataOverride;
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.LIST)
     public TokenKeyListResponseDto listTokenKeys(UUID tokenInstanceUuid, UUID tokenProfileUuid, int pageNumber,
@@ -116,12 +135,13 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
                 .forToken(profile.tokenInstance())
                 .listKeyPairs(profile, page.offset(), page.itemsPerPage(), null);
         Inventory inventory = inventoryOf(listed.keyPairs(), Set.of());
-        Stream<TokenKeyDto> keyPairs = listed.keyPairs().stream().map(pair -> describe(pair, inventory));
-        Stream<TokenKeyDto> unaddressableKeys = listed
-                .unaddressableKeys()
-                .stream()
-                .map(TokenKeyOnboardingServiceImpl::describe);
-        List<TokenKeyDto> entries = Stream.concat(keyPairs, unaddressableKeys).toList();
+        List<TokenKeyDto> entries = new ArrayList<>();
+        for (ProviderKeyPair pair : listed.keyPairs()) {
+            entries.add(describe(pair, inventory));
+        }
+        for (ProviderUnaddressableKey key : listed.unaddressableKeys()) {
+            entries.add(describe(key));
+        }
         return page.response(entries, listed.totalItems());
     }
 
@@ -131,9 +151,6 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             OnboardTokenKeysRequestDto request) throws ConnectorException, NotFoundException, AttributeException {
         TokenProfileFullModel profile = keyListGates.requireListable(tokenInstanceUuid, tokenProfileUuid);
         List<TokenKeySelectionDto> selections = request.getKeys();
-        if (selections.size() > MAX_PAIRS_PER_REREAD) {
-            throw new ValidationException(ValidationError.create(TOO_MANY));
-        }
         List<RequestAttribute> customAttributes = request.getCustomAttributes();
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, customAttributes);
         SecurityResourceFilter customAttributePermissions = attributeEngine
@@ -142,14 +159,61 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         Set<String> importingBeforeReread = importingOn(profile);
         ProviderKeyPairPage reread = keyProviderAdapterFactory
                 .forToken(profile.tokenInstance())
-                .listKeyPairs(profile, 0, selectedPairMeta.size(), selectedPairMeta);
-        Onboarding onboarding = new Onboarding(profile, reread.keyPairs(),
-                inventoryOf(reread.keyPairs(), importingBeforeReread), customAttributes, customAttributePermissions);
-        OnboardTokenKeysResponseDto response = new OnboardTokenKeysResponseDto();
-        for (TokenKeySelectionDto selection : selections) {
-            response.getResults().add(onboard(onboarding, selection));
+                .listKeyPairs(profile, 0, MAX_PAIRS_PER_REREAD, selectedPairMeta);
+        if (reread.totalItems() > MAX_PAIRS_PER_REREAD) {
+            throw new ValidationException(ValidationError.create(TOO_MANY_PAIRS));
         }
+        if (reread.keyPairs().size() < reread.totalItems()) {
+            throw new ValidationException(ValidationError.create(PAIRS_LEFT_OUT));
+        }
+        Onboarding onboarding = new Onboarding(profile, reread.keyPairs(),
+                inventoryOf(reread.keyPairs(), importingBeforeReread), customAttributes, customAttributePermissions,
+                new ArrayList<>());
+        OnboardTokenKeysResponseDto response = new OnboardTokenKeysResponseDto();
+        try {
+            for (TokenKeySelectionDto selection : selections) {
+                response.getResults().add(onboardOrReportFailure(onboarding, selection));
+            }
+        } finally {
+            listInAuditRecord(onboarding.onboardedKeys());
+        }
+        nameLoneKeyInAuditRecord(onboarding.onboardedKeys());
         return response;
+    }
+
+    /** A failure refuses its own selection only, so the caller learns the outcome of every other one. */
+    private TokenKeyOnboardingResultDto onboardOrReportFailure(Onboarding onboarding, TokenKeySelectionDto selection) {
+        try {
+            return onboard(onboarding, selection);
+        } catch (AttributeException | NotFoundException | DataIntegrityViolationException e) {
+            logger.warn("A key pair could not be onboarded to {}", onboarding.profile().toIdentifierString(), e);
+            TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = TokenKeyOnboardingResultDto
+                    .builder()
+                    .keyPairMeta(selection.getKeyPairMeta());
+            return skipped(result, PlatformException.safeMessage(e, ONBOARDING_FAILED));
+        }
+    }
+
+    /**
+     * Lists every onboarded key in the audit record, including joined records the caller may not see. Each key commits
+     * on its own, so a request that fails later still lists the keys it onboarded.
+     */
+    private void listInAuditRecord(List<OnboardedKey> onboardedKeys) {
+        // The override is request-scoped: outside an HTTP request there is none, and the audit reads none.
+        if (RequestContextHolder.getRequestAttributes() != null) {
+            auditOperationDataOverride.set(new OnboardedKeys(onboardedKeys));
+        }
+    }
+
+    /**
+     * Makes a lone onboarded key the audit record's resource. Only a completed request does this, so the record of a
+     * failed one does not read as that key's failure.
+     */
+    private static void nameLoneKeyInAuditRecord(List<OnboardedKey> onboardedKeys) {
+        if (onboardedKeys.size() == 1) {
+            OnboardedKey onboarded = onboardedKeys.getFirst();
+            LoggingHelper.putLogResourceInfo(Resource.CRYPTOGRAPHIC_KEY, false, onboarded.uuid(), onboarded.name());
+        }
     }
 
     /** Each handle the selections name, once, so the token answers it with one key pair at most. */
@@ -191,7 +255,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             entry.inventoryKeyUuid(visibleHolder.keyUuid()).inventoryKeyName(visibleHolder.keyName());
         }
         if (standing.status() == TokenKeyStatus.ONBOARDABLE) {
-            entry.suggestedName(suggestedName(pair.label(), standing.fingerprint(), inventory));
+            entry.suggestedName(inventory.suggestName(pair.label(), standing.fingerprint()));
         }
         return entry.build();
     }
@@ -262,15 +326,15 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
      * A public-key-only record takes the private key when it is active and the caller may update it, as an import into
      * it requires.
      */
-    private Standing standingOfRecord(String fingerprint, PublicKeyHolderSummary record, boolean visible) {
-        if (!record.active()) {
-            return held(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN, fingerprint, record, visible, NOT_ACTIVE);
+    private Standing standingOfRecord(String fingerprint, PublicKeyHolderSummary publicKeyRecord, boolean visible) {
+        if (!publicKeyRecord.active()) {
+            return held(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN, fingerprint, publicKeyRecord, visible, NOT_ACTIVE);
         }
-        if (!keyImportGates.mayUpdate(record.keyUuid())) {
-            return held(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN, fingerprint, record, visible,
+        if (!keyImportGates.mayUpdate(publicKeyRecord.keyUuid())) {
+            return held(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN, fingerprint, publicKeyRecord, visible,
                     KeyImportGates.NOT_UPDATABLE);
         }
-        return new Standing(TokenKeyStatus.ONBOARDABLE_INTO_KEY, fingerprint, record, visible, null);
+        return new Standing(TokenKeyStatus.ONBOARDABLE_INTO_KEY, fingerprint, publicKeyRecord, visible, null);
     }
 
     /** The refusal names the holder only to a caller who may see it in detail. */
@@ -350,8 +414,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             return skipped(result, IMPORTING);
         }
         CryptographicKeyBasicModel key = onboarded.get();
-        cryptographicKeyWriter.updateOwnerAndGroups(key, KEEP_GROUPS);
-        onboarding.inventory().add(standing.fingerprint(), heldAsKeyPair(key.uuid(), key.name(), profile));
+        onboarding.registered(standing.fingerprint(), heldAsKeyPair(key.uuid(), key.name(), profile), false);
         return onboardedAsNewKey(result, key);
     }
 
@@ -362,20 +425,22 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     private TokenKeyOnboardingResultDto onboardIntoRecord(Onboarding onboarding, ProviderKeyPair pair,
             Standing standing, TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result)
             throws AttributeException {
-        PublicKeyHolderSummary record = standing.holder();
+        PublicKeyHolderSummary publicKeyRecord = standing.holder();
         TokenProfileFullModel profile = onboarding.profile();
         Optional<CryptographicKeyBasicModel> onboarded;
         try {
             onboarded = cryptographicKeyWriter
-                    .onboardIntoRecordUnlessImporting(record.keyUuid(), profile, standing.fingerprint(),
-                            pair.toOnboardedItems(record.keyName()));
+                    .onboardIntoRecordUnlessImporting(publicKeyRecord.keyUuid(), profile, standing.fingerprint(),
+                            pair.toOnboardedItems(publicKeyRecord.keyName()));
         } catch (ValidationException changedMeanwhile) {
             return skipped(result, RECORD_CHANGED);
         }
         if (onboarded.isEmpty()) {
             return skipped(result, IMPORTING);
         }
-        onboarding.inventory().add(standing.fingerprint(), heldAsKeyPair(record.keyUuid(), record.keyName(), profile));
+        onboarding
+                .registered(standing.fingerprint(),
+                        heldAsKeyPair(publicKeyRecord.keyUuid(), publicKeyRecord.keyName(), profile), true);
         result.onboarded(true).intoExistingKey(true);
         if (standing.holderVisible()) {
             result.keyUuid(onboarded.get().uuid()).keyName(onboarded.get().name());
@@ -427,8 +492,9 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /**
-     * What the inventory and the unsettled imports hold of a page of listed key pairs. An onboarding adds each key it
-     * registers, so a selection repeating a key pair finds it held, and a later suggested name avoids its name.
+     * What the inventory and the unsettled imports hold of a page of listed key pairs. Each key an onboarding registers
+     * is added, so selecting its key pair again finds it held. Its name and each suggested name count as taken, so a
+     * later key pair with the same label is suggested the label with its fingerprint's prefix.
      *
      * @param holders the keys holding the pairs' public keys, by fingerprint
      * @param importing the fingerprints of the pairs' public keys that an unsettled import holds
@@ -441,6 +507,12 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             holders.put(fingerprint, holder);
             takenNames.add(holder.keyName());
         }
+
+        String suggestName(String label, String fingerprint) {
+            String name = suggestedName(label, fingerprint, this);
+            takenNames.add(name);
+            return name;
+        }
     }
 
     /**
@@ -450,9 +522,16 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
      * @param inventory what the inventory holds of them
      * @param customAttributes the custom attributes every key of its own takes, or {@code null} for none
      * @param customAttributePermissions permissions applied to the custom attributes
+     * @param onboardedKeys the keys the key pairs were registered in so far
      */
     private record Onboarding(TokenProfileFullModel profile, List<ProviderKeyPair> reread, Inventory inventory,
-            List<RequestAttribute> customAttributes, SecurityResourceFilter customAttributePermissions) {
+            List<RequestAttribute> customAttributes, SecurityResourceFilter customAttributePermissions,
+            List<OnboardedKey> onboardedKeys) {
+
+        void registered(String fingerprint, PublicKeyHolderSummary holder, boolean intoExistingKey) {
+            inventory.add(fingerprint, holder);
+            onboardedKeys.add(new OnboardedKey(holder.keyUuid().toString(), holder.keyName(), intoExistingKey));
+        }
     }
 
     /** A page of the Core API mapped onto the offset and limit the connector takes. */

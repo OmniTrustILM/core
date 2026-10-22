@@ -241,7 +241,7 @@ class KeyProviderV2AdapterTest {
         return request;
     }
 
-    private static Stream<Arguments> supportedSignatureSelections() {
+    static Stream<Arguments> supportedSignatureSelections() {
         return Stream
                 .of(Arguments.of(KeyAlgorithm.RSA, SignatureAlgorithm.SHA256_WITH_RSA),
                         Arguments.of(KeyAlgorithm.RSA, SignatureAlgorithm.SHA384_WITH_RSA_PSS),
@@ -249,13 +249,13 @@ class KeyProviderV2AdapterTest {
                         Arguments.of(KeyAlgorithm.MLDSA, SignatureAlgorithm.ML_DSA_65));
     }
 
-    private static Stream<Named<List<BaseAttribute>>> schemasOfferingNoAlgorithm() {
+    static Stream<Named<List<BaseAttribute>>> schemasOfferingNoAlgorithm() {
         return Stream
                 .of(named("no algorithm definition", List.of()),
                         named("no algorithm choices", List.of(SignatureAlgorithmAttribute.definition(List.of()))));
     }
 
-    private static Stream<Arguments> invalidSignatureOffers() {
+    static Stream<Arguments> invalidSignatureOffers() {
         DataAttributeV3 missingContent = SignatureAlgorithmAttribute.definition(List.of());
         missingContent.setContent(null);
         DataAttributeV3 numericCode = SignatureAlgorithmAttribute.definition(List.of());
@@ -2498,7 +2498,7 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void rejectsCallerIdentifiersThatDoNotLineUp_beforeCallingConnector() throws Exception {
+        void rejectsCallerIdentifiersThatDoNotLineUp_beforeCallingConnector() {
             // given
             VerifyDataRequestDto request = new VerifyDataRequestDto();
             request.setSignatureAttributes(List.of());

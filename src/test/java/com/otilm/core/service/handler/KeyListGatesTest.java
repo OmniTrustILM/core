@@ -2,6 +2,7 @@ package com.otilm.core.service.handler;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import java.util.UUID;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -76,9 +77,11 @@ class KeyListGatesTest {
             var profile = aTokenProfileSnapshot().build();
             when(keyImportGates.requireAccess(profile.tokenInstanceReferenceUuid(), profile.uuid()))
                     .thenReturn(profile);
+            UUID tokenInstanceUuid = profile.tokenInstanceReferenceUuid();
+            UUID tokenProfileUuid = profile.uuid();
 
             // when / then
-            assertThatThrownBy(() -> gates.requireListable(profile.tokenInstanceReferenceUuid(), profile.uuid()))
+            assertThatThrownBy(() -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid))
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("cannot list the keys in its key storage");
         }
@@ -92,9 +95,11 @@ class KeyListGatesTest {
                     .build();
             when(keyImportGates.requireAccess(profile.tokenInstanceReferenceUuid(), profile.uuid()))
                     .thenReturn(profile);
+            UUID tokenInstanceUuid = profile.tokenInstanceReferenceUuid();
+            UUID tokenProfileUuid = profile.uuid();
 
             // when / then
-            assertThatThrownBy(() -> gates.requireListable(profile.tokenInstanceReferenceUuid(), profile.uuid()))
+            assertThatThrownBy(() -> gates.requireListable(tokenInstanceUuid, tokenProfileUuid))
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("is disabled");
         }

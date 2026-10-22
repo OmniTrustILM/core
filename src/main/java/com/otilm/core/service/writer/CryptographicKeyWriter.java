@@ -91,6 +91,9 @@ public class CryptographicKeyWriter {
     /** An onboarded key may come from outside the platform, so Core withholds export from it. */
     private static final boolean ONBOARDED_EXPORTABLE = false;
 
+    /** Enabling a key requires its own permission, so an onboarded key starts disabled, as an imported one does. */
+    private static final boolean ONBOARDED_ENABLED = false;
+
     public static final String KEY_NOT_ACTIVE = "A key with the same public key exists but is not active, so the key cannot be imported into it.";
 
     private final CryptographicKeyRepository cryptographicKeyRepository;
@@ -154,9 +157,9 @@ public class CryptographicKeyWriter {
     }
 
     /**
-     * Registers an onboarded key pair as a key of its own, with the custom attributes the onboarding states, and links
-     * it to the certificates carrying its public key. An unsettled import may yet register or destroy the key pair, so
-     * its attempt is locked and refuses the onboarding.
+     * Registers an onboarded key pair as a key of its own, owned by the caller, with the custom attributes the
+     * onboarding states, and links it to the certificates carrying its public key. An unsettled import may yet register
+     * or destroy the key pair, so its attempt is locked and refuses the onboarding.
      *
      * @param spkiFingerprint the fingerprint of the key pair's public key
      * @param items the key pair's items, as the connector listed them
@@ -176,15 +179,16 @@ public class CryptographicKeyWriter {
         }
         CryptographicKeyBasicModel key = save(name, null, profile.uuid(), profile.tokenInstanceReferenceUuid());
         KeyItemOrigin origin = onboardingOrigin(profile);
-        boolean enabled = true;
         for (ProviderKeyItem item : items) {
-            createKeyContent(profile, profile.tokenInstance(), item, key, enabled, ONBOARDED_EXPORTABLE, origin);
+            createKeyContent(profile, profile.tokenInstance(), item, key, ONBOARDED_ENABLED, ONBOARDED_EXPORTABLE,
+                    origin);
         }
         if (customAttributes != null) {
             attributeEngine
                     .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid(), customAttributes,
                             customAttributePermissions);
         }
+        objectAssociationService.setOwnerFromProfile(Resource.CRYPTOGRAPHIC_KEY, key.uuid());
         // The unique fingerprint is the last guard against a key registered meanwhile.
         cryptographicKeyItemRepository.flush();
         return Optional.of(key);
@@ -209,10 +213,10 @@ public class CryptographicKeyWriter {
         if (!lockUnsettledImportsOf(spkiFingerprint).isEmpty()) {
             return Optional.empty();
         }
-        CryptographicKey record = lockAdoptableRecord(recordUuid);
-        boolean enabled = true;
+        CryptographicKey publicKeyRecord = lockAdoptableRecord(recordUuid);
         return Optional
-                .of(joinRecord(record, profile, items, enabled, ONBOARDED_EXPORTABLE, onboardingOrigin(profile)));
+                .of(joinRecord(publicKeyRecord, profile, items, ONBOARDED_ENABLED, ONBOARDED_EXPORTABLE,
+                        onboardingOrigin(profile)));
     }
 
     private static KeyItemOrigin onboardingOrigin(TokenProfileFullModel profile) {
@@ -390,26 +394,26 @@ public class CryptographicKeyWriter {
 
     /** The public-key-only record read afresh under its lock and the locks of its items, refused unless adoptable. */
     private CryptographicKey lockAdoptableRecord(UUID recordUuid) {
-        CryptographicKey record = cryptographicKeyRepository
+        CryptographicKey publicKeyRecord = cryptographicKeyRepository
                 .findForUpdateByUuid(recordUuid)
                 .orElseThrow(() -> new ValidationException(ValidationError.create(KEY_ALREADY_HELD)));
-        entityManager.refresh(record);
-        record.getItems().forEach(item -> entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE));
-        requireAdoptable(record);
-        return record;
+        entityManager.refresh(publicKeyRecord);
+        publicKeyRecord.getItems().forEach(item -> entityManager.refresh(item, LockModeType.PESSIMISTIC_WRITE));
+        requireAdoptable(publicKeyRecord);
+        return publicKeyRecord;
     }
 
     /**
      * Gives the record the token profile and the key pair's other items; its public key gains the token's reference to
      * it and the profile's usages.
      */
-    private CryptographicKeyBasicModel joinRecord(CryptographicKey record, TokenProfileFullModel profile,
+    private CryptographicKeyBasicModel joinRecord(CryptographicKey publicKeyRecord, TokenProfileFullModel profile,
             List<ProviderKeyItem> items, boolean enabled, boolean exportable, KeyItemOrigin origin)
             throws AttributeException {
-        CryptographicKeyItem publicKey = record.solePublicKeyItem();
-        record.setTokenProfileUuid(profile.uuid());
-        record.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
-        CryptographicKeyBasicModel key = ImmutableCryptographicKeyBasicModel.from(record);
+        CryptographicKeyItem publicKey = publicKeyRecord.solePublicKeyItem();
+        publicKeyRecord.setTokenProfileUuid(profile.uuid());
+        publicKeyRecord.setTokenInstanceReferenceUuid(profile.tokenInstanceReferenceUuid());
+        CryptographicKeyBasicModel key = ImmutableCryptographicKeyBasicModel.from(publicKeyRecord);
         for (ProviderKeyItem item : items) {
             if (item.type() == KeyType.PUBLIC_KEY) {
                 adoptPublicKeyItem(publicKey, item, profile, key, origin);
