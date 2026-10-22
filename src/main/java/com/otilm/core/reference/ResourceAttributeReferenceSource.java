@@ -18,8 +18,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Connector-defined RESOURCE attributes, such as a token's PIN or an authority's OAuth client, can point at an object
- * of any resource an attribute can name. This one source finds every such reference in the stored attribute values, so
- * a connector that adds such an attribute needs no change in Core.
+ * of any resource an attribute can name. This one source finds such references in the stored attribute values, so a
+ * connector that adds such an attribute needs no change in Core.
  */
 @Component
 public class ResourceAttributeReferenceSource implements ObjectReferenceSource {

@@ -289,6 +289,20 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
         return server;
     }
 
+    /** Core still holds the secret; its vault no longer does. */
+    private void vaultAnswersNotFound(String detail) {
+        vaultConnector
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/v1/secretProvider/secrets/content"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(404)
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody("""
+                                        {"status": 404, "detail": "%s", "errorCode": "RESOURCE_NOT_FOUND"}"""
+                                        .formatted(detail))));
+    }
+
     private VaultProfile persistVaultProfile(String url) {
         Connector connector = aConnector().withGeneratedUuid().withUrl(url).withVersion(ConnectorVersion.V1).build();
         connectorRepository.save(connector);
@@ -686,7 +700,8 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
         void refusesDelete_whenTheCurrentSigningProfileVersionUsesTheSecret() throws Exception {
             // given
             var currentVersion = 2;
-            var signingPin = persistGenericSecret("signing-pin");
+            var signingPinName = "signing-pin";
+            var signingPin = persistGenericSecret(signingPinName);
             var profileName = "versioned-signing";
             var profile = persistSigningProfile(profileName, currentVersion);
             storePinReference(Resource.SIGNING_PROFILE, profile.getUuid(), currentVersion, signingPin);
@@ -694,7 +709,7 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
             injectAuthentication();
 
             // when / then
-            assertThatThrownBy(() -> referenceGuard.refuseWhileReferenced(signingPinRef, signingPin.getName(), null))
+            assertThatThrownBy(() -> referenceGuard.refuseWhileReferenced(signingPinRef, signingPinName, null))
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("'" + profileName + "' (attribute 'PIN')");
         }
@@ -856,6 +871,20 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
             assertThat(attributes.getResponse().getContentAsString())
                     .contains("Attribute 'PIN' refers to Secret '" + PIN_SECRET_NAME + "', which no longer exists");
             assertThat(reload.getResponse().getStatus()).isEqualTo(422);
+        }
+
+        @Test
+        void answers404_whenOnlyTheVaultLostTheSecret() throws Exception {
+            // given
+            var vaultDetail = "Secret not found";
+            vaultAnswersNotFound(vaultDetail);
+
+            // when
+            MvcResult attributes = perform(get(tokenProfileAttributes()));
+
+            // then
+            assertThat(attributes.getResponse().getStatus()).isEqualTo(404);
+            assertThat(attributes.getResponse().getContentAsString()).contains(vaultDetail);
         }
 
         @Test

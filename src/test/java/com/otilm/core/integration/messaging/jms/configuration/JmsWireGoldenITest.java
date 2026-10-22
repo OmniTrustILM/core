@@ -1,9 +1,14 @@
 package com.otilm.core.integration.messaging.jms.configuration;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.core.messaging.model.EventMessage;
+import com.otilm.core.messaging.model.SecretActionData;
 import com.otilm.core.messaging.model.ValidationMessage;
+import com.otilm.core.reference.ObjectRef;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.serialization.golden.WireGolden;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -21,6 +26,7 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.jms.support.converter.MappingJackson2MessageConverter;
 import org.springframework.jms.support.converter.MessageConverter;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -59,6 +65,32 @@ class JmsWireGoldenITest extends BaseSpringBootTest {
         EventMessage message = new EventMessage(ResourceEvent.CERTIFICATE_STATUS_CHANGED, Resource.CERTIFICATE, FIRST,
                 Map.of("at", OffsetDateTime.parse("2026-01-02T03:04:05Z")));
         WireGolden.assertMatches("jms-event-message.json", written(message));
+    }
+
+    /** An earlier Core refuses a member it does not know, so a delete without an owner must not carry one. */
+    @Test
+    void omitsTheOwner_whenTheSecretDeleteHasNone() throws Exception {
+        // given
+        var unownedDelete = SecretActionData.builder().deleteInVault(true).originalState(SecretState.ACTIVE).build();
+
+        // when
+        JsonNode data = new ObjectMapper().readTree(written(unownedDelete));
+
+        // then
+        assertThat(data.has("releasedBy")).isFalse();
+    }
+
+    @Test
+    void carriesTheOwner_whenTheSecretDeleteHasOne() throws Exception {
+        // given
+        var owner = new ObjectRef(Resource.TSP_PROFILE_BASIC_CREDENTIAL, FIRST);
+        var ownedDelete = SecretActionData.builder().releasedBy(owner).build();
+
+        // when
+        JsonNode data = new ObjectMapper().readTree(written(ownedDelete));
+
+        // then
+        assertThat(data.path("releasedBy").path("uuid").asText()).isEqualTo(owner.uuid().toString());
     }
 
     private String written(Object message) throws JMSException {

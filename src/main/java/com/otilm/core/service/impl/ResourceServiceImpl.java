@@ -372,9 +372,8 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     }
 
     /**
-     * A stored reference can outlive its object: deleted in its vault, or stored before deletes checked references. The
-     * operator fixes that on the referring object, so the refusal names the attribute rather than the missing object
-     * alone.
+     * A stored reference can outlive its object, such as one stored before deletes checked references. The operator
+     * fixes that on the referring object, so the refusal names the attribute rather than the missing object alone.
      */
     private ResourceObjectContentData getReferencedObjectContentData(DataAttribute attribute, NameAndUuidDto resourceId)
             throws AttributeException, ConnectorException {
