@@ -1,7 +1,6 @@
 package com.otilm.core.reference;
 
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.core.model.auth.ResourceAction;
@@ -17,6 +16,9 @@ import java.util.stream.Collectors;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Refuses to delete an object while anything still references it, in one message that names every referrer the caller
@@ -28,13 +30,17 @@ public class ObjectReferenceGuard {
     private final List<ObjectReferenceSource> sources;
     private final ResourceInternalService resourceService;
     private final AuthorizationEnforcer authorizationEnforcer;
+    private final TransactionTemplate separateReadOnlyTransactions;
 
     /** The resource service reaches the secret service, which needs this guard; it is looked up on first use. */
     public ObjectReferenceGuard(List<ObjectReferenceSource> sources, @Lazy ResourceInternalService resourceService,
-            AuthorizationEnforcer authorizationEnforcer) {
+            AuthorizationEnforcer authorizationEnforcer, PlatformTransactionManager transactionManager) {
         this.sources = sources;
         this.resourceService = resourceService;
         this.authorizationEnforcer = authorizationEnforcer;
+        this.separateReadOnlyTransactions = new TransactionTemplate(transactionManager);
+        this.separateReadOnlyTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.separateReadOnlyTransactions.setReadOnly(true);
     }
 
     /**
@@ -89,11 +95,21 @@ public class ObjectReferenceGuard {
         }
     }
 
-    /** The resource's own object read applies its parent's permission too, as the resource API does. */
+    /**
+     * The resource's own object read applies its parent's permission too, as the resource API does. A denial rolls back
+     * the transaction it crosses, so the read runs in one of its own and leaves the caller's transaction able to
+     * commit.
+     */
     private void enforcePermissionChain(ObjectRef object) {
+        if (resourceService.hasResourceExtensionService(object.resource())) {
+            separateReadOnlyTransactions.executeWithoutResult(status -> readResourceObject(object));
+        }
+    }
+
+    private void readResourceObject(ObjectRef object) {
         try {
             resourceService.getResourceObject(object.resource(), object.uuid());
-        } catch (NotFoundException | NotSupportedException e) {
+        } catch (NotFoundException e) {
             // the object's own permission, enforced already, decides
         }
     }

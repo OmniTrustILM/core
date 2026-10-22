@@ -1,7 +1,6 @@
 package com.otilm.core.reference;
 
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
@@ -77,13 +76,14 @@ public class ResourceAttributeReferenceSource implements ObjectReferenceSource {
     private Optional<ObjectReferrer> toReferrer(ResourceAttributeReferrer row) {
         ObjectRef object = new ObjectRef(Resource.valueOf(row.getObjectType()), row.getObjectUuid());
         String usage = "attribute '%s'".formatted(row.getAttributeLabel());
+        if (!resourceService.hasResourceExtensionService(object.resource())) {
+            return Optional.of(new ObjectReferrer(object, object.uuid().toString(), usage));
+        }
         try {
             String name = resourceService.getResourceObjectInternal(object.resource(), object.uuid()).getName();
             return Optional.of(new ObjectReferrer(object, name, usage));
         } catch (NotFoundException e) {
             return Optional.empty();
-        } catch (NotSupportedException e) {
-            return Optional.of(new ObjectReferrer(object, object.uuid().toString(), usage));
         }
     }
 }

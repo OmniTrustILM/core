@@ -219,6 +219,21 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
         return message;
     }
 
+    /** Leaves the secret as a delete request does, and returns the state its action puts back on a refusal. */
+    private SecretState awaitDeleteApproval(Secret target) {
+        SecretState stateBeforeTheRequest = target.getState();
+        target.setState(SecretState.PENDING_APPROVAL);
+        secretRepository.save(target);
+        return stateBeforeTheRequest;
+    }
+
+    private void assertStateRestored(Secret target, SecretState stateBeforeTheRequest) {
+        assertThat(secretRepository.findById(target.getUuid()))
+                .get()
+                .extracting(Secret::getState)
+                .isEqualTo(stateBeforeTheRequest);
+    }
+
     /** Runs the request without committing it, so the action it would queue is never sent. */
     private void inRolledBackTransaction(TransactionalStep step) {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
@@ -747,9 +762,7 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
         @Test
         void putsBackTheSecretState_whenTheDeleteIsRefusedAfterApproval() {
             // given
-            var stateBeforeTheRequest = secret.getState();
-            secret.setState(SecretState.PENDING_APPROVAL);
-            secretRepository.save(secret);
+            var stateBeforeTheRequest = awaitDeleteApproval(secret);
             var approvedDeletion = deletion(secret, stateBeforeTheRequest, null);
             injectAuthentication();
 
@@ -761,10 +774,49 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
             assertThatThrownBy(processApprovedDeletion)
                     .isInstanceOf(SecretOperationException.class)
                     .hasMessageContaining(TOKEN_PIN_USE);
-            assertThat(secretRepository.findById(secret.getUuid()))
-                    .get()
-                    .extracting(Secret::getState)
-                    .isEqualTo(stateBeforeTheRequest);
+            assertStateRestored(secret, stateBeforeTheRequest);
+        }
+
+        @Test
+        void putsBackTheSecretState_whenTheRefusalNamesAReferrerByUuid() throws Exception {
+            // given
+            var notifierPin = persistGenericSecret("notifier-pin");
+            var notifier = persistNotifier();
+            storePinReference(Resource.NOTIFICATION_INSTANCE, notifier.getUuid(), null, notifierPin);
+            var stateBeforeTheRequest = awaitDeleteApproval(notifierPin);
+            var approvedDeletion = deletion(notifierPin, stateBeforeTheRequest, null);
+            injectAuthentication();
+
+            // when
+            ThrowingCallable processApprovedDeletion = () -> secretInternalService
+                    .processSecretAction(approvedDeletion, true, true);
+
+            // then
+            assertThatThrownBy(processApprovedDeletion)
+                    .isInstanceOf(SecretOperationException.class)
+                    .hasMessageContaining("Notification instance '" + notifier.getUuid() + "'");
+            assertStateRestored(notifierPin, stateBeforeTheRequest);
+        }
+
+        @Test
+        void putsBackTheSecretState_whenTheRefusalHidesAReferrerBehindItsParent() throws Exception {
+            // given
+            var tokenProfile = persistTokenProfile("pin-profile");
+            storePinReference(Resource.TOKEN_PROFILE, tokenProfile.getUuid(), null, secret);
+            denyResourceAccess(Resource.TOKEN, ResourceAction.DETAIL);
+            var stateBeforeTheRequest = awaitDeleteApproval(secret);
+            var approvedDeletion = deletion(secret, stateBeforeTheRequest, null);
+            injectAuthentication();
+
+            // when
+            ThrowingCallable processApprovedDeletion = () -> secretInternalService
+                    .processSecretAction(approvedDeletion, true, true);
+
+            // then
+            assertThatThrownBy(processApprovedDeletion)
+                    .isInstanceOf(SecretOperationException.class)
+                    .hasMessageContaining("2 objects you are not allowed to see");
+            assertStateRestored(secret, stateBeforeTheRequest);
         }
 
         @Test
