@@ -312,6 +312,25 @@ class NormalizationRulesTest {
                 .isNotEqualTo(keyOfAlgorithm("DSA-1024"));
     }
 
+    /** The size a signature rule consumes still keys a row apart when it contradicts the declared parameter set. */
+    @Test
+    void aSpelledSizeTheDeclarationContradictsStaysIdentityBearing() {
+        String declared = "{\"algorithmFamily\":\"DSA\",\"parameterSetIdentifier\":\"2048\"}";
+
+        assertThat(keyOf(algorithmComponent("DSA-1024-SHA256", declared)))
+                .isNotEqualTo(keyOf(algorithmComponent("DSA-2048-SHA256", declared)));
+        assertThat(keyOf(algorithmComponent("DSA-2048-SHA256", declared)))
+                .isEqualTo(keyOf(algorithmComponent("dsa-2048 with sha-256", declared)));
+    }
+
+    /** A digest glued onto RSA is not its key size, so every spelling of the scheme keys alike. */
+    @ParameterizedTest
+    @CsvSource({"RSASHA512", "RSA-SHA512", "RSAWithSHA512", "RSA with SHA-512"})
+    void aDigestGluedOntoRsaIsNotItsKeySize(String name) {
+        assertThat(normalize(name).parameterSet()).isNull();
+        assertThat(keyOfAlgorithm(name)).isEqualTo(keyOfAlgorithm("RSA-SHA512"));
+    }
+
     /** A declared size the family defines stands even against the size the name spells; the clash is reported. */
     @Test
     void aDeclaredAdmissibleSizeOutranksTheSpelledOneAndIsReported() {

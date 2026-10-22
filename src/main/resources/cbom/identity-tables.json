@@ -3439,8 +3439,9 @@
       "why": "cbom-lens, RFC 8332"
     },
     {
-      "pattern": "(?<![A-Za-z0-9])RSA(?:[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?\\d{3,5})?[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?(?:with[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?)?(?=(?:SHA|MD)-?\\d)",
+      "pattern": "(?<![A-Za-z0-9])RSA(?:[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?(\\d{3,5}))?[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?(?:with[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?)?(?=(?:SHA|MD)-?\\d)",
       "family": "RSASSA-PKCS1",
+      "spelledSizeGroup": 1,
       "why": "conformance fixture RSA-SHA256 and rsa-2048-sha1-signed-key (authoring corpus): a digest-suffixed RSA name is a signature scheme, never the digest. One rule for the whole `<signature> with <digest>` shape, size and connector included: the two anchored forms it replaces consumed exactly what it consumes on their spellings, and `rsa-2048 with sha-256`, `RSA with SHA-256`, `RSA-2048-SHA-256` and the glued `rsaWithSHA1` reached the digest rules, or no rule, and keyed an RSA signature as a hash"
     },
     {
@@ -3484,8 +3485,9 @@
       "why": "cbomkit EdDSA"
     },
     {
-      "pattern": "(?<![A-Za-z0-9])DSA(?:[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?\\d{3,5})?[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?(?:with[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?)?(?=(?:SHA|MD)-?\\d)",
+      "pattern": "(?<![A-Za-z0-9])DSA(?:[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?(\\d{3,5}))?[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?(?:with[-_ \\t\\n\\x0B\\f\\r\\x1C\\x1D\\x1E\\x1F\\x85\\xA0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]?)?(?=(?:SHA|MD)-?\\d)",
       "family": "DSA",
+      "spelledSizeGroup": 1,
       "why": "digest-suffixed DSA, in every connector form. The anchored `DSA-SHA256` rule it replaces left `dsa-1024 with sha-1` to the SHA-1 rule: the family contradicted the dsa-with-sha1 arc the producer wrote, the arc was refuted and the asset keyed apart from its own algorithm. Placed after ML-DSA, SLH-DSA, ECDSA and EdDSA, which the left guard alone does not keep out of `ML-DSA-65 with SHA-512`"
     },
     {

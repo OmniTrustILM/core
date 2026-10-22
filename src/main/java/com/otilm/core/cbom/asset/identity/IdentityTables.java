@@ -79,8 +79,13 @@ public final class IdentityTables {
     private final int sizeMin;
     private final int sizeMax;
 
-    /** One row of the ordered name grammar: the family a spelling names, and the two guard forms it is matched with. */
-    public record GrammarRule(Pattern strict, Pattern loose, Pattern unguarded, String family) {
+    /**
+     * One row of the ordered name grammar: the family a spelling names, and the two guard forms it is matched with.
+     * {@code spelledSizeGroup}, when not {@code null}, is the capturing group holding a key size the rule consumes but
+     * the variant residue must still see.
+     */
+    public record GrammarRule(Pattern strict, Pattern loose, Pattern unguarded, String family,
+            Integer spelledSizeGroup) {
     }
 
     /**
@@ -523,10 +528,17 @@ public final class IdentityTables {
             // The unguarded form drops the TRAILING guard too, used only to read the halves out of a hybrid name,
             // where producers glue tokens together with no separator at all and a right-hand guard hides `X25519`.
             String unguarded = TRAILING_GUARD.matcher(loose).replaceAll("");
+            Pattern strict = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
+            Integer spelledSizeGroup = rule.optionalInteger("spelledSizeGroup");
+            if (spelledSizeGroup != null
+                    && (spelledSizeGroup < 1 || spelledSizeGroup > strict.matcher("").groupCount())) {
+                throw new IllegalStateException(RESOURCE + ": table `" + rule.path() + ".spelledSizeGroup` names group "
+                        + spelledSizeGroup + ", which its pattern does not have");
+            }
             rules
-                    .add(new GrammarRule(Pattern.compile(pattern, Pattern.CASE_INSENSITIVE),
-                            Pattern.compile(loose, Pattern.CASE_INSENSITIVE),
-                            Pattern.compile(unguarded, Pattern.CASE_INSENSITIVE), rule.field("family").text()));
+                    .add(new GrammarRule(strict, Pattern.compile(loose, Pattern.CASE_INSENSITIVE),
+                            Pattern.compile(unguarded, Pattern.CASE_INSENSITIVE), rule.field("family").text(),
+                            spelledSizeGroup));
         }
         return List.copyOf(rules);
     }

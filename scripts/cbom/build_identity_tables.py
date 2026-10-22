@@ -118,7 +118,9 @@ GUARD_SEPARATORS = (r"-_ \t\n\x0B\f\r\x1C\x1D\x1E\x1F\x85\xA0"
 # One separator, not a run: the variant residue strips the rules in order, and a run would let the gap an
 # earlier rule leaves behind join the halves -- `TLS_RSA_WITH_CHACHA20_POLY1305_SHA256` read as RSA with
 # SHA-256 once its AEAD was stripped, and a cipher suite's residue is part of its key.
-SIGNATURE_THEN_DIGEST = (r"(?:[" + GUARD_SEPARATORS + r"]?\d{3,5})?[" + GUARD_SEPARATORS + r"]?"
+# The key size is group 1, named by the rule's `spelledSizeGroup`: the residue pass keeps it, so a spelled size that
+# contradicts the declared parameter set still keys `DSA-1024-SHA256` apart from `DSA-2048-SHA256`.
+SIGNATURE_THEN_DIGEST = (r"(?:[" + GUARD_SEPARATORS + r"]?(\d{3,5}))?[" + GUARD_SEPARATORS + r"]?"
                          r"(?:with[" + GUARD_SEPARATORS + r"]?)?(?=(?:SHA|MD)-?\d)")
 
 NAME_GRAMMAR = [
@@ -265,7 +267,7 @@ NAME_GRAMMAR = [
     {"pattern": r"with-?RSA(Encryption)?(?![A-Za-z0-9])", "family": "RSASSA-PKCS1",
      "why": "theia SHA512withRSA; corroborated by OID 1.2.840.113549.1.1.13"},
     {"pattern": r"^rsa-sha2-", "family": "RSASSA-PKCS1", "why": "cbom-lens, RFC 8332"},
-    {"pattern": r"(?<![A-Za-z0-9])RSA" + SIGNATURE_THEN_DIGEST, "family": "RSASSA-PKCS1",
+    {"pattern": r"(?<![A-Za-z0-9])RSA" + SIGNATURE_THEN_DIGEST, "family": "RSASSA-PKCS1", "spelledSizeGroup": 1,
      "why": "conformance fixture RSA-SHA256 and rsa-2048-sha1-signed-key (authoring corpus): a digest-suffixed RSA "
             "name is a signature scheme, never the digest. One rule for the whole `<signature> with <digest>` shape, "
             "size and connector included: the two anchored forms it replaces consumed exactly what it consumes on "
@@ -283,7 +285,7 @@ NAME_GRAMMAR = [
      "why": "ECDSA-SHA256 must be ECDSA, not SHA-2 - the measured parity break"},
     {"pattern": r"^ecdsa-sha2-", "family": "ECDSA", "why": "cbom-lens familyPrefix"},
     {"pattern": r"(?<![A-Za-z0-9])EdDSA(?![A-Za-z0-9])", "family": "EdDSA", "why": "cbomkit EdDSA"},
-    {"pattern": r"(?<![A-Za-z0-9])DSA" + SIGNATURE_THEN_DIGEST, "family": "DSA",
+    {"pattern": r"(?<![A-Za-z0-9])DSA" + SIGNATURE_THEN_DIGEST, "family": "DSA", "spelledSizeGroup": 1,
      "why": "digest-suffixed DSA, in every connector form. The anchored `DSA-SHA256` rule it replaces left "
             "`dsa-1024 with sha-1` to the SHA-1 rule: the family contradicted the dsa-with-sha1 arc the producer "
             "wrote, the arc was refuted and the asset keyed apart from its own algorithm. Placed after ML-DSA, "
@@ -1466,7 +1468,7 @@ TABLE_SHAPES = {
     "oidToFamily": {"*": {"family": "str?", "curve": "str?", "mode": "str?",
                           "primitive": "str?", "parameterSet": "int?", "...": True}},
     "oidBlockedPrefixes": ["str"],
-    "nameGrammar": [{"...": True}],
+    "nameGrammar": [{"spelledSizeGroup": "int?", "...": True}],
     "sizeStoplist": ["str"],
     "modeTokens": ["str"],
     "cipherSuiteNamePatterns": ["str"],
