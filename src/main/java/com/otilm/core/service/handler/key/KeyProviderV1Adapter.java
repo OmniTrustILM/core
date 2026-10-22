@@ -47,6 +47,7 @@ import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.ProviderKeyPairPage;
+import com.otilm.core.model.crypto.ProviderKeyPairResolution;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -186,9 +187,14 @@ public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationVali
     }
 
     @Override
-    public ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit,
-            List<List<MetadataAttribute>> keyPairMetaFilter) {
+    public ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit) {
         throw new UnsupportedOperationException("Key pair listing is unsupported on a V1 connector");
+    }
+
+    @Override
+    public List<ProviderKeyPairResolution> resolveKeyPairs(TokenProfileFullModel tokenProfile,
+            List<List<MetadataAttribute>> keyPairMetas) {
+        throw new UnsupportedOperationException("Key pair resolution is unsupported on a V1 connector");
     }
 
     /** The V1 contract has no import, so a V1 connector imports nothing. */

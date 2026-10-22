@@ -5,13 +5,13 @@ import java.util.List;
 /**
  * A page of listed key pairs, with the size of the whole listing.
  *
- * @param unaddressableKeys the page's keys without an identifier unique to them
+ * @param unusableKeys the page's keys that onboarding cannot take
  */
-public record ProviderKeyPairPage(List<ProviderKeyPair> keyPairs, List<ProviderUnaddressableKey> unaddressableKeys,
+public record ProviderKeyPairPage(List<ProviderKeyPair> keyPairs, List<ProviderUnusableKey> unusableKeys,
         long totalItems) {
 
     public ProviderKeyPairPage {
         keyPairs = List.copyOf(keyPairs);
-        unaddressableKeys = List.copyOf(unaddressableKeys);
+        unusableKeys = List.copyOf(unusableKeys);
     }
 }

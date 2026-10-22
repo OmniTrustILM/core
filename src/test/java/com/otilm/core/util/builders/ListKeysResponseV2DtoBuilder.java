@@ -2,7 +2,7 @@ package com.otilm.core.util.builders;
 
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.key.UnaddressableKeyV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyV2Dto;
 import java.util.List;
 
 /**
@@ -12,7 +12,7 @@ import java.util.List;
 public final class ListKeysResponseV2DtoBuilder {
 
     private List<ListedKeyV2Dto> keys = List.of();
-    private List<UnaddressableKeyV2Dto> unaddressableKeys = List.of();
+    private List<UnusableKeyV2Dto> unusableKeys = List.of();
     private Long totalItems;
 
     public static ListKeysResponseV2DtoBuilder aKeyListing() {
@@ -24,8 +24,8 @@ public final class ListKeysResponseV2DtoBuilder {
         return this;
     }
 
-    public ListKeysResponseV2DtoBuilder withUnaddressableKeys(UnaddressableKeyV2Dto... unaddressableKeys) {
-        this.unaddressableKeys = List.of(unaddressableKeys);
+    public ListKeysResponseV2DtoBuilder withUnusableKeys(UnusableKeyV2Dto... unusableKeys) {
+        this.unusableKeys = List.of(unusableKeys);
         return this;
     }
 
@@ -37,8 +37,8 @@ public final class ListKeysResponseV2DtoBuilder {
     public ListKeysResponseV2Dto build() {
         ListKeysResponseV2Dto listing = new ListKeysResponseV2Dto();
         listing.setItems(keys);
-        listing.setUnaddressableKeys(unaddressableKeys);
-        listing.setTotalItems(totalItems == null ? keys.size() + unaddressableKeys.size() : totalItems);
+        listing.setUnusableKeys(unusableKeys);
+        listing.setTotalItems(totalItems == null ? keys.size() + unusableKeys.size() : totalItems);
         return listing;
     }
 }

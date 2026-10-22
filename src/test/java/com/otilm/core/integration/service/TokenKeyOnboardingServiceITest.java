@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.core.web.CryptographicKeyController;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -20,9 +21,11 @@ import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
-import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionOutcome;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyPairV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyReason;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -85,10 +88,12 @@ import com.otilm.core.util.RefusedDefinitionInserts;
 import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.TestPublicKeys;
 import com.otilm.core.util.builders.CertificateBuilder;
+import com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -96,12 +101,15 @@ import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -121,10 +129,14 @@ import static com.otilm.core.util.builders.ListKeysResponseV2DtoBuilder.aKeyList
 import static com.otilm.core.util.builders.ListedKeyPairV2DtoBuilder.aListedKeyPair;
 import static com.otilm.core.util.builders.ProviderKeyPairBuilder.aProviderKeyPair;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
-import static com.otilm.core.util.builders.UnaddressableKeyV2DtoBuilder.anUnaddressableKey;
+import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.aKeyResolutionResponse;
+import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.answered;
+import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.found;
+import static com.otilm.core.util.builders.UnusableKeyV2DtoBuilder.anUnusableKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
@@ -190,8 +202,16 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /** The token lists the key pairs and resolves a selection of each of them, in listing order. */
     private void tokenLists(ListedKeyPairV2Dto... keyPairs) throws Exception {
         connectorMock.stubKeyListing(aKeyListing().withKeys(keyPairs).build());
+        tokenResolves(
+                Arrays.stream(keyPairs).map(ResolveKeysResponseV2DtoBuilder::found).toArray(KeyResolutionV2Dto[]::new));
+    }
+
+    /** The token answers each selection with the answer at its position, whatever the selection names. */
+    private void tokenResolves(KeyResolutionV2Dto... answers) throws Exception {
+        connectorMock.stubKeyResolution(aKeyResolutionResponse().withAnswers(answers).build());
     }
 
     private void connectorDropsKeyListing() {
@@ -733,12 +753,12 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void listsAKeyWithoutAUniqueIdAfterTheKeyPairs_whenTheTokenListsBoth() throws Exception {
+        void listsAnUnusableKeyAfterTheKeyPairs_whenTheTokenListsBoth() throws Exception {
             // given
             connectorMock
                     .stubKeyListing(aKeyListing()
                             .withKeys(aListedKeyPair().build())
-                            .withUnaddressableKeys(anUnaddressableKey().build())
+                            .withUnusableKeys(anUnusableKey().build())
                             .build());
 
             // when
@@ -747,16 +767,15 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(page.getItems())
                     .extracting(TokenKeyDto::getStatus)
-                    .containsExactly(TokenKeyStatus.ONBOARDABLE, TokenKeyStatus.NO_UNIQUE_ID);
+                    .containsExactly(TokenKeyStatus.ONBOARDABLE, TokenKeyStatus.NO_USABLE_ID);
         }
 
         @Test
-        void describesItsKeyDataAlone_whenAKeyLacksAUniqueId() throws Exception {
+        void describesItsKeyDataAlone_whenAKeyIsUnusable() throws Exception {
             // given
             var label = "legacy";
             connectorMock
-                    .stubKeyListing(
-                            aKeyListing().withUnaddressableKeys(anUnaddressableKey().withLabel(label).build()).build());
+                    .stubKeyListing(aKeyListing().withUnusableKeys(anUnusableKey().withLabel(label).build()).build());
 
             // when
             TokenKeyDto entry = firstListedEntry();
@@ -770,16 +789,16 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             TokenKeyDto::getInventoryKeyUuid, TokenKeyDto::getInventoryKeyName,
                             TokenKeyDto::getSuggestedName)
                     .containsOnlyNulls();
-            assertThat(entry.getReason()).contains("without an ID unique to it");
+            assertThat(entry.getReason()).contains("without an ID the platform can address it by");
         }
 
         @Test
-        void countsAKeyWithoutAUniqueIdTowardThePages_whenTheTokenListsOne() throws Exception {
+        void countsAnUnusableKeyTowardThePages_whenTheTokenListsOne() throws Exception {
             // given
             connectorMock
                     .stubKeyListing(aKeyListing()
                             .withKeys(aListedKeyPair().build())
-                            .withUnaddressableKeys(anUnaddressableKey().build())
+                            .withUnusableKeys(anUnusableKey().build())
                             .withTotalItems(5)
                             .build());
 
@@ -791,6 +810,51 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .extracting(TokenKeyListResponseDto::getTotalItems, TokenKeyListResponseDto::getItemsPerPage,
                             TokenKeyListResponseDto::getTotalPages)
                     .containsExactly(5L, 2, 3);
+        }
+
+        @ParameterizedTest
+        @MethodSource("unusableKeyStatuses")
+        void listsAnUnusableKeyWithTheStatusOfItsReason(UnusableKeyReason reason, TokenKeyStatus status, String text)
+                throws Exception {
+            // given
+            connectorMock
+                    .stubKeyListing(aKeyListing().withUnusableKeys(anUnusableKey().withReason(reason).build()).build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry).extracting(TokenKeyDto::getStatus, TokenKeyDto::getReason).containsExactly(status, text);
+        }
+
+        private static Stream<Arguments> unusableKeyStatuses() {
+            return Stream
+                    .of(arguments(UnusableKeyReason.UNADDRESSABLE, TokenKeyStatus.NO_USABLE_ID,
+                            "The key storage holds this key without an ID the platform can address it by."),
+                            arguments(UnusableKeyReason.UNSUPPORTED_TYPE, TokenKeyStatus.UNSUPPORTED_KEY_TYPE,
+                                    "The connector cannot operate a key of this type."),
+                            arguments(UnusableKeyReason.UNREADABLE, TokenKeyStatus.UNREADABLE,
+                                    "The connector cannot read this key."),
+                            arguments(UnusableKeyReason.NOT_FOUND, TokenKeyStatus.GONE,
+                                    "The key storage no longer holds this key pair."));
+        }
+
+        @Test
+        void listsNoAlgorithmOrLength_whenTheConnectorCannotReadTheKey() throws Exception {
+            // given
+            connectorMock
+                    .stubKeyListing(aKeyListing()
+                            .withUnusableKeys(
+                                    anUnusableKey().withReason(UnusableKeyReason.UNREADABLE).withoutKeyData().build())
+                            .build());
+
+            // when
+            TokenKeyDto entry = firstListedEntry();
+
+            // then
+            assertThat(entry)
+                    .extracting(TokenKeyDto::getStatus, TokenKeyDto::getKeyAlgorithm, TokenKeyDto::getLength)
+                    .containsExactly(TokenKeyStatus.UNREADABLE, null, null);
         }
 
         /** An import the reconciliation still has to settle may yet register the key pair or destroy it. */
@@ -939,18 +1003,23 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void readsTheSelectedPairAgainFromTheToken_whenItOnboardsIt() throws Exception {
+        void resolvesEachSelectionUnderItsPosition_whenItOnboardsThem() throws Exception {
             // given
-            tokenLists(aListedKeyPair().build());
-            var selection = theFirstListedPair();
+            tokenLists(aListedKeyPair().withKeyId("signer-id").build(),
+                    aListedKeyPair().withKeyId("archive-id").build());
+            var signer = new TokenKeySelectionDto(keyIdMeta("signer-id"), null);
+            var archive = new TokenKeySelectionDto(keyIdMeta("archive-id"), null);
 
             // when
-            onboard(selection);
+            onboardTogether(signer, archive);
 
             // then
-            connectorMock.verifyKeyListingRequestContaining("""
-                    {"keyRequestType": "keyPair", "offset": 0, "limit": 1000, "keyMetaFilter": [[{"name": "keyId"}]]}
+            connectorMock.verifyKeyResolutionRequestContaining("""
+                    {"keyRequestType": "keyPair", "keys": [
+                        {"identifier": "0", "keyMeta": [{"name": "keyId", "content": [{"data": "signer-id"}]}]},
+                        {"identifier": "1", "keyMeta": [{"name": "keyId", "content": [{"data": "archive-id"}]}]}]}
                     """);
+            connectorMock.verifyKeyListingRequests(0);
         }
 
         @Test
@@ -996,7 +1065,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // when / then
             assertThatThrownBy(() -> onboard(selection, undefined)).isInstanceOf(ValidationException.class);
-            connectorMock.verifyKeyListingRequests(1);
+            connectorMock.verifyKeyResolutionRequests(0);
             assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
         }
 
@@ -1213,42 +1282,6 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesTheOnboarding_whenTheTokenHoldsMoreKeyPairsUnderTheSelectionThanOneReadTakes() throws Exception {
-            // given
-            var label = "signer";
-            connectorMock
-                    .stubKeyListing(aKeyListing()
-                            .withKeys(aListedKeyPair().withLabel(label).build())
-                            .withTotalItems(ListKeysRequestV2Dto.MAX_LIMIT + 1L)
-                            .build());
-            var selection = theFirstListedPair();
-
-            // when / then
-            assertThatThrownBy(() -> onboard(selection))
-                    .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("The key storage holds more than 1000 key pairs under the selected handles.");
-            assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
-        }
-
-        @Test
-        void refusesTheOnboarding_whenTheKeyStorageLeavesOutAKeyPairUnderTheSelection() throws Exception {
-            // given
-            var label = "signer";
-            connectorMock
-                    .stubKeyListing(aKeyListing()
-                            .withKeys(aListedKeyPair().withLabel(label).build())
-                            .withTotalItems(2L)
-                            .build());
-            var selection = theFirstListedPair();
-
-            // when / then
-            assertThatThrownBy(() -> onboard(selection))
-                    .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("The key storage left out some key pairs under the selected handles.");
-            assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
-        }
-
-        @Test
         void onboardsEachKeyPairUnderItsSuggestedName_whenTwoShareALabel() throws Exception {
             // given
             var label = "signer";
@@ -1271,10 +1304,12 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void skipsTheRepeatedKeyPair_whenTheSelectionRepeatsIt() throws Exception {
             // given
             var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build());
+            var pair = aListedKeyPair().withKeyId("signer-id").withLabel(label).build();
+            tokenLists(pair);
             var once = theFirstListedPair();
             var againName = "again";
             var again = theFirstListedPairNamed(againName);
+            tokenResolves(found(pair), found(pair));
 
             // when
             List<TokenKeyOnboardingResultDto> results = onboardTogether(once, again);
@@ -1285,41 +1320,59 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(skipped.getKeyName()).isEqualTo(label);
             assertThat(skipped.getReason()).contains(label);
             assertThat(cryptographicKeyRepository.existsByName(againName)).isFalse();
-        }
-
-        @Test
-        void readsTheRepeatedKeyPairOnce_whenTheSelectionRepeatsIt() throws Exception {
-            // given
-            tokenLists(aListedKeyPair().build());
-            var once = theFirstListedPair();
-            var again = theFirstListedPairNamed("again");
-
-            // when
-            onboardTogether(once, again);
-
-            // then
-            connectorMock.verifyKeyListingRequestContaining("""
-                    {"keyRequestType": "keyPair", "offset": 0, "limit": 1000, "keyMetaFilter": [[{"name": "keyId"}]]}
+            connectorMock.verifyKeyResolutionRequestContaining("""
+                    {"keys": [
+                        {"identifier": "0", "keyMeta": [{"name": "keyId", "content": [{"data": "signer-id"}]}]},
+                        {"identifier": "1", "keyMeta": [{"name": "keyId", "content": [{"data": "signer-id"}]}]}]}
                     """);
         }
 
-        @Test
-        void refusesTheSelection_whenTheTokenHoldsTwoKeyPairsUnderItsHandle() throws Exception {
+        @ParameterizedTest
+        @MethodSource("answersWithoutAKeyPair")
+        void skipsTheSelectionAndOnboardsTheNext_whenTheTokenAnswersItWithoutAKeyPair(KeyResolutionOutcome outcome,
+                String reason) throws Exception {
             // given
-            var handle = "shared-id";
-            tokenLists(aListedKeyPair().withKeyId(handle).withLabel("first").build(),
-                    aListedKeyPair().withKeyId(handle).withLabel("second").build());
-            var shared = new TokenKeySelectionDto(keyIdMeta(handle), null);
+            var next = aListedKeyPair().withLabel("next").build();
+            tokenResolves(answered(outcome), found(next));
+            var unanswered = new TokenKeySelectionDto(keyIdMeta("unanswered-id"), null);
+            var nextSelection = new TokenKeySelectionDto(next.getKeyPairMeta(), null);
 
             // when
-            TokenKeyOnboardingResultDto result = onboard(shared);
+            List<TokenKeyOnboardingResultDto> results = onboardTogether(unanswered, nextSelection);
 
             // then
-            assertThat(result)
+            assertThat(results)
                     .extracting(TokenKeyOnboardingResultDto::isOnboarded, TokenKeyOnboardingResultDto::getReason)
-                    .containsExactly(false, "The key storage holds more than one key pair under this handle.");
-            assertThat(cryptographicKeyRepository.existsByName("first")).isFalse();
-            assertThat(cryptographicKeyRepository.existsByName("second")).isFalse();
+                    .containsExactly(tuple(false, reason), tuple(true, null));
+            assertThat(results.getFirst())
+                    .extracting(TokenKeyOnboardingResultDto::getKeyUuid, TokenKeyOnboardingResultDto::getKeyName)
+                    .containsOnlyNulls();
+        }
+
+        private static Stream<Arguments> answersWithoutAKeyPair() {
+            return Stream
+                    .of(arguments(KeyResolutionOutcome.NOT_FOUND, "The key storage no longer holds this key pair."),
+                            arguments(KeyResolutionOutcome.AMBIGUOUS,
+                                    "The key storage holds more than one key pair under this handle."),
+                            arguments(KeyResolutionOutcome.UNREADABLE, "The connector cannot read this key pair."),
+                            arguments(KeyResolutionOutcome.INVALID_HANDLE,
+                                    "The connector does not recognise this handle."));
+        }
+
+        /** The resolution precedes every write, so a token that cannot answer it leaves the inventory as it was. */
+        @Test
+        void writesNoKey_whenTheResolutionFails() throws Exception {
+            // given
+            connectorMock.failKeyResolution();
+            var first = new TokenKeySelectionDto(keyIdMeta("first-id"), null);
+            var second = new TokenKeySelectionDto(keyIdMeta("second-id"), null);
+            long keysBefore = cryptographicKeyRepository.count();
+
+            // when / then
+            assertThatThrownBy(() -> onboardTogether(first, second))
+                    .isInstanceOf(ConnectorServerException.class)
+                    .hasMessage("The connector failed to resolve the key pairs.");
+            assertThat(cryptographicKeyRepository.count()).isEqualTo(keysBefore);
         }
 
         @Test
@@ -1338,6 +1391,22 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(result.getReason())
                     .isEqualTo("Key certKey_in_token holds the same public key under a token instance, without its "
                             + "private key.");
+        }
+
+        @Test
+        void skipsTheKeyPair_whenTheTokenHoldsNoPublicKeyForIt() throws Exception {
+            // given
+            tokenLists(aListedKeyPair().withoutPublicKey().build());
+            var selection = theFirstListedPair();
+            long keysBefore = cryptographicKeyRepository.count();
+
+            // when
+            TokenKeyOnboardingResultDto result = onboard(selection);
+
+            // then
+            assertThat(result.isOnboarded()).isFalse();
+            assertThat(result.getReason()).isEqualTo("The key storage holds no public key for this key pair.");
+            assertThat(cryptographicKeyRepository.count()).isEqualTo(keysBefore);
         }
 
         @Test
@@ -1399,9 +1468,9 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
         }
 
-        /** The token may still list a key pair that the compensation destroys while the token is read again. */
+        /** The token may still find a key pair that the compensation destroys while it resolves the selection. */
         @Test
-        void skipsTheKeyPair_whenItsImportIsCompensatedWhileTheTokenIsReadAgain() throws Exception {
+        void skipsTheKeyPair_whenItsImportIsCompensatedWhileTheTokenResolvesTheSelection() throws Exception {
             // given
             var publicKey = rsaPublicKey();
             var attempt = importOf(publicKey, KeyImportState.COMPENSATING);
@@ -1409,7 +1478,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             tokenLists(aListedKeyPair().withLabel(label).withPublicKey(publicKey).build());
             var selection = theFirstListedPair();
             connectorMock
-                    .onKeyListingRequest(() -> jdbcTemplate
+                    .onKeyResolutionRequest(() -> jdbcTemplate
                             .update("UPDATE key_import SET state = ? WHERE uuid = ?", KeyImportState.COMPENSATED.name(),
                                     attempt));
 
@@ -1655,6 +1724,27 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .isEqualTo(new OnboardedKeys(List
                             .of(new OnboardedKey(created.toString(), label, false),
                                     new OnboardedKey(hidden.toString(), hiddenName, true))));
+        }
+
+        @Test
+        void onboardsNothingAndNamesNoResource_whenNoSelectionResolvesToAKeyPair() throws Exception {
+            // given
+            tokenResolves(answered(KeyResolutionOutcome.NOT_FOUND), answered(KeyResolutionOutcome.NOT_FOUND));
+            var first = new TokenKeySelectionDto(keyIdMeta("first-id"), null);
+            var second = new TokenKeySelectionDto(keyIdMeta("second-id"), null);
+
+            // when
+            List<TokenKeyOnboardingResultDto> results = onboardThroughTheApi(first, second).getResults();
+
+            // then
+            var gone = "The key storage no longer holds this key pair.";
+            assertThat(results)
+                    .extracting(TokenKeyOnboardingResultDto::isOnboarded, TokenKeyOnboardingResultDto::getReason)
+                    .containsExactly(tuple(false, gone), tuple(false, gone));
+            LogRecord record = theOnboardingRecord();
+            assertThat(record.operationResult()).isEqualTo(OperationResult.SUCCESS);
+            assertThat(record.resource().objects()).isNullOrEmpty();
+            assertThat(record.operationData()).isEqualTo(new OnboardedKeys(List.of()));
         }
 
         /** Each key commits on its own, so the keys onboarded before the failure stay in the inventory. */

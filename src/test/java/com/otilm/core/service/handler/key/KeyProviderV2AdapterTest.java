@@ -61,17 +61,23 @@ import com.otilm.api.model.connector.cryptography.v2.key.ImportKeyAttributesRequ
 import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyHandleV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionOutcome;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyPairV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.key.UnaddressableKeyV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyReason;
+import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.DecryptDataResponseV2Dto;
@@ -111,7 +117,8 @@ import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.ProviderKeyPair;
 import com.otilm.core.model.crypto.ProviderKeyPairPage;
-import com.otilm.core.model.crypto.ProviderUnaddressableKey;
+import com.otilm.core.model.crypto.ProviderKeyPairResolution;
+import com.otilm.core.model.crypto.ProviderUnusableKey;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
@@ -150,11 +157,15 @@ import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.builders.ListKeysResponseV2DtoBuilder.aKeyListing;
 import static com.otilm.core.util.builders.ListedKeyPairV2DtoBuilder.aListedKeyPair;
-import static com.otilm.core.util.builders.UnaddressableKeyV2DtoBuilder.anUnaddressableKey;
+import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.aKeyResolutionResponse;
+import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.answered;
+import static com.otilm.core.util.builders.ResolveKeysResponseV2DtoBuilder.found;
+import static com.otilm.core.util.builders.UnusableKeyV2DtoBuilder.anUnusableKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
@@ -926,7 +937,7 @@ class KeyProviderV2AdapterTest {
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().build());
 
             // when
-            adapter.listKeyPairs(profile, 20, 10, List.of(metadata("pair-handle")));
+            adapter.listKeyPairs(profile, 20, 10);
 
             // then
             ArgumentCaptor<ListKeysRequestV2Dto> sent = ArgumentCaptor.forClass(ListKeysRequestV2Dto.class);
@@ -934,7 +945,6 @@ class KeyProviderV2AdapterTest {
             assertThat(sent.getValue().getOffset()).isEqualTo(20);
             assertThat(sent.getValue().getLimit()).isEqualTo(10);
             assertThat(sent.getValue().getKeyRequestType()).isEqualTo(KeyRequestType.KEY_PAIR);
-            assertThat(sent.getValue().getKeyMetaFilter()).hasSize(1);
             assertThat(sent.getValue().getTokenProfileAttributes()).isNotNull();
         }
 
@@ -945,7 +955,7 @@ class KeyProviderV2AdapterTest {
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(signer).withTotalItems(7).build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10, null);
+            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
             assertThat(listed.totalItems()).isEqualTo(7L);
@@ -964,7 +974,7 @@ class KeyProviderV2AdapterTest {
                     .thenReturn(aKeyListing().withKeys(aListedKeyPair().withoutPublicKey().build()).build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10, null);
+            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
             assertThat(listed.keyPairs()).singleElement().returns(null, ProviderKeyPair::publicKey);
@@ -978,7 +988,7 @@ class KeyProviderV2AdapterTest {
                             .fromErrorCode(ErrorCode.VALIDATION_FAILED, "refused for " + TOKEN_SECRET, null, null)));
 
             // when / then
-            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10, null))
+            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(ErrorCode.VALIDATION_FAILED.name())
                     .hasMessageNotContaining(TOKEN_SECRET);
@@ -995,7 +1005,7 @@ class KeyProviderV2AdapterTest {
 
             // when
             ConnectorServerException failed = catchThrowableOfType(ConnectorServerException.class,
-                    () -> adapter.listKeyPairs(profile, 0, 10, null));
+                    () -> adapter.listKeyPairs(profile, 0, 10));
 
             // then
             assertThat(failed.getHttpStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
@@ -1016,76 +1026,237 @@ class KeyProviderV2AdapterTest {
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(echoing).build());
 
             // when / then
-            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10, null))
+            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
                     .isInstanceOf(OutboundSecretLeakException.class);
         }
 
         @Test
-        void mapsTheKeysListedWithoutAUniqueId() throws Exception {
+        void mapsTheUnusableKeysWithTheirReasons() throws Exception {
             // given
             when(client.listKeys(any(), any()))
                     .thenReturn(aKeyListing()
-                            .withUnaddressableKeys(anUnaddressableKey().withLabel("legacy").build(),
-                                    anUnaddressableKey().withLabel(null).build())
+                            .withUnusableKeys(anUnusableKey().withLabel("legacy").build(),
+                                    anUnusableKey()
+                                            .withLabel(null)
+                                            .withReason(UnusableKeyReason.UNSUPPORTED_TYPE)
+                                            .build(),
+                                    anUnusableKey()
+                                            .withLabel("damaged")
+                                            .withReason(UnusableKeyReason.UNREADABLE)
+                                            .build(),
+                                    anUnusableKey()
+                                            .withLabel("vanished")
+                                            .withReason(UnusableKeyReason.NOT_FOUND)
+                                            .build())
                             .build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10, null);
+            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
             assertThat(listed.keyPairs()).isEmpty();
-            assertThat(listed.unaddressableKeys())
-                    .containsExactly(new ProviderUnaddressableKey("legacy", KeyAlgorithm.RSA, 2048),
-                            new ProviderUnaddressableKey(null, KeyAlgorithm.RSA, 2048));
-            assertThat(listed.totalItems()).isEqualTo(2L);
+            assertThat(listed.unusableKeys())
+                    .containsExactly(
+                            new ProviderUnusableKey("legacy", UnusableKeyReason.UNADDRESSABLE, KeyAlgorithm.RSA, 2048),
+                            new ProviderUnusableKey(null, UnusableKeyReason.UNSUPPORTED_TYPE, KeyAlgorithm.RSA, 2048),
+                            new ProviderUnusableKey("damaged", UnusableKeyReason.UNREADABLE, KeyAlgorithm.RSA, 2048),
+                            new ProviderUnusableKey("vanished", UnusableKeyReason.NOT_FOUND, KeyAlgorithm.RSA, 2048));
+            assertThat(listed.totalItems()).isEqualTo(4L);
         }
 
         @Test
-        void mapsAKeyWithoutAUniqueIdListedWithoutALength() throws Exception {
+        void mapsAnUnusableKeyListedWithoutKeyData() throws Exception {
             // given
-            UnaddressableKeyV2Dto mlDsa = anUnaddressableKey()
-                    .withAlgorithm(KeyAlgorithm.MLDSA)
-                    .withLength(null)
-                    .build();
-            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnaddressableKeys(mlDsa).build());
+            UnusableKeyV2Dto unread = anUnusableKey().withLabel("legacy").withoutKeyData().build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnusableKeys(unread).build());
 
             // when
-            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10, null);
+            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
 
             // then
-            assertThat(listed.unaddressableKeys())
+            assertThat(listed.unusableKeys())
+                    .containsExactly(new ProviderUnusableKey("legacy", UnusableKeyReason.UNADDRESSABLE, null, null));
+        }
+
+        @Test
+        void mapsAnUnusableKeyListedWithoutALength() throws Exception {
+            // given
+            UnusableKeyV2Dto mlDsa = anUnusableKey().withAlgorithm(KeyAlgorithm.MLDSA).withLength(null).build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnusableKeys(mlDsa).build());
+
+            // when
+            ProviderKeyPairPage listed = adapter.listKeyPairs(profile, 0, 10);
+
+            // then
+            assertThat(listed.unusableKeys())
                     .singleElement()
-                    .returns(KeyAlgorithm.MLDSA, ProviderUnaddressableKey::algorithm)
-                    .returns(null, ProviderUnaddressableKey::length);
+                    .returns(KeyAlgorithm.MLDSA, ProviderUnusableKey::algorithm)
+                    .returns(null, ProviderUnusableKey::length);
         }
 
         @ParameterizedTest
         @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
-        void rejectsAKeyWithoutAUniqueIdLabelledWithAnExpandedSecret(Resource secretScope) throws Exception {
+        void rejectsAnUnusableKeyLabelledWithAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
             when(client.listKeys(any(), any()))
-                    .thenReturn(aKeyListing()
-                            .withUnaddressableKeys(anUnaddressableKey().withLabel(TOKEN_SECRET).build())
-                            .build());
+                    .thenReturn(
+                            aKeyListing().withUnusableKeys(anUnusableKey().withLabel(TOKEN_SECRET).build()).build());
 
             // when / then
-            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10, null))
+            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
                     .isInstanceOf(OutboundSecretLeakException.class);
         }
 
         @Test
-        void rejectsAKeyWithoutAUniqueIdDescribedWithAnExpandedSecret() throws Exception {
+        void rejectsAnUnusableKeyDescribedWithAnExpandedSecret() throws Exception {
             // given
             stubExpandedSecret(Resource.TOKEN, TOKEN_SECRET);
             MetadataAttributeV2 echoing = new MetadataAttributeV2();
             echoing.setName("note");
             echoing.setContent(List.of(new StringAttributeContentV2(TOKEN_SECRET)));
-            UnaddressableKeyV2Dto described = anUnaddressableKey().withMetadata(List.of(echoing)).build();
-            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnaddressableKeys(described).build());
+            UnusableKeyV2Dto described = anUnusableKey().withMetadata(List.of(echoing)).build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnusableKeys(described).build());
 
             // when / then
-            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10, null))
+            assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
+                    .isInstanceOf(OutboundSecretLeakException.class);
+        }
+    }
+
+    // ── KeyResolution ─────────────────────────────────────────────────────────
+
+    @Nested
+    class KeyResolution {
+
+        @Test
+        void sendsEachHandleUnderItsPosition() throws Exception {
+            // given
+            List<MetadataAttribute> signer = metadata("signer-handle");
+            List<MetadataAttribute> archive = metadata("archive-handle");
+            when(client.resolveKeys(any(), any()))
+                    .thenReturn(aKeyResolutionResponse()
+                            .withAnswers(answered(KeyResolutionOutcome.NOT_FOUND),
+                                    answered(KeyResolutionOutcome.NOT_FOUND))
+                            .build());
+
+            // when
+            adapter.resolveKeyPairs(profile, List.of(signer, archive));
+
+            // then
+            ArgumentCaptor<ResolveKeysRequestV2Dto> sent = ArgumentCaptor.forClass(ResolveKeysRequestV2Dto.class);
+            verify(client).resolveKeys(any(), sent.capture());
+            assertThat(sent.getValue().getKeyRequestType()).isEqualTo(KeyRequestType.KEY_PAIR);
+            assertThat(sent.getValue().getKeys())
+                    .extracting(KeyHandleV2Dto::getIdentifier, KeyHandleV2Dto::getKeyMeta)
+                    .containsExactly(tuple("0", signer), tuple("1", archive));
+            assertThat(sent.getValue().getTokenProfileAttributes()).isNotNull();
+        }
+
+        @Test
+        void returnsTheAnswersInHandleOrder_whenTheConnectorAnswersOutOfOrder() throws Exception {
+            // given
+            ListedKeyPairV2Dto signer = aListedKeyPair().withLabel("signer").build();
+            ResolveKeysResponseV2Dto reversed = new ResolveKeysResponseV2Dto(List
+                    .of(new KeyResolutionV2Dto("1", KeyResolutionOutcome.FOUND, signer),
+                            new KeyResolutionV2Dto("0", KeyResolutionOutcome.NOT_FOUND, null)));
+            when(client.resolveKeys(any(), any())).thenReturn(reversed);
+
+            // when
+            List<ProviderKeyPairResolution> resolved = adapter
+                    .resolveKeyPairs(profile, List.of(metadata("gone-handle"), signer.getKeyPairMeta()));
+
+            // then
+            assertThat(resolved)
+                    .extracting(ProviderKeyPairResolution::outcome)
+                    .containsExactly(KeyResolutionOutcome.NOT_FOUND, KeyResolutionOutcome.FOUND);
+            assertThat(resolved.getLast().keyPair().label()).isEqualTo("signer");
+        }
+
+        @Test
+        void mapsAFoundKeyPair() throws Exception {
+            // given
+            ListedKeyPairV2Dto signer = aListedKeyPair().withLabel("signer").build();
+            when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(signer).build());
+            when(client.resolveKeys(any(), any()))
+                    .thenReturn(aKeyResolutionResponse().withAnswers(found(signer)).build());
+            ProviderKeyPair listed = adapter.listKeyPairs(profile, 0, 10).keyPairs().getFirst();
+
+            // when
+            List<ProviderKeyPairResolution> resolved = adapter
+                    .resolveKeyPairs(profile, List.of(signer.getKeyPairMeta()));
+
+            // then
+            ProviderKeyPairResolution resolution = resolved.getFirst();
+            assertThat(resolved).hasSize(1);
+            assertThat(resolution.outcome()).isEqualTo(KeyResolutionOutcome.FOUND);
+            assertThat(resolution.keyPair()).usingRecursiveComparison().isEqualTo(listed);
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = KeyResolutionOutcome.class,
+                names = {"NOT_FOUND", "AMBIGUOUS", "UNREADABLE", "INVALID_HANDLE"})
+        void mapsEachOutcomeWithoutAKeyPair(KeyResolutionOutcome outcome) throws Exception {
+            // given
+            when(client.resolveKeys(any(), any()))
+                    .thenReturn(aKeyResolutionResponse().withAnswers(answered(outcome)).build());
+
+            // when
+            List<ProviderKeyPairResolution> resolved = adapter
+                    .resolveKeyPairs(profile, List.of(metadata("pair-handle")));
+
+            // then
+            assertThat(resolved).containsExactly(new ProviderKeyPairResolution(outcome, null));
+        }
+
+        @Test
+        void refusesTheResolution_whenTheConnectorRefusesIt() throws Exception {
+            // given
+            when(client.resolveKeys(any(), any()))
+                    .thenThrow(new ConnectorProblemException(ProblemDetailExtended
+                            .fromErrorCode(ErrorCode.KEY_TYPE_NOT_LISTABLE, "refused for " + TOKEN_SECRET, null,
+                                    null)));
+
+            // when / then
+            assertThatThrownBy(() -> adapter.resolveKeyPairs(profile, List.of(metadata("pair-handle"))))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessage("The connector refused to resolve the key pairs (KEY_TYPE_NOT_LISTABLE).");
+        }
+
+        /**
+         * The request carried the token's and the profile's secrets, so nothing the connector answered may travel on.
+         */
+        @ParameterizedTest
+        @MethodSource("failedResolutions")
+        void dropsTheConnectorsWordsWhenTheResolutionFails(Exception failure) throws Exception {
+            // given
+            when(client.resolveKeys(any(), any())).thenThrow(failure);
+
+            // when
+            ConnectorServerException failed = catchThrowableOfType(ConnectorServerException.class,
+                    () -> adapter.resolveKeyPairs(profile, List.of(metadata("pair-handle"))));
+
+            // then
+            assertThat(failed.getHttpStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
+            assertThat(failed.getMessage()).isEqualTo("The connector failed to resolve the key pairs.");
+            assertThat(failed.getCause()).isNull();
+        }
+
+        private static Stream<Exception> failedResolutions() {
+            return failuresEchoing("failed for " + TOKEN_SECRET);
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
+        void refusesAnAnswerEchoingAnExpandedSecret(Resource secretScope) throws Exception {
+            // given
+            stubExpandedSecret(secretScope, TOKEN_SECRET);
+            ListedKeyPairV2Dto echoing = aListedKeyPair().withLabel(TOKEN_SECRET).withoutPublicKey().build();
+            when(client.resolveKeys(any(), any()))
+                    .thenReturn(aKeyResolutionResponse().withAnswers(found(echoing)).build());
+
+            // when / then
+            assertThatThrownBy(() -> adapter.resolveKeyPairs(profile, List.of(echoing.getKeyPairMeta())))
                     .isInstanceOf(OutboundSecretLeakException.class);
         }
     }

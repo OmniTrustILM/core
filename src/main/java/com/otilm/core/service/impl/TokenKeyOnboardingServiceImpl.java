@@ -10,7 +10,6 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.OnboardTokenKeysRequestDto;
 import com.otilm.api.model.client.cryptography.key.TokenKeySelectionDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
-import com.otilm.api.model.connector.cryptography.v2.key.KeyMetaMatcher;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.OnboardTokenKeysResponseDto;
@@ -30,7 +29,8 @@ import com.otilm.core.model.crypto.OnboardedKeys;
 import com.otilm.core.model.crypto.OnboardedKeys.OnboardedKey;
 import com.otilm.core.model.crypto.ProviderKeyPair;
 import com.otilm.core.model.crypto.ProviderKeyPairPage;
-import com.otilm.core.model.crypto.ProviderUnaddressableKey;
+import com.otilm.core.model.crypto.ProviderKeyPairResolution;
+import com.otilm.core.model.crypto.ProviderUnusableKey;
 import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
 import com.otilm.core.model.crypto.PublicKeyHolderSummary;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
@@ -72,16 +72,17 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
 
     private static final Logger logger = LoggerFactory.getLogger(TokenKeyOnboardingServiceImpl.class);
 
-    /** The selection is read again in one listing, within the connector's page cap. */
-    static final int MAX_PAIRS_PER_REREAD = ListKeysRequestV2Dto.MAX_LIMIT;
-
     static final String GONE = "The key storage no longer holds this key pair.";
     static final String AMBIGUOUS = "The key storage holds more than one key pair under this handle.";
     static final String HELD = "Key %s already holds this key pair.";
     static final String NOT_ACTIVE = "Key %s holds this public key without a token instance, but it is not active, so "
             + "the private key cannot join it.";
     static final String PUBLIC_KEY_MISSING = "The key storage holds no public key for this key pair.";
-    static final String NO_UNIQUE_ID = "The key storage holds this key without an ID unique to it.";
+    static final String NO_USABLE_ID = "The key storage holds this key without an ID the platform can address it by.";
+    static final String UNSUPPORTED_KEY_TYPE = "The connector cannot operate a key of this type.";
+    static final String UNREADABLE_KEY = "The connector cannot read this key.";
+    static final String UNREADABLE_PAIR = "The connector cannot read this key pair.";
+    static final String UNRECOGNISED_HANDLE = "The connector does not recognise this handle.";
     static final String HELD_MEANWHILE = "The inventory came to hold this key pair while it was being onboarded.";
     static final String RECORD_CHANGED = "The key holding this public key changed while the private key was joining "
             + "it. List the key storage again.";
@@ -90,9 +91,6 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             + ListKeysRequestV2Dto.MAX_LIMIT + " key pairs.";
     static final String PAGE_BEYOND_LAST_OFFSET = "The page must start at most " + Integer.MAX_VALUE
             + " key pairs into the listing.";
-    static final String TOO_MANY_PAIRS = "The key storage holds more than " + MAX_PAIRS_PER_REREAD
-            + " key pairs under the selected handles.";
-    static final String PAIRS_LEFT_OUT = "The key storage left out some key pairs under the selected handles.";
     static final String ONBOARDING_FAILED = "Failed to onboard the key pair.";
     private static final String UNLABELLED_NAME = "Onboarded key";
     private static final int FINGERPRINT_PREFIX_LENGTH = 8;
@@ -133,13 +131,13 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         TokenKeyPage page = TokenKeyPage.of(pageNumber, itemsPerPage);
         ProviderKeyPairPage listed = keyProviderAdapterFactory
                 .forToken(profile.tokenInstance())
-                .listKeyPairs(profile, page.offset(), page.itemsPerPage(), null);
+                .listKeyPairs(profile, page.offset(), page.itemsPerPage());
         Inventory inventory = inventoryOf(listed.keyPairs(), Set.of());
         List<TokenKeyDto> entries = new ArrayList<>();
         for (ProviderKeyPair pair : listed.keyPairs()) {
             entries.add(describe(pair, inventory));
         }
-        for (ProviderUnaddressableKey key : listed.unaddressableKeys()) {
+        for (ProviderUnusableKey key : listed.unusableKeys()) {
             entries.add(describe(key));
         }
         return page.response(entries, listed.totalItems());
@@ -155,24 +153,24 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, customAttributes);
         SecurityResourceFilter customAttributePermissions = attributeEngine
                 .loadCustomAttributesSecurityResourceFilter();
-        List<List<MetadataAttribute>> selectedPairMeta = distinctHandles(selections);
-        Set<String> importingBeforeReread = importingOn(profile);
-        ProviderKeyPairPage reread = keyProviderAdapterFactory
+        Set<String> importingBeforeResolution = importingOn(profile);
+        List<List<MetadataAttribute>> handles = selections.stream().map(TokenKeySelectionDto::getKeyPairMeta).toList();
+        List<ProviderKeyPairResolution> resolutions = keyProviderAdapterFactory
                 .forToken(profile.tokenInstance())
-                .listKeyPairs(profile, 0, MAX_PAIRS_PER_REREAD, selectedPairMeta);
-        if (reread.totalItems() > MAX_PAIRS_PER_REREAD) {
-            throw new ValidationException(ValidationError.create(TOO_MANY_PAIRS));
-        }
-        if (reread.keyPairs().size() < reread.totalItems()) {
-            throw new ValidationException(ValidationError.create(PAIRS_LEFT_OUT));
-        }
-        Onboarding onboarding = new Onboarding(profile, reread.keyPairs(),
-                inventoryOf(reread.keyPairs(), importingBeforeReread), customAttributes, customAttributePermissions,
-                new ArrayList<>());
+                .resolveKeyPairs(profile, handles);
+        List<ProviderKeyPair> found = resolutions
+                .stream()
+                .map(ProviderKeyPairResolution::keyPair)
+                .filter(Objects::nonNull)
+                .toList();
+        Onboarding onboarding = new Onboarding(profile, inventoryOf(found, importingBeforeResolution), customAttributes,
+                customAttributePermissions, new ArrayList<>());
         OnboardTokenKeysResponseDto response = new OnboardTokenKeysResponseDto();
         try {
-            for (TokenKeySelectionDto selection : selections) {
-                response.getResults().add(onboardOrReportFailure(onboarding, selection));
+            for (int index = 0; index < selections.size(); index++) {
+                response
+                        .getResults()
+                        .add(onboardOrReportFailure(onboarding, selections.get(index), resolutions.get(index)));
             }
         } finally {
             listInAuditRecord(onboarding.onboardedKeys());
@@ -182,9 +180,10 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /** A failure refuses its own selection only, so the caller learns the outcome of every other one. */
-    private TokenKeyOnboardingResultDto onboardOrReportFailure(Onboarding onboarding, TokenKeySelectionDto selection) {
+    private TokenKeyOnboardingResultDto onboardOrReportFailure(Onboarding onboarding, TokenKeySelectionDto selection,
+            ProviderKeyPairResolution resolution) {
         try {
-            return onboard(onboarding, selection);
+            return onboard(onboarding, selection, resolution);
         } catch (AttributeException | NotFoundException | DataIntegrityViolationException e) {
             logger.warn("A key pair could not be onboarded to {}", onboarding.profile().toIdentifierString(), e);
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = TokenKeyOnboardingResultDto
@@ -216,21 +215,9 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         }
     }
 
-    /** Each handle the selections name, once, so the token answers it with one key pair at most. */
-    private static List<List<MetadataAttribute>> distinctHandles(List<TokenKeySelectionDto> selections) {
-        List<List<MetadataAttribute>> handles = new ArrayList<>();
-        for (TokenKeySelectionDto selection : selections) {
-            List<MetadataAttribute> handle = selection.getKeyPairMeta();
-            if (handles.stream().noneMatch(named -> KeyMetaMatcher.matches(handle, named))) {
-                handles.add(handle);
-            }
-        }
-        return handles;
-    }
-
     /**
-     * The fingerprints of the token's unsettled imports, read before the token is read again: an import that settles in
-     * between may have destroyed a key pair the token still listed.
+     * The fingerprints of the token's unsettled imports, read before the token resolves the selections: an import that
+     * settles in between may have destroyed a key pair the token still found.
      */
     private Set<String> importingOn(TokenProfileFullModel profile) {
         return Set
@@ -260,16 +247,20 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return entry.build();
     }
 
-    /** An unaddressable key is listed for information only. */
-    private static TokenKeyDto describe(ProviderUnaddressableKey key) {
-        return TokenKeyDto
+    /** An unusable key is listed for information only, under the connector's reason. */
+    private static TokenKeyDto describe(ProviderUnusableKey key) {
+        TokenKeyDto.TokenKeyDtoBuilder entry = TokenKeyDto
                 .builder()
                 .label(key.label())
                 .keyAlgorithm(key.algorithm())
-                .length(key.length())
-                .status(TokenKeyStatus.NO_UNIQUE_ID)
-                .reason(NO_UNIQUE_ID)
-                .build();
+                .length(key.length());
+        return switch (key.reason()) {
+            case UNADDRESSABLE -> entry.status(TokenKeyStatus.NO_USABLE_ID).reason(NO_USABLE_ID).build();
+            case UNSUPPORTED_TYPE ->
+                entry.status(TokenKeyStatus.UNSUPPORTED_KEY_TYPE).reason(UNSUPPORTED_KEY_TYPE).build();
+            case UNREADABLE -> entry.status(TokenKeyStatus.UNREADABLE).reason(UNREADABLE_KEY).build();
+            case NOT_FOUND -> entry.status(TokenKeyStatus.GONE).reason(GONE).build();
+        };
     }
 
     /**
@@ -363,23 +354,23 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     /**
      * Onboards one selection, or reports in its result why it was refused. The other selections then still proceed.
      */
-    private TokenKeyOnboardingResultDto onboard(Onboarding onboarding, TokenKeySelectionDto selection)
-            throws AttributeException, NotFoundException {
+    private TokenKeyOnboardingResultDto onboard(Onboarding onboarding, TokenKeySelectionDto selection,
+            ProviderKeyPairResolution resolution) throws AttributeException, NotFoundException {
         TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = TokenKeyOnboardingResultDto
                 .builder()
                 .keyPairMeta(selection.getKeyPairMeta());
-        List<ProviderKeyPair> named = onboarding
-                .reread()
-                .stream()
-                .filter(candidate -> KeyMetaMatcher.matches(selection.getKeyPairMeta(), candidate.keyPairMeta()))
-                .toList();
-        if (named.isEmpty()) {
-            return skipped(result, GONE);
-        }
-        if (named.size() > 1) {
-            return skipped(result, AMBIGUOUS);
-        }
-        ProviderKeyPair pair = named.getFirst();
+        return switch (resolution.outcome()) {
+            case FOUND -> onboardFoundPair(onboarding, selection, resolution.keyPair(), result);
+            case NOT_FOUND -> skipped(result, GONE);
+            case AMBIGUOUS -> skipped(result, AMBIGUOUS);
+            case UNREADABLE -> skipped(result, UNREADABLE_PAIR);
+            case INVALID_HANDLE -> skipped(result, UNRECOGNISED_HANDLE);
+        };
+    }
+
+    private TokenKeyOnboardingResultDto onboardFoundPair(Onboarding onboarding, TokenKeySelectionDto selection,
+            ProviderKeyPair pair, TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result)
+            throws AttributeException, NotFoundException {
         Standing standing = standingOf(pair, onboarding.inventory());
         return switch (standing.status()) {
             case ONBOARDABLE -> onboardAsKeyOfItsOwn(onboarding, selection, pair, standing, result);
@@ -492,9 +483,9 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /**
-     * What the inventory and the unsettled imports hold of a page of listed key pairs. Each key an onboarding registers
-     * is added, so selecting its key pair again finds it held. Its name and each suggested name count as taken, so a
-     * later key pair with the same label is suggested the label with its fingerprint's prefix.
+     * What the inventory and the unsettled imports hold of the key pairs a token listed or resolved. Each key an
+     * onboarding registers is added, so selecting its key pair again finds it held. Its name and each suggested name
+     * count as taken, so a later key pair with the same label is suggested the label with its fingerprint's prefix.
      *
      * @param holders the keys holding the pairs' public keys, by fingerprint
      * @param importing the fingerprints of the pairs' public keys that an unsettled import holds
@@ -516,15 +507,14 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     }
 
     /**
-     * One onboarding request after the token was read again for its selection.
+     * One onboarding request after the token resolved its selections.
      *
-     * @param reread the key pairs the token listed for the selection
-     * @param inventory what the inventory holds of them
+     * @param inventory what the inventory holds of the key pairs the token resolved
      * @param customAttributes the custom attributes every key of its own takes, or {@code null} for none
      * @param customAttributePermissions permissions applied to the custom attributes
      * @param onboardedKeys the keys the key pairs were registered in so far
      */
-    private record Onboarding(TokenProfileFullModel profile, List<ProviderKeyPair> reread, Inventory inventory,
+    private record Onboarding(TokenProfileFullModel profile, Inventory inventory,
             List<RequestAttribute> customAttributes, SecurityResourceFilter customAttributePermissions,
             List<OnboardedKey> onboardedKeys) {
 

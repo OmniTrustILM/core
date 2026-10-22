@@ -55,20 +55,25 @@ import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationResponseV2Dt
 import com.otilm.api.model.connector.cryptography.v2.key.KeyCreationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyExportableAttribute;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyHandleV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyOperationResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.KeyPairOperationStatusResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionOutcome;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyResolutionV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListedKeyPairV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysRequestV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyOperationStatusResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.TransferableKeyTypeV2Dto;
-import com.otilm.api.model.connector.cryptography.v2.key.UnaddressableKeyV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.CipherDataRequestV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignDataRequestV2Dto;
@@ -102,7 +107,8 @@ import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.ProviderKeyPair;
 import com.otilm.core.model.crypto.ProviderKeyPairPage;
-import com.otilm.core.model.crypto.ProviderUnaddressableKey;
+import com.otilm.core.model.crypto.ProviderKeyPairResolution;
+import com.otilm.core.model.crypto.ProviderUnusableKey;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
@@ -141,8 +147,11 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private static final String IMPORT_UNREPORTED = "The connector failed to report on the key import.";
     private static final String LIST_REFUSED = "The connector refused to list the key pairs (%s).";
     private static final String LIST_FAILED = "The connector failed to list the key pairs.";
+    private static final String RESOLVE_REFUSED = "The connector refused to resolve the key pairs (%s).";
+    private static final String RESOLVE_FAILED = "The connector failed to resolve the key pairs.";
     private static final String NAMED_ON_ONBOARDING = null;
     private static final KeyMaterial KEPT_ON_TOKEN = null;
+    private static final String IDENTIFIED_BY_POSITION = null;
 
     private final CryptographicKeyRepository cryptographicKeyRepository;
     private final Consumer<KeyOperationScope> scopeValidator;
@@ -314,8 +323,8 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     }
 
     @Override
-    public ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit,
-            List<List<MetadataAttribute>> keyPairMetaFilter) throws ConnectorException {
+    public ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit)
+            throws ConnectorException {
         TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
         ListKeysRequestV2Dto request = ListKeysRequestV2Dto
                 .builder()
@@ -323,9 +332,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 .keyRequestType(KeyRequestType.KEY_PAIR)
                 .offset(offset)
                 .limit(limit)
-                .keyMetaFilter(keyPairMetaFilter)
                 .build();
-        ListKeysResponseV2Dto page = sendList(request);
+        ListKeysResponseV2Dto page = sendWithTokenSecrets(
+                listing -> keyManagementSyncApiClient.listKeys(connectorInfo, listing), request, LIST_REFUSED,
+                LIST_FAILED);
         // The listed metadata reaches the caller and the inventory, so it gets the same containment as a schema.
         assertNoExpandedSecretEchoed(scope, page);
         // The client refuses a page holding a key of another type than the request lists.
@@ -335,31 +345,36 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 .map(ListedKeyPairV2Dto.class::cast)
                 .map(this::toListedKeyPair)
                 .toList();
-        List<ProviderUnaddressableKey> unaddressableKeys = orEmpty(page.getUnaddressableKeys())
+        List<ProviderUnusableKey> unusableKeys = orEmpty(page.getUnusableKeys())
                 .stream()
-                .map(KeyProviderV2Adapter::toUnaddressableKey)
+                .map(KeyProviderV2Adapter::toUnusableKey)
                 .toList();
-        return new ProviderKeyPairPage(keyPairs, unaddressableKeys, page.getTotalItems());
+        return new ProviderKeyPairPage(keyPairs, unusableKeys, page.getTotalItems());
     }
 
-    private static ProviderUnaddressableKey toUnaddressableKey(UnaddressableKeyV2Dto listed) {
+    private static ProviderUnusableKey toUnusableKey(UnusableKeyV2Dto listed) {
         KeyDataV2Dto keyData = listed.getKeyData();
-        return new ProviderUnaddressableKey(listed.getLabel(), keyData.getAlgorithm(), keyData.getLength());
+        if (keyData == null) {
+            return new ProviderUnusableKey(listed.getLabel(), listed.getReason(), null, null);
+        }
+        return new ProviderUnusableKey(listed.getLabel(), listed.getReason(), keyData.getAlgorithm(),
+                keyData.getLength());
     }
 
     /**
-     * The request carries the token's and the profile's secrets, so the connector's words are dropped when the listing
+     * The request carries the token's and the profile's secrets, so the connector's words are dropped when the call
      * does not succeed: a refusal is named by its error code, anything else is a failure.
      */
-    private ListKeysResponseV2Dto sendList(ListKeysRequestV2Dto request) throws ConnectorServerException {
+    private <S, T> T sendWithTokenSecrets(ConnectorCall<S, T> call, S request, String refusedFormat,
+            String failedMessage) throws ConnectorServerException {
         try {
-            return keyManagementSyncApiClient.listKeys(connectorInfo, request);
+            return call.call(request);
         } catch (ConnectorException | RuntimeException e) {
             if (e instanceof ConnectorProblemException problem && isRefusal(problem.getProblemDetail())) {
                 throw new ValidationException(ValidationError
-                        .create(LIST_REFUSED.formatted(problem.getProblemDetail().getErrorCode().name())));
+                        .create(refusedFormat.formatted(problem.getProblemDetail().getErrorCode().name())));
             }
-            throw connectorFault(LIST_FAILED);
+            throw connectorFault(failedMessage);
         }
     }
 
@@ -373,6 +388,37 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 : toKeyItem(NAMED_ON_ONBOARDING, publicKey.getKeyData(), publicKey.getKeyMeta(),
                         spkiMaterial(publicKey));
         return new ProviderKeyPair(listed.getKeyPairMeta(), listed.getLabel(), privateKeyItem, publicKeyItem);
+    }
+
+    @Override
+    public List<ProviderKeyPairResolution> resolveKeyPairs(TokenProfileFullModel tokenProfile,
+            List<List<MetadataAttribute>> keyPairMetas) throws ConnectorException {
+        TokenProfileScopedRequestV2Dto scope = tokenProfileScopedRequest(tokenProfile);
+        IdentifiedBatch<KeyHandleV2Dto> batch = IdentifiedBatch
+                .of(keyPairMetas, handle -> IDENTIFIED_BY_POSITION,
+                        (handle, identifier) -> new KeyHandleV2Dto(identifier, handle));
+        ResolveKeysRequestV2Dto request = ResolveKeysRequestV2Dto
+                .builder()
+                .scope(scope)
+                .keyRequestType(KeyRequestType.KEY_PAIR)
+                .keys(batch.items())
+                .build();
+        ResolveKeysResponseV2Dto response = sendWithTokenSecrets(
+                resolution -> keyManagementSyncApiClient.resolveKeys(connectorInfo, resolution), request,
+                RESOLVE_REFUSED, RESOLVE_FAILED);
+        // The found pairs reach the caller and the inventory, as a listed page does.
+        assertNoExpandedSecretEchoed(scope, response);
+        return inRequestOrder(response.getResults(), batch, KeyResolutionV2Dto::getIdentifier,
+                (result, callerIdentifier) -> toResolution(result));
+    }
+
+    private ProviderKeyPairResolution toResolution(KeyResolutionV2Dto result) {
+        if (result.getOutcome() != KeyResolutionOutcome.FOUND) {
+            return new ProviderKeyPairResolution(result.getOutcome(), null);
+        }
+        // The client refuses an answer holding a key of another type than the request resolves.
+        ProviderKeyPair keyPair = toListedKeyPair((ListedKeyPairV2Dto) result.getKey());
+        return new ProviderKeyPairResolution(KeyResolutionOutcome.FOUND, keyPair);
     }
 
     @Override

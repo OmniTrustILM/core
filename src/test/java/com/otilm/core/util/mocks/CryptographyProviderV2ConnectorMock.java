@@ -15,6 +15,7 @@ import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysResponseV2Dto;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +42,7 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String IMPORT_SCENARIO = "imports";
     private static final String DESTROY_KEY = "/v2/cryptographyProvider/keys/destroy";
     private static final String LIST_KEYS = "/v2/cryptographyProvider/keys/list";
+    private static final String RESOLVE_KEYS = "/v2/cryptographyProvider/keys/resolve";
 
     CryptographyProviderV2ConnectorMock() {
         stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
@@ -530,6 +532,45 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     public void verifyKeyListingRequestContaining(String expectedRequestJson) {
         server
                 .verify(postRequestedFor(WireMock.urlPathEqualTo(LIST_KEYS))
+                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
+    }
+
+    /** Answers every key resolution with the answer, whatever it asks for. */
+    public CryptographyProviderV2ConnectorMock stubKeyResolution(ResolveKeysResponseV2Dto answer)
+            throws JsonProcessingException {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(RESOLVE_KEYS))
+                        .willReturn(WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(answer))));
+        return this;
+    }
+
+    /** A connector that cannot answer a key resolution: the connection is reset. */
+    public CryptographyProviderV2ConnectorMock failKeyResolution() {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(RESOLVE_KEYS))
+                        .willReturn(WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
+        return this;
+    }
+
+    /** Runs the observation on each key resolution request, before the provider answers it. */
+    public void onKeyResolutionRequest(Runnable observation) {
+        Objects.requireNonNull(observation, "observation must not be null");
+        server.addMockServiceRequestListener((request, response) -> {
+            if (request.getUrl().equals(RESOLVE_KEYS)) {
+                observation.run();
+            }
+        });
+    }
+
+    public void verifyKeyResolutionRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(RESOLVE_KEYS)));
+    }
+
+    public void verifyKeyResolutionRequestContaining(String expectedRequestJson) {
+        server
+                .verify(postRequestedFor(WireMock.urlPathEqualTo(RESOLVE_KEYS))
                         .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
     }
 
