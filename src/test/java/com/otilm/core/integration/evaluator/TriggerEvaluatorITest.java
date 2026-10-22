@@ -383,6 +383,23 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         condition.setValue(List.of(ApprovalStatusEnum.PENDING.name()));
 
         Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        approval.setStatus(ApprovalStatusEnum.APPROVED);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        approval.setStatus(null);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
     }
 
     @Test
