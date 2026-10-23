@@ -484,7 +484,7 @@ class CbomAssetExtractorTest {
     }
 
     /**
-     * A skip names the component and the failure class, never the payload.
+     * A skip names the component and says why in fixed words, never quoting the payload.
      *
      * <p>
      * A document is untrusted input. A skip that quoted what it could not parse would be a disclosure channel for
@@ -538,8 +538,8 @@ class CbomAssetExtractorTest {
                 .extracting(CbomAssetExtractor.ExtractedAsset::componentName)
                 .containsExactly("good-one", "good-two");
         assertThat(extraction.skips().getFirst().reason())
-                .describedAs("the failure class only -- never the payload, and never the exception's own message")
-                .isEqualTo("IllegalArgumentException")
+                .describedAs("fixed words only -- never the payload, the exception's class or its own message")
+                .isEqualTo(CbomAssetExtractor.UNREADABLE_COMPONENT)
                 .doesNotContain(secret);
     }
 
@@ -604,7 +604,7 @@ class CbomAssetExtractorTest {
         assertThat(extraction.assets()).isEmpty();
         assertThat(extraction.skips())
                 .singleElement()
-                .satisfies(skip -> assertThat(skip.reason()).isEqualTo("IllegalArgumentException"));
+                .satisfies(skip -> assertThat(skip.reason()).isEqualTo(CbomAssetExtractor.UNREADABLE_COMPONENT));
     }
 
     /**
