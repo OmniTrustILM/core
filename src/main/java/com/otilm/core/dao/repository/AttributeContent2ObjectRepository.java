@@ -46,7 +46,6 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
         long getMaxBytes();
     }
 
-    /** The objects whose stored RESOURCE attribute values point at the given object. */
     @Query(value = """
             SELECT DISTINCT aco.object_type AS objectType, aco.object_uuid AS objectUuid,
                    aco.object_version AS objectVersion,

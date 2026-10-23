@@ -384,10 +384,10 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
         } catch (DanglingReferenceException e) {
             throw e;
         } catch (NotFoundException e) {
+            String nameOrUuid = Objects.requireNonNullElse(resourceId.getName(), resourceId.getUuid());
             throw new DanglingReferenceException(
-                    "Attribute '%s' refers to %s '%s', which no longer exists. Select another one."
-                            .formatted(attribute.getProperties().getLabel(), resource.getLabel(),
-                                    resourceId.getName()));
+                    "Attribute '%s' refers to %s '%s', which does not exist. Select another one."
+                            .formatted(attribute.getProperties().getLabel(), resource.getLabel(), nameOrUuid));
         }
     }
 

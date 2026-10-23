@@ -43,6 +43,7 @@ import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.api.model.core.secret.SecretUpdateObjectsDto;
 import com.otilm.api.model.core.secret.SecretUpdateRequestDto;
 import com.otilm.api.model.core.secret.SecretVersionDto;
+import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.Secret;
@@ -51,6 +52,7 @@ import com.otilm.core.dao.entity.Secret2SyncVaultProfileId;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.repository.ApprovalRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
@@ -81,7 +83,10 @@ import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.seeders.TspProfileBasicCredentialSeeder;
 import java.io.Serializable;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -139,6 +144,8 @@ class SecretServiceITest extends BaseSpringBootTest {
     private GroupRepository groupRepository;
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private ApprovalRepository approvalRepository;
     @Autowired
     private ActionsListener actionListener;
     @Autowired
@@ -557,12 +564,12 @@ class SecretServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void refusesDelete_whenTheSecretAwaitsApproval() {
+    void refusesDelete_whenAnApprovalForTheSecretIsPending() {
         // given
         unlinkLatestVersion();
-        var awaitingApproval = SecretState.PENDING_APPROVAL;
-        secret.setState(awaitingApproval);
+        secret.setState(SecretState.PENDING_APPROVAL);
         secretRepository.save(secret);
+        persistPendingApproval(secret);
         var secretUuid = secret.getUuid();
 
         // when
@@ -571,9 +578,24 @@ class SecretServiceITest extends BaseSpringBootTest {
         // then
         assertThatThrownBy(deleteSecret)
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("Secret %s is in state %s and cannot be deleted"
-                        .formatted(secret.getName(), awaitingApproval.getLabel()));
+                .hasMessageContaining(
+                        "Secret %s cannot be deleted while an approval for it is pending".formatted(secret.getName()));
         assertThat(secretRepository.findById(secretUuid)).isPresent();
+    }
+
+    @Test
+    void deletesTheSecretAndSkipsTheVault_whenItAwaitsApprovalWithNoApprovalOpen() throws Exception {
+        // given — a failed approved action left the state behind and closed its approval
+        unlinkLatestVersion();
+        secret.setState(SecretState.PENDING_APPROVAL);
+        secretRepository.save(secret);
+
+        // when
+        secretService.deleteSecret(secret.getUuid(), true);
+
+        // then
+        assertThat(secretRepository.findById(secret.getUuid())).isEmpty();
+        assertThat(mockServer.findAll(WireMock.deleteRequestedFor(WireMock.anyUrl()))).isEmpty();
     }
 
     @Test
@@ -1106,6 +1128,18 @@ class SecretServiceITest extends BaseSpringBootTest {
     private void unlinkLatestVersion() {
         secret.getLatestVersion().setSecret(null);
         secretVersionRepository.save(secret.getLatestVersion());
+    }
+
+    private void persistPendingApproval(Secret target) {
+        Approval approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        approval.setAction(ResourceAction.UPDATE);
+        approval.setResource(Resource.SECRET);
+        approval.setObjectUuid(target.getUuid());
+        approval.setCreatorUuid(UUID.randomUUID());
+        approval.setCreatedAt(new Date());
+        approval.setExpiryAt(Date.from(Instant.now().plus(7, ChronoUnit.DAYS)));
+        approvalRepository.save(approval);
     }
 
     /** An action on the secret, as the broker hands it to the listener. */

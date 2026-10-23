@@ -9,6 +9,7 @@ import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.SecretOperationException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
@@ -61,6 +62,7 @@ import com.otilm.core.dao.entity.Secret_;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.VaultProfile_;
+import com.otilm.core.dao.repository.ApprovalRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
@@ -144,6 +146,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private VaultProfileRepository vaultProfileRepository;
     private VaultInstanceRepository vaultInstanceRepository;
     private SecretRepository secretRepository;
+    private ApprovalRepository approvalRepository;
     private ObjectReferenceGuard referenceGuard;
     private SecretVersionRepository secretVersionRepository;
     private Secret2SyncVaultProfileRepository secret2SyncVaultProfileRepository;
@@ -242,6 +245,11 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     @Autowired
     public void setSecretRepository(SecretRepository secretRepository) {
         this.secretRepository = secretRepository;
+    }
+
+    @Autowired
+    public void setApprovalRepository(ApprovalRepository approvalRepository) {
+        this.approvalRepository = approvalRepository;
     }
 
     @Autowired
@@ -664,12 +672,18 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                         SecuredUUID.fromUUID(secret.getSourceVaultProfile().getUuid()));
         // The pending approval holds the state to put back; a delete recorded now would put back PENDING_APPROVAL and
         // skip the vault.
-        if (secret.getState() == SecretState.PENDING_APPROVAL) {
-            throw new ValidationException("Secret %s is in state %s and cannot be deleted"
-                    .formatted(secret.getName(), secret.getState().getLabel()));
+        if (awaitsApproval(secret)) {
+            throw new ValidationException(
+                    "Secret %s cannot be deleted while an approval for it is pending".formatted(secret.getName()));
         }
         referenceGuard.refuseWhileReferenced(new ObjectRef(Resource.SECRET, uuid), secret.getName(), releasedBy);
         return secret;
+    }
+
+    /** An approved action that fails leaves the secret in this state with no approval open, and delete clears it. */
+    private boolean awaitsApproval(Secret secret) {
+        return secret.getState() == SecretState.PENDING_APPROVAL && approvalRepository
+                .existsByResourceAndObjectUuidAndStatus(Resource.SECRET, secret.getUuid(), ApprovalStatusEnum.PENDING);
     }
 
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.DELETE)

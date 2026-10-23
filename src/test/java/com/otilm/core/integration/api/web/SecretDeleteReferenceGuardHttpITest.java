@@ -888,7 +888,7 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
             assertThatThrownBy(processApprovedDeletion)
                     .isInstanceOf(SecretOperationException.class)
                     .hasMessageContaining(
-                            "Attribute 'Vault login' refers to Secret '" + loginName + "', which no longer exists");
+                            "Attribute 'Vault login' refers to Secret '" + loginName + "', which does not exist");
             assertStateRestored(unreferencedSecret, stateBeforeTheRequest);
         }
 
@@ -927,8 +927,24 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
             // then
             assertThat(attributes.getResponse().getStatus()).isEqualTo(422);
             assertThat(attributes.getResponse().getContentAsString())
-                    .contains("Attribute 'PIN' refers to Secret '" + PIN_SECRET_NAME + "', which no longer exists");
+                    .contains("Attribute 'PIN' refers to Secret '" + PIN_SECRET_NAME + "', which does not exist");
             assertThat(reload.getResponse().getStatus()).isEqualTo(422);
+        }
+
+        @Test
+        void answers422NamingTheUuid_whenThePinSecretStoredWithoutANameIsGone() throws Exception {
+            // given
+            var pinSecretUuid = secret.getUuid().toString();
+            storePinReference(Resource.TOKEN, token.getUuid(), null, pinSecretUuid, null);
+            secretRepository.deleteById(secret.getUuid());
+
+            // when
+            MvcResult attributes = perform(get(tokenProfileAttributes()));
+
+            // then
+            assertThat(attributes.getResponse().getStatus()).isEqualTo(422);
+            assertThat(attributes.getResponse().getContentAsString())
+                    .contains("Attribute 'PIN' refers to Secret '" + pinSecretUuid + "', which does not exist");
         }
 
         @Test
@@ -945,7 +961,7 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
             // then
             assertThat(attributes.getResponse().getStatus()).isEqualTo(422);
             assertThat(attributes.getResponse().getContentAsString())
-                    .contains("Attribute 'Vault login' refers to Secret '" + loginName + "', which no longer exists")
+                    .contains("Attribute 'Vault login' refers to Secret '" + loginName + "', which does not exist")
                     .doesNotContain("Attribute 'PIN'");
         }
 
@@ -990,7 +1006,7 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
             assertThat(attributes.getResponse().getStatus()).isEqualTo(422);
             assertThat(attributes.getResponse().getContentAsString())
                     .contains("Attribute 'HSM login' refers to Credential '" + credentialName
-                            + "', which no longer exists");
+                            + "', which does not exist");
         }
     }
 }

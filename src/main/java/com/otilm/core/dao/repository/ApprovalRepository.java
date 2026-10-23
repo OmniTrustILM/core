@@ -13,5 +13,7 @@ public interface ApprovalRepository extends SecurityFilterRepository<Approval, U
 
     Approval findByResourceAndObjectUuidAndStatus(Resource resource, UUID objectUuid, ApprovalStatusEnum status);
 
+    boolean existsByResourceAndObjectUuidAndStatus(Resource resource, UUID objectUuid, ApprovalStatusEnum status);
+
     List<Approval> findByStatusAndExpiryAtLessThan(ApprovalStatusEnum status, Date expiryAt);
 }
