@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetDetailDto;
@@ -13,7 +14,10 @@ import com.otilm.api.model.core.cryptoasset.PqcVerdict;
 import com.otilm.core.cbom.asset.AssetRowKeys;
 import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.OccurrenceEvidenceCapper;
+import com.otilm.core.cbom.ingest.CbomAssetIngestService;
+import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
 import com.otilm.core.cbom.pqc.PqcDecision;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
 import com.otilm.core.dao.repository.CbomRepository;
@@ -55,6 +59,8 @@ import static org.mockito.Mockito.when;
 class CryptographicAssetDetailITest extends BaseSpringBootTest {
 
     private static final OffsetDateTime NOW = OffsetDateTime.now();
+    private static final String SHA384_ARC = "2.16.840.1.101.3.4.2.2";
+    private static final String SHA3_384_ARC = "2.16.840.1.101.3.4.2.9";
 
     @Autowired
     private CryptographicAssetExternalService cryptographicAssetService;
@@ -76,6 +82,9 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptoAssetSourceRepository cryptoAssetSourceRepository;
+
+    @Autowired
+    private CbomAssetIngestService ingestService;
 
     /**
      * The detail endpoint's distinguishing obligation (core#2145 AC): the elected representative payload is one
@@ -111,7 +120,7 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
 
     @Test
     void rowFieldsMatchTheListContract() throws NotFoundException {
-        UUID assetUuid = upsert(fieldsWithOid("AES-256-GCM", "oid-aes-256-gcm"), null);
+        UUID assetUuid = upsert(fieldsWithOid("AES-256-GCM", "oid-aes-256-gcm", null), null);
         Cbom cbom = newCbom("urn:uuid:contract");
         List<Map<String, Object>> threeOccurrences = List
                 .of(new HashMap<>(Map.of("location", "src/a.c", "line", 1)),
@@ -180,8 +189,9 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
      */
     @Test
     void flagsARefutedOidAndSuppressesItAsName() throws NotFoundException {
-        UUID refuted = upsert(fieldsWithOid(null, "1.2.840.113549.1.1.1"), CryptoAssetIdentityGuard.REFUTED_OID);
-        UUID notRefuted = upsert(fieldsWithOid(null, "1.2.840.113549.1.1.2"), null);
+        UUID refuted = upsert(fieldsWithOid(null, "1.2.840.113549.1.1.1", "SHA-2"),
+                CryptoAssetIdentityGuard.REFUTED_OID);
+        UUID notRefuted = upsert(fieldsWithOid(null, "1.2.840.113549.1.1.2", "RSA"), null);
 
         CryptographicAssetDetailDto refutedDetail = cryptographicAssetService
                 .getCryptographicAsset(SecuredUUID.fromUUID(refuted));
@@ -199,6 +209,78 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
         assertThat(notRefutedDetail.getName())
                 .describedAs("no name recorded -> the OID is the display fallback")
                 .isEqualTo("1.2.840.113549.1.1.2");
+    }
+
+    /**
+     * Two producers describe one digest: one with its own arc, one with the SHA3-384 arc a name reading SHA-2 refutes.
+     * The row keeps the first arc and the guard the second raised, so the flag has to be decided per arc, not per row.
+     */
+    @Test
+    void attributesARefutedArcToTheSourceThatCarriedIt() throws NotFoundException {
+        Cbom correct = newCbom("urn:uuid:sha384-correct-arc");
+        Cbom refuted = newCbom("urn:uuid:sha384-refuted-arc");
+        ingestService.ingest(correct.getUuid(), digest("SHA-384", SHA384_ARC), NOW, CbomSyncPolicy.DEFAULTS);
+        ingestService.ingest(refuted.getUuid(), digest("SHA384", SHA3_384_ARC), NOW, CbomSyncPolicy.DEFAULTS);
+        UUID assetUuid = soleAssetOf(correct, refuted);
+
+        CryptographicAssetDetailDto detail = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(assetUuid));
+
+        assertThat(cryptoAssetRepository.findByUuid(SecuredUUID.fromUUID(assetUuid)).orElseThrow().getIdentityGuard())
+                .isEqualTo(CryptoAssetIdentityGuard.REFUTED_OID);
+        assertThat(detail.getOids())
+                .extracting(oid -> oid.getOid() + (oid.isRefuted() ? " refuted" : ""))
+                .containsExactly(SHA384_ARC, SHA3_384_ARC + " refuted");
+    }
+
+    @Test
+    void servesTheCorrectArcALaterSourceAddsBesideTheRefutedOneTheRowHolds() throws NotFoundException {
+        Cbom refuted = newCbom("urn:uuid:sha384-refuted-first");
+        Cbom correct = newCbom("urn:uuid:sha384-correct-second");
+        ingestService.ingest(refuted.getUuid(), digest("SHA384", SHA3_384_ARC), NOW, CbomSyncPolicy.DEFAULTS);
+        ingestService.ingest(correct.getUuid(), digest("SHA-384", SHA384_ARC), NOW, CbomSyncPolicy.DEFAULTS);
+        UUID assetUuid = soleAssetOf(refuted, correct);
+
+        CryptographicAssetDetailDto detail = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(assetUuid));
+
+        assertThat(detail.getOids())
+                .extracting(oid -> oid.getOid() + (oid.isRefuted() ? " refuted" : ""))
+                .containsExactly(SHA3_384_ARC + " refuted", SHA384_ARC);
+    }
+
+    /**
+     * Ingest judges an arc against an algorithm's own family only; a certificate's arc names its signature algorithm.
+     */
+    @Test
+    void neverRefutesTheArcOfACertificateOrKeyMaterial() throws NotFoundException {
+        CryptoAssetIdentityFields certificate = new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE,
+                "cn=ec-signed-by-rsa", "1.2.840.113549.1.1.11", "EC", null, null, null, null, null, null);
+        UUID assetUuid = upsert(certificate, null);
+
+        CryptographicAssetDetailDto detail = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(assetUuid));
+
+        assertThat(detail.getOids()).singleElement().satisfies(oid -> {
+            assertThat(oid.getOid()).isEqualTo("1.2.840.113549.1.1.11");
+            assertThat(oid.isRefuted()).isFalse();
+        });
+    }
+
+    /** A stored payload is read back verbatim, so the read path bounds an arc exactly as ingest does. */
+    @Test
+    void doesNotServeASourceArcLongerThanIngestWouldNormalize() throws NotFoundException {
+        UUID assetUuid = upsert(fields("AES-OVERLONG-ARC"), null);
+        Cbom cbom = newCbom("urn:uuid:overlong-arc");
+        String overlongArc = "1" + ".2".repeat(600);
+        sourceWriter
+                .upsertSource(assetUuid, cbom.getUuid(), Map.of("name", "AES-OVERLONG-ARC", "oid", overlongArc),
+                        List.of(), NOW);
+
+        CryptographicAssetDetailDto detail = cryptographicAssetService
+                .getCryptographicAsset(SecuredUUID.fromUUID(assetUuid));
+
+        assertThat(detail.getOids()).isEmpty();
     }
 
     @Test
@@ -696,9 +778,25 @@ class CryptographicAssetDetailITest extends BaseSpringBootTest {
                 null, null);
     }
 
-    private static CryptoAssetIdentityFields fieldsWithOid(String name, String oid) {
-        return new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, name, oid, null, null, null, null, null,
-                null, null);
+    private static CryptoAssetIdentityFields fieldsWithOid(String name, String oid, String family) {
+        return new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, name, oid, family, null, null, null,
+                null, null, null);
+    }
+
+    private static JsonNode digest(String name, String oid) {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"" + name + "\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"oid\":\"" + oid + "\","
+                        + "\"algorithmProperties\":{\"primitive\":\"hash\"}}}]}");
+    }
+
+    /** The one asset both documents merged into; a split would be a different defect and fails here. */
+    private UUID soleAssetOf(Cbom first, Cbom second) {
+        List<UUID> firstAssets = cryptoAssetSourceRepository.findAssetUuidsByCbomUuid(first.getUuid());
+        List<UUID> secondAssets = cryptoAssetSourceRepository.findAssetUuidsByCbomUuid(second.getUuid());
+        assertThat(firstAssets).hasSize(1);
+        assertThat(secondAssets).containsExactlyElementsOf(firstAssets);
+        return firstAssets.get(0);
     }
 
     private static List<Map<String, Object>> occurrences(String location, int line) {

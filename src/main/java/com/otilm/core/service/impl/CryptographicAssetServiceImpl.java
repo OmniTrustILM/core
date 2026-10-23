@@ -31,6 +31,8 @@ import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFil
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.cbom.asset.CompositeCurve;
 import com.otilm.core.cbom.asset.ServedAssetType;
+import com.otilm.core.cbom.asset.identity.AssetNormalizer;
+import com.otilm.core.cbom.asset.identity.IdentityTables;
 import com.otilm.core.cbom.pqc.PqcExplanation;
 import com.otilm.core.cbom.pqc.PqcRules;
 import com.otilm.core.cbom.pqc.PqcVerdictExplainer;
@@ -78,6 +80,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -129,10 +132,16 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
     private AttributeEngine attributeEngine;
 
     private PqcVerdictExplainer verdictExplainer;
+    private AssetNormalizer assetNormalizer;
 
     @Autowired
     public void setVerdictExplainer(PqcVerdictExplainer verdictExplainer) {
         this.verdictExplainer = verdictExplainer;
+    }
+
+    @Autowired
+    public void setAssetNormalizer(AssetNormalizer assetNormalizer) {
+        this.assetNormalizer = assetNormalizer;
     }
 
     private ListingSortResolver listingSortResolver;
@@ -752,7 +761,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         return dto;
     }
 
-    private static CryptographicAssetDetailDto toDetailDto(CryptoAsset asset, List<CryptoAssetSource> sources,
+    private CryptographicAssetDetailDto toDetailDto(CryptoAsset asset, List<CryptoAssetSource> sources,
             Set<UUID> visibleCbomUuids) {
         CryptographicAssetDetailDto dto = new CryptographicAssetDetailDto();
         dto.setUuid(asset.getUuid());
@@ -772,7 +781,7 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         dto.setNormalizedFields(toNormalizedFieldsDto(asset));
         dto.setElectedPayload(servedElectedPayload(asset, sources, visibleCbomUuids));
         dto.setSources(servedSources(sources, visibleCbomUuids));
-        dto.setOids(toOidDtos(asset));
+        dto.setOids(toOidDtos(asset, sources));
         return dto;
     }
 
@@ -919,13 +928,44 @@ public class CryptographicAssetServiceImpl implements CryptographicAssetExternal
         return null;
     }
 
-    private static List<CryptographicAssetOidDto> toOidDtos(CryptoAsset asset) {
-        if (asset.getOid() == null) {
-            return List.of();
+    /**
+     * Every arc the stored payloads carry, each judged on its own. The row keeps one {@code oid} and one guard, and
+     * both are first-writer-wins across the sources that merged into it, so the guard may have been raised by a source
+     * other than the one whose arc the row holds. Each source row keeps the arc of the component its document elected
+     * (a losing component's arc in the same document is not stored), and the family the row was keyed on is what that
+     * arc was judged against, so the judgement is repeated here per arc rather than read off the row. Only an
+     * algorithm's arc is ever judged; a certificate's or key material's names an algorithm, not the row's own family.
+     * Source arcs are served regardless of CBOM visibility: like the row's own {@code oid}, an arc is a row-level fact,
+     * not document content.
+     */
+    private List<CryptographicAssetOidDto> toOidDtos(CryptoAsset asset, List<CryptoAssetSource> sources) {
+        LinkedHashSet<String> arcs = new LinkedHashSet<>();
+        if (asset.getOid() != null) {
+            arcs.add(asset.getOid());
         }
+        for (CryptoAssetSource source : sources) {
+            String arc = assetNormalizer.normalizeOid(declaredOid(source.getOriginalCryptoProperties()));
+            if (arc != null) {
+                arcs.add(arc);
+            }
+        }
+        // The column is stored case-folded; the registry compares tokens in their ratified spelling.
+        String judgedFamily = asset.getAssetType() == CryptographicAssetType.ALGORITHM
+                ? assetNormalizer.tables().familyToken(asset.getAlgorithmFamily())
+                : null;
+        return arcs.stream().map(arc -> toOidDto(arc, judgedFamily)).toList();
+    }
+
+    private CryptographicAssetOidDto toOidDto(String arc, String family) {
+        IdentityTables.OidEntry entry = assetNormalizer.oidLookup(arc);
+        String registryFamily = entry == null ? null : entry.family();
         CryptographicAssetOidDto dto = new CryptographicAssetOidDto();
-        dto.setOid(asset.getOid());
-        dto.setRefuted(asset.getIdentityGuard() == CryptoAssetIdentityGuard.REFUTED_OID);
-        return List.of(dto);
+        dto.setOid(arc);
+        dto.setRefuted(assetNormalizer.oidContradicts(registryFamily, family));
+        return dto;
+    }
+
+    private static String declaredOid(Map<String, Object> payload) {
+        return payload != null && payload.get("oid") instanceof String text ? text : null;
     }
 }
