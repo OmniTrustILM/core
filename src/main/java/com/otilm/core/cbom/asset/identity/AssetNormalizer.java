@@ -135,12 +135,13 @@ public record AssetNormalizer(IdentityTables tables) {
     /**
      * A digest token and the length it names, in every spelling the RSA schemes are written with. The left guard admits
      * the JCA infix -- {@code RSA/ECB/OAEPWithSHA-256AndMGF1Padding} names SHA-256 after a letter -- and the glued
-     * {@code RSASHA512}, and the optional family digit admits RFC 8332's {@code rsa-sha2-256} and the {@code SHA3-256}
-     * spelling; without either, the rule the Javadoc of {@link #KEY_SIZE_FAMILIES} states was true only for the
-     * hyphenated {@code SHA256withRSA} shape, and the commonest JCA spelling stored a 256-bit RSA key.
+     * {@code RSASHA512}; the optional family digit admits RFC 8332's {@code rsa-sha2-256} and the {@code SHA3-256}
+     * spelling. Without either, the rule the Javadoc of {@link #KEY_SIZE_FAMILIES} states was true only for the
+     * hyphenated {@code SHA256withRSA} shape, and the commonest JCA spelling stored a 256-bit RSA key. The one-digit
+     * {@code SHA-1} and {@code MD5} count too: {@code RSA with SHA-1} otherwise stored a 1-bit key.
      */
     private static final Pattern DIGEST_IN_NAME = Pattern
-            .compile("(?:(?<![A-Z0-9])|(?<=with)|(?<=RSA))(?:SHA|MD)-?(?:[23][-_/]?)?(\\d{3,4})(?!\\d)",
+            .compile("(?:(?<![A-Z0-9])|(?<=with)|(?<=RSA))(?:SHA|MD)-?(?:[23][-_/]?)?(\\d{3,4}|[15])(?!\\d)",
                     Pattern.CASE_INSENSITIVE);
 
     /**

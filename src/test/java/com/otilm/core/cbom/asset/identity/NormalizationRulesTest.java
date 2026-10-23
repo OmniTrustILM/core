@@ -331,6 +331,18 @@ class NormalizationRulesTest {
         assertThat(keyOfAlgorithm(name)).isEqualTo(keyOfAlgorithm("RSA-SHA512"));
     }
 
+    /** A one-digit digest is not a key size either, however the digest is joined to RSA. */
+    @ParameterizedTest
+    @CsvSource({
+            "RSA with SHA-1, RSAWithSHA1",
+            "RSA-SHA-1, RSAWithSHA1",
+            "RSA with MD-5, RSAWithMD5",
+            "RSA-MD5, RSAWithMD5"})
+    void aOneDigitDigestJoinedToRsaIsNotItsKeySize(String name, String glued) {
+        assertThat(normalize(name).parameterSet()).isNull();
+        assertThat(keyOfAlgorithm(name)).isEqualTo(keyOfAlgorithm(glued));
+    }
+
     /** A declared size the family defines stands even against the size the name spells; the clash is reported. */
     @Test
     void aDeclaredAdmissibleSizeOutranksTheSpelledOneAndIsReported() {
