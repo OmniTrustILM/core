@@ -1212,13 +1212,14 @@ class KeyProviderV2AdapterTest {
         @Test
         void refusesTheResolution_whenTheConnectorRefusesIt() throws Exception {
             // given
+            var handles = List.of(metadata("pair-handle"));
             when(client.resolveKeys(any(), any()))
                     .thenThrow(new ConnectorProblemException(ProblemDetailExtended
                             .fromErrorCode(ErrorCode.KEY_TYPE_NOT_LISTABLE, "refused for " + TOKEN_SECRET, null,
                                     null)));
 
             // when / then
-            assertThatThrownBy(() -> adapter.resolveKeyPairs(profile, List.of(metadata("pair-handle"))))
+            assertThatThrownBy(() -> adapter.resolveKeyPairs(profile, handles))
                     .isInstanceOf(ValidationException.class)
                     .hasMessage("The connector refused to resolve the key pairs (KEY_TYPE_NOT_LISTABLE).");
         }
@@ -1252,11 +1253,12 @@ class KeyProviderV2AdapterTest {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
             ListedKeyPairV2Dto echoing = aListedKeyPair().withLabel(TOKEN_SECRET).withoutPublicKey().build();
+            var handles = List.of(echoing.getKeyPairMeta());
             when(client.resolveKeys(any(), any()))
                     .thenReturn(aKeyResolutionResponse().withAnswers(found(echoing)).build());
 
             // when / then
-            assertThatThrownBy(() -> adapter.resolveKeyPairs(profile, List.of(echoing.getKeyPairMeta())))
+            assertThatThrownBy(() -> adapter.resolveKeyPairs(profile, handles))
                     .isInstanceOf(OutboundSecretLeakException.class);
         }
     }

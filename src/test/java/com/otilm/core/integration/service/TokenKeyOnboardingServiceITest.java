@@ -196,8 +196,9 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
     }
 
     @AfterEach
-    void stopConnector() {
+    void stopConnectorAndStoreEveryDefinitionAgain() {
         connectorMock.stop();
+        RefusedDefinitionInserts.remove(jdbcTemplate);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -1106,6 +1107,24 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void refusesWithoutReadingTheTokenAgain_whenItMayNotWriteACustomAttribute() throws Exception {
+            // given
+            var department = departmentAttribute();
+            denyObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
+            var label = "signer";
+            tokenLists(aListedKeyPair().withLabel(label).build());
+            var selection = theFirstListedPair();
+            List<RequestAttribute> forbidden = List.of(departmentValue(department, "payments"));
+
+            // when / then
+            assertThatThrownBy(() -> onboard(selection, forbidden))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Not allowed to set custom attributes: department");
+            connectorMock.verifyKeyResolutionRequests(0);
+            assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
+        }
+
+        @Test
         void joinsTheRecordHoldingThePublicKey_whenACertificateBroughtItIn() throws Exception {
             // given
             var publicKey = rsaPublicKey();
@@ -1683,11 +1702,6 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             RequestContextHolder.resetRequestAttributes();
         }
 
-        @AfterEach
-        void storeEveryDefinitionAgain() {
-            RefusedDefinitionInserts.remove(jdbcTemplate);
-        }
-
         private void auditLogsOn() {
             AuditLoggingSettingsDto auditLogs = new AuditLoggingSettingsDto();
             auditLogs.setOutput(AuditLogOutput.ALL);
@@ -1709,7 +1723,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             List<LogRecord> records = auditMessages
                     .stream()
                     .map(AuditLogMessage::getLogRecord)
-                    .filter(record -> record.operation() == Operation.CREATE)
+                    .filter(auditRecord -> auditRecord.operation() == Operation.CREATE)
                     .toList();
             assertThat(records).hasSize(1);
             return records.getFirst();
@@ -1726,9 +1740,9 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             UUID keyUuid = onboardThroughTheApi(selection).getResults().getFirst().getKeyUuid();
 
             // then
-            LogRecord record = theOnboardingRecord();
-            assertThat(record.resource().objects()).containsExactly(new ResourceObjectIdentity(label, keyUuid));
-            assertThat(record.operationData())
+            LogRecord auditRecord = theOnboardingRecord();
+            assertThat(auditRecord.resource().objects()).containsExactly(new ResourceObjectIdentity(label, keyUuid));
+            assertThat(auditRecord.operationData())
                     .isEqualTo(new OnboardedKeys(List.of(new OnboardedKey(keyUuid.toString(), label, false))));
         }
 
@@ -1750,9 +1764,9 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             UUID created = results.getFirst().getKeyUuid();
-            LogRecord record = theOnboardingRecord();
-            assertThat(record.resource().objects()).isNullOrEmpty();
-            assertThat(record.operationData())
+            LogRecord auditRecord = theOnboardingRecord();
+            assertThat(auditRecord.resource().objects()).isNullOrEmpty();
+            assertThat(auditRecord.operationData())
                     .isEqualTo(new OnboardedKeys(List
                             .of(new OnboardedKey(created.toString(), label, false),
                                     new OnboardedKey(hidden.toString(), hiddenName, true))));
@@ -1773,10 +1787,10 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(results)
                     .extracting(TokenKeyOnboardingResultDto::isOnboarded, TokenKeyOnboardingResultDto::getReason)
                     .containsExactly(tuple(false, gone), tuple(false, gone));
-            LogRecord record = theOnboardingRecord();
-            assertThat(record.operationResult()).isEqualTo(OperationResult.SUCCESS);
-            assertThat(record.resource().objects()).isNullOrEmpty();
-            assertThat(record.operationData()).isEqualTo(new OnboardedKeys(List.of()));
+            LogRecord auditRecord = theOnboardingRecord();
+            assertThat(auditRecord.operationResult()).isEqualTo(OperationResult.SUCCESS);
+            assertThat(auditRecord.resource().objects()).isNullOrEmpty();
+            assertThat(auditRecord.operationData()).isEqualTo(new OnboardedKeys(List.of()));
         }
 
         /** Each key commits on its own, so the keys onboarded before the failure stay in the inventory. */
@@ -1798,10 +1812,10 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             UUID onboarded = jdbcTemplate
                     .queryForObject("SELECT uuid FROM cryptographic_key WHERE name = ?", UUID.class, label);
-            LogRecord record = theOnboardingRecord();
-            assertThat(record.operationResult()).isEqualTo(OperationResult.FAILURE);
-            assertThat(record.resource().objects()).isNullOrEmpty();
-            assertThat(record.operationData())
+            LogRecord auditRecord = theOnboardingRecord();
+            assertThat(auditRecord.operationResult()).isEqualTo(OperationResult.FAILURE);
+            assertThat(auditRecord.resource().objects()).isNullOrEmpty();
+            assertThat(auditRecord.operationData())
                     .isEqualTo(new OnboardedKeys(List.of(new OnboardedKey(onboarded.toString(), label, false))));
         }
     }

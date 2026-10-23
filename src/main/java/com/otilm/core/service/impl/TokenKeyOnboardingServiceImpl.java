@@ -153,9 +153,11 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         TokenProfileFullModel profile = keyListGates.requireListable(tokenInstanceUuid, tokenProfileUuid);
         List<TokenKeySelectionDto> selections = request.getKeys();
         List<RequestAttribute> customAttributes = request.getCustomAttributes();
-        attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, customAttributes);
         SecurityResourceFilter customAttributePermissions = attributeEngine
                 .loadCustomAttributesSecurityResourceFilter();
+        attributeEngine
+                .validateWritableCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, customAttributes,
+                        customAttributePermissions);
         Set<String> importingBeforeResolution = importingOn(profile);
         List<List<MetadataAttribute>> handles = selections.stream().map(TokenKeySelectionDto::getKeyPairMeta).toList();
         List<ProviderKeyPairResolution> resolutions = keyProviderAdapterFactory
