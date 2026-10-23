@@ -932,6 +932,24 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
         }
 
         @Test
+        void answers422NamingTheVaultLogin_whenThePinSecretsVaultLoginIsGone() throws Exception {
+            // given
+            var loginName = "vault-login";
+            var vaultLogin = persistGenericSecret(loginName);
+            storeVaultLoginReference(vaultLogin);
+            secretRepository.deleteById(vaultLogin.getUuid());
+
+            // when
+            MvcResult attributes = perform(get(tokenProfileAttributes()));
+
+            // then
+            assertThat(attributes.getResponse().getStatus()).isEqualTo(422);
+            assertThat(attributes.getResponse().getContentAsString())
+                    .contains("Attribute 'Vault login' refers to Secret '" + loginName + "', which no longer exists")
+                    .doesNotContain("Attribute 'PIN'");
+        }
+
+        @Test
         void answers404_whenOnlyTheVaultLostTheSecret() throws Exception {
             // given
             var vaultDetail = "Secret not found";

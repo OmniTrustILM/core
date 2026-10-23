@@ -373,13 +373,16 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
 
     /**
      * A stored reference can outlive its object, such as one stored before deletes checked references. The operator
-     * fixes that on the referring object, so the refusal names the attribute rather than the missing object alone.
+     * fixes that on the referring object, so the refusal names the attribute rather than the missing object alone. A
+     * refusal from a reference nested inside the object, such as its vault's login, already names its attribute.
      */
     private ResourceObjectContentData getReferencedObjectContentData(DataAttribute attribute, NameAndUuidDto resourceId)
             throws DanglingReferenceException, AttributeException, ConnectorException {
         AttributeResource resource = attribute.getProperties().getResource();
         try {
             return getResourceObjectContentData(resource, UUID.fromString(resourceId.getUuid()), resourceId.getName());
+        } catch (DanglingReferenceException e) {
+            throw e;
         } catch (NotFoundException e) {
             throw new DanglingReferenceException(
                     "Attribute '%s' refers to %s '%s', which no longer exists. Select another one."
