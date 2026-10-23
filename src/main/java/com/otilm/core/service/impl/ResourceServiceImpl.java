@@ -4,7 +4,6 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
-import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
@@ -33,6 +32,7 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.SearchFieldTypeEnum;
+import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
@@ -376,15 +376,15 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
      * fixes that on the referring object, so the refusal names the attribute rather than the missing object alone.
      */
     private ResourceObjectContentData getReferencedObjectContentData(DataAttribute attribute, NameAndUuidDto resourceId)
-            throws AttributeException, ConnectorException {
+            throws DanglingReferenceException, AttributeException, ConnectorException {
         AttributeResource resource = attribute.getProperties().getResource();
         try {
             return getResourceObjectContentData(resource, UUID.fromString(resourceId.getUuid()), resourceId.getName());
         } catch (NotFoundException e) {
-            throw new ValidationException(ValidationError
-                    .create("Attribute '%s' refers to %s '%s', which no longer exists. Select another one."
+            throw new DanglingReferenceException(
+                    "Attribute '%s' refers to %s '%s', which no longer exists. Select another one."
                             .formatted(attribute.getProperties().getLabel(), resource.getLabel(),
-                                    resourceId.getName())));
+                                    resourceId.getName()));
         }
     }
 

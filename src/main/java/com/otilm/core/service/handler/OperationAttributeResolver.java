@@ -3,9 +3,11 @@ package com.otilm.core.service.handler;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
+import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.util.AuthHelper;
 import java.util.List;
 import java.util.UUID;
@@ -29,10 +31,10 @@ import org.springframework.stereotype.Component;
  * caller-authorized and only this operation path elevates.
  * <p>
  * <b>Failures:</b> an unresolvable stored reference surfaces as {@link ConnectorException}, the one checked type the
- * elevated body may declare. A {@link com.otilm.api.exception.ValidationException} — a disabled or invalid-state secret
- * or vault profile — propagates unwrapped: it names the object the operator has to fix and maps to 422, which wrapping
- * would turn into a 500 carrying no message. A caller that cannot recover from an unchecked exception has to wrap it
- * itself; {@code AuthorityProviderV3Adapter.pollStatus} does, because the poll listener recovers only from
+ * elevated body may declare. A disabled or invalid-state secret or vault profile, or a reference whose object is gone,
+ * surfaces as a {@link ValidationException} instead: it names the object the operator has to fix and maps to 422, which
+ * wrapping would turn into a 500 carrying no message. A caller that cannot recover from an unchecked exception has to
+ * wrap it itself; {@code AuthorityProviderV3Adapter.pollStatus} does, because the poll listener recovers only from
  * {@link ConnectorException}.
  */
 @Component
@@ -62,6 +64,8 @@ public class OperationAttributeResolver {
         return authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
             try {
                 return connectorRequestAttributesBuilder.dereferenceForConnectorRequest(connectorUuid, stored);
+            } catch (DanglingReferenceException e) {
+                throw new ValidationException(e.getMessage());
             } catch (AttributeException | NotFoundException e) {
                 // ValidationException is deliberately not caught here — see the class Javadoc's Failures paragraph.
                 throw new ConnectorException(

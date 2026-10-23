@@ -27,6 +27,7 @@ import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
+import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.exception.UnsupportedAuthorityVersionException;
 import com.otilm.core.exception.UnsupportedCryptographyProviderVersionException;
 import com.otilm.core.exception.UnsupportedDiscoveryVersionException;
@@ -244,6 +245,14 @@ public class ExceptionHandlingAdvice {
         LOG.debug("HTTP 422:", ex);
 
         return ex.getErrors().stream().map(ValidationError::getErrorDescription).toList();
+    }
+
+    /** The caller fixes a dangling reference on the object that holds it, so it answers as a validation refusal. */
+    @ExceptionHandler(DanglingReferenceException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_CONTENT)
+    public List<String> handleDanglingReferenceException(DanglingReferenceException ex) {
+        LOG.info("HTTP 422: {}", ex.getMessage());
+        return List.of(ex.getMessage());
     }
 
     /**

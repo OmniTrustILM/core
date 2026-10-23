@@ -471,6 +471,40 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
                                                 credentialContent)));
     }
 
+    /** Gives the vault connector a login attribute that references a secret, and stores the vault's value of it. */
+    private void storeVaultLoginReference(Secret login) throws Exception {
+        DataAttributeV3 definition = new DataAttributeV3();
+        definition.setUuid(UUID.randomUUID().toString());
+        definition.setName("login");
+        definition.setType(AttributeType.DATA);
+        definition.setContentType(AttributeContentType.RESOURCE);
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setLabel("Vault login");
+        properties.setResource(AttributeResource.SECRET);
+        definition.setProperties(properties);
+        definition.setAttributeCallback(new AttributeCallback());
+        vaultConnector
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/v1/secretProvider/vaults/attributes"))
+                        .willReturn(WireMock.okJson(new ObjectMapper().writeValueAsString(List.of(definition)))));
+        VaultInstance vault = secret.getSourceVaultProfile().getVaultInstance();
+        attributeEngine.updateDataAttributeDefinitions(vault.getConnectorUuid(), null, List.of(definition));
+
+        ResourceSecretContentData reference = new ResourceSecretContentData(login.getUuid().toString(), login.getName(),
+                null);
+        List<BaseAttributeContentV3<?>> content = new ArrayList<>();
+        content.add(new ResourceObjectContent(login.getName(), reference));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo
+                                .builder(Resource.VAULT, vault.getUuid())
+                                .connector(vault.getConnectorUuid())
+                                .build(),
+                        List
+                                .of(new RequestAttributeV3(UUID.fromString(definition.getUuid()), "login",
+                                        AttributeContentType.RESOURCE, content)));
+    }
+
     /** A null version stores the value of an unversioned object. */
     private void storePinReference(Resource objectType, UUID objectUuid, Integer version, Secret pinSecret)
             throws Exception {
@@ -832,6 +866,30 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
                     .isInstanceOf(SecretOperationException.class)
                     .hasMessageContaining("2 objects you are not allowed to see");
             assertStateRestored(secret, stateBeforeTheRequest);
+        }
+
+        @Test
+        void putsBackTheSecretState_whenAVaultAttributeRefersToAMissingSecret() throws Exception {
+            // given — the vault's login was removed before deletes checked references
+            var loginName = "vault-login";
+            var vaultLogin = persistGenericSecret(loginName);
+            storeVaultLoginReference(vaultLogin);
+            secretRepository.deleteById(vaultLogin.getUuid());
+            var unreferencedSecret = persistGenericSecret("unreferenced");
+            var stateBeforeTheRequest = awaitDeleteApproval(unreferencedSecret);
+            var approvedDeletion = deletion(unreferencedSecret, stateBeforeTheRequest, null);
+            injectAuthentication();
+
+            // when
+            ThrowingCallable processApprovedDeletion = () -> secretInternalService
+                    .processSecretAction(approvedDeletion, true, true);
+
+            // then
+            assertThatThrownBy(processApprovedDeletion)
+                    .isInstanceOf(SecretOperationException.class)
+                    .hasMessageContaining(
+                            "Attribute 'Vault login' refers to Secret '" + loginName + "', which no longer exists");
+            assertStateRestored(unreferencedSecret, stateBeforeTheRequest);
         }
 
         @Test
