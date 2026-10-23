@@ -20,6 +20,7 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.KeyTransfer;
 import com.otilm.core.model.crypto.PublicKeyHolder;
 import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
+import com.otilm.core.model.crypto.PublicKeyHolderSummary;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -351,6 +352,21 @@ class KeyImportGatesTest {
         gates.requireImportableInto(keyPair);
 
         // then
+        verifyNoInteractions(authorizationEnforcer);
+    }
+
+    /** A listing has already asked whether the caller may see the key, so the answer it gives is taken as it is. */
+    @Test
+    void refusalOf_wordsTheReasonByTheSightOfTheKeyItIsGiven() {
+        // given
+        PublicKeyHolderSummary inAToken = new PublicKeyHolderSummary(HOLDER_UUID, "certKey_SuperAdmin", null,
+                Holding.PUBLIC_KEY_IN_TOKEN, true);
+
+        // when
+        Optional<String> refusal = gates.refusalOf(inAToken, false);
+
+        // then
+        assertThat(refusal).contains(CryptographicKeyWriter.KEY_ALREADY_HELD);
         verifyNoInteractions(authorizationEnforcer);
     }
 

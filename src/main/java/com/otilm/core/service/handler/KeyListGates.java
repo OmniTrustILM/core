@@ -6,7 +6,6 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
-import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -31,18 +30,13 @@ public class KeyListGates {
 
     /** Whether the profile's connector can list the key pairs of its token. */
     public boolean isAvailable(TokenProfileFullModel profile) {
-        return isAvailable(profile.tokenInstance());
+        return isAvailable(profile.tokenInstance().connectorInterface());
     }
 
     /** The same, for a profile read with its token's connector interface, as the profile list filter reads it. */
     public boolean isAvailable(TokenProfile profile) {
         return connectorCapabilityService
                 .supports(profile.getTokenInstanceReference().getConnectorInterface(), FeatureFlag.KEY_LIST);
-    }
-
-    /** Whether the token's connector can list the key pairs it holds. */
-    public boolean isAvailable(TokenInstanceFullModel tokenInstance) {
-        return isAvailable(tokenInstance.connectorInterface());
     }
 
     /** The same, for the connector interface of a token, or null for a token on a connector of the first version. */

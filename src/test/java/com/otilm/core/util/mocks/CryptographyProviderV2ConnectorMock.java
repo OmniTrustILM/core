@@ -515,16 +515,6 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         return this;
     }
 
-    /** Runs the observation on each key listing request, before the provider answers it. */
-    public void onKeyListingRequest(Runnable observation) {
-        Objects.requireNonNull(observation, "observation must not be null");
-        server.addMockServiceRequestListener((request, response) -> {
-            if (request.getUrl().equals(LIST_KEYS)) {
-                observation.run();
-            }
-        });
-    }
-
     public void verifyKeyListingRequests(int count) {
         server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(LIST_KEYS)));
     }

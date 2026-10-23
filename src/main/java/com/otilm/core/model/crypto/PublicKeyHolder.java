@@ -13,7 +13,7 @@ public record PublicKeyHolder(CryptographicKeyFullModel key, UUID publicKeyItemU
 
     /** How a key holds the public key. */
     public enum Holding {
-        /** As a public-key-only record, in no token, which an import may adopt. */
+        /** As a public-key-only record, in no token. */
         PUBLIC_KEY_ONLY,
         /** With its private key, as a key of its own. */
         KEY_PAIR,

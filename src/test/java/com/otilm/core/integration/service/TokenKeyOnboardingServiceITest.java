@@ -1627,33 +1627,15 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
     class KeyListAvailability {
 
         @Test
-        void reportsKeyListAvailabilityOnTheProfile_whenTheConnectorDropsKeyListing() throws Exception {
+        void refusesTheListing_whenTheProfileIsDisabled() throws Exception {
             // given
-            var token = SecuredParentUUID.fromUUID(tokenUuid);
-            var profile = SecuredUUID.fromUUID(profileUuid);
+            tokenProfileService
+                    .disableTokenProfile(SecuredParentUUID.fromUUID(tokenUuid), SecuredUUID.fromUUID(profileUuid));
 
-            // when
-            boolean whileListing = tokenProfileService.getTokenProfile(token, profile).isKeyListAvailable();
-            connectorDropsKeyListing();
-            boolean afterDropping = tokenProfileService.getTokenProfile(token, profile).isKeyListAvailable();
-
-            // then
-            assertThat(whileListing).isTrue();
-            assertThat(afterDropping).isFalse();
-        }
-
-        @Test
-        void reportsKeyListUnavailable_whenTheProfileIsDisabled() throws Exception {
-            // given
-            var token = SecuredParentUUID.fromUUID(tokenUuid);
-            var profile = SecuredUUID.fromUUID(profileUuid);
-            tokenProfileService.disableTokenProfile(token, profile);
-
-            // when
-            boolean keyListAvailable = tokenProfileService.getTokenProfile(token, profile).isKeyListAvailable();
-
-            // then
-            assertThat(keyListAvailable).isFalse();
+            // when / then
+            assertThatThrownBy(() -> firstPage())
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("is disabled");
         }
 
         @Test

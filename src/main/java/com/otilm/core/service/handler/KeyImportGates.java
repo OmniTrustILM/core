@@ -14,6 +14,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.PublicKeyHolder;
 import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
+import com.otilm.core.model.crypto.PublicKeyHolderSummary;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -23,6 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.security.access.AccessDeniedException;
@@ -102,32 +104,51 @@ public class KeyImportGates {
 
     /**
      * Requires, before the connector is asked, that the import may go on with the key that holds the key pair's public
-     * key: a public-key-only record needs the caller's right to update it, a key a token holds the public key in
-     * without its private key cannot take the private key, and a key of its own is left to the import, which answers
-     * with it.
+     * key.
      *
      * @param holder the key that holds the public key
-     * @throws ValidationException when the import cannot go on with the key: with the reason, which names the key, to a
-     * caller who may see the key in detail, and to any other caller as the import of a key held otherwise is refused,
-     * which says nothing of whose the key is
+     * @throws ValidationException with the reason {@link #refusalOf} gives
      */
     public void requireImportableInto(PublicKeyHolder holder) {
-        if (holder.holding() == Holding.PUBLIC_KEY_IN_TOKEN) {
-            throw heldOtherwise(holder.key(), HELD_IN_TOKEN);
-        }
-        if (holder.holding() == Holding.PUBLIC_KEY_ONLY) {
-            requireUpdatable(holder.key());
-        }
+        CryptographicKeyFullModel key = holder.key();
+        refusalOf(holder.holding(), key.uuid(), key.name(),
+                () -> maySeeInDetail(key.uuid(), key.tokenInstanceReferenceUuid())).ifPresent(reason -> {
+                    throw new ValidationException(ValidationError.create(reason));
+                });
     }
 
-    private void requireUpdatable(CryptographicKeyFullModel adoptable) {
-        if (!mayUpdate(adoptable.uuid())) {
-            throw heldOtherwise(adoptable, NOT_UPDATABLE);
-        }
+    /**
+     * Why an import cannot go on with the key that holds the key pair's public key: a public-key-only record needs the
+     * caller's right to update it, and a key a token holds the public key in without its private key cannot take the
+     * private key. A key of its own is left to the import, which answers with it.
+     *
+     * @param holder the key that holds the public key
+     * @param holderVisible whether the caller may see the key in detail
+     * @return the reason as {@link #refusalNaming} words it, or nothing when the import can go on
+     */
+    public Optional<String> refusalOf(PublicKeyHolderSummary holder, boolean holderVisible) {
+        return refusalOf(holder.holding(), holder.keyUuid(), holder.keyName(), () -> holderVisible);
+    }
+
+    private Optional<String> refusalOf(Holding holding, UUID keyUuid, String keyName, BooleanSupplier keyVisible) {
+        String reason = switch (holding) {
+            case PUBLIC_KEY_IN_TOKEN -> HELD_IN_TOKEN;
+            case PUBLIC_KEY_ONLY -> mayUpdate(keyUuid) ? null : NOT_UPDATABLE;
+            case KEY_PAIR -> null;
+        };
+        return Optional.ofNullable(reason).map(held -> refusalNaming(held, keyName, keyVisible.getAsBoolean()));
+    }
+
+    /**
+     * The reason, naming the key, to a caller who may see the key in detail. Any other caller gets the refusal of a key
+     * held otherwise, which says nothing of whose the key is.
+     */
+    public static String refusalNaming(String reason, String keyName, boolean keyVisible) {
+        return keyVisible ? reason.formatted(keyName) : CryptographicKeyWriter.KEY_ALREADY_HELD;
     }
 
     /** Whether the caller may update the key, which adding a private key to a public-key-only record requires. */
-    public boolean mayUpdate(UUID keyUuid) {
+    private boolean mayUpdate(UUID keyUuid) {
         try {
             authorizationEnforcer
                     .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE, SecuredUUID.fromUUID(keyUuid));
@@ -135,14 +156,6 @@ public class KeyImportGates {
         } catch (AccessDeniedException denied) {
             return false;
         }
-    }
-
-    /** The refusal with the reason given, to a caller who may see the key in detail, and in neutral words otherwise. */
-    private ValidationException heldOtherwise(CryptographicKeyFullModel key, String reason) {
-        if (!maySeeInDetail(key.uuid(), key.tokenInstanceReferenceUuid())) {
-            return neutralRefusal();
-        }
-        return new ValidationException(ValidationError.create(reason.formatted(key.name())));
     }
 
     /**

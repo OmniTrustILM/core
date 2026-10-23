@@ -313,7 +313,6 @@ public class TokenProfileServiceImpl implements TokenProfileExternalService, Tok
                                 .connector(profile.connectorUuid())
                                 .build()));
         dto.setKeyTransfer(keyTransferCapabilityService.capabilityOf(profile));
-        dto.setKeyListAvailable(keyListGates.isAvailable(profile) && Boolean.TRUE.equals(profile.enabled()));
         return dto;
     }
 

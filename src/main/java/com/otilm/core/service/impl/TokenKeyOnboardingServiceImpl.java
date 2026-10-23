@@ -10,7 +10,6 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.key.OnboardTokenKeysRequestDto;
 import com.otilm.api.model.client.cryptography.key.TokenKeySelectionDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
-import com.otilm.api.model.connector.cryptography.v2.key.ListKeysRequestV2Dto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.OnboardTokenKeysResponseDto;
 import com.otilm.api.model.core.cryptography.key.TokenKeyDto;
@@ -90,8 +89,6 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     static final String RECORD_CHANGED = "The key holding this public key changed while the private key was joining "
             + "it. List the key storage again.";
     static final String IMPORTING = "An import of this key pair is still in progress.";
-    static final String PAGE_OUT_OF_RANGE = "The page must be 1 or later, and hold 1 to "
-            + ListKeysRequestV2Dto.MAX_LIMIT + " key pairs.";
     static final String PAGE_BEYOND_LAST_OFFSET = "The page must start at most " + Integer.MAX_VALUE
             + " key pairs into the listing.";
     static final String ONBOARDING_FAILED = "Failed to onboard the key pair.";
@@ -312,32 +309,26 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         }
         boolean visible = keyImportGates.maySeeInDetail(holder.keyUuid(), holder.tokenInstanceUuid());
         return switch (holder.holding()) {
-            case PUBLIC_KEY_ONLY -> standingOfRecord(fingerprint, holder, visible);
             case KEY_PAIR -> held(TokenKeyStatus.IN_INVENTORY, fingerprint, holder, visible, HELD);
-            case PUBLIC_KEY_IN_TOKEN ->
-                held(TokenKeyStatus.IN_INVENTORY, fingerprint, holder, visible, KeyImportGates.HELD_IN_TOKEN);
+            case PUBLIC_KEY_IN_TOKEN -> standingAsImported(TokenKeyStatus.IN_INVENTORY, fingerprint, holder, visible);
+            case PUBLIC_KEY_ONLY -> holder.active()
+                    ? standingAsImported(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN, fingerprint, holder, visible)
+                    : held(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN, fingerprint, holder, visible, NOT_ACTIVE);
         };
     }
 
-    /**
-     * A public-key-only record takes the private key when it is active and the caller may update it, as an import into
-     * it requires.
-     */
-    private Standing standingOfRecord(String fingerprint, PublicKeyHolderSummary publicKeyRecord, boolean visible) {
-        if (!publicKeyRecord.active()) {
-            return held(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN, fingerprint, publicKeyRecord, visible, NOT_ACTIVE);
-        }
-        if (!keyImportGates.mayUpdate(publicKeyRecord.keyUuid())) {
-            return held(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN, fingerprint, publicKeyRecord, visible,
-                    KeyImportGates.NOT_UPDATABLE);
-        }
-        return new Standing(TokenKeyStatus.ONBOARDABLE_INTO_KEY, fingerprint, publicKeyRecord, visible, null);
+    /** The holder takes the private key exactly when an import into it could go on. */
+    private Standing standingAsImported(TokenKeyStatus refusedStatus, String fingerprint, PublicKeyHolderSummary holder,
+            boolean visible) {
+        return keyImportGates
+                .refusalOf(holder, visible)
+                .map(refusal -> new Standing(refusedStatus, fingerprint, holder, visible, refusal))
+                .orElseGet(() -> new Standing(TokenKeyStatus.ONBOARDABLE_INTO_KEY, fingerprint, holder, visible, null));
     }
 
-    /** The refusal names the holder only to a caller who may see it in detail. */
     private static Standing held(TokenKeyStatus status, String fingerprint, PublicKeyHolderSummary holder,
             boolean visible, String reason) {
-        String refusal = visible ? reason.formatted(holder.keyName()) : CryptographicKeyWriter.KEY_ALREADY_HELD;
+        String refusal = KeyImportGates.refusalNaming(reason, holder.keyName(), visible);
         return new Standing(status, fingerprint, holder, visible, refusal);
     }
 
@@ -561,9 +552,6 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     private record TokenKeyPage(int pageNumber, int itemsPerPage, int offset) {
 
         static TokenKeyPage of(int pageNumber, int itemsPerPage) {
-            if (pageNumber < 1 || itemsPerPage < 1 || itemsPerPage > ListKeysRequestV2Dto.MAX_LIMIT) {
-                throw new ValidationException(ValidationError.create(PAGE_OUT_OF_RANGE));
-            }
             try {
                 return new TokenKeyPage(pageNumber, itemsPerPage, Math.multiplyExact(pageNumber - 1, itemsPerPage));
             } catch (ArithmeticException beyondTheLastOffset) {
