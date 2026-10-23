@@ -260,7 +260,7 @@ public class CommentableHostObjects {
                 actionMessage.setResource(Resource.SECRET);
                 actionMessage.setResourceAction(ResourceAction.DELETE);
                 actionMessage.setResourceUuid(uuid);
-                actionMessage.setData(new SecretActionData(null, null, null, null, false, SecretState.ACTIVE));
+                actionMessage.setData(new SecretActionData(null, null, null, null, false, SecretState.ACTIVE, null));
                 context.getBean(SecretInternalService.class).processSecretAction(actionMessage, false, true);
             }
             case VAULT -> context.getBean(VaultInstanceExternalService.class).deleteVaultInstance(uuid);

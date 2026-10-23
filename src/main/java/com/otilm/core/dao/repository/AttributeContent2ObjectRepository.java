@@ -46,6 +46,31 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
         long getMaxBytes();
     }
 
+    @Query(value = """
+            SELECT DISTINCT aco.object_type AS objectType, aco.object_uuid AS objectUuid,
+                   aco.object_version AS objectVersion,
+                   ad.label AS attributeLabel
+            FROM {h-schema}attribute_content_2_object aco
+            JOIN {h-schema}attribute_content_item aci ON aci.uuid = aco.attribute_content_item_uuid
+            JOIN {h-schema}attribute_definition ad ON ad.uuid = aci.attribute_definition_uuid
+            WHERE ad.content_type = 'RESOURCE'
+              AND ad.definition -> 'properties' ->> 'resource' = :resourceCode
+              AND lower(aci.json -> 'data' ->> 'uuid') = lower(:referencedUuid)
+            """, nativeQuery = true)
+    List<ResourceAttributeReferrer> findResourceAttributeReferrers(@Param("resourceCode") String resourceCode,
+            @Param("referencedUuid") String referencedUuid);
+
+    interface ResourceAttributeReferrer {
+        String getObjectType();
+
+        UUID getObjectUuid();
+
+        /** Null for an unversioned object. */
+        Integer getObjectVersion();
+
+        String getAttributeLabel();
+    }
+
     // ── Deduplication check — version-aware and purpose-aware ───────────────
     /**
      * Locates the content mapping that would collide with a new (content item, object, version, purpose, source,

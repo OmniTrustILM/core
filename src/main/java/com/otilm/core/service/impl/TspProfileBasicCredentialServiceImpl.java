@@ -24,6 +24,7 @@ import com.otilm.core.dao.repository.signing.TspProfileBasicCredentialRepository
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.mapper.signing.TspProfileBasicCredentialMapper;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.reference.ObjectRef;
 import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -171,7 +172,7 @@ public class TspProfileBasicCredentialServiceImpl
         TspProfileBasicCredential credential = getCredentialScoped(tspProfileUuid, uuid);
         UUID secretUuid = credential.getSecretUuid();
 
-        deleteVaultSecret(secretUuid);
+        deleteOwnedVaultSecret(credential);
         credentialWriter.deleteByUuid(credential.getUuid());
         credentialVerificationCache.evictBySecretUuid(secretUuid);
         evictModelCache(profile);
@@ -180,11 +181,13 @@ public class TspProfileBasicCredentialServiceImpl
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void deleteSecretsForProfile(UUID tspProfileUuid) {
-        for (TspProfileBasicCredential credential : credentialRepository.findByTspProfileUuid(tspProfileUuid)) {
+        List<TspProfileBasicCredential> credentials = credentialRepository.findByTspProfileUuid(tspProfileUuid);
+        checkSecretDeletions(credentials);
+        for (TspProfileBasicCredential credential : credentials) {
             UUID secretUuid = credential.getSecretUuid();
             try {
-                deleteVaultSecret(secretUuid);
-            } catch (AttributeException | ConnectorCommunicationException e) {
+                deleteOwnedVaultSecret(credential);
+            } catch (AttributeException | ConnectorCommunicationException | ValidationException e) {
                 log
                         .warn("Could not delete vault secret {} during TSP profile {} teardown; manual reconciliation may be needed.",
                                 secretUuid, tspProfileUuid, e);
@@ -263,14 +266,33 @@ public class TspProfileBasicCredentialServiceImpl
         }
     }
 
-    private void deleteVaultSecret(UUID secretUuid) throws AttributeException, ConnectorCommunicationException {
+    /** A refusal after the first secret went would leave the profile in place with some of its secrets deleted. */
+    private void checkSecretDeletions(List<TspProfileBasicCredential> credentials) {
+        for (TspProfileBasicCredential credential : credentials) {
+            try {
+                secretService.checkOwnedSecretDeletion(credential.getSecretUuid(), asOwner(credential));
+            } catch (NotFoundException e) {
+                log
+                        .debug("Basic credential secret {} already absent; nothing refuses its delete.",
+                                credential.getSecretUuid());
+            }
+        }
+    }
+
+    private void deleteOwnedVaultSecret(TspProfileBasicCredential credential)
+            throws AttributeException, ConnectorCommunicationException {
+        UUID secretUuid = credential.getSecretUuid();
         try {
-            secretService.deleteSecret(secretUuid, true);
+            secretService.deleteOwnedSecret(secretUuid, asOwner(credential));
         } catch (NotFoundException e) {
             log.info("Basic credential secret {} already absent in vault; treating delete as idempotent.", secretUuid);
         } catch (ConnectorException e) {
             throw vaultUnavailable("delete", secretUuid.toString(), e);
         }
+    }
+
+    private static ObjectRef asOwner(TspProfileBasicCredential credential) {
+        return new ObjectRef(Resource.TSP_PROFILE_BASIC_CREDENTIAL, credential.getUuid());
     }
 
     private ConnectorCommunicationException vaultUnavailable(String operation, String reference,
@@ -284,7 +306,7 @@ public class TspProfileBasicCredentialServiceImpl
     private void deleteVaultSecretQuietly(UUID secretUuid) {
         try {
             secretService.deleteSecret(secretUuid, true);
-        } catch (AttributeException | ConnectorException | NotFoundException e) {
+        } catch (AttributeException | ConnectorException | NotFoundException | ValidationException e) {
             log
                     .warn("Orphan Basic credential secret {} could not be cleaned up after a failed insert; manual reconciliation may be needed.",
                             secretUuid, e);

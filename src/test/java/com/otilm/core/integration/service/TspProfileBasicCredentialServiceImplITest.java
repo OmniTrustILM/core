@@ -8,6 +8,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialCreateRequestDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialDto;
 import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialUpdateRequestDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.api.model.core.secret.SecretDetailDto;
 import com.otilm.core.dao.entity.VaultInstance;
@@ -16,6 +17,7 @@ import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
+import com.otilm.core.reference.ObjectRef;
 import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -36,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -177,6 +180,25 @@ class TspProfileBasicCredentialServiceImplITest extends BaseSpringBootTest {
             // then — best-effort cleanup of the orphaned second vault secret
             verify(secretService, times(1)).deleteSecret(secretUuidB, true);
             assertThat(service.list(parent)).hasSize(1);
+        }
+
+        @Test
+        void reportsTheDuplicate_whenTheOrphanSecretIsAwaitingApproval() throws Exception {
+            // given
+            var parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
+            var duplicateUsername = "dup";
+            var orphanSecretUuid = UUID.randomUUID();
+            when(secretService.createSecret(any(), any(), any()))
+                    .thenReturn(secretDtoWithUuid(UUID.randomUUID()))
+                    .thenReturn(secretDtoWithUuid(orphanSecretUuid));
+            doThrow(new ValidationException("Secret is in state Pending approval and cannot be deleted"))
+                    .when(secretService)
+                    .deleteSecret(orphanSecretUuid, true);
+            service.create(parent, createRequest(duplicateUsername, "secret"));
+
+            // when / then
+            assertThatThrownBy(() -> service.create(parent, createRequest(duplicateUsername, "secret2")))
+                    .isInstanceOf(AlreadyExistException.class);
         }
 
         @Test
@@ -404,7 +426,9 @@ class TspProfileBasicCredentialServiceImplITest extends BaseSpringBootTest {
             service.delete(parent, credentialUuid);
 
             // then
-            verify(secretService, times(1)).deleteSecret(secretUuid, true);
+            verify(secretService, times(1))
+                    .deleteOwnedSecret(secretUuid,
+                            new ObjectRef(Resource.TSP_PROFILE_BASIC_CREDENTIAL, created.getUuid()));
             assertThat(service.list(parent)).isEmpty();
         }
     }

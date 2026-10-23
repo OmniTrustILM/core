@@ -32,6 +32,7 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.enums.SearchFieldTypeEnum;
+import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
@@ -363,11 +364,30 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
                     throw new AttributeException("UUID of Resource Object is missing.", attribute.getUuid(),
                             attribute.getName(), AttributeType.DATA, "");
                 }
-                ResourceObjectContentData data = getResourceObjectContentData(attribute.getProperties().getResource(),
-                        UUID.fromString(resourceId.getUuid()), resourceId.getName());
+                ResourceObjectContentData data = getReferencedObjectContentData(attribute, resourceId);
                 contents.add(new ResourceObjectContent(resourceId.getName(), data));
             }
             attribute.setContent(contents);
+        }
+    }
+
+    /**
+     * A stored reference can outlive its object, such as one stored before deletes checked references. The operator
+     * fixes that on the referring object, so the refusal names the attribute rather than the missing object alone. A
+     * refusal from a reference nested inside the object, such as its vault's login, already names its attribute.
+     */
+    private ResourceObjectContentData getReferencedObjectContentData(DataAttribute attribute, NameAndUuidDto resourceId)
+            throws DanglingReferenceException, AttributeException, ConnectorException {
+        AttributeResource resource = attribute.getProperties().getResource();
+        try {
+            return getResourceObjectContentData(resource, UUID.fromString(resourceId.getUuid()), resourceId.getName());
+        } catch (DanglingReferenceException e) {
+            throw e;
+        } catch (NotFoundException e) {
+            String nameOrUuid = Objects.requireNonNullElse(resourceId.getName(), resourceId.getUuid());
+            throw new DanglingReferenceException(
+                    "Attribute '%s' refers to %s '%s', which does not exist. Select another one."
+                            .formatted(attribute.getProperties().getLabel(), resource.getLabel(), nameOrUuid));
         }
     }
 
@@ -375,16 +395,26 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
             throws NotFoundException, AttributeException, ConnectorException {
         ResourceObjectContentData data;
         if (resource.getContentClass() == ResourceSimpleContentData.class) {
-            data = new ResourceSimpleContentData(resource);
-            ((ResourceSimpleContentData) data)
-                    .setAttributes(attributeEngine
-                            .getObjectDataAttributesContentUnversioned(Resource.findByCode(resource.getCode()), uuid));
+            data = getSimpleContentData(resource, uuid);
         } else {
             data = attributeResourceServices.get(resource.getCode()).getResourceObjectContent(uuid);
         }
         data.setUuid(uuid.toString());
         data.setName(name);
         return data;
+    }
+
+    private ResourceSimpleContentData getSimpleContentData(AttributeResource resource, UUID uuid)
+            throws NotFoundException {
+        Resource objectResource = Resource.findByCode(resource.getCode());
+        requireResourceObjectExists(objectResource, uuid);
+        ResourceSimpleContentData data = new ResourceSimpleContentData(resource);
+        data.setAttributes(attributeEngine.getObjectDataAttributesContentUnversioned(objectResource, uuid));
+        return data;
+    }
+
+    private void requireResourceObjectExists(Resource resource, UUID uuid) throws NotFoundException {
+        getResourceObjectInternal(resource, uuid);
     }
 
 }

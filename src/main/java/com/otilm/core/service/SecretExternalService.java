@@ -15,6 +15,7 @@ import com.otilm.api.model.core.secret.SecretRequestDto;
 import com.otilm.api.model.core.secret.SecretUpdateObjectsDto;
 import com.otilm.api.model.core.secret.SecretUpdateRequestDto;
 import com.otilm.api.model.core.secret.SecretVersionDto;
+import com.otilm.core.reference.ObjectRef;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -36,6 +37,18 @@ public interface SecretExternalService {
 
     void deleteSecret(UUID uuid, boolean deleteInVaults)
             throws NotFoundException, ConnectorException, AttributeException;
+
+    /**
+     * Queues the deletion of a secret, in every vault, for the owner deleted together with it. Only references held by
+     * others refuse it.
+     */
+    void deleteOwnedSecret(UUID uuid, ObjectRef owner) throws NotFoundException, ConnectorException, AttributeException;
+
+    /**
+     * Refuses wherever {@link #deleteOwnedSecret} would, so an owner of several secrets learns of a refusal before it
+     * deletes any of them.
+     */
+    void checkOwnedSecretDeletion(UUID uuid, ObjectRef owner) throws NotFoundException;
 
     void enableSecret(UUID uuid) throws NotFoundException;
 

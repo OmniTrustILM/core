@@ -4,6 +4,7 @@ import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
@@ -46,13 +47,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -60,7 +65,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -383,7 +391,7 @@ class TspProfileServiceImplITest extends BaseSpringBootTest {
 
         tspService.deleteTspProfile(savedTspProfile.getSecuredUuid());
 
-        verify(secretService, times(1)).deleteSecret(secretUuid, true);
+        verify(secretService, times(1)).deleteOwnedSecret(eq(secretUuid), any());
         assertTrue(basicCredentialRepository.findByTspProfileUuid(savedTspProfile.getUuid()).isEmpty(),
                 "Basic credential rows must be removed when the TSP profile is deleted");
         assertFalse(tspRepository.findById(savedTspProfile.getUuid()).isPresent());
@@ -398,8 +406,11 @@ class TspProfileServiceImplITest extends BaseSpringBootTest {
 
         tspService.deleteTspProfile(savedTspProfile.getSecuredUuid());
 
-        verify(secretService, times(1)).deleteSecret(firstSecret, true);
-        verify(secretService, times(1)).deleteSecret(secondSecret, true);
+        InOrder checksBeforeDeletes = inOrder(secretService);
+        checksBeforeDeletes.verify(secretService, times(2)).checkOwnedSecretDeletion(any(), any());
+        checksBeforeDeletes.verify(secretService, times(2)).deleteOwnedSecret(any(), any());
+        verify(secretService, times(1)).deleteOwnedSecret(eq(firstSecret), any());
+        verify(secretService, times(1)).deleteOwnedSecret(eq(secondSecret), any());
         assertTrue(basicCredentialRepository.findByTspProfileUuid(savedTspProfile.getUuid()).isEmpty());
         assertFalse(tspRepository.findById(savedTspProfile.getUuid()).isPresent());
     }
@@ -411,16 +422,61 @@ class TspProfileServiceImplITest extends BaseSpringBootTest {
         persistBasicCredential(savedTspProfile, "svc-fails", failingSecret);
         persistBasicCredential(savedTspProfile, "svc-succeeds", succeedingSecret);
 
-        doThrow(new ConnectorException("vault unavailable")).when(secretService).deleteSecret(failingSecret, true);
+        doThrow(new ConnectorException("vault unavailable"))
+                .when(secretService)
+                .deleteOwnedSecret(eq(failingSecret), any());
 
         tspService.deleteTspProfile(savedTspProfile.getSecuredUuid());
 
-        verify(secretService, times(1)).deleteSecret(failingSecret, true);
-        verify(secretService, times(1)).deleteSecret(succeedingSecret, true);
+        verify(secretService, times(1)).deleteOwnedSecret(eq(failingSecret), any());
+        verify(secretService, times(1)).deleteOwnedSecret(eq(succeedingSecret), any());
         assertTrue(basicCredentialRepository.findByTspProfileUuid(savedTspProfile.getUuid()).isEmpty(),
                 "A vault failure on one secret must not leave credential rows behind");
         assertFalse(tspRepository.findById(savedTspProfile.getUuid()).isPresent(),
                 "Profile teardown must complete even when a vault secret delete fails");
+    }
+
+    @Test
+    void completesTeardown_whenASecretDeleteIsRefusedAfterThePreCheck() throws Exception {
+        // given
+        var refusedSecret = UUID.randomUUID();
+        var deletedSecret = UUID.randomUUID();
+        persistBasicCredential(savedTspProfile, "svc-refused", refusedSecret);
+        persistBasicCredential(savedTspProfile, "svc-deleted", deletedSecret);
+        doThrow(new ValidationException("Secret is in state Pending approval and cannot be deleted"))
+                .when(secretService)
+                .deleteOwnedSecret(eq(refusedSecret), any());
+
+        // when
+        tspService.deleteTspProfile(savedTspProfile.getSecuredUuid());
+
+        // then
+        verify(secretService, times(1)).deleteOwnedSecret(eq(refusedSecret), any());
+        verify(secretService, times(1)).deleteOwnedSecret(eq(deletedSecret), any());
+        assertThat(basicCredentialRepository.findByTspProfileUuid(savedTspProfile.getUuid())).isEmpty();
+        assertThat(tspRepository.findById(savedTspProfile.getUuid())).isEmpty();
+    }
+
+    @Test
+    void refusesBeforeAnySecretIsDeleted_whenASecretIsStillUsedElsewhere() throws Exception {
+        // given
+        var freeSecret = UUID.randomUUID();
+        var usedSecret = UUID.randomUUID();
+        persistBasicCredential(savedTspProfile, "svc-free", freeSecret);
+        persistBasicCredential(savedTspProfile, "svc-used", usedSecret);
+        doThrow(new ValidationException("it is still used by Token 'hsm' (attribute 'PIN')"))
+                .when(secretService)
+                .checkOwnedSecretDeletion(eq(usedSecret), any());
+        var profileUuid = savedTspProfile.getSecuredUuid();
+
+        // when
+        ThrowingCallable deleteProfile = () -> tspService.deleteTspProfile(profileUuid);
+
+        // then
+        assertThatThrownBy(deleteProfile).isInstanceOf(ValidationException.class);
+        verify(secretService, never()).deleteOwnedSecret(any(), any());
+        assertThat(basicCredentialRepository.findByTspProfileUuid(savedTspProfile.getUuid())).hasSize(2);
+        assertThat(tspRepository.findById(savedTspProfile.getUuid())).isPresent();
     }
 
     // ──────────────────────────────────────────────────────────────────────────

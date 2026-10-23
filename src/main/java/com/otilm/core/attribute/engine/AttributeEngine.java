@@ -2193,6 +2193,11 @@ public class AttributeEngine {
                 throw new AttributeException("Attribute with Resource Content Type is missing callback",
                         attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
             }
+            // Deleting the referenced object looks for its stored references, which only a plain value shows.
+            if (dataAttribute.getProperties().getProtectionLevel() == ProtectionLevel.ENCRYPTED) {
+                throw new AttributeException("Attribute with Resource Content Type cannot be encrypted",
+                        attribute.getUuid(), attribute.getName(), attribute.getType(), connectorUuidStr);
+            }
         }
     }
 

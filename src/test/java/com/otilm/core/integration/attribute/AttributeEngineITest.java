@@ -46,11 +46,9 @@ import com.otilm.api.model.common.attribute.v3.content.FileAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.FloatAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ObjectAttributeContentV3;
-import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.TextAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.TimeAttributeContentV3;
-import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.common.attribute.v3.mapping.ExtensionMappedField;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
@@ -1953,13 +1951,6 @@ class AttributeEngineITest extends BaseSpringBootTest {
         testAttributeEncryption(AttributeContentType.CODEBLOCK,
                 new CodeBlockAttributeContentV3("ref", codeBlockAttributeContentData), codeBlockAttributeContentData);
         testAttributeEncryption(AttributeContentType.BOOLEAN, new BooleanAttributeContentV3(true), true);
-        ResourceSimpleContentData resourceObjectContentData = new ResourceSimpleContentData(
-                AttributeResource.AUTHORITY);
-        resourceObjectContentData.setAttributes(List.of(new ResponseAttributeV3()));
-        resourceObjectContentData.setUuid(UUID.randomUUID().toString());
-        resourceObjectContentData.setName("name");
-        testAttributeEncryption(AttributeContentType.RESOURCE,
-                new ResourceObjectContent("ref", resourceObjectContentData), resourceObjectContentData);
     }
 
     private void testAttributeEncryption(AttributeContentType contentType, BaseAttributeContentV3<?> contentV3,
@@ -1972,9 +1963,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         DataAttributeProperties properties = new DataAttributeProperties();
         properties.setProtectionLevel(ProtectionLevel.ENCRYPTED);
         properties.setLabel("Secret Attribute");
-        properties.setResource(AttributeResource.AUTHORITY);
         secretAttribute.setProperties(properties);
-        secretAttribute.setAttributeCallback(new AttributeCallback());
         attributeEngine.updateDataAttributeDefinitions(connectorAuthority.getUuid(), null, List.of(secretAttribute));
         RequestAttributeV3 requestAttribute = new RequestAttributeV3();
         requestAttribute.setUuid(UUID.fromString(secretAttribute.getUuid()));
