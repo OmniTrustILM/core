@@ -331,6 +331,19 @@ class NormalizationRulesTest {
         assertThat(keyOfAlgorithm(name)).isEqualTo(keyOfAlgorithm("RSA-SHA512"));
     }
 
+    /** DSA is sized by its key like RSA, so a digest beside it is not its key size. */
+    @ParameterizedTest
+    @CsvSource({
+            "DSA with SHA-1, dsaWithSHA1",
+            "DSA-SHA1, SHA1withDSA",
+            "DSA with SHA-256, SHA256withDSA",
+            "DSA-SHA256, dsa_with_SHA256"})
+    void aDigestBesideDsaIsNotItsKeySize(String name, String sibling) {
+        assertThat(normalize(name).parameterSet()).isNull();
+        assertThat(keyOfAlgorithm(name)).isEqualTo(keyOfAlgorithm(sibling));
+        assertThat(normalize("DSA-2048 with SHA-256").parameterSet()).isEqualTo(2048);
+    }
+
     /** A one-digit digest is not a key size either, however the digest is joined to RSA. */
     @ParameterizedTest
     @CsvSource({

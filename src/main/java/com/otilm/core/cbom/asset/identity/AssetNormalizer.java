@@ -124,13 +124,14 @@ public record AssetNormalizer(IdentityTables tables) {
 
     /**
      * Families whose {@code parameterSet} means a KEY size, so a digest length in the name can never be it: an
-     * "RSA-256" key is absurd, and {@code SHA512withRSA} was storing 512. Scoped to the RSA family on purpose -- for a
-     * hash or a MAC the digest length IS the parameter, and for ECDSA it usually coincides with the curve size, so
-     * stripping it there would discard real information to fix a coincidence. The bare pseudo-family is in scope: it is
-     * what a JCA transformation such as {@code RSA/ECB/OAEPWithSHA-256AndMGF1Padding} elects, and the scheme prefixes
-     * alone let exactly that name store a 256-bit key.
+     * "RSA-256" key is absurd, and {@code SHA512withRSA} was storing 512; DSA is sized the same way, and {@code DSA
+     * with SHA-1} stored a 1-bit key. Scoped to RSA and DSA on purpose -- for a hash or a MAC the digest length IS the
+     * parameter, and for ECDSA it usually coincides with the curve size, so stripping it there would discard real
+     * information to fix a coincidence. The bare pseudo-family is in scope: it is what a JCA transformation such as
+     * {@code RSA/ECB/OAEPWithSHA-256AndMGF1Padding} elects, and the scheme prefixes alone let exactly that name store a
+     * 256-bit key.
      */
-    private static final List<String> KEY_SIZE_FAMILIES = List.of("RSA");
+    private static final List<String> KEY_SIZE_FAMILIES = List.of("RSA", "DSA");
 
     /**
      * A digest token and the length it names, in every spelling the RSA schemes are written with. The left guard admits
