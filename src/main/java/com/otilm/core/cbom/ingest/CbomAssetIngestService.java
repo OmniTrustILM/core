@@ -565,17 +565,20 @@ public class CbomAssetIngestService {
         return BatchOutcome.WRITTEN;
     }
 
-    /** The kinds a certificate names one of; two of a kind are ambiguous and resolve to nothing. */
+    /** The kinds a certificate or a key names one of; two of a kind are ambiguous and resolve to nothing. */
     private static final Set<CryptoAssetReferenceKind> SINGULAR_REFERENCES = Set
-            .of(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY, CryptoAssetReferenceKind.SIGNATURE_ALGORITHM);
+            .of(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY, CryptoAssetReferenceKind.SIGNATURE_ALGORITHM,
+                    CryptoAssetReferenceKind.ALGORITHM);
 
     /**
-     * Records every certificate's and protocol's references, resolved to the assets their targets became.
+     * Records every key's, certificate's and protocol's references, resolved to the assets their targets became.
      *
      * <p>
      * After every batch rather than inside one: a certificate's key may sit in a later batch, and until its row exists
      * the reference has nothing to resolve to. Replaced on every ingest, including with nothing, so a reference the
-     * document no longer makes does not outlive it.
+     * document no longer makes does not outlive it. Keys go first, in their own batches and ahead of the other
+     * referrers of a batch: a certificate reads its key's verdict, so the key's has to be restamped from its references
+     * before the certificate is.
      */
     private BatchOutcome writeReferences(UUID cbomUuid, List<CbomAssetExtractor.ExtractedAsset> assets,
             OffsetDateTime seenAt, int batchSize) {
@@ -586,6 +589,7 @@ public class CbomAssetIngestService {
         final List<CbomAssetExtractor.ExtractedAsset> referrers = assets
                 .stream()
                 .filter(CbomAssetIngestService::makesReferences)
+                .sorted(Comparator.comparing(asset -> isMaterial(asset) ? 0 : 1))
                 .toList();
         for (List<CbomAssetExtractor.ExtractedAsset> batch : batches(referrers, batchSize)) {
             final BatchOutcome outcome = transactionHandler
@@ -599,7 +603,13 @@ public class CbomAssetIngestService {
 
     private static boolean makesReferences(CbomAssetExtractor.ExtractedAsset asset) {
         final CryptographicAssetType type = PqcEvaluator.assetTypeOf(asset.normalized().assetType());
-        return type == CryptographicAssetType.CERTIFICATE || type == CryptographicAssetType.PROTOCOL;
+        return type == CryptographicAssetType.CERTIFICATE || type == CryptographicAssetType.PROTOCOL
+                || type == CryptographicAssetType.RELATED_CRYPTO_MATERIAL;
+    }
+
+    private static boolean isMaterial(CbomAssetExtractor.ExtractedAsset asset) {
+        return PqcEvaluator
+                .assetTypeOf(asset.normalized().assetType()) == CryptographicAssetType.RELATED_CRYPTO_MATERIAL;
     }
 
     /** In uuid order, the order every other inventory writer takes {@code crypto_asset} row locks in. */
@@ -616,9 +626,21 @@ public class CbomAssetIngestService {
         byUuid
                 .forEach((assetUuid, asset) -> referenceWriter
                         .replaceReferences(assetUuid, cbomUuid, seenAt, resolve(asset.references(), assetByRef)));
-        // Their verdicts were stamped with the batch that wrote them, before the references they are read from.
-        stampVerdicts(byUuid.keySet());
+        // Their verdicts were stamped with the batch that wrote them, before the references they are read from. Every
+        // row of the batch is locked by now, so the order no longer matters to the sweep, and the keys go first.
+        stampVerdicts(uuidsOf(byUuid, true));
+        stampVerdicts(uuidsOf(byUuid, false));
         return BatchOutcome.WRITTEN;
+    }
+
+    private static Set<UUID> uuidsOf(Map<UUID, CbomAssetExtractor.ExtractedAsset> byUuid, boolean material) {
+        final Set<UUID> uuids = new LinkedHashSet<>();
+        byUuid.forEach((uuid, asset) -> {
+            if (isMaterial(asset) == material) {
+                uuids.add(uuid);
+            }
+        });
+        return uuids;
     }
 
     private List<ResolvedAssetReference> resolve(List<AssetReferences.Reference> references,

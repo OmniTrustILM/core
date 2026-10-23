@@ -39,7 +39,8 @@ import org.hibernate.annotations.OnDeleteAction;
 // Stated here as well as in the migration, so the entity-generated schema the tests run against carries the same
 // invariants and the same constraint names as production.
 @Check(name = "ck_crypto_asset_reference_kind",
-        constraints = "kind IN ('SUBJECT_PUBLIC_KEY', 'SIGNATURE_ALGORITHM', 'CIPHER_SUITE_ALGORITHM')")
+        constraints = "kind IN ('SUBJECT_PUBLIC_KEY', 'SIGNATURE_ALGORITHM', 'CIPHER_SUITE_ALGORITHM', 'ALGORITHM', "
+                + "'PROTOCOL_ALGORITHM', 'KEY_EXCHANGE_TRANSFORM')")
 @Check(name = "ck_crypto_asset_reference_ordinal", constraints = "ordinal >= 0")
 public class CryptoAssetReference extends UniquelyIdentified {
 
