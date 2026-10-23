@@ -2385,8 +2385,17 @@ public class CertificateServiceImpl
 
     @Override
     public void updateCertificateKeys(UUID keyUuid, String publicKeyFingerprint) {
-        for (Certificate certificate : certificateRepository.findByPublicKeyFingerprint(publicKeyFingerprint)) {
-            certificate.setKeyUuid(keyUuid);
+        if (publicKeyFingerprint == null) {
+            return;
+        }
+        for (Certificate certificate : certificateRepository
+                .findByPublicKeyFingerprintOrAltKeyFingerprint(publicKeyFingerprint, publicKeyFingerprint)) {
+            if (publicKeyFingerprint.equals(certificate.getPublicKeyFingerprint())) {
+                certificate.setKeyUuid(keyUuid);
+            }
+            if (publicKeyFingerprint.equals(certificate.getAltKeyFingerprint())) {
+                certificate.setAltKeyUuid(keyUuid);
+            }
             certificateRepository.save(certificate);
         }
     }

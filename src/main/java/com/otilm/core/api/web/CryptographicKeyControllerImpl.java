@@ -20,13 +20,17 @@ import com.otilm.api.model.client.cryptography.key.KeyExportRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyImportRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.cryptography.key.OnboardTokenKeysRequestDto;
 import com.otilm.api.model.client.cryptography.key.UpdateKeyUsageRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyEventHistoryDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
+import com.otilm.api.model.core.cryptography.key.OnboardTokenKeysResponseDto;
+import com.otilm.api.model.core.cryptography.key.TokenKeyListResponseDto;
 import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
@@ -41,6 +45,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyImportExternalService;
+import com.otilm.core.service.TokenKeyOnboardingExternalService;
 import com.otilm.core.util.converter.KeyRequestTypeConverter;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -59,6 +64,7 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     private CryptographicKeyExternalService cryptographicKeyService;
     private CryptographicKeyExportExternalService cryptographicKeyExportService;
     private CryptographicKeyImportExternalService cryptographicKeyImportService;
+    private TokenKeyOnboardingExternalService tokenKeyOnboardingService;
 
     @Autowired
     public void setCryptographicKeyExternalService(CryptographicKeyExternalService cryptographicKeyService) {
@@ -75,6 +81,11 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     public void setCryptographicKeyImportExternalService(
             CryptographicKeyImportExternalService cryptographicKeyImportService) {
         this.cryptographicKeyImportService = cryptographicKeyImportService;
+    }
+
+    @Autowired
+    public void setTokenKeyOnboardingExternalService(TokenKeyOnboardingExternalService tokenKeyOnboardingService) {
+        this.tokenKeyOnboardingService = tokenKeyOnboardingService;
     }
 
     @InitBinder
@@ -291,6 +302,42 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     public void destroyKeyItems(@LogResource(uuid = true) List<String> keyItemUuids)
             throws ConnectorException, NotFoundException {
         cryptographicKeyService.destroyKeyItems(keyItemUuids);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
+            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.LIST)
+    public TokenKeyListResponseDto listTokenKeys(String tokenInstanceUuid,
+            @LogResource(uuid = true, affiliated = true) String tokenProfileUuid, int pageNumber, int itemsPerPage)
+            throws ConnectorException, NotFoundException {
+        return tokenKeyOnboardingService
+                .listTokenKeys(UUID.fromString(tokenInstanceUuid), UUID.fromString(tokenProfileUuid), pageNumber,
+                        itemsPerPage);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
+            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.ONBOARD)
+    public OnboardTokenKeysResponseDto onboardTokenKeys(String tokenInstanceUuid,
+            @LogResource(uuid = true, affiliated = true) String tokenProfileUuid,
+            @Valid OnboardTokenKeysRequestDto request)
+            throws ConnectorException, NotFoundException, AttributeException {
+        return tokenKeyOnboardingService
+                .onboardTokenKeys(UUID.fromString(tokenInstanceUuid), UUID.fromString(tokenProfileUuid), request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
+            operation = Operation.REMOVE)
+    public void removeKeyFromInventory(@LogResource(uuid = true) String uuid) throws NotFoundException {
+        cryptographicKeyService.removeKeyFromInventory(SecuredUUID.fromString(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
+            operation = Operation.REMOVE)
+    public List<BulkActionMessageDto> removeKeysFromInventory(@LogResource(uuid = true) List<String> keyUuids) {
+        return cryptographicKeyService.removeKeysFromInventory(keyUuids);
     }
 
     @Override

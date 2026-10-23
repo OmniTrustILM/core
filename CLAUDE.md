@@ -212,8 +212,8 @@ An import may adopt a certificate's public-key-only record, so writers of keys a
 before it: `CryptographicKey` and `CryptographicKeyItem` are `@DynamicUpdate`, every local item deletion or destruction
 passes the key as the caller read it and is refused when its token changed, and compliance results are stored through
 `ComplianceSubjectWriter`, never by saving the checked subject. An adoption needs `CRYPTOGRAPHIC_KEY`/`UPDATE` on the
-record, checked before the import is sent and again as the requester at registration, and it changes only the record's
-token, token profile and items, never its owner, groups, custom attributes, name or description.
+record, checked before the import is sent and again as the requester at registration, and it leaves the record's
+identity and ownership as they are.
 
 ## Controllers reach services through `*ExternalService` interfaces
 

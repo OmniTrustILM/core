@@ -154,7 +154,7 @@ class TokenProfileImportableFilterITest extends BaseSpringBootTest {
 
     private List<String> uuidsFor(Optional<Boolean> enabled, List<String> importable) {
         return tokenProfileService
-                .listTokenProfiles(enabled, importable, SecurityFilter.create())
+                .listTokenProfiles(enabled, importable, false, SecurityFilter.create())
                 .stream()
                 .map(TokenProfileDto::getUuid)
                 .toList();

@@ -11,6 +11,7 @@ import java.util.UUID;
 public class ProviderKeyItemBuilder {
 
     private String name = "provider-item";
+    private KeyType type = KeyType.PRIVATE_KEY;
     private String association;
     private RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
     private KeyMaterial material;
@@ -21,6 +22,11 @@ public class ProviderKeyItemBuilder {
 
     public ProviderKeyItemBuilder withName(String name) {
         this.name = name;
+        return this;
+    }
+
+    public ProviderKeyItemBuilder withType(KeyType type) {
+        this.type = type;
         return this;
     }
 
@@ -40,7 +46,6 @@ public class ProviderKeyItemBuilder {
     }
 
     public ProviderKeyItem build() {
-        return new ProviderKeyItem(name, KeyType.PRIVATE_KEY, KeyAlgorithm.RSA, 2048, reference, material, List.of(),
-                association);
+        return new ProviderKeyItem(name, type, KeyAlgorithm.RSA, 2048, reference, material, List.of(), association);
     }
 }

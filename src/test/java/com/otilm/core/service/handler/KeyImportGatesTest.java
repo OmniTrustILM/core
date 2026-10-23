@@ -20,6 +20,7 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.KeyTransfer;
 import com.otilm.core.model.crypto.PublicKeyHolder;
 import com.otilm.core.model.crypto.PublicKeyHolder.Holding;
+import com.otilm.core.model.crypto.PublicKeyHolderSummary;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.model.crypto.TransferableKeyType;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -321,7 +322,8 @@ class KeyImportGatesTest {
 
         // then
         assertThat(refused.getMessage())
-                .isEqualTo("Key certKey_SuperAdmin holds the same public key in a token without its private key.");
+                .isEqualTo("Key certKey_SuperAdmin holds the same public key under a token instance, without its "
+                        + "private key.");
         verify(authorizationEnforcer, never())
                 .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), any(SecuredUUID.class));
     }
@@ -350,6 +352,21 @@ class KeyImportGatesTest {
         gates.requireImportableInto(keyPair);
 
         // then
+        verifyNoInteractions(authorizationEnforcer);
+    }
+
+    /** A listing has already asked whether the caller may see the key, so the answer it gives is taken as it is. */
+    @Test
+    void refusalOf_wordsTheReasonByTheSightOfTheKeyItIsGiven() {
+        // given
+        PublicKeyHolderSummary inAToken = new PublicKeyHolderSummary(HOLDER_UUID, "certKey_SuperAdmin", null,
+                Holding.PUBLIC_KEY_IN_TOKEN, true);
+
+        // when
+        Optional<String> refusal = gates.refusalOf(inAToken, false);
+
+        // then
+        assertThat(refusal).contains(CryptographicKeyWriter.KEY_ALREADY_HELD);
         verifyNoInteractions(authorizationEnforcer);
     }
 

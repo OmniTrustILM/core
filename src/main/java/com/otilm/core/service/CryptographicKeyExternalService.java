@@ -17,6 +17,7 @@ import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestDto;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.cryptography.key.UpdateKeyUsageRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
@@ -190,6 +191,23 @@ public interface CryptographicKeyExternalService {
      * all selected keys
      */
     void destroyKey(List<String> uuids) throws ConnectorException, NotFoundException;
+
+    /**
+     * Deletes a key's records and leaves the key on its token. The token must hold the key's private key, its connector
+     * must list keys, and no item of the key may be compromised.
+     *
+     * @throws ValidationException for a key that cannot be removed from the inventory, with the reason
+     */
+    void removeKeyFromInventory(SecuredUUID uuid) throws NotFoundException;
+
+    /**
+     * Removes the listed keys from the inventory, each in a transaction of its own, after authorizing every listed key,
+     * so a denial on any of them removes none.
+     *
+     * @return one entry for each key left in place: not found, not removable from the inventory, or failed to be
+     * removed
+     */
+    List<BulkActionMessageDto> removeKeysFromInventory(List<String> keyUuids);
 
     /**
      * List attributes to create a new key

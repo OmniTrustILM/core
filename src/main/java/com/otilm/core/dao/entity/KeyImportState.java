@@ -1,5 +1,9 @@
 package com.otilm.core.dao.entity;
 
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
  * How far an import attempt got. {@code REQUESTED} is recorded before the connector is asked, and {@code ACCEPTED} once
  * the connector took the import on asynchronously; while in either, the connector may hold a key the platform has not
@@ -17,6 +21,12 @@ public enum KeyImportState {
     COMPENSATED,
     QUARANTINED,
     UNRESOLVED;
+
+    /** The states the reconciliation still has to settle. */
+    public static final Set<KeyImportState> UNSETTLED = Arrays
+            .stream(values())
+            .filter(KeyImportState::isUnsettled)
+            .collect(Collectors.toUnmodifiableSet());
 
     /** Whether the outcome is still to be learned. */
     public boolean isOpen() {

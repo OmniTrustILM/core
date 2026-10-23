@@ -287,11 +287,11 @@ public interface CertificateInternalService extends ResourceExtensionService {
     void bulkClearKeyAssociations(List<UUID> keyUuids);
 
     /**
-     * Function to update the certificate with the keys if known
+     * Links the key to the certificates carrying its public key, as their key or as their alternative key. A key
+     * without a fingerprint links to none.
      *
-     * @param keyUuid
-     * @param publicKeyFingerprint
-     * @throws NotFoundException
+     * @param keyUuid UUID of the key
+     * @param publicKeyFingerprint fingerprint of the key's public key
      */
     void updateCertificateKeys(UUID keyUuid, String publicKeyFingerprint);
 
