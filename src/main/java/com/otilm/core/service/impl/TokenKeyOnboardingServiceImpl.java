@@ -172,7 +172,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             for (int index = 0; index < selections.size(); index++) {
                 response
                         .getResults()
-                        .add(onboardOrReportFailure(onboarding, selections.get(index), resolutions.get(index)));
+                        .add(onboardOrReportFailure(onboarding, index, selections.get(index), resolutions.get(index)));
             }
         } finally {
             listInAuditRecord(onboarding.onboardedKeys());
@@ -181,12 +181,15 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return response;
     }
 
-    private TokenKeyOnboardingResultDto onboardOrReportFailure(Onboarding onboarding, TokenKeySelectionDto selection,
-            ProviderKeyPairResolution resolution) {
+    private TokenKeyOnboardingResultDto onboardOrReportFailure(Onboarding onboarding, int index,
+            TokenKeySelectionDto selection, ProviderKeyPairResolution resolution) {
         try {
             return onboard(onboarding, selection, resolution);
         } catch (AttributeException | NotFoundException | DataIntegrityViolationException e) {
-            logger.warn("A key pair could not be onboarded to {}", onboarding.profile().toIdentifierString(), e);
+            ProviderKeyPair pair = resolution.keyPair();
+            logger
+                    .warn("Selection {}, key pair labelled {} with fingerprint {}, could not be onboarded to {}", index,
+                            pair.label(), fingerprintOf(pair), onboarding.profile().toIdentifierString(), e);
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = TokenKeyOnboardingResultDto
                     .builder()
                     .keyPairMeta(selection.getKeyPairMeta());
@@ -369,6 +372,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             case FOUND -> onboardFoundPair(onboarding, selection, resolution.keyPair(), result);
             case NOT_FOUND -> skipped(result, GONE);
             case AMBIGUOUS -> skipped(result, AMBIGUOUS_PAIR);
+            case UNSUPPORTED_TYPE -> skipped(result, UNSUPPORTED_KEY_TYPE);
             case UNREADABLE -> skipped(result, UNREADABLE_PAIR);
             case INVALID_HANDLE -> skipped(result, UNRECOGNISED_HANDLE);
         };
@@ -435,12 +439,11 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         if (onboarded.isEmpty()) {
             return skipped(result, IMPORTING);
         }
-        onboarding
-                .registered(standing.fingerprint(),
-                        heldAsKeyPair(publicKeyRecord.keyUuid(), publicKeyRecord.keyName(), profile), true);
+        CryptographicKeyBasicModel key = onboarded.get();
+        onboarding.registered(standing.fingerprint(), heldAsKeyPair(key.uuid(), key.name(), profile), true);
         result.onboarded(true).intoExistingKey(true);
         if (standing.holderVisible()) {
-            result.keyUuid(onboarded.get().uuid()).keyName(onboarded.get().name());
+            result.keyUuid(key.uuid()).keyName(key.name());
         }
         return result.build();
     }

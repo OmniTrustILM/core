@@ -317,7 +317,7 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
 
     @Override
     @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
-            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.CREATE)
+            affiliatedResource = Resource.TOKEN_PROFILE, operation = Operation.ONBOARD)
     public OnboardTokenKeysResponseDto onboardTokenKeys(String tokenInstanceUuid,
             @LogResource(uuid = true, affiliated = true) String tokenProfileUuid,
             @Valid OnboardTokenKeysRequestDto request)

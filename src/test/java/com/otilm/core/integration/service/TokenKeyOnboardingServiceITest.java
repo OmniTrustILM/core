@@ -1352,6 +1352,31 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void namesTheFirstKeyPairItOnboardsAfterTheLabel_whenTwoShareALabelAndNoSelectionNamesThem() throws Exception {
+            // given
+            var label = "signer";
+            var listedFirstPublicKey = rsaPublicKey();
+            var listedFirst = aListedKeyPair()
+                    .withKeyId("listed-first-id")
+                    .withLabel(label)
+                    .withPublicKey(listedFirstPublicKey)
+                    .build();
+            var listedSecond = aListedKeyPair().withKeyId("listed-second-id").withLabel(label).build();
+            tokenResolves(found(listedSecond), found(listedFirst));
+
+            // when
+            List<TokenKeyOnboardingResultDto> results = onboardTogether(
+                    new TokenKeySelectionDto(listedSecond.getKeyPairMeta(), null),
+                    new TokenKeySelectionDto(listedFirst.getKeyPairMeta(), null));
+
+            // then
+            String fingerprinted = "%s (%s)".formatted(label, fingerprintOf(listedFirstPublicKey).substring(0, 8));
+            assertThat(results)
+                    .extracting(TokenKeyOnboardingResultDto::isOnboarded, TokenKeyOnboardingResultDto::getKeyName)
+                    .containsExactly(tuple(true, label), tuple(true, fingerprinted));
+        }
+
+        @Test
         void skipsTheRepeatedKeyPair_whenTheSelectionRepeatsIt() throws Exception {
             // given
             var label = "signer";
@@ -1405,6 +1430,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     .of(arguments(KeyResolutionOutcome.NOT_FOUND, "The key storage no longer holds this key pair."),
                             arguments(KeyResolutionOutcome.AMBIGUOUS,
                                     "The key storage holds more than one key pair under this handle."),
+                            arguments(KeyResolutionOutcome.UNSUPPORTED_TYPE,
+                                    "The connector cannot operate a key of this type."),
                             arguments(KeyResolutionOutcome.UNREADABLE, "The connector cannot read this key pair."),
                             arguments(KeyResolutionOutcome.INVALID_HANDLE,
                                     "The connector does not recognise this handle."));
@@ -1705,7 +1732,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             List<LogRecord> records = auditMessages
                     .stream()
                     .map(AuditLogMessage::getLogRecord)
-                    .filter(auditRecord -> auditRecord.operation() == Operation.CREATE)
+                    .filter(auditRecord -> auditRecord.operation() == Operation.ONBOARD)
                     .toList();
             assertThat(records).hasSize(1);
             return records.getFirst();
