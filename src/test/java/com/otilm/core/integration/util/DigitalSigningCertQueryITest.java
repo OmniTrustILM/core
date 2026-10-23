@@ -299,7 +299,7 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
 
     private Certificate savePurposeCertWithEku(String... oids) throws Exception {
         Certificate cert = savePurposeCert(CertificateKeyUsage.DIGITAL_SIGNATURE);
-        cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(oids)));
+        cert.setExtendedKeyUsage(List.of(oids));
         return certificateRepository.save(cert);
     }
 
@@ -436,9 +436,7 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
         cert.setState(state);
         cert.setValidationStatus(validationStatus);
         cert.setArchived(archived);
-        cert
-                .setExtendedKeyUsage(
-                        extendedKeyUsages.isEmpty() ? null : MetaDefinitions.serializeArrayString(extendedKeyUsages));
+        cert.setExtendedKeyUsage(extendedKeyUsages.isEmpty() ? null : extendedKeyUsages);
         cert.setExtendedKeyUsageCritical(extendedKeyUsageCritical);
         cert.setUsage(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE));
         if (qcCompliance != null) {

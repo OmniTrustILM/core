@@ -29,7 +29,6 @@ import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CryptographyUtil;
-import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.ProducerMocks;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -157,7 +156,7 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
         cert.setKey(key);
         cert.setKeyUuid(key.getUuid());
         cert.setValidationStatus(CertificateValidationStatus.VALID);
-        cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(SystemOid.TIME_STAMPING.getOid())));
+        cert.setExtendedKeyUsage(List.of(SystemOid.TIME_STAMPING.getOid()));
         cert.setExtendedKeyUsageCritical(Boolean.TRUE);
         cert.setQcCompliance(Boolean.TRUE);
         cert = certificateRepository.saveAndFlush(cert);
@@ -171,9 +170,7 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
         Assertions.assertEquals(live.isArchived(), sc.archived());
         Assertions.assertEquals(live.getState(), sc.state());
         Assertions.assertEquals(live.getValidationStatus(), sc.validationStatus());
-        Assertions
-                .assertEquals(MetaDefinitions.deserializeArrayString(live.getExtendedKeyUsage()),
-                        sc.extendedKeyUsageOids());
+        Assertions.assertEquals(live.getExtendedKeyUsage(), sc.extendedKeyUsageOids());
         Assertions.assertEquals(live.getExtendedKeyUsageCritical(), sc.extendedKeyUsageCritical());
         Assertions.assertEquals(live.getQcCompliance(), sc.qcCompliance());
         Assertions.assertEquals(live.getKey().getUuid(), sc.keyUuid());

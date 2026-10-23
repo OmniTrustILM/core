@@ -56,6 +56,14 @@ public enum SearchFieldTypeEnum {
                             FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
                             FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY),
             true, null),
+    // A native array of OIDs filtered like NATIVE_ARRAY, but offered as free text: any OID can be entered, not only a
+    // registered one. EQUALS and NOT_EQUALS also accept purpose names, which the listing resolves to OIDs.
+    EXTENDED_KEY_USAGE_ARRAY(FilterFieldType.STRING,
+            List
+                    .of(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
+                            FilterConditionOperator.CONTAINS, FilterConditionOperator.NOT_CONTAINS,
+                            FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY),
+            false, null),
     // For fields whose value is not meaningful to the user (for example an internal UUID reference):
     // only the presence of a value can be tested, never the value itself.
     PRESENCE(FilterFieldType.STRING, List.of(FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY), false,

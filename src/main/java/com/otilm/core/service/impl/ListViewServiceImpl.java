@@ -48,13 +48,15 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Saved list views. There is no OPA check on these operations: a view is addressed only through the user it belongs to,
- * so being authenticated as that user is the whole of the authorization. A view of another user answers 404 rather than
- * 403 - it is not addressable, not merely forbidden.
+ * Saved list views are addressed through their owner, so another user's view answers 404 rather than 403 - it is not
+ * addressable, not merely forbidden. Resolving a custom EKU name when writing a view also requires OID list permission.
  */
 @Service
 public class ListViewServiceImpl implements ListViewExternalService, ListViewInternalService {
@@ -64,6 +66,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     private AttributeEngine attributeEngine;
     private ClusterOperationSynchronizer clusterSynchronizer;
     private EntityManager entityManager;
+    private ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer;
+    private PlatformTransactionManager transactionManager;
 
     @Autowired
     public void setListViewRepository(ListViewRepository listViewRepository) {
@@ -88,6 +92,16 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
     @PersistenceContext
     public void setEntityManager(EntityManager entityManager) {
         this.entityManager = entityManager;
+    }
+
+    @Autowired
+    public void setExtendedKeyUsageFilterNormalizer(ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer) {
+        this.extendedKeyUsageFilterNormalizer = extendedKeyUsageFilterNormalizer;
+    }
+
+    @Autowired
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        this.transactionManager = transactionManager;
     }
 
     @Override
@@ -121,18 +135,42 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
                 .toList();
     }
 
+    /**
+     * Runs outside a transaction up to the write: resolving the caller's attribute permissions and custom EKU names
+     * both ask the policy engine, which must not be waited on with a transaction open. The write then runs in a
+     * transaction of its own, rolled back unless it commits.
+     */
     @Override
     @AnyPrincipalEndpoint
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ListViewDto createView(ListViewRequestDto request) throws AlreadyExistException {
         UUID userUuid = loggedUserUuid();
         Resource resource = request.getResource();
+        List<ListViewFilterDto> filters = extendedKeyUsageFilterNormalizer
+                .normalizeViewFilters(resource, request.getFilters());
         List<NamedField> named = namedFields(request);
         Supplier<CustomAttributeContentFilter> contentFilter = contentFilterFor(named);
         Catalogue catalogue = catalogueOf(resource, named, contentFilter);
-        validateRequest(resource, request, Set.of(), List.of(), catalogue);
+        validateRequest(resource, request, filters, Set.of(), List.of(), catalogue);
         Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, named, contentFilter);
 
+        TransactionStatus transaction = transactionManager.getTransaction(TransactionDefinition.withDefaults());
+        try {
+            ListViewDto created = createViewInTransaction(userUuid, request, filters, catalogue, definitions,
+                    contentFilter);
+            transactionManager.commit(transaction);
+            return created;
+        } finally {
+            if (!transaction.isCompleted()) {
+                transactionManager.rollback(transaction);
+            }
+        }
+    }
+
+    private ListViewDto createViewInTransaction(UUID userUuid, ListViewRequestDto request,
+            List<ListViewFilterDto> filters, Catalogue catalogue, Map<NamedField, Set<UUID>> definitions,
+            Supplier<CustomAttributeContentFilter> contentFilter) throws AlreadyExistException {
+        Resource resource = request.getResource();
         serializeWritesFor(userUuid, resource);
         if (listViewRepository.existsByUserUuidAndResourceAndName(userUuid, resource, request.getName())) {
             throw new AlreadyExistException(ListView.class, request.getName());
@@ -141,37 +179,55 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         ListView view = new ListView();
         view.setUserUuid(userUuid);
         view.setResource(resource);
-        applyRequest(view, request, new Binder(resource, catalogue, definitions));
+        applyRequest(view, request, filters, new Binder(resource, catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions, contentFilter);
     }
 
+    /** Runs outside a transaction up to the write, for the same reason as {@link #createView}. */
     @Override
     @AnyPrincipalEndpoint
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ListViewDto editView(String uuid, ListViewUpdateRequestDto request)
             throws NotFoundException, AlreadyExistException {
         UUID userUuid = loggedUserUuid();
-        ListView view = ownView(uuid, userUuid);
-        Resource resource = view.getResource();
-        // Resolving the caller's attribute permissions can wait on the policy engine, so it is done before the lock
-        // that every other write of this user's views of the resource queues behind.
+        Resource resource = ownView(uuid, userUuid).getResource();
+        List<ListViewFilterDto> filters = extendedKeyUsageFilterNormalizer
+                .normalizeViewFilters(resource, request.getFilters());
         List<NamedField> named = namedFields(request);
         Supplier<CustomAttributeContentFilter> contentFilter = contentFilterFor(named);
         Catalogue catalogue = catalogueOf(resource, named, contentFilter);
         Map<NamedField, Set<UUID>> definitions = attributeEngine.definitionsBehind(resource, named, contentFilter);
 
+        TransactionStatus transaction = transactionManager.getTransaction(TransactionDefinition.withDefaults());
+        try {
+            ListViewDto edited = editViewInTransaction(uuid, userUuid, request, filters, catalogue, definitions,
+                    contentFilter);
+            transactionManager.commit(transaction);
+            return edited;
+        } finally {
+            if (!transaction.isCompleted()) {
+                transactionManager.rollback(transaction);
+            }
+        }
+    }
+
+    private ListViewDto editViewInTransaction(String uuid, UUID userUuid, ListViewUpdateRequestDto request,
+            List<ListViewFilterDto> filters, Catalogue catalogue, Map<NamedField, Set<UUID>> definitions,
+            Supplier<CustomAttributeContentFilter> contentFilter) throws NotFoundException, AlreadyExistException {
+        ListView view = ownView(uuid, userUuid);
+        Resource resource = view.getResource();
         serializeWritesFor(userUuid, resource);
         // The stored entries decide what each requested one carries, so they are read again once no other write runs.
         refresh(view, uuid);
-        validateRequest(resource, request, columnsOf(view), filtersOf(view), catalogue);
+        validateRequest(resource, request, filters, columnsOf(view), filtersOf(view), catalogue);
 
         if (listViewRepository
                 .existsByUserUuidAndResourceAndNameAndUuidNot(userUuid, resource, request.getName(), view.getUuid())) {
             throw new AlreadyExistException(ListView.class, request.getName());
         }
 
-        applyRequest(view, request, new Binder(resource, catalogue, definitions));
+        applyRequest(view, request, filters, new Binder(resource, catalogue, definitions));
 
         return toDto(save(view, request.getName()), catalogue, definitions, contentFilter);
     }
@@ -235,10 +291,14 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         return false;
     }
 
-    /** {@code view} still holds what was stored before this request, which is what its entries are carried from. */
-    private static void applyRequest(ListView view, ListViewUpdateRequestDto request, Binder binder) {
+    /**
+     * {@code view} still holds what was stored before this request, which is what its entries are carried from.
+     * {@code requestedFilters} are the request's filters with EKU purpose names resolved to OIDs.
+     */
+    private static void applyRequest(ListView view, ListViewUpdateRequestDto request,
+            List<ListViewFilterDto> requestedFilters, Binder binder) {
         List<ListViewColumnDto> columns = binder.columns(request.getColumns(), view.getColumns());
-        List<ListViewFilterDto> filters = binder.filters(request.getFilters(), view.getFilters());
+        List<ListViewFilterDto> filters = binder.filters(requestedFilters, view.getFilters());
         view.setName(request.getName());
         view.setColumns(columns);
         view.setDefaultView(request.isDefaultView());
@@ -536,7 +596,8 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
      * ordering is dropped on read instead.
      */
     private static void validateRequest(Resource resource, ListViewUpdateRequestDto request,
-            Set<CatalogueField> carriedAlready, List<ListViewFilterDto> filtersCarried, Catalogue catalogue) {
+            List<ListViewFilterDto> filters, Set<CatalogueField> carriedAlready, List<ListViewFilterDto> filtersCarried,
+            Catalogue catalogue) {
         if (catalogue.isEmpty()) {
             throw new ValidationException(ValidationError
                     .create("Resource %s has no field catalogue and cannot carry views."
@@ -544,7 +605,7 @@ public class ListViewServiceImpl implements ListViewExternalService, ListViewInt
         }
 
         validateColumns(resource, request.getColumns(), catalogue, carriedAlready);
-        validateFilters(resource, request.getFilters(), catalogue, filtersCarried);
+        validateFilters(resource, filters, catalogue, filtersCarried);
         validateSort(resource, request.getSort(), catalogue);
     }
 

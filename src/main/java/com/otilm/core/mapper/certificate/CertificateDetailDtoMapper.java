@@ -19,7 +19,7 @@ import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyListModel;
 import com.otilm.core.util.CertificateUtil;
-import com.otilm.core.util.MetaDefinitions;
+import java.util.ArrayList;
 
 public class CertificateDetailDtoMapper {
 
@@ -60,7 +60,10 @@ public class CertificateDetailDtoMapper {
             dto.setNotBefore(certificate.getNotBefore());
             dto.setNotAfter(certificate.getNotAfter());
             dto.setSubjectType(certificate.getSubjectType());
-            dto.setExtendedKeyUsage(MetaDefinitions.deserializeArrayString(certificate.getExtendedKeyUsage()));
+            dto
+                    .setExtendedKeyUsage(certificate.getExtendedKeyUsage() == null
+                            ? new ArrayList<>()
+                            : new ArrayList<>(certificate.getExtendedKeyUsage()));
             dto.setKeyUsage(certificate.getKeyUsage().stream().toList());
             dto.setFingerprint(certificate.getFingerprint());
             dto.setIssuerSerialNumber(certificate.getIssuerSerialNumber());
@@ -73,15 +76,10 @@ public class CertificateDetailDtoMapper {
                 qcDto.setQcCompliance(certificate.getQcCompliance());
                 qcDto.setQcSscd(certificate.getQcSscd());
                 if (certificate.getQcType() != null) {
-                    qcDto
-                            .setQcType(MetaDefinitions
-                                    .deserializeArrayString(certificate.getQcType())
-                                    .stream()
-                                    .map(QcType::valueOf)
-                                    .toList());
+                    qcDto.setQcType(certificate.getQcType().stream().map(QcType::valueOf).toList());
                 }
                 if (certificate.getQcCcLegislation() != null) {
-                    qcDto.setQcCcLegislation(MetaDefinitions.deserializeArrayString(certificate.getQcCcLegislation()));
+                    qcDto.setQcCcLegislation(new ArrayList<>(certificate.getQcCcLegislation()));
                 }
                 dto.setQcStatements(qcDto);
             }

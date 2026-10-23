@@ -60,6 +60,10 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.search.FilterFieldType;
+import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -585,7 +589,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void returnsSearchableFieldInformation_withoutError() {
+        void returnsExtendedKeyUsageAsSearchableProperty() {
             // given
             authServiceMock = new WireMockServer(WireMockPorts.AUTH_SERVICE);
             authServiceMock.start();
@@ -595,8 +599,25 @@ class CertificateServiceITest extends BaseSpringBootTest {
                             .get(WireMock.urlPathMatching("/auth/users"))
                             .willReturn(WireMock.okJson("{ \"data\": [] }")));
 
-            // when / then
-            assertThatCode(() -> certificateService.getSearchableFieldInformationByGroup()).doesNotThrowAnyException();
+            // when
+            SearchFieldDataDto extendedKeyUsage = certificateService
+                    .getSearchableFieldInformationByGroup()
+                    .stream()
+                    .filter(fieldGroup -> fieldGroup.getFilterFieldSource() == FilterFieldSource.PROPERTY)
+                    .flatMap(fieldGroup -> fieldGroup.getSearchFieldData().stream())
+                    .filter(field -> "EXTENDED_KEY_USAGE".equals(field.getFieldIdentifier()))
+                    .findFirst()
+                    .orElseThrow();
+
+            // then
+            assertThat(extendedKeyUsage.getFieldLabel()).isEqualTo("Extended Key Usage");
+            assertThat(extendedKeyUsage.getType()).isEqualTo(FilterFieldType.STRING);
+            assertThat(extendedKeyUsage.isMultiValue()).isFalse();
+            assertThat(extendedKeyUsage.getConditions())
+                    .containsExactlyInAnyOrder(FilterConditionOperator.EQUALS, FilterConditionOperator.NOT_EQUALS,
+                            FilterConditionOperator.CONTAINS, FilterConditionOperator.NOT_CONTAINS,
+                            FilterConditionOperator.EMPTY, FilterConditionOperator.NOT_EMPTY);
+            assertThat(extendedKeyUsage.getValue()).isNull();
         }
 
         @ParameterizedTest
@@ -2974,7 +2995,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             List<String> extendedKeyUsages, boolean extendedKeyUsageCritical, Boolean qcCompliance) {
         Certificate cert = createCertificateEntity(testCaseName, key, certificateState, validationStatus, archived);
         if (!extendedKeyUsages.isEmpty()) {
-            cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsages));
+            cert.setExtendedKeyUsage(extendedKeyUsages);
         }
         cert.setExtendedKeyUsageCritical(extendedKeyUsageCritical);
         cert.setUsage(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE));

@@ -66,7 +66,6 @@ import com.otilm.core.service.TimeQualityConfigurationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.LoopbackWireMock;
-import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
@@ -266,8 +265,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         tsaCertificate.setState(CertificateState.ISSUED);
         tsaCertificate.setValidationStatus(CertificateValidationStatus.VALID);
         tsaCertificate.setUsage(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE));
-        tsaCertificate
-                .setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(SystemOid.TIME_STAMPING.getOid())));
+        tsaCertificate.setExtendedKeyUsage(List.of(SystemOid.TIME_STAMPING.getOid()));
         tsaCertificate.setExtendedKeyUsageCritical(true);
         tsaCertificate = certificateRepository.saveAndFlush(tsaCertificate);
         attachSelfSignedContent(tsaCertificate);
