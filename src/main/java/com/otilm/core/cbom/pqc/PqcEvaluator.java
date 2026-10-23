@@ -1,6 +1,8 @@
 package com.otilm.core.cbom.pqc;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
 import com.otilm.api.model.core.cryptoasset.PqcExplanationStepOutcome;
 import com.otilm.api.model.core.cryptoasset.PqcVerdict;
@@ -105,9 +107,7 @@ public class PqcEvaluator {
     public PqcEvaluator(AssetNormalizer normalizer) {
         this.normalizer = normalizer;
         Map<String, PqcRule> table = new LinkedHashMap<>();
-        PqcRules
-                .rulesFor(normalizer, this::nameCarriesNoFinding, this::nameLeavesStrengthToSize)
-                .forEach(rule -> table.put(rule.id(), rule));
+        PqcRules.rulesFor(normalizer).forEach(rule -> table.put(rule.id(), rule));
         this.tableRules = Map.copyOf(table);
         this.codedRules = codedRules();
     }
@@ -193,28 +193,62 @@ public class PqcEvaluator {
             throw new IllegalStateException("No rule applies to an asset of type " + input.assetType());
         }
         List<PqcRuleOrder.Candidate> candidates = new ArrayList<>(served.size());
-        if (PqcReferenceRules.decides(input.assetType())) {
-            for (int position = 0; position < served.size(); position++) {
-                candidates.add(referenceCandidate(served.get(position), position, input, level, references));
-            }
-            return candidates;
-        }
-        Reading reading = new Reading(input);
+        PqcReferenceRules.Inline inline = inline(input, references);
+        Reading reading = null;
         for (int position = 0; position < served.size(); position++) {
-            candidates.add(candidate(served.get(position), position, reading, level));
+            PqcRuleCatalog.Entry entry = served.get(position);
+            if (PqcReferenceRules.handles(entry.id())) {
+                candidates.add(referenceCandidate(entry, position, input, level, references, inline));
+                continue;
+            }
+            if (reading == null) {
+                reading = new Reading(input);
+            }
+            candidates.add(candidate(entry, position, reading, level));
         }
         return candidates;
     }
 
     private static PqcRuleOrder.Candidate referenceCandidate(PqcRuleCatalog.Entry entry, int position,
-            PqcRuleInput input, Integer level, PqcReferences references) {
-        PqcDecision decision = PqcReferenceRules.candidate(entry.id(), input, level, references);
+            PqcRuleInput input, Integer level, PqcReferences references, PqcReferenceRules.Inline inline) {
+        PqcDecision decision = PqcReferenceRules.candidate(entry.id(), input, level, references, inline);
         if (decision != null) {
             return new PqcRuleOrder.Candidate(entry, position, decision, null, null);
         }
-        return new PqcRuleOrder.Candidate(entry, position, null, PqcReferenceRules.notMatched(entry.id(), references),
-                PqcReferenceRules
+        return new PqcRuleOrder.Candidate(entry, position, null,
+                PqcReferenceRules.notMatched(entry.id(), references, inline), PqcReferenceRules
                         .evidence(PqcReferenceRules.READS_FIELDS.get(entry.id()), input, level, references, null));
+    }
+
+    /** The names a protocol's suites offer, each judged as an algorithm of that name would be. */
+    private PqcReferenceRules.Inline inline(PqcRuleInput input, PqcReferences references) {
+        if (input.assetType() != CryptographicAssetType.PROTOCOL) {
+            return PqcReferenceRules.Inline.NONE;
+        }
+        List<PqcReferenceRules.Offered> groups = references
+                .tlsGroups()
+                .stream()
+                .map(group -> new PqcReferenceRules.Offered(group, decideName(TlsNames.algorithmNameOfGroup(group))))
+                .toList();
+        List<PqcReferenceRules.Offered> schemes = references
+                .tlsSignatureSchemes()
+                .stream()
+                .map(scheme -> new PqcReferenceRules.Offered(scheme, decideName(scheme)))
+                .toList();
+        return new PqcReferenceRules.Inline(groups, schemes);
+    }
+
+    /** What an algorithm component of this name, declaring nothing else, would be decided. */
+    PqcDecision decideName(String name) {
+        ObjectNode component = JsonNodeFactory.instance.objectNode();
+        component.put("name", name);
+        ObjectNode properties = component.putObject("cryptoProperties");
+        properties.put("assetType", "algorithm");
+        properties.putObject(ALGORITHM_PROPERTIES);
+        CryptoAssetIdentityFields row = CryptoAssetIdentityFields
+                .of(CryptographicAssetType.ALGORITHM, normalizer.normalize(component).asset())
+                .normalized();
+        return evaluate(fromStoredRow(row, properties), null);
     }
 
     private PqcRuleOrder.Candidate candidate(PqcRuleCatalog.Entry entry, int position, Reading reading, Integer level) {
@@ -260,49 +294,6 @@ public class PqcEvaluator {
         return table.readsFields();
     }
 
-    // ---- The name's own decision, which the material size arms consult -----------------------------------------
-
-    /**
-     * What the asset's own name decides, with its declared size dropped: the coded rules alone, under the same order.
-     * The size arms consult it before claiming a row, so a key and the algorithm of the same name cannot be served
-     * opposite findings.
-     */
-    private PqcDecision nameDecision(PqcRuleInput input) {
-        Reading reading = new Reading(input.withoutMaterialSize());
-        List<PqcRuleCatalog.Entry> served = PqcRuleCatalog.servedFor(input.assetType());
-        List<PqcRuleOrder.Candidate> candidates = new ArrayList<>(served.size());
-        for (int position = 0; position < served.size(); position++) {
-            PqcRuleCatalog.Entry entry = served.get(position);
-            CodedRule coded = codedRules.get(entry.id());
-            if (coded != null) {
-                candidates.add(new PqcRuleOrder.Candidate(entry, position, coded.apply(reading, null), null, null));
-            }
-        }
-        return PqcRuleOrder.select(candidates).decision();
-    }
-
-    /**
-     * Whether the asset's own name is free of a weak-crypto finding, which gates only the weak size arm: a key under
-     * the floor is weak whatever an {@code unknown} name leaves open, while a {@code notReady} name is the finding
-     * itself, and a finding must reach the row whatever tier it was keyed on.
-     */
-    private boolean nameCarriesNoFinding(PqcRuleInput input) {
-        return nameDecision(input).verdict() != PqcVerdict.NOT_READY;
-    }
-
-    /**
-     * Whether the name leaves the key's strength to its size, which gates the ready and unsized arms: the name clears
-     * as ready, or names no family at all. The carve-out is the common case -- nearly every secret key in the corpus
-     * names no family and resolves to {@code FAMILY-UNRESOLVED}, so without it the arms would be empty. An ambiguous,
-     * uninstantiated or unresolved-hybrid name is a question no key length answers, so the name decides it. A name that
-     * would clear once a size is known -- an unsized {@code AES} -- leaves it to the size too.
-     */
-    private boolean nameLeavesStrengthToSize(PqcRuleInput input) {
-        PqcDecision byName = nameDecision(input);
-        return byName.verdict() == PqcVerdict.READY || PqcRules.FAMILY_UNRESOLVED.equals(byName.ruleId())
-                || PqcRules.SYMMETRIC_UNSIZED.equals(byName.ruleId());
-    }
-
     // ---- What the coded rules read ------------------------------------------------------------------------------
 
     /**
@@ -339,6 +330,12 @@ public class PqcEvaluator {
         private final boolean parameterSetUnregistered;
         /** A genuine hybrid's post-quantum component that spells a size its family does not define, or {@code null}. */
         private final UnregisteredComponent unregisteredComponent;
+        /**
+         * The size the name records, inside the ratified size band: a primitive's parameter set, cut to its truncation
+         * for a truncated digest, or a construction's cipher key length; {@code null} for a non-key primitive's output
+         * length or a number the family does not define. Never {@code materialSize}: a producer bug stamps the material
+         * block onto algorithms, where a strayed size would decide {@code AES-64} ready and {@code AES-256} undersized.
+         */
         private final Integer recordedSize;
         /** The input the coded rules record as evidence: the effective family and the genuine hybrid components. */
         private final PqcRuleInput evidence;
@@ -371,8 +368,7 @@ public class PqcEvaluator {
             Integer ownSize = construction || nonKeyPrimitive || parameterSetUnregistered
                     ? null
                     : truncated(input, withinRatifiedSizeBand(input.parameterSet()));
-            this.recordedSize = recordedSizeBits(input,
-                    construction ? cipherKeySize(input, namedPrimitiveFamily) : ownSize);
+            this.recordedSize = construction ? cipherKeySize(input, namedPrimitiveFamily) : ownSize;
             PqcRuleInput withFamily = nameIsTheSoleWeakToken ? input.withAlgorithmFamily(family) : input;
             this.evidence = withFamily.withHybridComponents(genuineHybrid ? hybridComponents : List.of());
         }
@@ -603,7 +599,7 @@ public class PqcEvaluator {
                 "A symmetric or hash-based primitive whose recorded size is below the "
                         + PqcRules.MIN_SYMMETRIC_KEY_BITS
                         + "-bit floor this rule set holds symmetric and hash sizes to",
-                sizeEvidence(reading.input, reading.construction), reading.evidence, level);
+                sizeEvidence(reading.construction), reading.evidence, level);
     }
 
     private PqcDecision symmetricUnsized(Reading reading, Integer level) {
@@ -615,7 +611,7 @@ public class PqcEvaluator {
                 "A symmetric or hash-based primitive recorded without a size, in a family that also defines sizes "
                         + "below the " + PqcRules.MIN_SYMMETRIC_KEY_BITS + "-bit floor, so its strength cannot be "
                         + "affirmed",
-                sizeEvidence(reading.input, reading.construction), reading.evidence, level);
+                sizeEvidence(reading.construction), reading.evidence, level);
     }
 
     /**
@@ -632,8 +628,8 @@ public class PqcEvaluator {
         }
         FamilyClass ready = FamilyClass.QUANTUM_RESISTANT_SYMMETRIC;
         if (reading.recordedSize != null) {
-            return decision(ready.verdict(), ready.ruleId(), ready.reason(),
-                    sizeEvidence(reading.input, reading.construction), reading.evidence, level);
+            return decision(ready.verdict(), ready.ruleId(), ready.reason(), sizeEvidence(reading.construction),
+                    reading.evidence, level);
         }
         if (reading.nonKeyPrimitive) {
             return decision(ready.verdict(), ready.ruleId(),
@@ -794,26 +790,6 @@ public class PqcEvaluator {
     }
 
     /**
-     * The size the row records, from whichever slot carries it, and only inside the ratified size band.
-     *
-     * <p>
-     * {@code materialSize} counts only on a material row. A producer bug stamps the material block onto algorithms too,
-     * and there the row's own size is its parameter set -- a strayed size would otherwise decide {@code AES-64} ready
-     * and {@code AES-256} undersized. When a key's name spells a size too, the smaller decides: a declared size must
-     * not clear a key its own algorithm name fails.
-     *
-     * @param named the size the name records: a primitive's parameter set, cut to its truncation for a truncated
-     * digest, or a construction's cipher key length; {@code null} for a non-key primitive's output length or a number
-     * the family does not define
-     */
-    private static Integer recordedSizeBits(PqcRuleInput input, Integer named) {
-        if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL && input.materialSize() != null) {
-            return named == null ? input.materialSize() : Math.min(input.materialSize(), named);
-        }
-        return named;
-    }
-
-    /**
      * A truncated digest is as long as its truncation: {@code SHA-512/224} records 512 as its parameter set and 224 as
      * a marker, and its output is 224 bits.
      */
@@ -831,17 +807,11 @@ public class PqcEvaluator {
         return shortest;
     }
 
-    /** The slots {@link #recordedSizeBits} reads for this row, so the evidence names only the size that decided. */
-    private static List<String> sizeEvidence(PqcRuleInput input, boolean construction) {
-        List<String> fields = new ArrayList<>(List.of(PqcRules.ALGORITHM_FAMILY));
-        if (!construction) {
-            fields.add(PqcRules.PARAMETER_SET);
-        }
-        if (input.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
-            fields.add(PqcRules.MATERIAL_SIZE);
-        }
-        fields.add(PqcRules.VARIANT);
-        return List.copyOf(fields);
+    /** The slots the size rules read for this row, so the evidence names only the size that decided. */
+    private static List<String> sizeEvidence(boolean construction) {
+        return construction
+                ? List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT)
+                : List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.VARIANT);
     }
 
     /**
@@ -888,28 +858,26 @@ public class PqcEvaluator {
      * {@code hybridComponents} is re-derived, not read: it is out-of-key by construction and has no column.
      *
      * <p>
-     * A material row is judged by its own name and its stored properties, never by its family, size, curve or primitive
-     * columns. Those hold what {@code CryptoAssetIdentity} copied from the algorithm the row references and the key's
-     * own declared {@code size}: filter slots, not evidence. Read here, half an algorithm decided the key -- the family
-     * of {@code X25519-Kyber768} is {@code ECDH} and its hybrid components have no column, so a shared secret under it
-     * read {@code CLASSICAL-SHOR} on the classical half alone -- and a referenced size outranked the one the key's own
-     * name spells. So the family, the size and the primitive come from the name: a key named {@code SHAKE128} is an
-     * XOF's, and its 128 is an output strength rather than its length. Confined to material: on an algorithm row a null
-     * family is the normalizer's decision, a cipher suite above all, and stands.
+     * A material row carries its type and declared size and nothing else the rules read. Its family, size, curve and
+     * primitive columns hold what {@code CryptoAssetIdentity} copied from the algorithm the row references and the
+     * key's own declared {@code size}: filter slots, not evidence. Read here, half an algorithm decided the key -- the
+     * family of {@code X25519-Kyber768} is {@code ECDH} and its hybrid components have no column, so a shared secret
+     * under it read {@code CLASSICAL-SHOR} on the classical half alone. Its name is no evidence either: a key is named
+     * after what it protects, and a producer must not be able to make a key read ready by how it names it. The
+     * algorithm the key is for is the reference the ingest recorded, which {@link PqcReferenceRules} reads.
      */
     public PqcRuleInput fromStoredRow(CryptoAssetIdentityFields fields, JsonNode mergedCryptoProperties) {
-        boolean material = fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL;
-        String family = material
-                ? ratifiedFamily(normalizer.familyFromName(fields.name()))
-                : ratifiedFamily(fields.algorithmFamily());
-        Integer parameterSet = material ? sizeFromName(fields.name(), family) : parameterSet(fields.parameterSet());
-        String curve = material ? null : fields.curve();
-        String primitive = material ? primitiveTheNameSpells(fields.name(), family) : storedPrimitive(fields, family);
+        if (fields.assetType() == CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
+            return new PqcRuleInput(fields.assetType(), null, null, null, null, null, null, fields.name(), List.of(),
+                    materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties), null);
+        }
+        String family = ratifiedFamily(fields.algorithmFamily());
         String secondary = normalizer.secondaryTokens(fields.name(), family);
         List<String> hybrid = normalizer.hybridComponents(fields.name(), family, secondary);
-        return new PqcRuleInput(fields.assetType(), family, parameterSet, curve, fields.mode(), fields.padding(),
-                variantOf(fields, secondary), fields.name(), hybrid, materialType(mergedCryptoProperties),
-                materialSize(mergedCryptoProperties), primitive);
+        return new PqcRuleInput(fields.assetType(), family, parameterSet(fields.parameterSet()), fields.curve(),
+                fields.mode(), fields.padding(), fields.variant(), fields.name(), hybrid,
+                materialType(mergedCryptoProperties), materialSize(mergedCryptoProperties),
+                storedPrimitive(fields, family));
     }
 
     /**
@@ -948,22 +916,6 @@ public class PqcEvaluator {
             return fromVariant;
         }
         return family == null ? null : normalizer.tables().primitiveDefaults().get(family);
-    }
-
-    /**
-     * Related material takes its variant from the secondary tokens of its name, because the weak-component doctrine
-     * reads that field and the material tier derives none of its own.
-     */
-    private static String variantOf(CryptoAssetIdentityFields fields, String secondaryTokens) {
-        if (fields.variant() != null || fields.assetType() != CryptographicAssetType.RELATED_CRYPTO_MATERIAL) {
-            return fields.variant();
-        }
-        return secondaryTokens == null || secondaryTokens.isEmpty() ? null : secondaryTokens;
-    }
-
-    private Integer sizeFromName(String name, String family) {
-        Integer spelled = normalizer.sizeTheFamilySpells(name, family);
-        return spelled != null ? spelled : normalizer.intrinsicParameterSet(name);
     }
 
     /**

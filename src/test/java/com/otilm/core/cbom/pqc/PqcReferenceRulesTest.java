@@ -15,9 +15,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 /**
- * A certificate is as ready as the weaker of its key and signature algorithm, a protocol as the weakest algorithm its
- * cipher suites name; a reference that resolved to nothing may be the weak one. Every case also proves the explanation
- * agrees, through {@link PqcExplanationTest#assertExplains}.
+ * A key is as ready as the algorithm its CBOM says it is for, a certificate as the weaker of its key and signature
+ * algorithm, a protocol as the weakest of what it offers; a reference that resolved to nothing may be the weak one.
+ * Every case also proves the explanation agrees, through {@link PqcExplanationTest#assertExplains}.
  */
 class PqcReferenceRulesTest {
 
@@ -173,10 +173,10 @@ class PqcReferenceRulesTest {
                 .describedAs("the suite's algorithm is ready, which holds; the missing key exchange outranks it")
                 .isEqualTo(PqcExplanationStepOutcome.MATCHED);
         assertThat(step(CryptographicAssetType.PROTOCOL, "PROTOCOL-NO-KEY-EXCHANGE", keyExchange(PqcVerdict.READY))
-                .message()).isEqualTo("A resolved algorithm establishes a key");
+                .message()).isEqualTo("Something the protocol offers establishes a key");
         assertThat(step(CryptographicAssetType.PROTOCOL, "PROTOCOL-NO-KEY-EXCHANGE",
                 suite(AES, PqcVerdict.NOT_READY, "des")).message())
-                .isEqualTo("An algorithm the cipher suites name is not ready");
+                .isEqualTo("Something the protocol offers is not ready");
     }
 
     private PqcExplanation.Step step(CryptographicAssetType type, String ruleId,
@@ -265,6 +265,249 @@ class PqcReferenceRulesTest {
                 .doesNotContainKey("referencedRuleId");
     }
 
+    // ---- keys -------------------------------------------------------------------------------------------------------
+
+    @Test
+    void aKeyTakesTheVerdictOfTheAlgorithmItIsForAndNamesIt() {
+        PqcDecision decision = keyUnder(algorithmFor(PqcVerdict.NOT_READY, "CLASSICAL-SHOR"));
+
+        assertThat(decision.ruleId()).isEqualTo("MATERIAL-ALGORITHM");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(decision.referencedAssetUuid()).isEqualTo(RSA);
+        assertThat(decision.evaluatedFields())
+                .containsEntry("assetType", "related-crypto-material")
+                .containsEntry("materialType", "public-key")
+                .containsEntry("algorithmRef", "alg-ref")
+                .containsEntry("referencedRuleId", "CLASSICAL-SHOR")
+                .doesNotContainKey("name");
+        assertThat(keyUnder(algorithmFor(PqcVerdict.READY, "PQC-STANDARDIZED")).verdict()).isEqualTo(PqcVerdict.READY);
+    }
+
+    /** The CBOM records no algorithm for the key, whatever the key is named: the fallback says so. */
+    @Test
+    void aKeyWithNoAlgorithmRecordedIsUnknownAndSaysWhy() {
+        PqcDecision decision = keyUnder();
+
+        assertThat(decision.ruleId()).isEqualTo("MATERIAL-NO-ALGORITHM-RECORDED");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(decision.reason()).contains("does not record the algorithm");
+        assertThat(decision.referencedAssetUuid()).isNull();
+    }
+
+    @Test
+    void aKeyWhoseAlgorithmResolvedToNothingIsDeferredUnderItsOwnRuleId() {
+        PqcDecision decision = keyUnder(dangling(CryptoAssetReferenceKind.ALGORITHM, "gone"));
+
+        assertThat(decision.ruleId()).isEqualTo("MATERIAL-ALGORITHM-UNRESOLVED");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(decision.evaluatedFields()).containsEntry("unresolvedRefs", List.of("gone"));
+        assertThat(keyUnder(algorithmFor(null, null)).ruleId()).isEqualTo("MATERIAL-ALGORITHM-UNRESOLVED");
+        assertThat(keyUnder(algorithmFor(PqcVerdict.NOT_APPLICABLE, "NAME-CIPHER-SUITE")).ruleId())
+                .isEqualTo("MATERIAL-ALGORITHM-UNRESOLVED");
+    }
+
+    /** One hop: a key's reference must name an algorithm, so a key under another key resolves to nothing. */
+    @Test
+    void aKeyUnderAnotherKeyOrUnderTwoAlgorithmsIsUnresolved() {
+        PqcReferences.Reference otherKey = new PqcReferences.Reference(CryptoAssetReferenceKind.ALGORITHM, "key-ref",
+                null, KEY, CryptographicAssetType.RELATED_CRYPTO_MATERIAL, PqcVerdict.NOT_READY, "MATERIAL-ALGORITHM");
+        assertThat(keyUnder(otherKey).ruleId()).isEqualTo("MATERIAL-ALGORITHM-UNRESOLVED");
+
+        PqcReferences.Reference second = new PqcReferences.Reference(CryptoAssetReferenceKind.ALGORITHM, "second", null,
+                AES, CryptographicAssetType.ALGORITHM, PqcVerdict.READY, "SYMMETRIC-READY");
+        assertThat(keyUnder(algorithmFor(PqcVerdict.READY, "SYMMETRIC-READY"), second).ruleId())
+                .isEqualTo("MATERIAL-ALGORITHM-UNRESOLVED");
+    }
+
+    /** The size arms decide beside the reference, and the weaker of the two wins. */
+    @Test
+    void aSymmetricSecretsSizeDecidesBesideItsAlgorithm() {
+        PqcRuleInput secret = material("shared-secret", 128);
+        PqcReferences underReadyAlgorithm = references(algorithmFor(PqcVerdict.READY, "PQC-HYBRID-PQC-STANDARDIZED"));
+        assertThat(evaluator.evaluate(secret, null, underReadyAlgorithm).ruleId()).isEqualTo("MATERIAL-SYMMETRIC-WEAK");
+
+        PqcRuleInput adequate = material("shared-secret", 256);
+        PqcReferences underBrokenKex = references(algorithmFor(PqcVerdict.NOT_READY, "PQC-HYBRID-PQC-BROKEN"));
+        PqcDecision decision = evaluator.evaluate(adequate, null, underBrokenKex);
+        assertThat(decision.ruleId()).isEqualTo("MATERIAL-ALGORITHM");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(evaluator.evaluate(adequate, null, underReadyAlgorithm).ruleId())
+                .describedAs("two ready rules tie, and the catalogue names the algorithm first")
+                .isEqualTo("MATERIAL-ALGORITHM");
+        assertThat(evaluator.evaluate(adequate, null, PqcReferences.NONE).ruleId())
+                .isEqualTo("MATERIAL-SYMMETRIC-READY");
+    }
+
+    // ---- protocols: what the suites offer ---------------------------------------------------------------------------
+
+    /** The weakest offered group decides, and it is named. */
+    @Test
+    void aClassicalGroupOfferedBesideAPostQuantumOneDecidesAProtocol() {
+        PqcDecision decision = offering(List.of("X25519MLKEM768", "x25519"), List.of(),
+                suite(AES, PqcVerdict.READY, "aes"));
+
+        assertThat(decision.ruleId()).isEqualTo("PROTOCOL-TLS-GROUP");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(decision.referencedAssetUuid()).isNull();
+        assertThat(decision.evaluatedFields())
+                .containsEntry("tlsGroups", List.of("X25519MLKEM768", "x25519"))
+                .containsEntry("tlsGroup", "x25519")
+                .containsEntry("referencedRuleId", "CLASSICAL-SHOR");
+
+        PqcDecision classical = offering(List.of("x25519", "secp256r1"), List.of(),
+                suite(AES, PqcVerdict.READY, "aes"));
+        assertThat(classical.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(classical.evaluatedFields()).containsEntry("tlsGroup", "x25519");
+    }
+
+    @Test
+    void postQuantumGroupsAndSignatureSchemesReadReady() {
+        PqcDecision withSuite = offering(List.of("X25519MLKEM768", "SecP256r1MLKEM768", "MLKEM1024"),
+                List.of("mldsa65", "slhdsa_sha2_128s"), suite(AES, PqcVerdict.READY, "aes"));
+        assertThat(withSuite.verdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(withSuite.ruleId())
+                .describedAs("ready rules tie; the suite is first")
+                .isEqualTo("PROTOCOL-CIPHER-SUITE");
+
+        PqcDecision groupsAlone = offering(List.of("X25519MLKEM768"), List.of("mldsa87"));
+        assertThat(groupsAlone.verdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(groupsAlone.ruleId()).isEqualTo("PROTOCOL-TLS-GROUP");
+    }
+
+    /** Any offered group is a key exchange; a signature scheme is not. */
+    @Test
+    void anOfferedGroupSatisfiesKeyEstablishment() {
+        assertThat(protocol(suite(AES, PqcVerdict.READY, "aes")).ruleId()).isEqualTo("PROTOCOL-NO-KEY-EXCHANGE");
+        assertThat(offering(List.of("MLKEM768"), List.of(), suite(AES, PqcVerdict.READY, "aes")).verdict())
+                .isEqualTo(PqcVerdict.READY);
+        assertThat(offering(List.of(), List.of("mldsa65"), suite(AES, PqcVerdict.READY, "aes")).ruleId())
+                .isEqualTo("PROTOCOL-NO-KEY-EXCHANGE");
+    }
+
+    @Test
+    void theWeakestSignatureSchemeDecides() {
+        PqcDecision decision = offering(List.of("MLKEM768"), List.of("mldsa65", "rsa_pss_rsae_sha256", "ed25519"));
+
+        assertThat(decision.ruleId()).isEqualTo("PROTOCOL-TLS-SIGNATURE-SCHEME");
+        assertThat(decision.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(decision.evaluatedFields()).containsEntry("tlsSignatureScheme", "rsa_pss_rsae_sha256");
+        assertThat(offering(List.of("MLKEM768"), List.of("ecdsa_sha1")).evaluatedFields())
+                .containsEntry("referencedRuleId", "CLASSICAL-LEGACY-COMPONENT");
+    }
+
+    /** The IANA spellings read as the algorithms they name; a spelling nothing reads is unknown, not ignored. */
+    @Test
+    void ianaGroupSpellingsAreJudgedAsTheAlgorithmsTheyName() {
+        for (String classical : new String[]{
+                "secp256r1",
+                "secp384r1",
+                "secp521r1",
+                "x448",
+                "ffdhe2048",
+                "ffdhe8192",
+                "brainpoolP256r1tls13",
+                "brainpoolP512r1"}) {
+            PqcDecision decision = offering(List.of(classical), List.of());
+            assertThat(decision.verdict()).describedAs(classical).isEqualTo(PqcVerdict.NOT_READY);
+            assertThat(decision.evaluatedFields()).describedAs(classical).containsEntry("tlsGroup", classical);
+        }
+        for (String postQuantum : new String[]{
+                "X25519MLKEM768",
+                "SecP256r1MLKEM768",
+                "SecP384r1MLKEM1024",
+                "MLKEM512"}) {
+            assertThat(offering(List.of(postQuantum), List.of()).verdict())
+                    .describedAs(postQuantum)
+                    .isEqualTo(PqcVerdict.READY);
+        }
+        PqcDecision draft = offering(List.of("X25519Kyber768Draft00"), List.of());
+        assertThat(draft.verdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(draft.evaluatedFields()).containsEntry("referencedRuleId", "PQC-HYBRID-PQC-PRESTANDARD");
+        assertThat(offering(List.of("something-else"), List.of()).verdict()).isEqualTo(PqcVerdict.UNKNOWN);
+    }
+
+    // ---- protocols: what they name outside the suites ---------------------------------------------------------------
+
+    @Test
+    void aProtocolLevelAlgorithmDecidesAndANonAlgorithmTargetIsIgnored() {
+        PqcDecision decision = protocol(
+                protocolLevel(RSA, CryptographicAssetType.ALGORITHM, PqcVerdict.NOT_READY, "rsa"),
+                suite(AES, PqcVerdict.READY, "aes"));
+        assertThat(decision.ruleId()).isEqualTo("PROTOCOL-ALGORITHM");
+        assertThat(decision.referencedAssetUuid()).isEqualTo(RSA);
+        assertThat(decision.evaluatedFields())
+                .containsEntry("protocolAlgorithmRefs", List.of("rsa"))
+                .containsEntry("protocolAlgorithmRef", "rsa");
+
+        PqcReferences.Reference certificate = protocolLevel(KEY, CryptographicAssetType.CERTIFICATE,
+                PqcVerdict.NOT_READY, "cert");
+        assertThat(protocol(certificate).ruleId())
+                .describedAs("a certificate named at the protocol level is not an algorithm the protocol offers")
+                .isEqualTo("PROTOCOL-NO-SUITES");
+        assertThat(protocol(certificate, dangling(CryptoAssetReferenceKind.PROTOCOL_ALGORITHM, "gone")).ruleId())
+                .isEqualTo("PROTOCOL-REFERENCE-UNRESOLVED");
+        assertThat(
+                protocol(certificate, dangling(CryptoAssetReferenceKind.PROTOCOL_ALGORITHM, "gone")).evaluatedFields())
+                .containsEntry("unresolvedRefs", List.of("gone"));
+    }
+
+    @Test
+    void aKeyExchangeMethodDecidesAndEstablishesAKey() {
+        PqcReferences.Reference readyKe = new PqcReferences.Reference(CryptoAssetReferenceKind.KEY_EXCHANGE_TRANSFORM,
+                "ke", null, KEY, CryptographicAssetType.ALGORITHM, PqcVerdict.READY, "PQC-STANDARDIZED");
+        PqcDecision ready = protocol(readyKe, suite(AES, PqcVerdict.READY, "aes"));
+        assertThat(ready.verdict()).isEqualTo(PqcVerdict.READY);
+
+        PqcReferences.Reference weakKe = new PqcReferences.Reference(CryptoAssetReferenceKind.KEY_EXCHANGE_TRANSFORM,
+                "ke", null, RSA, CryptographicAssetType.ALGORITHM, PqcVerdict.NOT_READY, "CLASSICAL-SHOR");
+        PqcDecision weak = protocol(weakKe, suite(AES, PqcVerdict.READY, "aes"));
+        assertThat(weak.ruleId()).isEqualTo("PROTOCOL-KEY-EXCHANGE");
+        assertThat(weak.evaluatedFields()).containsEntry("keyExchangeRef", "ke");
+        assertThat(protocol(dangling(CryptoAssetReferenceKind.KEY_EXCHANGE_TRANSFORM, "gone")).ruleId())
+                .isEqualTo("PROTOCOL-REFERENCE-UNRESOLVED");
+    }
+
+    @Test
+    void theBasisCoversEveryKindOfReference() {
+        assertThat(references(algorithmFor(PqcVerdict.READY, "R")).basis()).isEqualTo(RSA + ":READY:R:");
+        PqcReferences.Reference ke = new PqcReferences.Reference(CryptoAssetReferenceKind.KEY_EXCHANGE_TRANSFORM, "ke",
+                null, KEY, CryptographicAssetType.ALGORITHM, PqcVerdict.READY, "R", "kem");
+        assertThat(references(ke, protocolLevel(RSA, CryptographicAssetType.ALGORITHM, PqcVerdict.NOT_READY, "rsa"))
+                .basis()).isEqualTo(KEY + ":READY:R:kem," + RSA + ":NOT_READY:TARGET-RULE:");
+    }
+
+    private PqcDecision keyUnder(PqcReferences.Reference... references) {
+        PqcRuleInput input = material("public-key", null);
+        PqcReferences resolved = references(references);
+        PqcDecision decision = evaluator.evaluate(input, null, resolved);
+        PqcExplanationTest.assertExplains(evaluator.explain(input, null, resolved), decision, input.assetType());
+        return decision;
+    }
+
+    private static PqcRuleInput material(String materialType, Integer size) {
+        return new PqcRuleInput(CryptographicAssetType.RELATED_CRYPTO_MATERIAL, null, null, null, null, null, null,
+                "subject", List.of(), materialType, size, null);
+    }
+
+    private PqcDecision offering(List<String> groups, List<String> schemes, PqcReferences.Reference... references) {
+        PqcRuleInput input = input(CryptographicAssetType.PROTOCOL);
+        PqcReferences resolved = PqcReferences.of(List.of(references), suitesOf(references), groups, schemes);
+        PqcDecision decision = evaluator.evaluate(input, null, resolved);
+        PqcExplanationTest.assertExplains(evaluator.explain(input, null, resolved), decision, input.assetType());
+        return decision;
+    }
+
+    private static PqcReferences.Reference algorithmFor(PqcVerdict verdict, String ruleId) {
+        return new PqcReferences.Reference(CryptoAssetReferenceKind.ALGORITHM, "alg-ref", null, RSA,
+                CryptographicAssetType.ALGORITHM, verdict, ruleId);
+    }
+
+    private static PqcReferences.Reference protocolLevel(UUID target, CryptographicAssetType type, PqcVerdict verdict,
+            String ref) {
+        return new PqcReferences.Reference(CryptoAssetReferenceKind.PROTOCOL_ALGORITHM, ref, null, target, type,
+                verdict, "TARGET-RULE");
+    }
+
     private PqcDecision certificate(PqcReferences.Reference... references) {
         return decide(CryptographicAssetType.CERTIFICATE, references);
     }
@@ -282,13 +525,17 @@ class PqcReferenceRulesTest {
     }
 
     private static PqcReferences references(PqcReferences.Reference... references) {
+        return PqcReferences.of(List.of(references), suitesOf(references));
+    }
+
+    private static List<String> suitesOf(PqcReferences.Reference... references) {
         List<String> suites = new ArrayList<>();
         for (PqcReferences.Reference reference : references) {
             if (reference.suite() != null && !suites.contains(reference.suite())) {
                 suites.add(reference.suite());
             }
         }
-        return PqcReferences.of(List.of(references), suites);
+        return suites;
     }
 
     private static PqcRuleInput input(CryptographicAssetType type) {
