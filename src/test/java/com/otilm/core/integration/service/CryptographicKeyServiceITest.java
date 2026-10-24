@@ -52,6 +52,7 @@ import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -405,6 +406,20 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(2, dto.getItems().size());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void getKey_reportsWhetherTheKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws NotFoundException {
+        // given
+        configureV2Token(
+                tokenListsKeys ? List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST) : List.of(FeatureFlag.STATELESS));
+
+        // when
+        KeyDetailDto dto = cryptographicKeyService.getKey(SecuredUUID.fromUUID(key.getUuid()));
+
+        // then
+        Assertions.assertEquals(tokenListsKeys, dto.isRemovableFromInventory());
+    }
+
     @Test
     void fullModel_loadsAssociationsOutsideTransaction() throws NotFoundException {
         // given
@@ -690,6 +705,21 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                 .matchingJsonPath(EXPORTABLE_INTENT_ON_THE_WIRE
                                         .formatted(KeyExportableAttribute.NAME, KeyExportableAttribute.ATTRIBUTE_UUID,
                                                 exportable))));
+    }
+
+    @Test
+    void createKey_reportsTheCreatedKeyRemovable_whenItsTokenListsKeys() throws Exception {
+        // given
+        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST));
+        stubV2KeyPairCreation(List.of());
+
+        // when
+        KeyDetailDto created = cryptographicKeyService
+                .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                        KeyRequestType.KEY_PAIR, keyCreationRequest("v2-removable"));
+
+        // then
+        Assertions.assertTrue(created.isRemovableFromInventory());
     }
 
     @Test
@@ -1724,6 +1754,64 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(1, pairs.size());
         Assertions.assertEquals(key.getUuid().toString(), pairs.getFirst().getUuid());
         Assertions.assertEquals(certificateLinks + siblingItem, pairs.getFirst().getAssociations());
+    }
+
+    @Test
+    void listKeyPairs_marksTheItemsOfARemovableKey() {
+        // given
+        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST));
+
+        // when
+        List<KeyDto> pairs = cryptographicKeyService.listKeyPairs(Optional.empty(), SecurityFilter.create());
+
+        // then
+        Assertions.assertEquals(1, pairs.size());
+        Assertions
+                .assertEquals(List.of(true, true),
+                        pairs.getFirst().getItems().stream().map(KeyItemDto::isRemovableFromInventory).toList());
+    }
+
+    @Test
+    void listCryptographicKeys_marksEachRowWithWhetherItsKeyCanBeRemoved() {
+        // given
+        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST));
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto.setItemsPerPage(10);
+        searchRequestDto.setPageNumber(1);
+
+        // when
+        CryptographicKeyResponseDto response = cryptographicKeyService
+                .listCryptographicKeys(SecurityFilter.create(), searchRequestDto);
+
+        // then
+        Map<String, List<Boolean>> removableByKey = response
+                .getCryptographicKeys()
+                .stream()
+                .collect(Collectors
+                        .groupingBy(KeyItemDto::getKeyWrapperUuid,
+                                Collectors.mapping(KeyItemDto::isRemovableFromInventory, Collectors.toList())));
+        Assertions
+                .assertEquals(Map
+                        .of(key.getUuid().toString(), List.of(true, true), keyWithoutToken.getUuid().toString(),
+                                List.of(false)),
+                        removableByKey);
+    }
+
+    @Test
+    void listCryptographicKeys_marksNoRowRemovable_whenTheTokenCannotListKeys() {
+        // given
+        configureV2Token(List.of(FeatureFlag.STATELESS));
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto.setItemsPerPage(10);
+        searchRequestDto.setPageNumber(1);
+
+        // when
+        CryptographicKeyResponseDto response = cryptographicKeyService
+                .listCryptographicKeys(SecurityFilter.create(), searchRequestDto);
+
+        // then
+        Assertions.assertEquals(3, response.getCryptographicKeys().size());
+        Assertions.assertTrue(response.getCryptographicKeys().stream().noneMatch(KeyItemDto::isRemovableFromInventory));
     }
 
     @Test

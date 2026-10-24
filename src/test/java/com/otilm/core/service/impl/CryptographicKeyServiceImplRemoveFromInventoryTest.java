@@ -11,7 +11,6 @@ import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.KeyRemovalCandidate;
@@ -20,6 +19,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.KeyImportGates;
 import com.otilm.core.service.handler.KeyListGates;
+import com.otilm.core.service.handler.KeyRemovalGates;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.util.builders.CryptographicKeyFullModelBuilder;
@@ -37,10 +37,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.security.access.AccessDeniedException;
 
-import static com.otilm.core.service.impl.CryptographicKeyServiceImpl.COMPROMISED;
+import static com.otilm.core.service.handler.KeyRemovalGates.COMPROMISED;
+import static com.otilm.core.service.handler.KeyRemovalGates.NO_PRIVATE_KEY_IN_TOKEN;
+import static com.otilm.core.service.handler.KeyRemovalGates.TOKEN_NOT_LISTABLE;
 import static com.otilm.core.service.impl.CryptographicKeyServiceImpl.NOT_REMOVABLE;
-import static com.otilm.core.service.impl.CryptographicKeyServiceImpl.NO_PRIVATE_KEY_IN_TOKEN;
-import static com.otilm.core.service.impl.CryptographicKeyServiceImpl.TOKEN_NOT_LISTABLE;
 import static com.otilm.core.util.builders.CryptographicKeyFullModelBuilder.aKeySnapshot;
 import static com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder.aKeyItemSnapshot;
 import static com.otilm.core.util.builders.TokenInstanceFullModelBuilder.aTokenSnapshot;
@@ -74,7 +74,9 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
         service.setKeyProviderAdapterFactory(adapters);
         service.setCacheEvictor(cache);
         service.setAuthorizationEnforcer(authorization);
-        service.setKeyListGates(new KeyListGates(mock(KeyImportGates.class), new ConnectorCapabilityService()));
+        service
+                .setKeyRemovalGates(new KeyRemovalGates(
+                        new KeyListGates(mock(KeyImportGates.class), new ConnectorCapabilityService())));
         when(keys.findRemovalCandidatesByUuidIn(anyCollection()))
                 .thenAnswer(read -> read
                         .<Collection<UUID>>getArgument(0)
@@ -102,10 +104,7 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
 
     private void inventoryHolds(CryptographicKeyFullModel... held) {
         for (CryptographicKeyFullModel key : held) {
-            ImmutableConnectorInterface tokenConnectorInterface = key.tokenInstance() == null
-                    ? null
-                    : key.tokenInstance().connectorInterface();
-            inventory.put(key.uuid(), new KeyRemovalCandidate(key, tokenConnectorInterface, key.items()));
+            inventory.put(key.uuid(), KeyRemovalCandidate.from(key));
         }
     }
 

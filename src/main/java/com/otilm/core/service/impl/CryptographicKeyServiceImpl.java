@@ -97,7 +97,7 @@ import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
-import com.otilm.core.service.handler.KeyListGates;
+import com.otilm.core.service.handler.KeyRemovalGates;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyCreationValidationCapability;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
@@ -117,7 +117,7 @@ import jakarta.persistence.criteria.Root;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.EnumSet;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -155,16 +155,6 @@ import static java.util.function.Predicate.not;
 public class CryptographicKeyServiceImpl implements CryptographicKeyExternalService, CryptographicKeyInternalService {
 
     static final String NOT_REMOVABLE = "Key %s cannot be removed from the inventory. %s";
-    static final String NO_PRIVATE_KEY_IN_TOKEN = "It holds no private key in a token. Delete it instead.";
-    static final String TOKEN_NOT_LISTABLE = "The connector backing this token cannot list keys, so it could not be "
-            + "onboarded again. Delete or destroy it instead.";
-    static final String COMPROMISED = "It is compromised and would come back active when onboarded again. Destroy it "
-            + "instead.";
-
-    private static final Set<KeyState> DESTROYED_STATES = EnumSet
-            .of(KeyState.DESTROYED, KeyState.DESTROYED_COMPROMISED);
-    private static final Set<KeyState> COMPROMISED_STATES = EnumSet
-            .of(KeyState.COMPROMISED, KeyState.DESTROYED_COMPROMISED);
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicKeyServiceImpl.class);
     private static final String ENABLE_OPERATION = "enable";
@@ -190,7 +180,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private KeyProviderAdapterFactory keyProviderAdapterFactory;
     private CryptographicKeyWriter cryptographicKeyWriter;
     private CertificateKeyWriter certificateKeyWriter;
-    private KeyListGates keyListGates;
+    private KeyRemovalGates keyRemovalGates;
     private UserManagementApiClient userManagementApiClient;
     private CacheEvictor cacheEvictor;
     // --------------------------------------------------------------------------------
@@ -287,8 +277,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Autowired
-    public void setKeyListGates(KeyListGates keyListGates) {
-        this.keyListGates = keyListGates;
+    public void setKeyRemovalGates(KeyRemovalGates keyRemovalGates) {
+        this.keyRemovalGates = keyRemovalGates;
     }
 
     @Autowired
@@ -339,9 +329,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                         .toMap(CryptographicKeyItemRepository.KeyItemAssociationCount::getUuid,
                                 CryptographicKeyItemRepository.KeyItemAssociationCount::getAssociations));
 
+        Set<UUID> removableKeyUuids = keysRemovableFromInventory(
+                filteredPage.getContent().stream().map(CryptographicKeyItem::getKeyUuid).collect(Collectors.toSet()));
+
         List<KeyItemDto> listedKeyDtos = filteredPage.getContent().stream().map(cki -> {
             KeyItemDto dto = cki.mapToSummaryDto();
             dto.setAssociations(associationsCounts.getOrDefault(cki.getUuid(), 0));
+            dto.setRemovableFromInventory(removableKeyUuids.contains(cki.getKeyUuid()));
             return dto;
         }).toList();
 
@@ -395,6 +389,12 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                     return keyTypes.isEmpty();
                 })
                 .toList();
+        Set<UUID> removableKeyUuids = keysRemovableFromInventory(
+                response.stream().map(pair -> UUID.fromString(pair.getUuid())).toList());
+        for (KeyDto pair : response) {
+            boolean removable = removableKeyUuids.contains(UUID.fromString(pair.getUuid()));
+            pair.getItems().forEach(item -> item.setRemovableFromInventory(removable));
+        }
         return response;
     }
 
@@ -417,6 +417,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         CryptographicKeyFullModel key = getCryptographicKeyFullModel(uuid.getValue());
         verifyPermissionsForAssociatedToken(key, "get detail", ResourceAction.MEMBERS);
         KeyDetailDto dto = CryptographicKeyDtoMapper.mapToDetailDto(key);
+        dto.setRemovableFromInventory(keyRemovalGates.isRemovable(KeyRemovalCandidate.from(key)));
         if (key.tokenInstance() != null) {
             dto
                     .setAttributes(attributeEngine
@@ -722,7 +723,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .orElseThrow(() -> new NotFoundException(CryptographicKey.class, uuid.getValue()));
         CryptographicKeyBasicModel key = candidate.key();
         verifyPermissionsForAssociatedToken(key, "remove", ResourceAction.MEMBERS);
-        Optional<String> refusal = removalRefusal(candidate);
+        Optional<String> refusal = keyRemovalGates.refusal(candidate);
         if (refusal.isPresent()) {
             throw new ValidationException(ValidationError.create(NOT_REMOVABLE.formatted(key.name(), refusal.get())));
         }
@@ -756,7 +757,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             authorizationEnforcer
                     .enforce(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DELETE, SecuredUUID.fromUUID(uuid));
             verifyPermissionsForAssociatedToken(key, "remove", ResourceAction.MEMBERS);
-            Optional<String> refusal = removalRefusal(candidate);
+            Optional<String> refusal = keyRemovalGates.refusal(candidate);
             if (refusal.isPresent()) {
                 notRemoved.add(BulkActionMessageDto.failureWithMessage(uuid.toString(), key.name(), refusal.get()));
             } else {
@@ -1064,6 +1065,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private KeyDetailDto assembleKeyDetailDto(KeyRequestDto request, CryptographicKeyFullModel key,
             TokenProfileFullModel tokenProfile) throws NotFoundException, AttributeException {
         KeyDetailDto keyDetailDto = CryptographicKeyDtoMapper.mapToDetailDto(key);
+        keyDetailDto.setRemovableFromInventory(keyRemovalGates.isRemovable(KeyRemovalCandidate.from(key)));
         keyDetailDto
                 .setCustomAttributes(attributeEngine
                         .updateObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid(),
@@ -1219,26 +1221,16 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         return certificateKeyWriter.uploadCertificatePublicKey(name, publicKey, keyLength, fingerprint);
     }
 
-    /**
-     * Why the key cannot be removed from the inventory, or nothing when it can: a later listing of its token must find
-     * it again, and a compromised key must never come back active through onboarding.
-     */
-    private Optional<String> removalRefusal(KeyRemovalCandidate candidate) {
-        if (candidate.key().tokenInstanceReferenceUuid() == null
-                || candidate.items().stream().noneMatch(CryptographicKeyServiceImpl::isPrivateKeyInToken)) {
-            return Optional.of(NO_PRIVATE_KEY_IN_TOKEN);
+    private Set<UUID> keysRemovableFromInventory(Collection<UUID> keyUuids) {
+        if (keyUuids.isEmpty()) {
+            return Set.of();
         }
-        if (!keyListGates.isAvailable(candidate.tokenConnectorInterface())) {
-            return Optional.of(TOKEN_NOT_LISTABLE);
-        }
-        if (candidate.items().stream().anyMatch(item -> COMPROMISED_STATES.contains(item.state()))) {
-            return Optional.of(COMPROMISED);
-        }
-        return Optional.empty();
-    }
-
-    private static boolean isPrivateKeyInToken(CryptographicKeyItemBasicModel item) {
-        return item.type() == KeyType.PRIVATE_KEY && !DESTROYED_STATES.contains(item.state());
+        return cryptographicKeyRepository
+                .findRemovalCandidatesByUuidIn(keyUuids)
+                .stream()
+                .filter(keyRemovalGates::isRemovable)
+                .map(candidate -> candidate.key().uuid())
+                .collect(Collectors.toSet());
     }
 
     /** Deletes the key's records; the key stays in its key storage. */
