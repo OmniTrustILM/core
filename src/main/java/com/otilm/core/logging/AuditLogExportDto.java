@@ -33,10 +33,12 @@ import lombok.Builder;
         "userAgent",
         "message",
         "operationData",
-        "additionalData"})
+        "additionalData",
+        "actorDelegateIdentifier",
+        "actorDelegateSubject"})
 public record AuditLogExportDto(long id, String version, OffsetDateTime loggedAt, OffsetDateTime timestamp,
         Module module, Resource resource, String resourceObjects, Resource affiliatedResource, String affiliatedObjects,
         ActorType actorType, AuthMethod actorAuthMethod, UUID actorUuid, String actorName, String ipAddress,
         String userAgent, Operation operation, OperationResult operationResult, String message, String operationData,
-        String additionalData) implements Serializable {
+        String additionalData, String actorDelegateIdentifier, String actorDelegateSubject) implements Serializable {
 }

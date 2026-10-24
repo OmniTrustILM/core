@@ -292,6 +292,8 @@ public enum FilterField {
     AUDIT_LOG_ACTOR_TYPE(Resource.AUDIT_LOG, null, null, AuditLog_.actorType, "Actor type", SearchFieldTypeEnum.LIST,
             ActorType.class),
     AUDIT_LOG_ACTOR_NAME(Resource.AUDIT_LOG, null, null, AuditLog_.actorName, "Actor name", SearchFieldTypeEnum.STRING),
+    AUDIT_LOG_ACTOR_DELEGATE_IDENTIFIER(Resource.AUDIT_LOG, null, null, AuditLog_.logRecord, "Delegate",
+            SearchFieldTypeEnum.STRING, new String[]{"actor", "delegate", "identifier"}),
     AUDIT_LOG_ACTOR_AUTH_METHOD(Resource.AUDIT_LOG, null, null, AuditLog_.actorAuthMethod, "Actor Auth method",
             SearchFieldTypeEnum.LIST, AuthMethod.class),
     // ANY scopes grants and is never recorded; NONE is recorded for module-level operations, so the resource field

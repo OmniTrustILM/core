@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 import com.otilm.api.interfaces.core.web.AuditLogController;
 import com.otilm.api.interfaces.core.web.SettingController;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
@@ -12,6 +13,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.ActorRecord;
+import com.otilm.api.model.core.logging.records.DelegateRecord;
 import com.otilm.api.model.core.logging.records.LogRecord;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.logging.records.ResourceRecord;
@@ -27,15 +29,20 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.messaging.jms.listeners.AuditLogsListener;
 import com.otilm.core.messaging.model.AuditLogMessage;
 import com.otilm.core.model.auth.Resource;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.AuditLogExternalService;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.zip.ZipInputStream;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -117,6 +124,110 @@ class AuditLogServiceITest extends BaseSpringBootTest {
                 .findFirst()
                 .orElseThrow()
                 .getValue();
+    }
+
+    @Test
+    void filtersStoredDelegatesWithoutChangingTheUserOrMatchingDirectRecords() {
+        storeAuditRecord("1.1", null);
+        storeAuditRecord("1.2", null);
+        storeAuditRecord("1.2", new DelegateRecord("another-client", "another-subject"));
+        AuditLog delegated = storeAuditRecord("1.2", new DelegateRecord("automation-client", "service-account-id"));
+
+        SearchRequestDto request = new SearchRequestDto();
+        request.setFilters(List.of(delegateFilter("automation-client")));
+        var result = auditLogService.listAuditLogs(request);
+
+        assertThat(result.getTotalItems()).isEqualTo(1);
+        assertThat(result.getItems()).singleElement().satisfies(auditRecord -> {
+            assertThat(auditRecord.getId()).isEqualTo(delegated.getId());
+            assertThat(auditRecord.getActor().name()).isEqualTo("alice");
+            assertThat(auditRecord.getActor().delegate())
+                    .isEqualTo(new DelegateRecord("automation-client", "service-account-id"));
+        });
+        assertThat(auditLogService.listAuditLogs(new SearchRequestDto()).getTotalItems()).isEqualTo(4);
+    }
+
+    @Test
+    void offersTheDelegateFilterToTheAdministrator() {
+        assertThat(auditLogService.getSearchableFieldInformationByGroup())
+                .flatExtracting(group -> group.getSearchFieldData())
+                .filteredOn(field -> "AUDIT_LOG_ACTOR_DELEGATE_IDENTIFIER".equals(field.getFieldIdentifier()))
+                .singleElement()
+                .satisfies(field -> assertThat(field.getFieldLabel()).isEqualTo("Delegate"));
+    }
+
+    @Test
+    void exportsDelegateColumnsAndLeavesThemEmptyForDirectAndLegacyRecords() throws IOException {
+        AuditLog legacy = storeAuditRecord("1.1", null);
+        AuditLog direct = storeAuditRecord("1.2", null);
+        AuditLog delegated = storeAuditRecord("1.2", new DelegateRecord("automation-client", "service-account-id"));
+        AuditLog noSubject = storeAuditRecord("1.2", new DelegateRecord("client-without-subject", null));
+
+        List<Map<String, String>> rows = readCsv(auditLogService.exportAuditLogs(List.of()));
+
+        assertThat(rows).hasSize(4);
+        assertThat(rowById(rows, delegated.getId()))
+                .containsEntry("actorName", "alice")
+                .containsEntry("actorDelegateIdentifier", "automation-client")
+                .containsEntry("actorDelegateSubject", "service-account-id");
+        assertThat(rowById(rows, noSubject.getId()))
+                .containsEntry("actorDelegateIdentifier", "client-without-subject")
+                .containsEntry("actorDelegateSubject", "");
+        for (AuditLog ordinary : List.of(legacy, direct)) {
+            assertThat(rowById(rows, ordinary.getId()))
+                    .containsEntry("actorName", "alice")
+                    .containsEntry("actorDelegateIdentifier", "")
+                    .containsEntry("actorDelegateSubject", "");
+        }
+
+        assertThat(readCsv(auditLogService.exportAuditLogs(List.of(delegateFilter("automation-client")))))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("id", delegated.getId().toString()));
+    }
+
+    private AuditLog storeAuditRecord(String version, DelegateRecord delegate) {
+        LogRecord auditRecord = LogRecord
+                .builder()
+                .version(version)
+                .audited(true)
+                .timestamp(OffsetDateTime.parse("2026-10-24T10:15:30Z"))
+                .module(Module.AUTH)
+                .actor(new ActorRecord(ActorType.USER, AuthMethod.TOKEN,
+                        UUID.fromString("b2cba93a-7cd6-4a2f-a050-6631c3886059"), "alice", delegate))
+                .resource(new ResourceRecord(com.otilm.api.model.core.auth.Resource.USER, List.of()))
+                .operation(Operation.DETAIL)
+                .operationResult(OperationResult.SUCCESS)
+                .build();
+        return auditLogRepository.saveAndFlush(AuditLog.fromLogRecord(auditRecord));
+    }
+
+    private static SearchFilterRequestDto delegateFilter(String identifier) {
+        SearchFilterRequestDto filter = new SearchFilterRequestDto();
+        filter.setFieldSource(FilterFieldSource.PROPERTY);
+        filter.setCondition(FilterConditionOperator.EQUALS);
+        filter.setFieldIdentifier("AUDIT_LOG_ACTOR_DELEGATE_IDENTIFIER");
+        filter.setValue(identifier);
+        return filter;
+    }
+
+    private static List<Map<String, String>> readCsv(ExportResultDto result) throws IOException {
+        byte[] content = result.getFileContent();
+        if (result.getFileName().endsWith(".zip")) {
+            try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(content))) {
+                assertThat(zip.getNextEntry()).isNotNull();
+                content = zip.readAllBytes();
+            }
+        }
+        return ObjectMapperFactory
+                .csvExport()
+                .readerFor(Map.class)
+                .with(CsvSchema.emptySchema().withHeader())
+                .<Map<String, String>>readValues(content)
+                .readAll();
+    }
+
+    private static Map<String, String> rowById(List<Map<String, String>> rows, Long id) {
+        return rows.stream().filter(row -> id.toString().equals(row.get("id"))).findFirst().orElseThrow();
     }
 
     @Test

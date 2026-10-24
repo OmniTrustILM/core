@@ -151,6 +151,11 @@ public class AuditLogServiceImpl implements AuditLogExternalService, AuditLogInt
             builder.actorAuthMethod(a.getActorAuthMethod());
             builder.actorUuid(a.getActorUuid());
             builder.actorName(a.getActorName());
+            var actor = a.getLogRecord().actor();
+            if (actor != null && actor.delegate() != null) {
+                builder.actorDelegateIdentifier(actor.delegate().identifier());
+                builder.actorDelegateSubject(actor.delegate().subject());
+            }
             if (a.getLogRecord().source() != null) {
                 builder.ipAddress(a.getLogRecord().source().ipAddress());
                 builder.userAgent(a.getLogRecord().source().userAgent());
