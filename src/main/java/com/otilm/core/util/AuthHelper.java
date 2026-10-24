@@ -121,6 +121,7 @@ public class AuthHelper {
     }
 
     public void authenticateAsSystemUser(String username) {
+        LoggingHelper.putDelegateInfo(null);
         // update MDC for actor logging
         ActorType actorType = protocolUsers.contains(username) ? ActorType.PROTOCOL : ActorType.CORE;
         LoggingHelper.putActorInfoWhenNull(actorType, null, username);
@@ -176,6 +177,7 @@ public class AuthHelper {
     }
 
     public void authenticateAsUser(UUID userUuid) {
+        LoggingHelper.putDelegateInfo(null);
         // update MDC for actor logging
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, userUuid.toString(), null);
 

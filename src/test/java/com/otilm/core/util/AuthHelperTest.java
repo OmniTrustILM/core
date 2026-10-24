@@ -4,6 +4,7 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.records.ActorRecord;
+import com.otilm.api.model.core.logging.records.DelegateRecord;
 import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.PlatformAnonymousToken;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
@@ -97,6 +98,7 @@ class AuthHelperTest {
         SecurityContextHolder.getContext().setAuthentication(mock(Authentication.class));
         String callerUuid = "11111111-1111-1111-1111-111111111111";
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, callerUuid, "operator-jane");
+        LoggingHelper.putDelegateInfo(new DelegateRecord("mcp", "service-account"));
 
         ActorRecord[] during = new ActorRecord[1];
         authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
@@ -106,10 +108,12 @@ class AuthHelperTest {
 
         assertEquals(ActorType.CORE, during[0].type(),
                 "authorization must run under the system actor during the action");
+        assertNull(during[0].delegate(), "elevation must not keep the delegated caller");
         assertNull(during[0].uuid(), "no caller uuid may linger in the actor MDC during the elevated window");
         ActorRecord after = LoggingHelper.getActorInfo();
         assertEquals(ActorType.USER, after.type(),
                 "caller's actor type must be restored, not left as the system identity");
+        assertEquals(new DelegateRecord("mcp", "service-account"), after.delegate());
         assertEquals("operator-jane", after.name(), "caller's actor name must be restored");
         assertEquals(callerUuid, after.uuid().toString(), "caller's actor uuid must be restored, not left stale");
     }
@@ -194,7 +198,9 @@ class AuthHelperTest {
                         new AuthenticationInfo(AuthMethod.USER_PROXY, mappedUser.toString(), "mapped-user", List.of()));
         authHelper.setAuthenticationClient(authenticationClient);
 
+        LoggingHelper.putDelegateInfo(new DelegateRecord("mcp", null));
         authHelper.authenticateAsUser(mappedUser);
+        assertNull(LoggingHelper.getActorInfo().delegate());
 
         NameAndUuidDto actingUser = AuthHelper.getActingUserOrNull();
         assertNotNull(actingUser);

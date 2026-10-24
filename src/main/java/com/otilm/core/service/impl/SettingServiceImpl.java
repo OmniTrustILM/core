@@ -70,6 +70,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -90,6 +91,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service("settingService")
 @Transactional
 public class SettingServiceImpl implements SettingExternalService, SettingInternalService {
+    private static final int DELEGATE_IDENTIFIER_MAX_LENGTH = 255;
+
     public static final String UTILS_SERVICE_URL_NAME = "utilsServiceUrl";
     public static final String CBOM_REPOSITORY_URL_NAME = "cbomRepositoryUrl";
     public static final String CBOM_SYNC_OVERLAP_SECONDS_NAME = "cbomSyncOverlapSeconds";
@@ -992,6 +995,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     }
 
     private void normalizeAndValidateOAuth2ProviderSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
+        normalizeAndValidateDelegationSettings(settingsDto);
         String jwkSet = settingsDto.getJwkSet();
         if (jwkSet != null && jwkSet.isBlank()) {
             settingsDto.setJwkSet(null);
@@ -1010,6 +1014,30 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             return;
         }
         parseJwkSetUrl(jwkSetUrl);
+    }
+
+    private static void normalizeAndValidateDelegationSettings(OAuth2ProviderSettingsUpdateDto settingsDto) {
+        String claim = settingsDto.getDelegateClaim();
+        if (claim == null || claim.isBlank()) {
+            throw new ValidationException("Delegate claim must be a non-blank string.");
+        }
+        settingsDto.setDelegateClaim(claim.trim());
+        Set<String> identifiers = new LinkedHashSet<>();
+        if (settingsDto.getAllowedDelegates() != null) {
+            for (String value : settingsDto.getAllowedDelegates()) {
+                if (value == null || value.isBlank()) {
+                    continue;
+                }
+                String identifier = value.trim();
+                if (identifier.length() > DELEGATE_IDENTIFIER_MAX_LENGTH) {
+                    throw new ValidationException("Delegate identifiers must not exceed 255 characters.");
+                }
+                if (!identifiers.add(identifier)) {
+                    throw new ValidationException("Allowed delegate identifiers must be unique.");
+                }
+            }
+        }
+        settingsDto.setAllowedDelegates(new ArrayList<>(identifiers));
     }
 
     private URL parseJwkSetUrl(String jwkSetUrl) {

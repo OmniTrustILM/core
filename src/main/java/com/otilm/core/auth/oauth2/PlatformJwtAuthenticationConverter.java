@@ -4,6 +4,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.core.logging.LogRedaction;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
@@ -49,6 +50,8 @@ public class PlatformJwtAuthenticationConverter implements Converter<Jwt, Abstra
             return (AbstractAuthenticationToken) SecurityContextHolder.getContext().getAuthentication();
         }
 
+        LoggingHelper.putDelegateInfo(null);
+
         AuthenticationSettingsSnapshot snapshot = validatedSnapshot();
         OAuth2ProviderSettingsDto providerSettings = OAuth2Util
                 .findProviderByIssuer(snapshot.settings(),
@@ -56,6 +59,7 @@ public class PlatformJwtAuthenticationConverter implements Converter<Jwt, Abstra
 
         Map<String, Object> claims;
         try {
+            LoggingHelper.putDelegateInfo(OAuth2Util.resolveDelegate(providerSettings, source.getClaims()));
             claims = OAuth2Util.getAllClaimsAvailable(providerSettings, source.getTokenValue(), null);
         } catch (PlatformAuthenticationException e) {
             auditLogService
