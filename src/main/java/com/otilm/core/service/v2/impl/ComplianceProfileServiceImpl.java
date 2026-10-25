@@ -48,6 +48,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.ComplianceProfileRuleHandler;
+import com.otilm.core.service.impl.ExtendedKeyUsageFilterNormalizer;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ComplianceProfileInternalService;
 import com.otilm.core.util.NullUtil;
@@ -82,6 +83,7 @@ public class ComplianceProfileServiceImpl
     private ConnectorRepository connectorRepository;
     private ComplianceInternalRuleRepository internalRuleRepository;
     private ConditionItemRepository conditionItemRepository;
+    private ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer;
 
     private AttributeEngine attributeEngine;
     private ComplianceProfileRuleHandler ruleHandler;
@@ -132,6 +134,11 @@ public class ComplianceProfileServiceImpl
     @Autowired
     public void setConditionItemRepository(ConditionItemRepository conditionItemRepository) {
         this.conditionItemRepository = conditionItemRepository;
+    }
+
+    @Autowired
+    public void setExtendedKeyUsageFilterNormalizer(ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer) {
+        this.extendedKeyUsageFilterNormalizer = extendedKeyUsageFilterNormalizer;
     }
 
     @Autowired
@@ -687,7 +694,7 @@ public class ComplianceProfileServiceImpl
             conditionItem.setFieldSource(conditionItemRequestDto.getFieldSource());
             conditionItem.setFieldIdentifier(conditionItemRequestDto.getFieldIdentifier());
             conditionItem.setOperator(conditionItemRequestDto.getOperator());
-            conditionItem.setValue(conditionItemRequestDto.getValue());
+            conditionItem.setValue(extendedKeyUsageFilterNormalizer.normalizeConditionValue(conditionItemRequestDto));
             conditionItemRepository.save(conditionItem);
 
             conditionItems.add(conditionItem);

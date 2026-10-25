@@ -261,10 +261,7 @@ class CertificatePurposeEligibilityTest {
     private static Certificate aCertificateEntity(CertificateKeyUsage keyUsage, String... extendedKeyUsageOids) {
         Certificate certificate = new Certificate();
         certificate.setUsage(List.of(keyUsage));
-        certificate
-                .setExtendedKeyUsage(extendedKeyUsageOids.length == 0
-                        ? null
-                        : MetaDefinitions.serializeArrayString(List.of(extendedKeyUsageOids)));
+        certificate.setExtendedKeyUsage(extendedKeyUsageOids.length == 0 ? null : List.of(extendedKeyUsageOids));
         return certificate;
     }
 

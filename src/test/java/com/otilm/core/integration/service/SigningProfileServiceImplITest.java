@@ -115,7 +115,6 @@ import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
-import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
@@ -290,7 +289,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                 .findByUuid(SecuredUUID.fromUUID(defaultSigningCertificate.getUuid()))
                 .orElseThrow();
         stored.setUsage(List.of(keyUsage));
-        stored.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(extendedKeyUsageOid)));
+        stored.setExtendedKeyUsage(List.of(extendedKeyUsageOid));
         certificateRepository.save(stored);
     }
 

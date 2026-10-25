@@ -52,9 +52,6 @@ public class CertificateEligibilityUtil {
     private static final Set<CertificateSubjectType> END_ENTITY_SUBJECT_TYPES = EnumSet
             .of(CertificateSubjectType.END_ENTITY, CertificateSubjectType.SELF_SIGNED_END_ENTITY);
 
-    private static final String EXCLUSIVE_TIMESTAMPING_EKU = MetaDefinitions
-            .serializeArrayString(List.of(SystemOid.TIME_STAMPING.getOid()));
-
     private CertificateEligibilityUtil() {
     }
 
@@ -396,7 +393,7 @@ public class CertificateEligibilityUtil {
         predicates.add(root.get(Certificate_.SUBJECT_TYPE).in(END_ENTITY_SUBJECT_TYPES));
         predicates.add(carriesAnySigningKeyUsage(root, cb, certificatePurpose));
         for (String oid : certificatePurpose.requiredExtendedKeyUsageOids()) {
-            predicates.add(cb.like(root.get(Certificate_.EXTENDED_KEY_USAGE), serializedOidPattern(oid), '\\'));
+            predicates.add(containsOid(cb, root.get(Certificate_.EXTENDED_KEY_USAGE), oid));
         }
         predicates.add(notDedicatedToTimestamping(root, cb));
         return predicates;
@@ -414,18 +411,27 @@ public class CertificateEligibilityUtil {
 
     /** A null extended key usage constrains nothing, so only an exclusively-TSA value is refused. */
     private static Predicate notDedicatedToTimestamping(Root<Certificate> root, CriteriaBuilder cb) {
-        Path<String> extendedKeyUsage = root.get(Certificate_.EXTENDED_KEY_USAGE);
-        return cb.or(cb.isNull(extendedKeyUsage), cb.notEqual(extendedKeyUsage, EXCLUSIVE_TIMESTAMPING_EKU));
+        return cb.or(cb.isNull(root.get(Certificate_.EXTENDED_KEY_USAGE)), cb.not(exclusivelyTimestamping(root, cb)));
     }
 
-    /**
-     * Matches one OID inside the JSON array {@code extendedKeyUsage} is serialized as. The quotes keep {@code 1.2.3}
-     * from matching a stored {@code 1.2.30}, and LIKE metacharacters are escaped so a caller-supplied OID cannot widen
-     * the match.
-     */
-    private static String serializedOidPattern(String oid) {
-        String escaped = oid.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
-        return "%\"" + escaped + "\"%";
+    /** The extended key usage holds id-kp-timeStamping and nothing else. */
+    private static Predicate exclusivelyTimestamping(Root<Certificate> root, CriteriaBuilder cb) {
+        Path<List<String>> extendedKeyUsage = root.get(Certificate_.EXTENDED_KEY_USAGE);
+        return cb
+                .and(cb.equal(cb.function("cardinality", Integer.class, extendedKeyUsage), 1),
+                        containsOid(cb, extendedKeyUsage, SystemOid.TIME_STAMPING.getOid()));
+    }
+
+    /** Array containment, which the GIN index on the extended key usage serves. */
+    private static Predicate containsOid(CriteriaBuilder cb, Expression<List<String>> extendedKeyUsage, String oid) {
+        return cb
+                .isTrue(cb
+                        .function(PostgresFunctionContributor.ARRAY_CONTAINS, Boolean.class, cb.literal(oid),
+                                extendedKeyUsage));
+    }
+
+    private static List<String> extendedKeyUsageOf(Certificate certificate) {
+        return certificate.getExtendedKeyUsage() == null ? List.of() : certificate.getExtendedKeyUsage();
     }
 
     /**
@@ -442,7 +448,7 @@ public class CertificateEligibilityUtil {
             boolean qualifiedTimestamp) {
         List<Predicate> predicates = new ArrayList<>();
         // RFC 3161: the EKU extension MUST contain only id-kp-timeStamping and MUST be critical.
-        predicates.add(cb.equal(root.get(Certificate_.EXTENDED_KEY_USAGE), EXCLUSIVE_TIMESTAMPING_EKU));
+        predicates.add(exclusivelyTimestamping(root, cb));
         predicates.add(cb.isTrue(root.get(Certificate_.EXTENDED_KEY_USAGE_CRITICAL)));
         // ETSI EN 319 421 §6.2: for a qualified TSA the signer certificate MUST carry the
         // id-etsi-qcs-QcCompliance statement (OID 0.4.0.1862.1.1, ETSI EN 319 412-5).
@@ -491,8 +497,7 @@ public class CertificateEligibilityUtil {
                 certificate.getKey() != null && certificate.getKey().getTokenProfile() != null,
                 certificate.getKey() != null && certificate.getKey().getTokenInstanceReference() != null,
                 certificate.getState(), certificate.getValidationStatus(), privateKeys, hasPublicKey,
-                MetaDefinitions.deserializeArrayString(certificate.getExtendedKeyUsage()),
-                Boolean.TRUE.equals(certificate.getExtendedKeyUsageCritical()),
+                extendedKeyUsageOf(certificate), Boolean.TRUE.equals(certificate.getExtendedKeyUsageCritical()),
                 Boolean.TRUE.equals(certificate.getQcCompliance()), certificate.getKeyUsageBitMask(),
                 certificate.getSubjectType());
         return isCertificateDigitalSigningAcceptable(view, workflowType, qualifiedTimestamp, certificatePurpose);
@@ -602,8 +607,7 @@ public class CertificateEligibilityUtil {
             case TIMESTAMPING -> Optional.empty();
             case CONTENT_SIGNING, RAW_SIGNING -> Optional
                     .ofNullable(signingPurposeMismatch(certificate.getSubjectType(), certificate.getKeyUsageBitMask(),
-                            MetaDefinitions.deserializeArrayString(certificate.getExtendedKeyUsage()),
-                            certificatePurpose));
+                            extendedKeyUsageOf(certificate), certificatePurpose));
         };
     }
 

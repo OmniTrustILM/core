@@ -38,6 +38,7 @@ public class RuleServiceImpl implements RuleExternalService {
 
     private ConditionRepository conditionRepository;
     private ConditionItemRepository conditionItemRepository;
+    private ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer;
     private RuleRepository ruleRepository;
 
     @Autowired
@@ -48,6 +49,11 @@ public class RuleServiceImpl implements RuleExternalService {
     @Autowired
     public void setConditionItemRepository(ConditionItemRepository conditionItemRepository) {
         this.conditionItemRepository = conditionItemRepository;
+    }
+
+    @Autowired
+    public void setExtendedKeyUsageFilterNormalizer(ExtendedKeyUsageFilterNormalizer extendedKeyUsageFilterNormalizer) {
+        this.extendedKeyUsageFilterNormalizer = extendedKeyUsageFilterNormalizer;
     }
 
     @Autowired
@@ -165,7 +171,7 @@ public class RuleServiceImpl implements RuleExternalService {
             conditionItem.setFieldSource(conditionItemRequestDto.getFieldSource());
             conditionItem.setFieldIdentifier(conditionItemRequestDto.getFieldIdentifier());
             conditionItem.setOperator(conditionItemRequestDto.getOperator());
-            conditionItem.setValue(conditionItemRequestDto.getValue());
+            conditionItem.setValue(extendedKeyUsageFilterNormalizer.normalizeConditionValue(conditionItemRequestDto));
             conditionItemRepository.save(conditionItem);
 
             conditionItems.add(conditionItem);
