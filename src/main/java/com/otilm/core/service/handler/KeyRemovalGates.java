@@ -33,7 +33,6 @@ public class KeyRemovalGates {
         this.keyListGates = keyListGates;
     }
 
-    /** Why the key cannot be removed from the inventory, or nothing when it can. */
     public Optional<String> refusal(KeyRemovalCandidate candidate) {
         if (candidate.key().tokenInstanceReferenceUuid() == null
                 || candidate.items().stream().noneMatch(KeyRemovalGates::isPrivateKeyInToken)) {

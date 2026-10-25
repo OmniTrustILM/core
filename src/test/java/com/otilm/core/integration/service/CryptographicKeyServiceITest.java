@@ -410,8 +410,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     @ValueSource(booleans = {false, true})
     void getKey_reportsWhetherTheKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws NotFoundException {
         // given
-        configureV2Token(
-                tokenListsKeys ? List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST) : List.of(FeatureFlag.STATELESS));
+        configureV2Token(tokenListsKeys);
 
         // when
         KeyDetailDto dto = cryptographicKeyService.getKey(SecuredUUID.fromUUID(key.getUuid()));
@@ -707,10 +706,11 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                                 exportable))));
     }
 
-    @Test
-    void createKey_reportsTheCreatedKeyRemovable_whenItsTokenListsKeys() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void createKey_reportsWhetherTheCreatedKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws Exception {
         // given
-        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST));
+        configureV2Token(tokenListsKeys);
         stubV2KeyPairCreation(List.of());
 
         // when
@@ -719,7 +719,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                         KeyRequestType.KEY_PAIR, keyCreationRequest("v2-removable"));
 
         // then
-        Assertions.assertTrue(created.isRemovableFromInventory());
+        Assertions.assertEquals(tokenListsKeys, created.isRemovableFromInventory());
     }
 
     @Test
@@ -779,6 +779,11 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     private void configureV2Token() {
         configureV2Token(List.of(FeatureFlag.STATELESS));
+    }
+
+    private void configureV2Token(boolean listsKeys) {
+        configureV2Token(
+                listsKeys ? List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST) : List.of(FeatureFlag.STATELESS));
     }
 
     private void configureV2Token(List<FeatureFlag> features) {
@@ -1756,10 +1761,11 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(certificateLinks + siblingItem, pairs.getFirst().getAssociations());
     }
 
-    @Test
-    void listKeyPairs_marksTheItemsOfARemovableKey() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void listKeyPairs_marksBothItemsWithWhetherTheKeyCanBeRemoved(boolean tokenListsKeys) {
         // given
-        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST));
+        configureV2Token(tokenListsKeys);
 
         // when
         List<KeyDto> pairs = cryptographicKeyService.listKeyPairs(Optional.empty(), SecurityFilter.create());
@@ -1767,14 +1773,14 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         // then
         Assertions.assertEquals(1, pairs.size());
         Assertions
-                .assertEquals(List.of(true, true),
+                .assertEquals(List.of(tokenListsKeys, tokenListsKeys),
                         pairs.getFirst().getItems().stream().map(KeyItemDto::isRemovableFromInventory).toList());
     }
 
     @Test
     void listCryptographicKeys_marksEachRowWithWhetherItsKeyCanBeRemoved() {
         // given
-        configureV2Token(List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST));
+        configureV2Token(true);
         SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto.setItemsPerPage(10);
         searchRequestDto.setPageNumber(1);
@@ -1798,9 +1804,35 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void listCryptographicKeys_marksARowNotRemovable_whenAFilteredOutSiblingIsCompromised() {
+        // given
+        configureV2Token(true);
+        publicKeyItem.setState(KeyState.COMPROMISED);
+        cryptographicKeyItemRepository.saveAndFlush(publicKeyItem);
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto.setItemsPerPage(10);
+        searchRequestDto.setPageNumber(1);
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CKI_TYPE.toString(),
+                                FilterConditionOperator.EQUALS, KeyType.PRIVATE_KEY.getCode())));
+
+        // when
+        CryptographicKeyResponseDto response = cryptographicKeyService
+                .listCryptographicKeys(SecurityFilter.create(), searchRequestDto);
+
+        // then
+        List<KeyItemDto> rows = response.getCryptographicKeys();
+        Assertions
+                .assertEquals(List.of(privateKeyItem.getUuid().toString()),
+                        rows.stream().map(KeyItemDto::getUuid).toList());
+        Assertions.assertFalse(rows.getFirst().isRemovableFromInventory());
+    }
+
+    @Test
     void listCryptographicKeys_marksNoRowRemovable_whenTheTokenCannotListKeys() {
         // given
-        configureV2Token(List.of(FeatureFlag.STATELESS));
+        configureV2Token(false);
         SearchRequestDto searchRequestDto = new SearchRequestDto();
         searchRequestDto.setItemsPerPage(10);
         searchRequestDto.setPageNumber(1);

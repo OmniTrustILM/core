@@ -131,6 +131,8 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -160,6 +162,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private static final String ENABLE_OPERATION = "enable";
     private static final String ENABLED_STATE = "enabled";
     private static final String DISABLED_STATE = "disabled";
+    private static final int MAX_UUIDS_PER_QUERY = 500;
 
     @Value("${spring.jpa.properties.hibernate.jdbc.batch_size:500}")
     private int bulkDeleteBatchSize;
@@ -401,14 +404,16 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private Map<UUID, Long> getKeyCertificateCounts(List<CryptographicKey> keys) {
         List<UUID> uuids = keys.stream().map(CryptographicKey::getUuid).toList();
         Map<UUID, Long> counts = new HashMap<>();
-        final int batchSize = 500;
-        for (int start = 0; start < uuids.size(); start += batchSize) {
-            List<UUID> batch = uuids.subList(start, Math.min(start + batchSize, uuids.size()));
-            cryptographicKeyRepository
-                    .getCertificateAssociationCounts(batch)
-                    .forEach(count -> counts.put(count.getUuid(), count.getAssociations()));
-        }
+        queryInBatches(uuids, cryptographicKeyRepository::getCertificateAssociationCounts)
+                .forEach(count -> counts.put(count.getUuid(), count.getAssociations()));
         return counts;
+    }
+
+    private static <T> Stream<T> queryInBatches(List<UUID> uuids, Function<List<UUID>, List<T>> query) {
+        return IntStream
+                .iterate(0, start -> start < uuids.size(), start -> start + MAX_UUIDS_PER_QUERY)
+                .mapToObj(start -> uuids.subList(start, Math.min(start + MAX_UUIDS_PER_QUERY, uuids.size())))
+                .flatMap(batch -> query.apply(batch).stream());
     }
 
     @Override
@@ -1222,12 +1227,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     private Set<UUID> keysRemovableFromInventory(Collection<UUID> keyUuids) {
-        if (keyUuids.isEmpty()) {
-            return Set.of();
-        }
-        return cryptographicKeyRepository
-                .findRemovalCandidatesByUuidIn(keyUuids)
-                .stream()
+        return queryInBatches(List.copyOf(keyUuids), cryptographicKeyRepository::findRemovalCandidatesByUuidIn)
                 .filter(keyRemovalGates::isRemovable)
                 .map(candidate -> candidate.key().uuid())
                 .collect(Collectors.toSet());
