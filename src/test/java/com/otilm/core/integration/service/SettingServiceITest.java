@@ -1102,6 +1102,49 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertThrows(ValidationException.class, () -> settingService.updateAuthenticationSettings(update));
     }
 
+    @Test
+    void delegationSettingsAreNormalizedAndVisibleInTheNextSnapshot() throws Exception {
+        var provider = createProviderUpdateDto();
+        provider.setAllowedDelegates(java.util.Arrays.asList(" mcp ", "", null, "worker"));
+        provider.setDelegateClaim(" sub ");
+        settingService.updateOAuth2ProviderSettings("delegation", provider);
+        var stored = settingService.getOAuth2ProviderSettings("delegation", false);
+        Assertions.assertEquals(List.of("mcp", "worker"), stored.getAllowedDelegates());
+        Assertions.assertEquals("sub", stored.getDelegateClaim());
+        var snapshot = com.otilm.core.settings.SettingsCache.getAuthenticationSnapshot();
+        Assertions
+                .assertEquals(List.of("mcp", "worker"),
+                        snapshot.settings().getOAuth2Providers().get("delegation").getAllowedDelegates());
+    }
+
+    @Test
+    void invalidDelegationSettingsAreRefusedBeforePersisting() throws Exception {
+        for (var delegates : List.of(List.of("mcp", " mcp "), List.of("a".repeat(256)))) {
+            var provider = createProviderUpdateDto();
+            provider.setAllowedDelegates(delegates);
+            Assertions
+                    .assertThrows(ValidationException.class,
+                            () -> settingService.updateOAuth2ProviderSettings("invalid-delegation", provider));
+        }
+        for (String claim : java.util.Arrays.asList(null, "", " ")) {
+            var provider = createProviderUpdateDto();
+            provider.setDelegateClaim(claim);
+            Assertions
+                    .assertThrows(ValidationException.class,
+                            () -> settingService.updateOAuth2ProviderSettings("invalid-delegation", provider));
+        }
+        Assertions.assertNull(settingService.getOAuth2ProviderSettings("invalid-delegation", false));
+    }
+
+    @Test
+    void bulkProviderUpdatesUseTheSameDelegateValidation() throws Exception {
+        var provider = createProviderDto("invalid-delegation");
+        provider.setAllowedDelegates(List.of("same", "same"));
+        var update = new AuthenticationSettingsUpdateDto();
+        update.setOAuth2Providers(List.of(provider));
+        Assertions.assertThrows(ValidationException.class, () -> settingService.updateAuthenticationSettings(update));
+    }
+
     private void storeOAuth2Provider(String providerName, OAuth2ProviderSettingsDto providerSettings)
             throws JsonProcessingException {
         Setting setting = new Setting();

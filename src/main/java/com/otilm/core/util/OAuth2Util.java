@@ -1,6 +1,7 @@
 package com.otilm.core.util;
 
 import com.nimbusds.jwt.SignedJWT;
+import com.otilm.api.model.core.logging.records.DelegateRecord;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
@@ -16,6 +17,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +44,8 @@ public class OAuth2Util {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(10);
+    private static final Pattern CONTROL_CHARACTERS = Pattern.compile("[\\p{Cntrl}]");
+    private static final int DELEGATE_DIAGNOSTIC_MAX_LENGTH = 255;
 
     /**
      * Shared client for the provider-side OAuth2 endpoints (end-session, userinfo). {@link RestClient} is immutable and
@@ -248,6 +252,47 @@ public class OAuth2Util {
     public static String resolveUsernameOrNull(OAuth2ProviderSettingsDto providerSettings, Map<String, Object> claims) {
         Object value = claims == null ? null : claims.get(effectiveUsernameClaim(providerSettings));
         return value instanceof String username && StringUtils.isNotBlank(username) ? username : null;
+    }
+
+    /**
+     * Resolves only the outermost actor from signature-validated access-token claims. Userinfo and ID-token claims must
+     * never be passed here: they cannot establish who was delegated the access token. A present but malformed actor
+     * fails closed, while ordinary tokens do not need a configured delegate allowlist.
+     */
+    public static DelegateRecord resolveDelegate(OAuth2ProviderSettingsDto provider, Map<String, Object> claims) {
+        if (claims == null || !claims.containsKey("act")) {
+            return null;
+        }
+        String claim = provider == null || provider.getDelegateClaim() == null
+                ? "client_id"
+                : provider.getDelegateClaim();
+        Object actor = claims.get("act");
+        if (!(actor instanceof Map<?, ?> actorClaims)) {
+            throw delegationFailure(provider, claim, "<invalid>", "act must be an object");
+        }
+        Object value = actorClaims.get(claim);
+        if (!(value instanceof String identifier) || StringUtils.isBlank(identifier)) {
+            throw delegationFailure(provider, claim, "<missing or invalid>", "delegate must be a non-blank string");
+        }
+        if (provider == null || provider.getAllowedDelegates() == null
+                || !provider.getAllowedDelegates().contains(identifier)) {
+            throw delegationFailure(provider, claim, identifier, "delegate is not allowed");
+        }
+        Object subject = actorClaims.get("sub");
+        String distinctSubject = subject instanceof String text && StringUtils.isNotBlank(text)
+                && !identifier.equals(text) ? text : null;
+        return new DelegateRecord(identifier, distinctSubject);
+    }
+
+    private static PlatformAuthenticationException delegationFailure(OAuth2ProviderSettingsDto provider, String claim,
+            String identifier, String reason) {
+        String name = provider == null ? "<unknown>" : provider.getName();
+        return new PlatformAuthenticationException("OAuth2 provider '%s' refused act delegate '%s' from claim '%s': %s."
+                .formatted(name,
+                        StringUtils
+                                .abbreviate(CONTROL_CHARACTERS.matcher(identifier).replaceAll("?"),
+                                        DELEGATE_DIAGNOSTIC_MAX_LENGTH),
+                        claim, reason));
     }
 
     public static Map<String, Object> getAllClaimsAvailable(OAuth2ProviderSettingsDto providerSettings,

@@ -51,6 +51,7 @@ public class PlatformAuthenticationSuccessHandler implements AuthenticationSucce
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
             Authentication authentication) {
+        LoggingHelper.putDelegateInfo(null);
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, AuthMethod.SESSION);
         OAuth2AuthenticationToken authenticationToken = (OAuth2AuthenticationToken) authentication;
         OidcUser oidcUser = (OidcUser) authenticationToken.getPrincipal();

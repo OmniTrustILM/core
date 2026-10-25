@@ -92,6 +92,9 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
      * as a cache miss. Anonymous results are never cached, so the loader's anonymous MDC path is unaffected.
      */
     private static AuthenticationInfo restoreActorMdc(AuthenticationInfo authInfo) {
+        if (authInfo.getAuthMethod() != AuthMethod.TOKEN) {
+            LoggingHelper.putDelegateInfo(null);
+        }
         if (!authInfo.isAnonymous()) {
             LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getAuthMethod());
             LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getUserUuid(), authInfo.getUsername());
@@ -101,6 +104,10 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
 
     public AuthenticationInfo authenticate(AuthMethod authMethod, Object authData, boolean isLocalhostRequest)
             throws AuthenticationException {
+
+        if (authMethod != AuthMethod.TOKEN) {
+            LoggingHelper.putDelegateInfo(null);
+        }
 
         AuthenticationRequestDto authRequest = getAuthPayload(authMethod, authData, isLocalhostRequest);
         boolean certificateRequest = authMethod == AuthMethod.CERTIFICATE;
