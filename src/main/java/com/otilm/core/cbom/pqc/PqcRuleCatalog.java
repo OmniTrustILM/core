@@ -9,8 +9,8 @@ import java.util.Set;
  *
  * <p>
  * Every entry that applies to an asset's type is evaluated; {@link PqcRuleOrder} selects the deciding one. The order of
- * this list is the tie-break between matched rules of equal rank, so it is part of the rule set: a material arm is
- * listed before the algorithm rule that would tie with it, because an operator queries the material rule id.
+ * this list is the tie-break between matched rules of equal rank, so it is part of the rule set: a protocol's cipher
+ * suite rule is listed before its group rule, so a tie between two ready offers names the suite algorithm.
  *
  * <p>
  * The hybrid path composes its id from the deciding component ({@code PQC-HYBRID-PQC-STANDARDIZED}); those ids map to
@@ -28,9 +28,6 @@ public final class PqcRuleCatalog {
         FALLBACK
     }
 
-    private static final Set<CryptographicAssetType> ALGORITHM_AND_MATERIAL = Set
-            .of(CryptographicAssetType.ALGORITHM, CryptographicAssetType.RELATED_CRYPTO_MATERIAL);
-
     private static final Set<CryptographicAssetType> ALGORITHM = Set.of(CryptographicAssetType.ALGORITHM);
 
     private static final Set<CryptographicAssetType> MATERIAL = Set.of(CryptographicAssetType.RELATED_CRYPTO_MATERIAL);
@@ -42,8 +39,7 @@ public final class PqcRuleCatalog {
     private static final List<String> FAMILY_FIELDS = List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT);
 
     private static final List<String> SIZE_FIELDS = List
-            .of(PqcRules.ALGORITHM_FAMILY, PqcRules.PRIMITIVE, PqcRules.PARAMETER_SET, PqcRules.MATERIAL_SIZE,
-                    PqcRules.VARIANT);
+            .of(PqcRules.ALGORITHM_FAMILY, PqcRules.PRIMITIVE, PqcRules.PARAMETER_SET, PqcRules.VARIANT);
 
     private static final List<String> HYBRID_FIELDS = List
             .of(PqcRules.ALGORITHM_FAMILY, PqcRules.HYBRID_COMPONENTS, PqcRules.NAME, PqcRules.VARIANT);
@@ -67,57 +63,61 @@ public final class PqcRuleCatalog {
                             CERTIFICATE, null),
                     finding(PqcReferenceRules.CERT_NO_KEY_RECORDED, "No certified key recorded", CERTIFICATE, null),
                     finding(PqcReferenceRules.PROTOCOL_CIPHER_SUITE, "Cipher suite algorithms", PROTOCOL, null),
+                    finding(PqcReferenceRules.PROTOCOL_TLS_GROUP, "Offered TLS groups", PROTOCOL, null),
+                    finding(PqcReferenceRules.PROTOCOL_TLS_SIGNATURE_SCHEME, "Offered TLS signature schemes", PROTOCOL,
+                            null),
+                    finding(PqcReferenceRules.PROTOCOL_ALGORITHM, "Protocol-level algorithms", PROTOCOL, null),
+                    finding(PqcReferenceRules.PROTOCOL_KEY_EXCHANGE, "Key exchange methods", PROTOCOL, null),
                     finding(PqcReferenceRules.PROTOCOL_SUITE_UNRESOLVED, "Unresolved cipher suite algorithm", PROTOCOL,
                             null),
+                    finding(PqcReferenceRules.PROTOCOL_REFERENCE_UNRESOLVED, "Unresolved protocol reference", PROTOCOL,
+                            null),
                     finding(PqcReferenceRules.PROTOCOL_NO_KEY_EXCHANGE, "No key exchange named", PROTOCOL, null),
-                    finding(PqcReferenceRules.PROTOCOL_NO_SUITES, "No cipher suites recorded", PROTOCOL, null),
+                    finding(PqcReferenceRules.PROTOCOL_NO_SUITES, "Nothing recorded to evaluate", PROTOCOL, null),
                     new Entry(PqcRules.MATERIAL_NOT_KEY, "Material that is not a key", MATERIAL, null, Tier.EXCLUSION),
                     new Entry(PqcRules.NAME_CIPHER_SUITE, "Cipher suite name", ALGORITHM, null, Tier.EXCLUSION),
                     new Entry(PqcRules.NAME_NOT_AN_ALGORITHM, "Non-algorithm name", ALGORITHM, null, Tier.EXCLUSION),
+                    finding(PqcReferenceRules.MATERIAL_ALGORITHM, "Algorithm the key is for", MATERIAL, null),
+                    finding(PqcReferenceRules.MATERIAL_ALGORITHM_UNRESOLVED, "Unresolved key algorithm", MATERIAL,
+                            null),
                     finding(PqcRules.MATERIAL_SYMMETRIC_READY, "Symmetric key size", MATERIAL, null),
                     finding(PqcRules.MATERIAL_SYMMETRIC_WEAK, "Undersized symmetric key", MATERIAL, null),
                     finding(PqcRules.MATERIAL_SYMMETRIC_UNSIZED, "Unsized symmetric key", MATERIAL, null),
-                    finding(PqcRules.CLASSICAL_LEGACY_COMPONENT, "Classically broken component", ALGORITHM_AND_MATERIAL,
+                    new Entry(PqcReferenceRules.MATERIAL_NO_ALGORITHM_RECORDED, "No key algorithm recorded", MATERIAL,
+                            null, Tier.FALLBACK),
+                    finding(PqcRules.CLASSICAL_LEGACY_COMPONENT, "Classically broken component", ALGORITHM,
                             HYBRID_FIELDS),
-                    finding(PqcRules.HYBRID, "Hybrid construction", ALGORITHM_AND_MATERIAL, HYBRID_FIELDS),
-                    finding(PqcRules.HYBRID_UNRESOLVED, "Hybrid without a ratified post-quantum component",
-                            ALGORITHM_AND_MATERIAL, HYBRID_FIELDS),
-                    finding(PqcRules.CLASSICAL_SHOR_COMPONENT, "Quantum-vulnerable component", ALGORITHM_AND_MATERIAL,
+                    finding(PqcRules.HYBRID, "Hybrid construction", ALGORITHM, HYBRID_FIELDS),
+                    finding(PqcRules.HYBRID_UNRESOLVED, "Hybrid without a ratified post-quantum component", ALGORITHM,
+                            HYBRID_FIELDS),
+                    finding(PqcRules.CLASSICAL_SHOR_COMPONENT, "Quantum-vulnerable component", ALGORITHM,
                             List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.NAME)),
-                    new Entry(PqcRules.FAMILY_UNRESOLVED, "Unresolved algorithm family", ALGORITHM_AND_MATERIAL,
+                    new Entry(PqcRules.FAMILY_UNRESOLVED, "Unresolved algorithm family", ALGORITHM,
                             List
                                     .of(PqcRules.ASSET_TYPE, PqcRules.MATERIAL_TYPE, PqcRules.ALGORITHM_FAMILY,
                                             PqcRules.NAME, PqcRules.VARIANT),
                             Tier.FALLBACK),
-                    finding(FamilyClass.SHOR_BREAKABLE.ruleId(), "Quantum-vulnerable family", ALGORITHM_AND_MATERIAL,
+                    finding(FamilyClass.SHOR_BREAKABLE.ruleId(), "Quantum-vulnerable family", ALGORITHM,
                             List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.CURVE, PqcRules.VARIANT)),
-                    finding(PqcRules.FAMILY_AMBIGUOUS_COMPONENT, "Ambiguous primitive", ALGORITHM_AND_MATERIAL,
-                            FAMILY_FIELDS),
-                    finding(PqcRules.CONSTRUCTION_UNINSTANTIATED, "Construction without a primitive",
-                            ALGORITHM_AND_MATERIAL,
+                    finding(PqcRules.FAMILY_AMBIGUOUS_COMPONENT, "Ambiguous primitive", ALGORITHM, FAMILY_FIELDS),
+                    finding(PqcRules.CONSTRUCTION_UNINSTANTIATED, "Construction without a primitive", ALGORITHM,
                             List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.VARIANT, PqcRules.PARAMETER_SET)),
-                    finding(PqcRules.PARAMETER_SET_UNREGISTERED, "Parameter set the family does not define",
-                            ALGORITHM_AND_MATERIAL,
+                    finding(PqcRules.PARAMETER_SET_UNREGISTERED, "Parameter set the family does not define", ALGORITHM,
                             List.of(PqcRules.ALGORITHM_FAMILY, PqcRules.PARAMETER_SET, PqcRules.VARIANT)),
-                    finding(PqcRules.SYMMETRIC_UNDERSIZED, "Undersized symmetric primitive", ALGORITHM_AND_MATERIAL,
-                            SIZE_FIELDS),
-                    finding(PqcRules.SYMMETRIC_UNSIZED, "Unsized symmetric primitive", ALGORITHM_AND_MATERIAL,
-                            SIZE_FIELDS),
+                    finding(PqcRules.SYMMETRIC_UNDERSIZED, "Undersized symmetric primitive", ALGORITHM, SIZE_FIELDS),
+                    finding(PqcRules.SYMMETRIC_UNSIZED, "Unsized symmetric primitive", ALGORITHM, SIZE_FIELDS),
                     finding(FamilyClass.QUANTUM_RESISTANT_SYMMETRIC.ruleId(), "Symmetric or hash-based family",
-                            ALGORITHM_AND_MATERIAL, SIZE_FIELDS),
-                    finding(PqcRules.ONE_TIME_SIGNATURE, "One-time signature", ALGORITHM_AND_MATERIAL, FAMILY_FIELDS),
-                    finding(FamilyClass.PQC_STANDARDIZED.ruleId(), "Standardised post-quantum scheme",
-                            ALGORITHM_AND_MATERIAL, FAMILY_FIELDS),
-                    finding(FamilyClass.PQC_PRESTANDARD.ruleId(), "Pre-standard post-quantum scheme",
-                            ALGORITHM_AND_MATERIAL, FAMILY_FIELDS),
-                    finding(FamilyClass.PQC_BROKEN.ruleId(), "Broken post-quantum candidate", ALGORITHM_AND_MATERIAL,
+                            ALGORITHM, SIZE_FIELDS),
+                    finding(PqcRules.ONE_TIME_SIGNATURE, "One-time signature", ALGORITHM, FAMILY_FIELDS),
+                    finding(FamilyClass.PQC_STANDARDIZED.ruleId(), "Standardised post-quantum scheme", ALGORITHM,
                             FAMILY_FIELDS),
-                    finding(FamilyClass.PQC_HYBRID.ruleId(), "Named hybrid family", ALGORITHM_AND_MATERIAL,
+                    finding(FamilyClass.PQC_PRESTANDARD.ruleId(), "Pre-standard post-quantum scheme", ALGORITHM,
                             FAMILY_FIELDS),
-                    finding(FamilyClass.CLASSICAL_LEGACY.ruleId(), "Classically broken family", ALGORITHM_AND_MATERIAL,
+                    finding(FamilyClass.PQC_BROKEN.ruleId(), "Broken post-quantum candidate", ALGORITHM, FAMILY_FIELDS),
+                    finding(FamilyClass.PQC_HYBRID.ruleId(), "Named hybrid family", ALGORITHM, FAMILY_FIELDS),
+                    finding(FamilyClass.CLASSICAL_LEGACY.ruleId(), "Classically broken family", ALGORITHM,
                             FAMILY_FIELDS),
-                    finding(FamilyClass.FAMILY_AMBIGUOUS.ruleId(), "Ambiguous family", ALGORITHM_AND_MATERIAL,
-                            FAMILY_FIELDS));
+                    finding(FamilyClass.FAMILY_AMBIGUOUS.ruleId(), "Ambiguous family", ALGORITHM, FAMILY_FIELDS));
 
     private PqcRuleCatalog() {
     }
