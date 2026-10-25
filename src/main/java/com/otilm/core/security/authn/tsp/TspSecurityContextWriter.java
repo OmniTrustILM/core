@@ -32,6 +32,7 @@ public class TspSecurityContextWriter {
      * untouched) for anonymous/empty info.
      */
     public boolean setFromAuthInfo(AuthenticationInfo authInfo) {
+        LoggingHelper.putDelegateInfo(null);
         if (authInfo == null || authInfo.isAnonymous()) {
             return false;
         }

@@ -124,7 +124,7 @@ public class LoggerWrapper {
             List<ResourceObjectIdentity> resourceObjects) {
         return LogRecord
                 .builder()
-                .version("1.1")
+                .version("1.2")
                 .audited(audited)
                 .module(module)
                 .actor(LoggingHelper.getActorInfo())

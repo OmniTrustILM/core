@@ -6,6 +6,7 @@ import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.records.ActorRecord;
+import com.otilm.api.model.core.logging.records.DelegateRecord;
 import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.logging.records.ResourceRecord;
 import com.otilm.api.model.core.logging.records.SourceRecord;
@@ -35,7 +36,15 @@ public class LoggingHelper {
     private static final String LOG_ACTOR_AUTH_METHOD = "log_actor_authMethod";
     private static final String LOG_ACTOR_UUID = "log_actor_uuid";
     private static final String LOG_ACTOR_NAME = "log_actor_name";
-    private static final String[] ACTOR_KEYS = {LOG_ACTOR_TYPE, LOG_ACTOR_AUTH_METHOD, LOG_ACTOR_UUID, LOG_ACTOR_NAME};
+    private static final String LOG_ACTOR_DELEGATE_IDENTIFIER = "log_actor_delegate_identifier";
+    private static final String LOG_ACTOR_DELEGATE_SUBJECT = "log_actor_delegate_subject";
+    private static final String[] ACTOR_KEYS = {
+            LOG_ACTOR_TYPE,
+            LOG_ACTOR_AUTH_METHOD,
+            LOG_ACTOR_UUID,
+            LOG_ACTOR_NAME,
+            LOG_ACTOR_DELEGATE_IDENTIFIER,
+            LOG_ACTOR_DELEGATE_SUBJECT};
 
     private static final String LOG_SOURCE_METHOD = "log_source_method";
     private static final String LOG_SOURCE_PATH = "log_source_path";
@@ -64,12 +73,30 @@ public class LoggingHelper {
                     .authMethod(authMethod == null ? AuthMethod.NONE : AuthMethod.valueOf(authMethod))
                     .uuid(NullUtil.parseUuidOrNull(MDC.get(LOG_ACTOR_UUID)))
                     .name(MDC.get(LOG_ACTOR_NAME))
+                    .delegate(getDelegateInfo())
                     .build();
         }
     }
 
     public static boolean hasActorInfo() {
         return MDC.get(LOG_ACTOR_TYPE) != null;
+    }
+
+    /** Replaces the request's delegate; a non-delegated authentication must pass {@code null}. */
+    public static void putDelegateInfo(DelegateRecord delegate) {
+        MDC.remove(LOG_ACTOR_DELEGATE_IDENTIFIER);
+        MDC.remove(LOG_ACTOR_DELEGATE_SUBJECT);
+        if (delegate != null) {
+            MDC.put(LOG_ACTOR_DELEGATE_IDENTIFIER, delegate.identifier());
+            if (delegate.subject() != null) {
+                MDC.put(LOG_ACTOR_DELEGATE_SUBJECT, delegate.subject());
+            }
+        }
+    }
+
+    private static DelegateRecord getDelegateInfo() {
+        String identifier = MDC.get(LOG_ACTOR_DELEGATE_IDENTIFIER);
+        return identifier == null ? null : new DelegateRecord(identifier, MDC.get(LOG_ACTOR_DELEGATE_SUBJECT));
     }
 
     public static ActorType getActorType() {
@@ -158,10 +185,9 @@ public class LoggingHelper {
      * does not retain or misattribute actor information on the request thread.
      */
     public static void clearActorInfo() {
-        MDC.remove(LOG_ACTOR_TYPE);
-        MDC.remove(LOG_ACTOR_AUTH_METHOD);
-        MDC.remove(LOG_ACTOR_UUID);
-        MDC.remove(LOG_ACTOR_NAME);
+        for (String key : ACTOR_KEYS) {
+            MDC.remove(key);
+        }
     }
 
     /**

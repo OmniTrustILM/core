@@ -1,9 +1,11 @@
 package com.otilm.core.security.authn.tsp;
 
+import com.otilm.api.model.core.logging.records.DelegateRecord;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.api.model.core.signing.TspAuthenticationMethod;
 import com.otilm.core.auth.oauth2.AuthenticationSnapshotRequestHolder;
 import com.otilm.core.auth.oauth2.PlatformJwtDecoder;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
@@ -49,6 +51,7 @@ public class BearerTokenAuthenticator implements TspAuthenticator {
 
     @Override
     public boolean authenticate(HttpServletRequest request, TspProfileModel profile) {
+        LoggingHelper.putDelegateInfo(null);
         String token = request.getHeader(HttpHeaders.AUTHORIZATION).substring(BEARER_PREFIX.length()).trim();
         try {
             Jwt jwt = jwtDecoder.decode(token);
@@ -59,11 +62,18 @@ public class BearerTokenAuthenticator implements TspAuthenticator {
             OAuth2ProviderSettingsDto provider = OAuth2Util
                     .findProviderByIssuer(snapshot.settings(),
                             jwt.getIssuer() == null ? null : jwt.getIssuer().toString());
+            DelegateRecord delegate = OAuth2Util.resolveDelegate(provider, jwt.getClaims());
+            LoggingHelper.putDelegateInfo(delegate);
             Map<String, Object> claims = new HashMap<>(jwt.getClaims());
             claims.put(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME, OAuth2Util.resolveUsername(provider, claims));
             AuthenticationInfo authInfo = authClient.authenticateByToken(claims, snapshot.generation());
-            return contextWriter.setFromAuthInfo(authInfo);
+            boolean authenticated = contextWriter.setFromAuthInfo(authInfo);
+            if (authenticated) {
+                LoggingHelper.putDelegateInfo(delegate);
+            }
+            return authenticated;
         } catch (RuntimeException e) {
+            LoggingHelper.putDelegateInfo(null);
             log.warn("TSP authentication: bearer-token authentication failed: {}", e.getMessage());
             return false;
         }

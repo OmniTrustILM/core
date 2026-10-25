@@ -68,6 +68,7 @@ public class PlatformJwtDecoder implements JwtDecoder {
             return null;
         }
         SignedJWT signedJWT;
+        LoggingHelper.putDelegateInfo(null);
         LoggingHelper.putActorInfoWhenNull(ActorType.USER, AuthMethod.TOKEN);
         try {
             signedJWT = SignedJWT.parse(token);
@@ -126,7 +127,12 @@ public class PlatformJwtDecoder implements JwtDecoder {
         OAuth2TokenValidator<Jwt> combinedValidator = getJwtOAuth2TokenValidator(skew, audiences, issuerUri);
         jwtDecoder.setJwtValidator(combinedValidator);
         try {
-            return jwtDecoder.decode(token);
+            Jwt validated = jwtDecoder.decode(token);
+            LoggingHelper.putDelegateInfo(OAuth2Util.resolveDelegate(providerSettings, validated.getClaims()));
+            return validated;
+        } catch (PlatformAuthenticationException e) {
+            AuthHelper.logAndAuditAuthFailure(logger, auditLogService, e.getMessage(), LogRedaction.token(token));
+            throw e;
         } catch (JwtException e) {
             String message = "Could not authenticate user using JWT token: %s".formatted(e.getMessage());
             AuthHelper.logAndAuditAuthFailure(logger, auditLogService, message, LogRedaction.token(token));
