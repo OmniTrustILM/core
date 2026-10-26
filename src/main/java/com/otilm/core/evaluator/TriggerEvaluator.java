@@ -327,7 +327,9 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 item = getPropertyValue(item, nestedJoinAttributes, filterField.getFieldAttribute(), filterField);
             }
 
-            if (item instanceof IPlatformEnum platformEnum) {
+            if ((filterField == FilterField.SUCCEEDING_CERTIFICATES
+                    || filterField == FilterField.PRECEDING_CERTIFICATES)
+                    && item instanceof IPlatformEnum platformEnum) {
                 item = platformEnum.getCode();
             }
 
