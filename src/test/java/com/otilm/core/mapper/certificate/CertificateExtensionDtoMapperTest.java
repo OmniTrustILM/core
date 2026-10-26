@@ -176,6 +176,31 @@ class CertificateExtensionDtoMapperTest {
     }
 
     @Test
+    void nameIsTheRegisteredDisplayName() throws IOException {
+        List<CertificateExtensionDto> dtos = CertificateExtensionDtoMapper
+                .toDtos(extensions(TEXT_MODULE, false, EMPTY_SEQUENCE));
+
+        assertThat(dtos.get(0).getName()).isEqualTo("Text");
+    }
+
+    @Test
+    void nameSurvivesAnUnreadableModule() throws IOException {
+        List<CertificateExtensionDto> dtos = CertificateExtensionDtoMapper
+                .toDtos(extensions(BROKEN_MODULE, false, EMPTY_SEQUENCE));
+
+        assertThat(dtos.get(0).getName()).isEqualTo("Broken");
+        assertThat(dtos.get(0).getJer()).isNull();
+    }
+
+    @Test
+    void unregisteredExtensionHasNoName() throws IOException {
+        List<CertificateExtensionDto> dtos = CertificateExtensionDtoMapper
+                .toDtos(extensions(UNDESCRIBED, false, EMPTY_SEQUENCE));
+
+        assertThat(dtos.get(0).getName()).isNull();
+    }
+
+    @Test
     void unreadableRegisteredModuleListsDerOnly() throws IOException {
         assertThatThrownBy(() -> ExtensionTypes.resolve(BROKEN_MODULE)).isNotNull();
 
