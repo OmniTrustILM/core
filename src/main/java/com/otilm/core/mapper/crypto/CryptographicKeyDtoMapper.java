@@ -11,6 +11,7 @@ import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemListDto;
 import com.otilm.core.mapper.workflows.PaginationResponseMapper;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
@@ -32,8 +33,8 @@ public final class CryptographicKeyDtoMapper {
     }
 
     /** Adapts the shared pagination mapping to the key listing's dedicated response format. */
-    public static CryptographicKeyResponseDto mapToResponseDto(Page<?> page, List<KeyItemDto> items) {
-        PaginationResponseDto<KeyItemDto> pagination = PaginationResponseMapper.toDto(page, items);
+    public static CryptographicKeyResponseDto mapToResponseDto(Page<?> page, List<KeyItemListDto> items) {
+        PaginationResponseDto<KeyItemListDto> pagination = PaginationResponseMapper.toDto(page, items);
         CryptographicKeyResponseDto dto = new CryptographicKeyResponseDto();
         dto.setCryptographicKeys(pagination.getItems());
         dto.setItemsPerPage(pagination.getItemsPerPage());

@@ -52,7 +52,7 @@ import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
-import com.otilm.api.model.core.cryptography.key.KeyItemDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemListDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -1761,22 +1761,6 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(certificateLinks + siblingItem, pairs.getFirst().getAssociations());
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void listKeyPairs_marksBothItemsWithWhetherTheKeyCanBeRemoved(boolean tokenListsKeys) {
-        // given
-        configureV2Token(tokenListsKeys);
-
-        // when
-        List<KeyDto> pairs = cryptographicKeyService.listKeyPairs(Optional.empty(), SecurityFilter.create());
-
-        // then
-        Assertions.assertEquals(1, pairs.size());
-        Assertions
-                .assertEquals(List.of(tokenListsKeys, tokenListsKeys),
-                        pairs.getFirst().getItems().stream().map(KeyItemDto::isRemovableFromInventory).toList());
-    }
-
     @Test
     void listCryptographicKeys_marksEachRowWithWhetherItsKeyCanBeRemoved() {
         // given
@@ -1794,8 +1778,8 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .getCryptographicKeys()
                 .stream()
                 .collect(Collectors
-                        .groupingBy(KeyItemDto::getKeyWrapperUuid,
-                                Collectors.mapping(KeyItemDto::isRemovableFromInventory, Collectors.toList())));
+                        .groupingBy(KeyItemListDto::getKeyWrapperUuid,
+                                Collectors.mapping(KeyItemListDto::isRemovableFromInventory, Collectors.toList())));
         Assertions
                 .assertEquals(Map
                         .of(key.getUuid().toString(), List.of(true, true), keyWithoutToken.getUuid().toString(),
@@ -1822,10 +1806,10 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .listCryptographicKeys(SecurityFilter.create(), searchRequestDto);
 
         // then
-        List<KeyItemDto> rows = response.getCryptographicKeys();
+        List<KeyItemListDto> rows = response.getCryptographicKeys();
         Assertions
                 .assertEquals(List.of(privateKeyItem.getUuid().toString()),
-                        rows.stream().map(KeyItemDto::getUuid).toList());
+                        rows.stream().map(KeyItemListDto::getUuid).toList());
         Assertions.assertFalse(rows.getFirst().isRemovableFromInventory());
     }
 
@@ -1842,8 +1826,9 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                 .listCryptographicKeys(SecurityFilter.create(), searchRequestDto);
 
         // then
-        Assertions.assertEquals(3, response.getCryptographicKeys().size());
-        Assertions.assertTrue(response.getCryptographicKeys().stream().noneMatch(KeyItemDto::isRemovableFromInventory));
+        List<KeyItemListDto> rows = response.getCryptographicKeys();
+        Assertions.assertEquals(3, rows.size());
+        Assertions.assertTrue(rows.stream().noneMatch(KeyItemListDto::isRemovableFromInventory));
     }
 
     @Test

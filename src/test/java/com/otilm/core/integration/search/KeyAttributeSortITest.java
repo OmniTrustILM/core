@@ -16,7 +16,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
-import com.otilm.api.model.core.cryptography.key.KeyItemDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemListDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -117,7 +117,7 @@ class KeyAttributeSortITest extends BaseSpringBootTest {
     void itemsSortByTheirKeysCustomAttribute() {
         List<String> keys = list(FilterFieldSource.CUSTOM, ENVIRONMENT + "|" + AttributeContentType.TEXT.name())
                 .stream()
-                .map(KeyItemDto::getKeyWrapperUuid)
+                .map(KeyItemListDto::getKeyWrapperUuid)
                 .toList();
 
         Assertions
@@ -143,7 +143,7 @@ class KeyAttributeSortITest extends BaseSpringBootTest {
 
         List<String> items = list(FilterFieldSource.META, SLOT + "|" + AttributeContentType.STRING.name())
                 .stream()
-                .map(KeyItemDto::getUuid)
+                .map(KeyItemListDto::getUuid)
                 .toList();
 
         Assertions.assertEquals(productionItems.getLast().getUuid().toString(), items.getFirst());
@@ -194,7 +194,7 @@ class KeyAttributeSortITest extends BaseSpringBootTest {
                                 .build());
     }
 
-    private List<KeyItemDto> list(FilterFieldSource source, String fieldIdentifier) {
+    private List<KeyItemListDto> list(FilterFieldSource source, String fieldIdentifier) {
         SearchRequestDto request = new SearchRequestDto();
         request.setPageNumber(1);
         request.setItemsPerPage(10);

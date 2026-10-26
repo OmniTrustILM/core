@@ -28,7 +28,7 @@ class CryptographicKeyItemTest {
 
         // then
         assertThat(item.mapToDto().getLength()).isNull();
-        assertThat(item.mapToSummaryDto().getLength()).isNull();
+        assertThat(item.mapToListDto().getLength()).isNull();
         assertThat(snapshot.length()).isNull();
         assertThat(CryptographicKeyDtoMapper.mapItemToDetailDto(snapshot).getLength()).isNull();
         assertThat(CryptographicKeyDtoMapper.getKeyItemsSummary(model).getFirst().getLength()).isNull();

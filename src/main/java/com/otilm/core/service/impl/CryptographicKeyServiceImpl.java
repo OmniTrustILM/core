@@ -39,6 +39,7 @@ import com.otilm.api.model.core.cryptography.key.KeyEventHistoryDto;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemListDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.notification.RecipientType;
@@ -131,8 +132,6 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 import org.apache.commons.lang3.function.TriFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -162,7 +161,6 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private static final String ENABLE_OPERATION = "enable";
     private static final String ENABLED_STATE = "enabled";
     private static final String DISABLED_STATE = "disabled";
-    private static final int MAX_UUIDS_PER_QUERY = 500;
 
     @Value("${spring.jpa.properties.hibernate.jdbc.batch_size:500}")
     private int bulkDeleteBatchSize;
@@ -335,8 +333,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         Set<UUID> removableKeyUuids = keysRemovableFromInventory(
                 filteredPage.getContent().stream().map(CryptographicKeyItem::getKeyUuid).collect(Collectors.toSet()));
 
-        List<KeyItemDto> listedKeyDtos = filteredPage.getContent().stream().map(cki -> {
-            KeyItemDto dto = cki.mapToSummaryDto();
+        List<KeyItemListDto> listedKeyDtos = filteredPage.getContent().stream().map(cki -> {
+            KeyItemListDto dto = cki.mapToListDto();
             dto.setAssociations(associationsCounts.getOrDefault(cki.getUuid(), 0));
             dto.setRemovableFromInventory(removableKeyUuids.contains(cki.getKeyUuid()));
             return dto;
@@ -392,28 +390,20 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                     return keyTypes.isEmpty();
                 })
                 .toList();
-        Set<UUID> removableKeyUuids = keysRemovableFromInventory(
-                response.stream().map(pair -> UUID.fromString(pair.getUuid())).toList());
-        for (KeyDto pair : response) {
-            boolean removable = removableKeyUuids.contains(UUID.fromString(pair.getUuid()));
-            pair.getItems().forEach(item -> item.setRemovableFromInventory(removable));
-        }
         return response;
     }
 
     private Map<UUID, Long> getKeyCertificateCounts(List<CryptographicKey> keys) {
         List<UUID> uuids = keys.stream().map(CryptographicKey::getUuid).toList();
         Map<UUID, Long> counts = new HashMap<>();
-        queryInBatches(uuids, cryptographicKeyRepository::getCertificateAssociationCounts)
-                .forEach(count -> counts.put(count.getUuid(), count.getAssociations()));
+        final int batchSize = 500;
+        for (int start = 0; start < uuids.size(); start += batchSize) {
+            List<UUID> batch = uuids.subList(start, Math.min(start + batchSize, uuids.size()));
+            cryptographicKeyRepository
+                    .getCertificateAssociationCounts(batch)
+                    .forEach(count -> counts.put(count.getUuid(), count.getAssociations()));
+        }
         return counts;
-    }
-
-    private static <T> Stream<T> queryInBatches(List<UUID> uuids, Function<List<UUID>, List<T>> query) {
-        return IntStream
-                .iterate(0, start -> start < uuids.size(), start -> start + MAX_UUIDS_PER_QUERY)
-                .mapToObj(start -> uuids.subList(start, Math.min(start + MAX_UUIDS_PER_QUERY, uuids.size())))
-                .flatMap(batch -> query.apply(batch).stream());
     }
 
     @Override
@@ -1227,7 +1217,12 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     private Set<UUID> keysRemovableFromInventory(Collection<UUID> keyUuids) {
-        return queryInBatches(List.copyOf(keyUuids), cryptographicKeyRepository::findRemovalCandidatesByUuidIn)
+        if (keyUuids.isEmpty()) {
+            return Set.of();
+        }
+        return cryptographicKeyRepository
+                .findRemovalCandidatesByUuidIn(keyUuids)
+                .stream()
                 .filter(keyRemovalGates::isRemovable)
                 .map(candidate -> candidate.key().uuid())
                 .collect(Collectors.toSet());
