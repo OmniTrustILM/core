@@ -327,6 +327,10 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 item = getPropertyValue(item, nestedJoinAttributes, filterField.getFieldAttribute(), filterField);
             }
 
+            if (item instanceof IPlatformEnum platformEnum) {
+                item = platformEnum.getCode();
+            }
+
             boolean eval = item == null ? evaluateAbsentValue(operator) : comparison.test(item, conditionValue);
 
             // For EQUALS: succeed if any true

@@ -35,6 +35,7 @@ import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -52,6 +53,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
+import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -648,6 +650,39 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         condition.setValue(1);
         Assertions
                 .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorOnCertificateRelations() throws RuleException {
+        CertificateRelation successorRelation = new CertificateRelation();
+        successorRelation.setRelationType(CertificateRelationType.RENEWAL);
+        certificate.setSuccessorRelations(Set.of(successorRelation));
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.SUCCEEDING_CERTIFICATES.name());
+        condition.setValue(List.of(CertificateRelationType.RENEWAL.getCode()));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        CertificateRelation predecessorRelation = new CertificateRelation();
+        predecessorRelation.setRelationType(CertificateRelationType.RENEWAL);
+        certificate.setPredecessorRelations(Set.of(predecessorRelation));
+
+        condition.setFieldIdentifier(FilterField.PRECEDING_CERTIFICATES.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
     }
 
