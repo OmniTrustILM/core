@@ -73,7 +73,6 @@ import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AltSignatureAlgorithm;
-import org.bouncycastle.asn1.x509.AltSignatureValue;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
@@ -582,12 +581,6 @@ public class CertificateUtil {
         ASN1Primitive derObj2 = getAsn1Primitive(alternativeSignatureAlgorithm);
         AltSignatureAlgorithm algorithm = AltSignatureAlgorithm.getInstance(derObj2);
         return new DefaultAlgorithmNameFinder().getAlgorithmName(algorithm.getAlgorithm());
-    }
-
-    public static byte[] getAltSignatureValue(byte[] altSignatureValue) throws IOException {
-        ASN1Primitive primitive = getAsn1Primitive(altSignatureValue);
-        AltSignatureValue signatureValue = AltSignatureValue.getInstance(primitive);
-        return signatureValue.getSignature().getEncoded();
     }
 
     public static PublicKey getAltPublicKey(byte[] altPublicKeyInfoEncoded)
