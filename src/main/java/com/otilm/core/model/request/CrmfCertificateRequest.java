@@ -59,7 +59,7 @@ public class CrmfCertificateRequest implements CertificateRequest {
         }
         try {
             return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo.getEncoded());
-        } catch (IOException | InvalidKeySpecException e) {
+        } catch (IOException | NoSuchAlgorithmException | InvalidKeySpecException e) {
             throw new CertificateRequestException("Cannot get public key from certificate request.", e);
         }
     }

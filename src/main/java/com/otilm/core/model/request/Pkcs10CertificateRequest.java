@@ -62,10 +62,10 @@ public class Pkcs10CertificateRequest implements CertificateRequest {
         Attribute[] attributes = jcaObject.getAttributes();
         for (Attribute attribute : attributes) {
             if (Extension.subjectAltPublicKeyInfo.equals(attribute.getAttrType())) {
+                SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo
+                        .getInstance(attribute.getAttributeValues()[0]);
                 try {
-                    return CryptographyUtil
-                            .decodePublicKey(
-                                    SubjectPublicKeyInfo.getInstance(attribute.getAttributeValues()[0]).getEncoded());
+                    return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo.getEncoded());
                 } catch (IOException | InvalidKeySpecException e) {
                     throw new CertificateRequestException("Could not extract alternative public key.", e);
                 }

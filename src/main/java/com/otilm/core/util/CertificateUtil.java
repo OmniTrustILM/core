@@ -586,7 +586,8 @@ public class CertificateUtil {
     public static PublicKey getAltPublicKey(byte[] altPublicKeyInfoEncoded)
             throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         ASN1Primitive primitive = getAsn1Primitive(altPublicKeyInfoEncoded);
-        return CryptographyUtil.decodePublicKey(SubjectAltPublicKeyInfo.getInstance(primitive).getEncoded());
+        SubjectAltPublicKeyInfo subjectAltPublicKeyInfo = SubjectAltPublicKeyInfo.getInstance(primitive);
+        return CryptographyUtil.decodePublicKey(subjectAltPublicKeyInfo.getEncoded());
     }
 
     private static ASN1Primitive getAsn1Primitive(byte[] encodedAsn1Primitive) throws IOException {

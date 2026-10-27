@@ -21,6 +21,7 @@ import java.security.NoSuchProviderException;
 import java.security.PublicKey;
 import java.security.Security;
 import java.security.spec.AlgorithmParameterSpec;
+import java.security.spec.RSAKeyGenParameterSpec;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
@@ -28,6 +29,7 @@ import java.util.stream.Stream;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.jcajce.provider.asymmetric.mldsa.BCMLDSAPublicKey;
+import org.bouncycastle.jcajce.provider.asymmetric.rsa.BCRSAPublicKey;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -540,6 +542,21 @@ class CryptographyUtilTest {
 
         // then
         assertThat(publicKey).isInstanceOf(BCMLDSAPublicKey.class);
+    }
+
+    @Test
+    void decodePublicKey_rsa_returnsBouncyCastleKey() throws Exception {
+        // given
+        byte[] encoded = Base64
+                .getDecoder()
+                .decode(generatePublicKeyBase64(KeyAlgorithm.RSA,
+                        new RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4)));
+
+        // when
+        PublicKey publicKey = CryptographyUtil.decodePublicKey(encoded);
+
+        // then
+        assertThat(publicKey).isInstanceOf(BCRSAPublicKey.class);
     }
 
     // --- helpers ---
