@@ -4,6 +4,7 @@ import com.otilm.api.model.client.inspection.InspectedEntryDto;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.core.key.normalization.KeyDescription;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.CryptographyUtil;
 import com.otilm.core.util.KeySizeUtil;
 import com.otilm.core.util.PlatformX500NameStyle;
 import java.io.IOException;
@@ -21,7 +22,6 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameStyle;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
-import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 
 /**
  * Describes an entry of an uploaded file as the inspection reports it, with its certificate's fields as the inventory
@@ -110,8 +110,8 @@ public final class InspectedEntryMapper {
         inspected.setSubjectDn(X500Name.getInstance(new PlatformX500NameStyle(false), request.getSubject()).toString());
         PublicKey publicKey;
         try {
-            publicKey = new JcaPKCS10CertificationRequest(request).getPublicKey();
-        } catch (GeneralSecurityException e) {
+            publicKey = CryptographyUtil.decodePublicKey(request.getSubjectPublicKeyInfo().getEncoded());
+        } catch (GeneralSecurityException | IOException e) {
             // The request's key cannot be read, so the platform names no algorithm for it.
             return;
         }

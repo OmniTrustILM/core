@@ -18,6 +18,7 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import java.security.PublicKey;
 import java.security.Security;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Base64;
@@ -26,6 +27,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.jcajce.provider.asymmetric.mldsa.BCMLDSAPublicKey;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -526,13 +528,25 @@ class CryptographyUtilTest {
                 () -> CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.MLDSA, invalidKey));
     }
 
+    @Test
+    void decodePublicKey_mlDsa_returnsBouncyCastleKey() throws Exception {
+        // given
+        byte[] encoded = Base64
+                .getDecoder()
+                .decode(generatePublicKeyBase64(KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65));
+
+        // when
+        PublicKey publicKey = CryptographyUtil.decodePublicKey(encoded);
+
+        // then
+        assertThat(publicKey).isInstanceOf(BCMLDSAPublicKey.class);
+    }
+
     // --- helpers ---
 
     private static String generatePublicKeyBase64(KeyAlgorithm keyAlgorithm, AlgorithmParameterSpec spec)
-            throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance(keyAlgorithm.getCode());
-        kpg.initialize(spec);
-        return Base64.getEncoder().encodeToString(kpg.generateKeyPair().getPublic().getEncoded());
+            throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException {
+        return generatePublicKeyBase64(keyAlgorithm.getCode(), spec, BouncyCastleProvider.PROVIDER_NAME);
     }
 
     private static String generatePublicKeyBase64(String keyAlgorithm, AlgorithmParameterSpec spec, String provider)

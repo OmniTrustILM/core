@@ -53,14 +53,7 @@ public class CertificateRequestUtils {
 
         PublicKey publicKeyObject;
         try {
-            String oid = org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
-                    .getInstance(publicBytes)
-                    .getAlgorithm()
-                    .getAlgorithm()
-                    .toString();
-            publicKeyObject = KeyFactory
-                    .getInstance(oid, new org.bouncycastle.jce.provider.BouncyCastleProvider())
-                    .generatePublic(new X509EncodedKeySpec(publicBytes));
+            publicKeyObject = CryptographyUtil.decodePublicKey(publicBytes);
         } catch (NoSuchAlgorithmException e) {
             try {
 

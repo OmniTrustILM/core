@@ -5,16 +5,15 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.validator.Validator;
+import com.otilm.core.util.CryptographyUtil;
 import java.io.IOException;
 import java.security.InvalidKeyException;
-import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
@@ -113,11 +112,8 @@ public class POPSigningKeyCertTemplateValidator implements Validator<PKIMessage,
     private PublicKey getPublicKey(ASN1OctetString tid, SubjectPublicKeyInfo subjectPublicKeyInfo)
             throws CmpProcessingException {
         try {
-            return KeyFactory
-                    .getInstance(subjectPublicKeyInfo.getAlgorithm().getAlgorithm().toString(),
-                            BouncyCastleProvider.PROVIDER_NAME)
-                    .generatePublic(new X509EncodedKeySpec(subjectPublicKeyInfo.getEncoded(ASN1Encoding.DER)));
-        } catch (InvalidKeySpecException | NoSuchAlgorithmException | NoSuchProviderException | IOException e) {
+            return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo.getEncoded(ASN1Encoding.DER));
+        } catch (InvalidKeySpecException | NoSuchAlgorithmException | IOException e) {
             throw new CmpProcessingException(tid, PKIFailureInfo.badPOP, ImplFailureInfo.CMPVALPOP501, e);
         }
     }

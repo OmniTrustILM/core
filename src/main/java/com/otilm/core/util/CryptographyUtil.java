@@ -15,7 +15,12 @@ import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.model.crypto.KeyMaterial;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
+import java.security.Provider;
+import java.security.PublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
@@ -26,6 +31,7 @@ import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.jcajce.provider.asymmetric.mldsa.BCMLDSAPublicKey;
 import org.bouncycastle.jcajce.provider.asymmetric.slhdsa.BCSLHDSAPublicKey;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.DefaultSignatureAlgorithmIdentifierFinder;
 import org.bouncycastle.pqc.jcajce.provider.falcon.BCFalconPublicKey;
 
@@ -35,6 +41,7 @@ public class CryptographyUtil {
                     List.of(KeyUsage.SIGN, KeyUsage.DECRYPT, KeyUsage.UNWRAP));
     private static final Map<KeyAlgorithm, List<KeyUsage>> FORBIDDEN_ALGORITHM_USAGES = Map
             .of(KeyAlgorithm.ECDSA, List.of(KeyUsage.ENCRYPT, KeyUsage.DECRYPT));
+    private static final Provider BOUNCY_CASTLE = new BouncyCastleProvider();
 
     /**
      * Returns usages prohibited by the key type or algorithm.
@@ -213,5 +220,20 @@ public class CryptographyUtil {
             return KeyFormat.RAW;
         }
 
+    }
+
+    /**
+     * Decodes a public key through BouncyCastle, so it is the BouncyCastle key class Core inspects even where the JDK
+     * implements the algorithm itself.
+     *
+     * @param encodedPublicKey DER-encoded {@code SubjectPublicKeyInfo}
+     * @return the public key
+     */
+    public static PublicKey decodePublicKey(byte[] encodedPublicKey)
+            throws NoSuchAlgorithmException, InvalidKeySpecException {
+        String algorithm = SubjectPublicKeyInfo.getInstance(encodedPublicKey).getAlgorithm().getAlgorithm().getId();
+        return KeyFactory
+                .getInstance(algorithm, BOUNCY_CASTLE)
+                .generatePublic(new X509EncodedKeySpec(encodedPublicKey));
     }
 }
