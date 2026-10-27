@@ -54,6 +54,9 @@ public class CrmfCertificateRequest implements CertificateRequest {
     @Override
     public PublicKey getPublicKey() throws NoSuchAlgorithmException, CertificateRequestException {
         SubjectPublicKeyInfo subjectPublicKeyInfo = certificateRequestMessage.getCertTemplate().getPublicKey();
+        if (subjectPublicKeyInfo == null) {
+            throw new CertificateRequestException("Cannot get public key from certificate request.");
+        }
         try {
             return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo.getEncoded());
         } catch (IOException | InvalidKeySpecException e) {
