@@ -21,6 +21,7 @@ import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import java.util.List;
 import java.util.Optional;
@@ -71,6 +72,7 @@ class CryptographicKeyServiceImplParentAccessTest {
         service.setKeyEventHistoryService(history);
         service.setAuthorizationEnforcer(authorization);
         service.setCacheEvictor(mock(CacheEvictor.class));
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         loadParents();
     }
 

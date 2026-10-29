@@ -42,9 +42,11 @@ public class CacheConfig {
     public static final String RESOURCE_AUTHZ_CACHE = "resourceAuthz";
     public static final String SIGNING_CERTIFICATE_CACHE = "signingCertificate";
     public static final String SIGNING_PROFILE_CACHE = "signingProfile";
+    public static final String SIGN_ATTRIBUTE_DEFINITIONS_CACHE = "signAttributeDefinitions";
     public static final String SYSTEM_USER_AUTH_CACHE = "systemUserAuth";
     public static final String TIME_QUALITY_CONFIGURATION_CACHE = "timeQualityConfiguration";
     public static final String TOKEN_AUTH_CACHE = "tokenAuth";
+    public static final String TOKEN_SCOPE_ATTRIBUTES_CACHE = "tokenScopeAttributes";
     public static final String TSP_PROFILE_CACHE = "tspProfile";
     public static final String USER_UUID_AUTH_CACHE = "userUuidAuth";
 
@@ -80,6 +82,14 @@ public class CacheConfig {
                         boundedWithStats(connectorCacheProperties.ttlMinutes(), connectorCacheProperties.maxSize())));
         caches
                 .add(readThrough(CRYPTOGRAPHIC_KEY_ITEM_CACHE,
+                        boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),
+                                cryptographicKeyItemCacheProperties.maxSize())));
+        caches
+                .add(readThrough(TOKEN_SCOPE_ATTRIBUTES_CACHE,
+                        boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),
+                                cryptographicKeyItemCacheProperties.maxSize())));
+        caches
+                .add(readThrough(SIGN_ATTRIBUTE_DEFINITIONS_CACHE,
                         boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),
                                 cryptographicKeyItemCacheProperties.maxSize())));
         caches

@@ -1657,7 +1657,15 @@ public class AttributeEngine {
                         info.objectType().getLabel(), info.objectUuid(), info.connectorUuid(), info.operation(),
                         info.objectVersion());
         List<ObjectAttributeContent> objectContents = loadDataAttributesContent(info);
-        return getRequestAttributes(objectContents);
+        return AttributeVersionHelper.toRequestAttributes(objectContents);
+    }
+
+    /**
+     * Secret content stays encrypted in these rows. A caller that keeps them maps them with
+     * {@link AttributeVersionHelper#toRequestAttributes} for each request.
+     */
+    public List<ObjectAttributeContent> getStoredObjectDataAttributesContent(ObjectAttributeContentInfo info) {
+        return List.copyOf(loadDataAttributesContent(info));
     }
 
     /**
@@ -1670,7 +1678,7 @@ public class AttributeEngine {
 
     /** Same as {@link #getOperationDataAttributesContent}, as request attributes to submit again. */
     public List<RequestAttribute> getRequestOperationDataAttributesContent(ObjectAttributeContentInfo info) {
-        return getRequestAttributes(loadOperationDataAttributesContent(info));
+        return AttributeVersionHelper.toRequestAttributes(loadOperationDataAttributesContent(info));
     }
 
     private List<ObjectAttributeContent> loadOperationDataAttributesContent(ObjectAttributeContentInfo info) {
@@ -1722,24 +1730,6 @@ public class AttributeEngine {
         }
 
         return objectContents;
-    }
-
-    private List<RequestAttribute> getRequestAttributes(List<ObjectAttributeContent> objectContents) {
-        Map<String, RequestAttribute> mapping = new HashMap<>();
-        for (ObjectAttributeContent objectContent : objectContents) {
-            String uuid = objectContent.uuid().toString();
-            RequestAttribute requestAttribute;
-
-            if ((requestAttribute = mapping.get(uuid)) == null) {
-                requestAttribute = AttributeVersionHelper
-                        .getRequestAttribute(objectContent.uuid(), objectContent.name(), new ArrayList<>(),
-                                objectContent.contentType(), objectContent.version());
-                mapping.put(uuid, requestAttribute);
-            }
-            AttributeVersionHelper.addRequestAttributeContent(requestAttribute, objectContent);
-        }
-
-        return mapping.values().stream().toList();
     }
 
     private List<ResponseAttribute> getResponseAttributes(List<ObjectAttributeContent> objectContents) {

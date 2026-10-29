@@ -101,6 +101,7 @@ import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.KeyRemovalGates;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyCreationValidationCapability;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CertificateKeyWriter;
@@ -184,6 +185,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private KeyRemovalGates keyRemovalGates;
     private UserManagementApiClient userManagementApiClient;
     private CacheEvictor cacheEvictor;
+    private KeyOperationCache keyOperationCache;
     // --------------------------------------------------------------------------------
     // Repositories
     // --------------------------------------------------------------------------------
@@ -265,6 +267,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setCacheEvictor(CacheEvictor cacheEvictor) {
         this.cacheEvictor = cacheEvictor;
+    }
+
+    @Autowired
+    public void setKeyOperationCache(KeyOperationCache keyOperationCache) {
+        this.keyOperationCache = keyOperationCache;
     }
 
     @Autowired
@@ -1240,6 +1247,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
     private void evictKeyItemCache(UUID keyItemUuid) {
         cacheEvictor.evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, keyItemUuid);
+        keyOperationCache.forgetKeyItemAnswers();
     }
 
     @Override

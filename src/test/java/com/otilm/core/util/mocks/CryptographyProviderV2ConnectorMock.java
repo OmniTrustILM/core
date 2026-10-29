@@ -102,6 +102,12 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
     }
 
+    public void verifyOperationRequestsContaining(String operation, int count, String expectedRequestJson) {
+        server
+                .verify(count, postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation))
+                        .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
+    }
+
     public void verifyNoOperationRequest(String operation) {
         server.verify(0, postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation)));
     }

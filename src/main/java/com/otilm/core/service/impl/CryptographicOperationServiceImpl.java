@@ -352,7 +352,6 @@ public class CryptographicOperationServiceImpl
 
     /**
      * Rejects request paths outside the loaded item's key, token and profile before state checks or event recording.
-     * The adapter separately checks whether the loaded association still matches the current scope.
      */
     private static void requirePathAssociation(CryptographicKeyItemOperationModel keyItem, UUID tokenInstanceUuid,
             UUID tokenProfileUuid, UUID keyUuid) {

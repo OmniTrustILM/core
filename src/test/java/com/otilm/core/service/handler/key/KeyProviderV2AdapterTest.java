@@ -26,6 +26,7 @@ import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
@@ -40,7 +41,6 @@ import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.cryptography.EncryptionAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
@@ -103,9 +103,9 @@ import com.otilm.core.attribute.SignatureAlgorithmMapping;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.OutboundSecretLeakException;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.CryptographyV2ApiClients;
-import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.CryptographicKeyItemModelFixtures;
@@ -132,13 +132,11 @@ import java.security.KeyPairGenerator;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
@@ -152,6 +150,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatcher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -169,10 +168,12 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -187,8 +188,7 @@ class KeyProviderV2AdapterTest {
     private static final char[] PASSPHRASE = "correct horse battery staple".toCharArray();
     private static final List<RequestAttribute> NO_ATTRIBUTES = List.of();
 
-    private final Consumer<KeyOperationScope> scopeValidator = mock();
-    private final CryptographicKeyRepository keyRepository = mock(CryptographicKeyRepository.class);
+    private final KeyOperationScopeSource scopeSource = mock(KeyOperationScopeSource.class);
     private KeySyncApiClient client;
     private CryptographicOperationsSyncApiClient operationsClient;
     private KeyProviderV2Adapter adapter;
@@ -196,6 +196,7 @@ class KeyProviderV2AdapterTest {
     private ImmutableCryptographicKeyFullModel cryptographicKey;
     private AttributeEngine attributes;
     private OperationAttributeResolver resolver;
+    private KeyOperationCache operationCache;
 
     @BeforeEach
     void wireAdapter() throws Exception {
@@ -217,12 +218,15 @@ class KeyProviderV2AdapterTest {
         operationsClient = mock(CryptographicOperationsSyncApiClient.class);
         when(apiClients.getKeyManagementApiClient(connector)).thenReturn(client);
         when(apiClients.getCryptographicOperationsApiClient(connector)).thenReturn(operationsClient);
-        when(attributes.getRequestObjectDataAttributesContent(any())).thenReturn(List.of());
+        when(attributes.getStoredObjectDataAttributesContent(any())).thenReturn(List.of());
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
+        when(scopeSource.scopeOf(any()))
+                .thenReturn(new KeyOperationScope(profile.uuid(), profile.tokenInstanceReferenceUuid()));
+        operationCache = KeyOperationCacheFixtures.inMemory(attributes);
         adapter = new KeyProviderV2Adapter(apiClients, connector, attributes, resolver,
                 new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
-                new OperationResponseValidator(Validation.buildDefaultValidatorFactory().getValidator()), keyRepository,
-                scopeValidator);
+                new OperationResponseValidator(Validation.buildDefaultValidatorFactory().getValidator()), scopeSource,
+                operationCache);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -236,10 +240,6 @@ class KeyProviderV2AdapterTest {
                 keyAlgorithm, KeyState.ACTIVE, KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null,
                 new RemoteKeyReference.MetadataReference(keyMeta), profile.connectorUuid(), null, UUID.randomUUID(),
                 ConnectorInterface.CRYPTOGRAPHY, "v2", profile.tokenInstanceReferenceUuid(), profile.uuid());
-        KeyOperationScope scope = new KeyOperationScope(profile.uuid(), profile.name(), profile.description(),
-                profile.tokenInstanceName(), profile.tokenInstanceReferenceUuid(), profile.enabled(),
-                BitMaskEnum.convertSetToBitMask(EnumSet.copyOf(profile.usages())));
-        when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(scope));
         return item;
     }
 
@@ -344,6 +344,11 @@ class KeyProviderV2AdapterTest {
         return attribute;
     }
 
+    private static ObjectAttributeContent storedRow(String name) {
+        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
+                AttributeContentType.STRING, new StringAttributeContentV2(name), 2, null);
+    }
+
     private static SignatureRequestData signatureItem(String base64, String identifier) {
         SignatureRequestData item = new SignatureRequestData();
         item.setData(base64);
@@ -374,11 +379,18 @@ class KeyProviderV2AdapterTest {
         return ObjectAttributeContentInfo.builder(resource, uuid).connector(profile.connectorUuid()).build();
     }
 
-    private void stubAttributes(Resource resource, UUID uuid, List<RequestAttribute> stored,
+    private void stubAttributes(Resource resource, UUID uuid, List<ObjectAttributeContent> storedRows,
             List<RequestAttribute> resolved) throws ConnectorException {
         ObjectAttributeContentInfo info = attributeScope(resource, uuid);
-        when(attributes.getRequestObjectDataAttributesContent(info)).thenReturn(stored);
-        when(resolver.resolveForConnectorRequestAsSystem(profile.connectorUuid(), stored)).thenReturn(resolved);
+        when(attributes.getStoredObjectDataAttributesContent(info)).thenReturn(storedRows);
+        when(resolver.resolveForConnectorRequestAsSystem(eq(profile.connectorUuid()), argThat(mappedFrom(storedRows))))
+                .thenReturn(resolved);
+    }
+
+    private static ArgumentMatcher<List<RequestAttribute>> mappedFrom(List<ObjectAttributeContent> storedRows) {
+        List<String> storedNames = storedRows.stream().map(ObjectAttributeContent::name).sorted().toList();
+        return requestAttributes -> requestAttributes != null
+                && requestAttributes.stream().map(RequestAttribute::getName).sorted().toList().equals(storedNames);
     }
 
     private void stubExpandedSecret(Resource resource, String secret) throws Exception {
@@ -389,7 +401,7 @@ class KeyProviderV2AdapterTest {
                         .of(new SecretAttributeContentV2("credential-reference",
                                 new SecretAttributeContentData(secret))));
         UUID resourceUuid = resource == Resource.TOKEN ? profile.tokenInstanceReferenceUuid() : profile.uuid();
-        stubAttributes(resource, resourceUuid, List.of(requestAttribute(resource.name())), List.of(resolved));
+        stubAttributes(resource, resourceUuid, List.of(storedRow(resource.name())), List.of(resolved));
     }
 
     private static List<BaseAttribute> definitionsWithDefault(String value) {
@@ -694,9 +706,9 @@ class KeyProviderV2AdapterTest {
             // given
             List<RequestAttribute> resolvedToken = List.of(requestAttribute("resolved-token"));
             List<RequestAttribute> resolvedProfile = List.of(requestAttribute("resolved-profile"));
-            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
-                    List.of(requestAttribute("stored-token")), resolvedToken);
-            stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(requestAttribute("stored-profile")),
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), List.of(storedRow("stored-token")),
+                    resolvedToken);
+            stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(storedRow("stored-profile")),
                     resolvedProfile);
             when(client.createKey(any(), any())).thenReturn(ResponseEntity.ok(secretKeyResponse()));
 
@@ -758,9 +770,9 @@ class KeyProviderV2AdapterTest {
             // given
             List<RequestAttribute> resolvedToken = List.of(requestAttribute("resolved-token"));
             List<RequestAttribute> resolvedProfile = List.of(requestAttribute("resolved-profile"));
-            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
-                    List.of(requestAttribute("stored-token")), resolvedToken);
-            stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(requestAttribute("stored-profile")),
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), List.of(storedRow("stored-token")),
+                    resolvedToken);
+            stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(storedRow("stored-profile")),
                     resolvedProfile);
             List<BaseAttribute> expectedDefinitions = List.of(new DataAttributeV2());
             when(client.listCreateKeyAttributes(any(), any())).thenReturn(expectedDefinitions);
@@ -1499,8 +1511,8 @@ class KeyProviderV2AdapterTest {
         void preservesMetadataAndResolvesContext_forSynchronousRequest() throws Exception {
             // given
             List<MetadataAttribute> keyMeta = metadata("durable-key-handle");
-            List<RequestAttribute> storedToken = List.of(requestAttribute("stored-token"));
-            List<RequestAttribute> storedProfile = List.of(requestAttribute("stored-profile"));
+            List<ObjectAttributeContent> storedToken = List.of(storedRow("stored-token"));
+            List<ObjectAttributeContent> storedProfile = List.of(storedRow("stored-profile"));
             List<RequestAttribute> resolvedToken = List.of(requestAttribute("resolved-token"));
             List<RequestAttribute> resolvedProfile = List.of(requestAttribute("resolved-profile"));
             stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), storedToken, resolvedToken);
@@ -1650,27 +1662,28 @@ class KeyProviderV2AdapterTest {
 
         @ParameterizedTest
         @MethodSource("scopedOperations")
-        void rejectsMissingProfile_beforeCallingConnector(ScopedOperation operation) {
+        void rejectsMissingScope_beforeCallingConnector(ScopedOperation operation) throws Exception {
             // given
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
-            when(keyRepository.findOperationScopeByUuid(keyItem.keyUuid())).thenReturn(Optional.empty());
+            NotFoundException missing = new NotFoundException(KeyOperationScope.class, keyItem.keyUuid());
+            when(scopeSource.scopeOf(keyItem)).thenThrow(missing);
 
             // when
             ThrowingCallable execute = () -> operation.run(adapter, keyItem);
 
             // then
-            assertThatThrownBy(execute).isInstanceOf(NotFoundException.class);
-            verifyNoInteractions(scopeValidator, client, operationsClient);
+            assertThatThrownBy(execute).isSameAs(missing);
+            verifyNoInteractions(client, operationsClient);
         }
 
         @ParameterizedTest
         @MethodSource("scopedOperations")
-        void rejectsUnauthorizedScope_beforeResolvingAttributes(ScopedOperation operation) {
+        void rejectsUnauthorizedScope_beforeResolvingAttributes(ScopedOperation operation) throws Exception {
             // given
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
             ValidationException denied = new ValidationException(
                     "Token profile no longer matches the authorized scope.");
-            org.mockito.Mockito.doThrow(denied).when(scopeValidator).accept(any());
+            when(scopeSource.scopeOf(keyItem)).thenThrow(denied);
             org.mockito.Mockito.clearInvocations(attributes, resolver);
 
             // when
@@ -1679,7 +1692,6 @@ class KeyProviderV2AdapterTest {
             // then
             assertThatThrownBy(execute).isSameAs(denied);
             verifyNoInteractions(attributes, resolver, client, operationsClient);
-            verify(keyRepository).findOperationScopeByUuid(keyItem.keyUuid());
         }
 
         private static Stream<Named<ScopedOperation>> scopedOperations() {
@@ -2236,9 +2248,9 @@ class KeyProviderV2AdapterTest {
             List<MetadataAttribute> keyMeta = metadata("durable-key-handle");
             List<RequestAttribute> resolvedToken = List.of(requestAttribute("resolved-token"));
             List<RequestAttribute> resolvedProfile = List.of(requestAttribute("resolved-profile"));
-            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
-                    List.of(requestAttribute("stored-token")), resolvedToken);
-            stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(requestAttribute("stored-profile")),
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), List.of(storedRow("stored-token")),
+                    resolvedToken);
+            stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), List.of(storedRow("stored-profile")),
                     resolvedProfile);
             when(operationsClient.listSignAttributes(any(), any()))
                     .thenReturn(List.of(dataAttributeDefinition("digest", true)));
@@ -2265,6 +2277,141 @@ class KeyProviderV2AdapterTest {
             assertThat(response.getSignatures().get(0).getIdentifier()).isNull();
             assertThat(response.getSignatures().get(0).getData())
                     .isEqualTo(Base64.getEncoder().encodeToString(new byte[]{7}));
+        }
+
+        @Test
+        void readsStoredAttributesOnce_andResolvesThemForEachSignature() throws Exception {
+            // given
+            List<ObjectAttributeContent> tokenRows = List.of(storedRow("stored-token"));
+            List<ObjectAttributeContent> profileRows = List.of(storedRow("stored-profile"));
+            List<RequestAttribute> resolvedProfile = List.of(requestAttribute("resolved-profile"));
+            when(attributes
+                    .getStoredObjectDataAttributesContent(
+                            attributeScope(Resource.TOKEN, profile.tokenInstanceReferenceUuid())))
+                    .thenReturn(tokenRows);
+            when(resolver
+                    .resolveForConnectorRequestAsSystem(eq(profile.connectorUuid()), argThat(mappedFrom(tokenRows))))
+                    .thenAnswer(resolution -> List.of(requestAttribute("resolved-token")));
+            stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), profileRows, resolvedProfile);
+            when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+            CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
+
+            // when
+            adapter.signData(keyItem, signRequest(List.of()));
+            adapter.signData(keyItem, signRequest(List.of()));
+
+            // then
+            ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+            verify(operationsClient, times(2)).signData(any(), sent.capture());
+            List<List<RequestAttribute>> sentTokenAttributes = sent
+                    .getAllValues()
+                    .stream()
+                    .map(SignDataRequestV2Dto::getTokenAttributes)
+                    .toList();
+            assertThat(sentTokenAttributes.get(0)).isNotSameAs(sentTokenAttributes.get(1));
+            verify(attributes)
+                    .getStoredObjectDataAttributesContent(
+                            attributeScope(Resource.TOKEN, profile.tokenInstanceReferenceUuid()));
+            verify(attributes)
+                    .getStoredObjectDataAttributesContent(attributeScope(Resource.TOKEN_PROFILE, profile.uuid()));
+        }
+
+        @Test
+        void sendsTokenAttributesCommittedDuringTheSchemaCall() throws Exception {
+            // given
+            UUID tokenUuid = profile.tokenInstanceReferenceUuid();
+            List<ObjectAttributeContent> committedRows = List.of(storedRow("committed-token"));
+            List<RequestAttribute> resolvedCommitted = List.of(requestAttribute("resolved-committed-token"));
+            AtomicReference<List<ObjectAttributeContent>> storedTokenRows = new AtomicReference<>(
+                    List.of(storedRow("earlier-token")));
+            when(attributes.getStoredObjectDataAttributesContent(attributeScope(Resource.TOKEN, tokenUuid)))
+                    .thenAnswer(read -> storedTokenRows.get());
+            when(resolver
+                    .resolveForConnectorRequestAsSystem(eq(profile.connectorUuid()),
+                            argThat(mappedFrom(committedRows))))
+                    .thenReturn(resolvedCommitted);
+            when(operationsClient.listSignAttributes(any(), any())).thenAnswer(schemaCall -> {
+                storedTokenRows.set(committedRows);
+                operationCache.forgetAttributesOf(Resource.TOKEN, tokenUuid, profile.connectorUuid());
+                return List.of();
+            });
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+
+            // when
+            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()));
+
+            // then
+            ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+            verify(operationsClient).signData(any(), sent.capture());
+            assertThat(sent.getValue().getTokenAttributes()).isSameAs(resolvedCommitted);
+        }
+
+        @Test
+        void asksForSignDefinitionsOnce_acrossSignaturesWithTheKeyItem() throws Exception {
+            // given
+            when(operationsClient.listSignAttributes(any(), any()))
+                    .thenReturn(List.of(dataAttributeDefinition("digest", true)));
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+            CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
+            SignDataRequestDto request = signRequest(List.of(stringAttribute("digest", "SHA256")));
+
+            // when
+            adapter.signData(keyItem, request);
+            adapter.signData(keyItem, request);
+
+            // then
+            verify(operationsClient).listSignAttributes(any(), any());
+            verify(operationsClient, times(2)).signData(any(), any());
+        }
+
+        @Test
+        void validatesEachSignature_againstTheKeptSignDefinitions() throws Exception {
+            // given
+            when(operationsClient.listSignAttributes(any(), any()))
+                    .thenReturn(List.of(dataAttributeDefinition("digest", true)));
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+            CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
+            adapter.signData(keyItem, signRequest(List.of(stringAttribute("digest", "SHA256"))));
+
+            // when
+            ThrowingCallable signWithoutDigest = () -> adapter.signData(keyItem, signRequest(List.of()));
+
+            // then
+            assertThatThrownBy(signWithoutDigest).isInstanceOf(ValidationException.class);
+            verify(operationsClient).listSignAttributes(any(), any());
+            verify(operationsClient).signData(any(), any());
+        }
+
+        @Test
+        void asksForSignDefinitionsAgain_afterRefusingAnEchoedSecret() throws Exception {
+            // given
+            String expandedSecret = "resolved-provider-password";
+            stubExpandedSecret(Resource.TOKEN, expandedSecret);
+            when(operationsClient.listSignAttributes(any(), any()))
+                    .thenReturn(definitionsWithDefault(expandedSecret), List.of());
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+            CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
+            OutboundSecretLeakException refusal = catchThrowableOfType(OutboundSecretLeakException.class,
+                    () -> adapter.signData(keyItem, signRequest(List.of())));
+
+            // when
+            adapter.signData(keyItem, signRequest(List.of()));
+
+            // then
+            assertThat(refusal).isNotNull();
+            verify(operationsClient, times(2)).listSignAttributes(any(), any());
+            verify(operationsClient).signData(any(), any());
         }
 
         @Test
@@ -2477,10 +2624,10 @@ class KeyProviderV2AdapterTest {
 
             // then
             verify(attributes)
-                    .getRequestObjectDataAttributesContent(
+                    .getStoredObjectDataAttributesContent(
                             attributeScope(Resource.TOKEN, profile.tokenInstanceReferenceUuid()));
             verify(attributes)
-                    .getRequestObjectDataAttributesContent(attributeScope(Resource.TOKEN_PROFILE, profile.uuid()));
+                    .getStoredObjectDataAttributesContent(attributeScope(Resource.TOKEN_PROFILE, profile.uuid()));
             verify(attributes, never()).updateDataAttributeDefinitions(any(), any(), any());
             verify(attributes, never()).validateUpdateDataAttributes(any(), any(), any(), any());
             verifyNoMoreInteractions(attributes);
@@ -2724,7 +2871,7 @@ class KeyProviderV2AdapterTest {
 
             // then
             assertThat(EncryptionAlgorithmMapping.toAlgorithm(selected)).isEqualTo(algorithm);
-            verifyNoInteractions(keyRepository, operationsClient, attributes, resolver);
+            verifyNoInteractions(scopeSource, operationsClient, attributes, resolver);
         }
 
         @Test
@@ -2737,7 +2884,7 @@ class KeyProviderV2AdapterTest {
 
             // then
             assertThatThrownBy(select).isInstanceOf(NotSupportedException.class);
-            verifyNoInteractions(keyRepository, operationsClient);
+            verifyNoInteractions(scopeSource, operationsClient);
         }
 
         @ParameterizedTest
@@ -2803,7 +2950,7 @@ class KeyProviderV2AdapterTest {
                 verify(operationsClient).listDecryptAttributes(any(), any());
                 verify(operationsClient).decryptData(any(), any());
             }
-            verify(keyRepository).findOperationScopeByUuid(item.keyUuid());
+            verify(scopeSource).scopeOf(item);
         }
 
         @ParameterizedTest

@@ -19,6 +19,7 @@ import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
@@ -68,6 +69,7 @@ class CryptographicKeyServiceImplDeleteTest {
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapterFactory);
         service.setCacheEvictor(cacheEvictor);
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         service.setAuthorizationEnforcer(authorization);
     }
 

@@ -2,16 +2,20 @@ package com.otilm.core.service.handler.key;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v2.CryptographicOperationsSyncApiClient;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.client.CryptographyV2ApiClients;
 import com.otilm.core.dao.entity.Connector;
@@ -26,6 +30,7 @@ import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -46,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -57,6 +63,7 @@ class KeyProviderAdapterFactoryTest {
     private ConnectorApiFactory clients;
     private CryptographyV2ApiClients v2Clients;
     private final CryptographicKeyRepository keyRepository = mock(CryptographicKeyRepository.class);
+    private final AttributeEngine attributeEngine = mock(AttributeEngine.class);
     private KeyProviderAdapterFactory factory;
     private ImmutableConnectorFullModel connector;
 
@@ -65,9 +72,10 @@ class KeyProviderAdapterFactoryTest {
         connectorService = mock(ConnectorInternalService.class);
         clients = mock(ConnectorApiFactory.class);
         v2Clients = mock(CryptographyV2ApiClients.class);
-        factory = new KeyProviderAdapterFactory(connectorService, clients, mock(AttributeEngine.class),
+        factory = new KeyProviderAdapterFactory(connectorService, clients, attributeEngine,
                 mock(OperationAttributeResolver.class), mock(OutboundSecretContainment.class), v2Clients,
-                new ConnectorCapabilityService(), mock(OperationResponseValidator.class), keyRepository);
+                new ConnectorCapabilityService(), mock(OperationResponseValidator.class), keyRepository,
+                KeyOperationCacheFixtures.inMemory(attributeEngine));
         connector = new ImmutableConnectorFullModel(UUID.randomUUID(), "provider", ConnectorVersion.V2,
                 "http://connector.test", null, List.of(), null, null, List.of(cryptographyInterface("v2")), List.of());
         when(connectorService.getConnectorFullModelForApiClient(connector.uuid())).thenReturn(connector);
@@ -186,15 +194,14 @@ class KeyProviderAdapterFactoryTest {
     }
 
     @Test
-    void forKeyItem_appliesServiceScopeValidation_beforeBuildingTheRequest() throws Exception {
+    void forKeyItemInCurrentScope_appliesServiceScopeValidation_beforeBuildingTheRequest() throws Exception {
         // given
         CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
-        KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), "profile", null, "token", UUID.randomUUID(),
-                true, 0);
+        KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), UUID.randomUUID());
         when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(scope));
         ValidationException rejectedScope = new ValidationException(
                 "The key no longer belongs to the authorized profile.");
-        KeyProviderAdapter adapter = factory.forKeyItem(item, resolvedScope -> {
+        KeyProviderAdapter adapter = factory.forKeyItemInCurrentScope(item, resolvedScope -> {
             assertSame(scope, resolvedScope);
             throw rejectedScope;
         });
@@ -207,25 +214,58 @@ class KeyProviderAdapterFactoryTest {
         verify(keyRepository).findOperationScopeByUuid(item.keyUuid());
     }
 
-    @ParameterizedTest
-    @CsvSource({"true", "false"})
-    void forKeyItem_rejectsChangedAssociation_withDefaultValidation(boolean tokenChanged) throws Exception {
+    @Test
+    void forKeyItemInCurrentScope_rejectsAKeyOutsideAnyProfile_beforeTheValidator() throws Exception {
         // given
         CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
-        UUID currentTokenUuid = tokenChanged ? UUID.randomUUID() : item.tokenInstanceReferenceUuid();
-        UUID currentProfileUuid = tokenChanged ? item.tokenProfileUuid() : UUID.randomUUID();
-        KeyOperationScope scope = new KeyOperationScope(currentProfileUuid, "profile", null, "token", currentTokenUuid,
-                true, 0);
-        when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(scope));
+        KeyOperationScope profileless = new KeyOperationScope(null, item.tokenInstanceReferenceUuid());
+        when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(profileless));
+        List<KeyOperationScope> validated = new ArrayList<>();
+        KeyProviderAdapter adapter = factory.forKeyItemInCurrentScope(item, validated::add);
+
+        // when
+        Executable list = () -> adapter.listSignAttributes(item);
+
+        // then
+        NotFoundException failure = assertThrows(NotFoundException.class, list);
+        assertEquals("Key " + item.keyUuid() + " is outside any token profile.", failure.getMessage());
+        assertEquals(List.of(), validated);
+    }
+
+    @Test
+    void forKeyItem_scopesTheOperationByTheKeyItem_withoutReadingTheKey() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+        CryptographicOperationsSyncApiClient operations = mock(CryptographicOperationsSyncApiClient.class);
+        when(v2Clients.getCryptographicOperationsApiClient(connector)).thenReturn(operations);
+        when(operations.listSignAttributes(any(), any())).thenReturn(List.of());
+        KeyProviderAdapter adapter = factory.forKeyItem(item);
+
+        // when
+        adapter.listSignAttributes(item);
+
+        // then
+        verify(attributeEngine)
+                .getStoredObjectDataAttributesContent(
+                        attributeScope(Resource.TOKEN, item.tokenInstanceReferenceUuid()));
+        verify(attributeEngine)
+                .getStoredObjectDataAttributesContent(attributeScope(Resource.TOKEN_PROFILE, item.tokenProfileUuid()));
+        verifyNoInteractions(keyRepository);
+    }
+
+    @Test
+    void forKeyItem_rejectsAKeyItemOutsideAnyProfile_withoutReadingTheKey() throws Exception {
+        // given
+        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2", null);
         KeyProviderAdapter adapter = factory.forKeyItem(item);
 
         // when
         Executable list = () -> adapter.listSignAttributes(item);
 
         // then
-        ValidationException exception = assertThrows(ValidationException.class, list);
-        assertEquals("Key token or token profile association changed during the operation. Retry the operation.",
-                exception.getMessage());
+        NotFoundException failure = assertThrows(NotFoundException.class, list);
+        assertEquals("Key " + item.keyUuid() + " is outside any token profile.", failure.getMessage());
+        verifyNoInteractions(keyRepository, attributeEngine);
     }
 
     @ParameterizedTest(name = "{0} {1}")
@@ -243,10 +283,24 @@ class KeyProviderAdapterFactoryTest {
     }
 
     private CryptographicKeyItemOperationModel keyItem(ConnectorInterface code, String version) {
+        return keyItem(code, version, UUID.randomUUID());
+    }
+
+    private CryptographicKeyItemOperationModel keyItem(ConnectorInterface code, String version, UUID tokenProfileUuid) {
         return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, KeyAlgorithm.RSA, KeyState.ACTIVE,
                 KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN), null,
-                new RemoteKeyReference.UuidReference(UUID.randomUUID()), connector.uuid(), UUID.randomUUID(),
-                UUID.randomUUID(), code, version, UUID.randomUUID(), UUID.randomUUID());
+                new RemoteKeyReference.MetadataReference(List.of(keyHandle())), connector.uuid(), UUID.randomUUID(),
+                UUID.randomUUID(), code, version, UUID.randomUUID(), tokenProfileUuid);
+    }
+
+    private static MetadataAttributeV2 keyHandle() {
+        MetadataAttributeV2 handle = new MetadataAttributeV2();
+        handle.setName("key-handle");
+        return handle;
+    }
+
+    private ObjectAttributeContentInfo attributeScope(Resource resource, UUID uuid) {
+        return ObjectAttributeContentInfo.builder(resource, uuid).connector(connector.uuid()).build();
     }
 
     private ImmutableTokenInstanceFullModel token(ImmutableConnectorInterface connectorInterface) {

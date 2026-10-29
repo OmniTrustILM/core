@@ -21,6 +21,7 @@ import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
@@ -83,6 +84,7 @@ class CryptographicKeyServiceImplBulkDeleteTest {
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapters);
         service.setCacheEvictor(cache);
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         service.setNotificationProducer(notifications);
         service.setObjectFilterAspect(mock(ObjectFilterAspect.class));
         ReflectionTestUtils.setField(service, "bulkDeleteBatchSize", selectedUuids.size());

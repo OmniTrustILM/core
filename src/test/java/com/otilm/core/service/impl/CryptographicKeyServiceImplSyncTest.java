@@ -17,6 +17,7 @@ import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
@@ -65,6 +66,7 @@ class CryptographicKeyServiceImplSyncTest {
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapters);
         service.setCacheEvictor(mock(CacheEvictor.class));
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         when(tokens.findFullModelByUuid(token.uuid())).thenReturn(Optional.of(token));
         when(adapters.forToken(token)).thenReturn(adapter);
         when(writer.createKeyWithItems(any(), isNull(), eq(token), anyList(), eq(true), eq(false)))

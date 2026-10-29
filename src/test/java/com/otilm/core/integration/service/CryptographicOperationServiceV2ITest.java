@@ -8,6 +8,7 @@ import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.client.cryptography.key.EditKeyItemDto;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
 import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
@@ -19,10 +20,13 @@ import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.api.model.client.cryptography.tokenprofile.EditTokenProfileRequestDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
@@ -43,6 +47,7 @@ import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
@@ -59,9 +64,15 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
+import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.writer.TokenInstanceReferenceWriter;
+import com.otilm.core.service.writer.TokenProfileWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
@@ -119,7 +130,17 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     @Autowired
     private AttributeEngine attributeEngine;
     @Autowired
+    private TokenInstanceReferenceWriter tokenInstanceReferenceWriter;
+    @Autowired
+    private TokenProfileWriter tokenProfileWriter;
+    @Autowired
     private ConnectorMockFactory connectorMockFactory;
+    @Autowired
+    private CryptographicKeyExternalService cryptographicKeyService;
+    @Autowired
+    private ConnectorExternalService connectorService;
+    @Autowired
+    private KeyOperationCache keyOperationCache;
 
     private CryptographyProviderV2ConnectorMock connectorMock;
     private Connector connector;
@@ -128,6 +149,8 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     private TokenProfile profile;
     private CryptographicKey key;
     private CryptographicKeyItem privateKey;
+    private UUID tokenSlotUuid;
+    private UUID profilePolicyUuid;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -138,8 +161,8 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         profile = persistProfile(List.of(KeyUsage.SIGN, KeyUsage.VERIFY, KeyUsage.ENCRYPT, KeyUsage.DECRYPT));
         key = persistKey();
         privateKey = persistKeyItem(KeyType.PRIVATE_KEY, "hsm-key-17");
-        persistAttribute(Resource.TOKEN, token.getUuid(), "token-slot", "slot-7");
-        persistAttribute(Resource.TOKEN_PROFILE, profile.getUuid(), "profile-policy", "signing");
+        tokenSlotUuid = persistAttribute(Resource.TOKEN, token.getUuid(), "token-slot", "slot-7");
+        profilePolicyUuid = persistAttribute(Resource.TOKEN_PROFILE, profile.getUuid(), "profile-policy", "signing");
     }
 
     @AfterEach
@@ -534,7 +557,141 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         assertTrue(eventHistoryRepository.findAll().isEmpty());
     }
 
+    @Test
+    void signDataWithoutEventHistory_servesAWarmSignature_withoutDatabaseOrSchemaCall() throws Exception {
+        // given
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        signWithoutEventHistory();
+
+        // when
+        SqlCapture.Captured<SignDataResponseDto> warm = SqlCapture.during(this::signWithoutEventHistory);
+
+        // then
+        assertEquals(SIGNATURE, warm.result().getSignatures().get(0).getData());
+        assertEquals(List.of(), warm.statements());
+        connectorMock.verifyOperationAttributesRequests("sign", 1);
+        connectorMock
+                .verifyOperationRequestsContaining("sign", 2,
+                        "{\"tokenAttributes\":[{\"name\":\"token-slot\",\"content\":[{\"data\":\"slot-7\"}]}],"
+                                + "\"tokenProfileAttributes\":[{\"name\":\"profile-policy\","
+                                + "\"content\":[{\"data\":\"signing\"}]}]}");
+    }
+
+    @Test
+    void signDataWithoutEventHistory_asksForTheSignSchemaAgain_afterTheKeyItemIsEdited() throws Exception {
+        // given
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        signWithoutEventHistory();
+        EditKeyItemDto rename = new EditKeyItemDto();
+        rename.setName("renamed-private-key");
+        cryptographicKeyService.editKeyItem(key.getSecuredUuid(), privateKey.getUuid(), rename);
+
+        // when
+        signWithoutEventHistory();
+
+        // then
+        connectorMock.verifyOperationAttributesRequests("sign", 2);
+    }
+
+    @Test
+    void signDataWithoutEventHistory_asksForTheSignSchemaAgain_afterTheConnectorIsApproved() throws Exception {
+        // given
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        signWithoutEventHistory();
+        Connector awaitingApproval = connectorRepository.findByUuid(connector.getUuid()).orElseThrow();
+        awaitingApproval.setStatus(ConnectorStatus.WAITING_FOR_APPROVAL);
+        connectorRepository.save(awaitingApproval);
+        connectorService.approve(connector.getSecuredUuid());
+
+        // when
+        signWithoutEventHistory();
+
+        // then
+        connectorMock.verifyOperationAttributesRequests("sign", 2);
+    }
+
+    @Test
+    void signDataWithoutEventHistory_sendsUpdatedTokenAttributes_onceTheTokenWriterCommits() throws Exception {
+        // given
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        signWithoutEventHistory();
+        tokenInstanceReferenceWriter
+                .updateAttributes(token.getUuid(), connector.getUuid(), List.of(),
+                        List.of(stringAttribute(tokenSlotUuid, "token-slot", "slot-9")), List.of());
+
+        // when
+        signWithoutEventHistory();
+
+        // then
+        connectorMock
+                .verifyOperationRequestsContaining("sign", 1,
+                        "{\"tokenAttributes\":[{\"name\":\"token-slot\",\"content\":[{\"data\":\"slot-9\"}]}]}");
+    }
+
+    @Test
+    void signDataWithoutEventHistory_sendsUpdatedProfileAttributes_onceTheProfileWriterCommits() throws Exception {
+        // given
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        signWithoutEventHistory();
+        EditTokenProfileRequestDto edit = new EditTokenProfileRequestDto();
+        edit.setCustomAttributes(List.of());
+        edit.setAttributes(List.of(stringAttribute(profilePolicyUuid, "profile-policy", "archiving")));
+        tokenProfileWriter.update(token.getUuid(), profile.getUuid(), edit);
+
+        // when
+        signWithoutEventHistory();
+
+        // then
+        connectorMock
+                .verifyOperationRequestsContaining("sign", 1,
+                        "{\"tokenProfileAttributes\":[{\"name\":\"profile-policy\","
+                                + "\"content\":[{\"data\":\"archiving\"}]}]}");
+    }
+
+    @Test
+    void signDataWithoutEventHistory_sendsTheDecryptedTokenSecretEachTime_whileTheCacheKeepsItEncrypted()
+            throws Exception {
+        // given
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        persistEncryptedAttribute(Resource.TOKEN, token.getUuid(), "token-pin", "pin-4711");
+
+        // when
+        signWithoutEventHistory();
+        signWithoutEventHistory();
+
+        // then
+        connectorMock
+                .verifyOperationRequestsContaining("sign", 2,
+                        "{\"tokenAttributes\":[{\"name\":\"token-pin\",\"content\":[{\"data\":\"pin-4711\"}]}]}");
+        ObjectAttributeContent cachedPin = keyOperationCache
+                .storedAttributes(Resource.TOKEN, token.getUuid(), connector.getUuid())
+                .stream()
+                .filter(row -> row.name().equals("token-pin"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(cachedPin.encryptedContent() != null && !cachedPin.encryptedContent().contains("pin-4711"));
+        assertNull(cachedPin.contentItem().getData());
+    }
+
     // ---- fixtures ----
+
+    private SignDataResponseDto signWithoutEventHistory() throws Exception {
+        return internalOperationService
+                .signDataWithoutEventHistory(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                        privateKey.getUuid(), signRequest());
+    }
 
     private Connector persistV2Connector(String url) {
         Connector value = new Connector();
@@ -632,17 +789,37 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
                 + "\"}]}";
     }
 
-    private void persistAttribute(Resource resource, UUID objectUuid, String name, String content) throws Exception {
+    private UUID persistAttribute(Resource resource, UUID objectUuid, String name, String content) throws Exception {
         UUID attributeUuid = UUID.randomUUID();
         attributeEngine
                 .updateDataAttributeDefinitions(connector.getUuid(), null, List
                         .of(DataAttributeV3Builder.aDataAttribute().withUuid(attributeUuid).withName(name).build()));
-        RequestAttributeV3 request = new RequestAttributeV3(attributeUuid, name, AttributeContentType.STRING,
-                List.of(new StringAttributeContentV3(content)));
         attributeEngine
                 .updateObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(resource, objectUuid).connector(connector.getUuid()).build(),
-                        List.of(request));
+                        List.of(stringAttribute(attributeUuid, name, content)));
+        return attributeUuid;
+    }
+
+    private void persistEncryptedAttribute(Resource resource, UUID objectUuid, String name, String content)
+            throws Exception {
+        UUID attributeUuid = UUID.randomUUID();
+        DataAttributeV3 definition = DataAttributeV3Builder
+                .aDataAttribute()
+                .withUuid(attributeUuid)
+                .withName(name)
+                .build();
+        definition.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(definition));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo.builder(resource, objectUuid).connector(connector.getUuid()).build(),
+                        List.of(stringAttribute(attributeUuid, name, content)));
+    }
+
+    private static RequestAttributeV3 stringAttribute(UUID attributeUuid, String name, String content) {
+        return new RequestAttributeV3(attributeUuid, name, AttributeContentType.STRING,
+                List.of(new StringAttributeContentV3(content)));
     }
 
     private static SignDataRequestDto signRequest() {

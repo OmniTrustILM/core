@@ -35,7 +35,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class AttributeVersionHelper {
@@ -54,6 +56,24 @@ public class AttributeVersionHelper {
             return getResponseAttributeV3(uuid, name, label, content, contentType, attributeType);
         }
         return null;
+    }
+
+    /** Groups stored rows into one request attribute per attribute. Each secret is decrypted on the way. */
+    public static List<RequestAttribute> toRequestAttributes(List<ObjectAttributeContent> objectContents) {
+        Map<String, RequestAttribute> mapping = new HashMap<>();
+        for (ObjectAttributeContent objectContent : objectContents) {
+            String uuid = objectContent.uuid().toString();
+            RequestAttribute requestAttribute;
+
+            if ((requestAttribute = mapping.get(uuid)) == null) {
+                requestAttribute = getRequestAttribute(objectContent.uuid(), objectContent.name(), new ArrayList<>(),
+                        objectContent.contentType(), objectContent.version());
+                mapping.put(uuid, requestAttribute);
+            }
+            addRequestAttributeContent(requestAttribute, objectContent);
+        }
+
+        return mapping.values().stream().toList();
     }
 
     public static RequestAttribute getRequestAttribute(UUID uuid, String name, List<? extends AttributeContent> content,

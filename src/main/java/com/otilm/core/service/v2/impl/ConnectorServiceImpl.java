@@ -78,6 +78,7 @@ import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.ConnectorAuthInternalService;
 import com.otilm.core.service.handler.ConnectorAdapter;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.writer.DiscoveryWriter;
@@ -138,6 +139,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     private TransactionHandler transactionHandler;
 
     private CacheEvictor cacheEvictor;
+    private KeyOperationCache keyOperationCache;
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
 
     private CommentInternalService commentService;
@@ -170,6 +172,11 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     @Autowired
     public void setCacheEvictor(CacheEvictor cacheEvictor) {
         this.cacheEvictor = cacheEvictor;
+    }
+
+    @Autowired
+    public void setKeyOperationCache(KeyOperationCache keyOperationCache) {
+        this.keyOperationCache = keyOperationCache;
     }
 
     @Autowired
@@ -979,6 +986,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     void evictConnectorCache(UUID uuid) {
         cacheEvictor.evict(CacheConfig.CONNECTOR_API_CLIENT_CACHE, uuid);
+        keyOperationCache.forgetConnectorAnswers();
         // Drop any cached CERTIFICATE WebClient built for this connector so a deleted or reconfigured
         // connector does not retain its client (and parsed key material). Keyed by the UUID string,
         // matching mapToApiClientDtoV2().

@@ -20,6 +20,7 @@ import com.otilm.core.model.crypto.ImportedKeyRegistration;
 import com.otilm.core.model.crypto.KeyImportAttempt;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.RegisteredKey;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -42,16 +43,19 @@ public class KeyImportWriter {
     private final CryptographicKeyRepository cryptographicKeyRepository;
     private final CryptographicKeyWriter cryptographicKeyWriter;
     private final CacheEvictor cacheEvictor;
+    private final KeyOperationCache keyOperationCache;
     private final EntityManager entityManager;
     private final KeyImportProperties properties;
 
     public KeyImportWriter(KeyImportRepository keyImportRepository,
             CryptographicKeyRepository cryptographicKeyRepository, CryptographicKeyWriter cryptographicKeyWriter,
-            CacheEvictor cacheEvictor, EntityManager entityManager, KeyImportProperties properties) {
+            CacheEvictor cacheEvictor, KeyOperationCache keyOperationCache, EntityManager entityManager,
+            KeyImportProperties properties) {
         this.keyImportRepository = keyImportRepository;
         this.cryptographicKeyRepository = cryptographicKeyRepository;
         this.cryptographicKeyWriter = cryptographicKeyWriter;
         this.cacheEvictor = cacheEvictor;
+        this.keyOperationCache = keyOperationCache;
         this.entityManager = entityManager;
         this.properties = properties;
     }
@@ -323,6 +327,7 @@ public class KeyImportWriter {
     /** Drops the registered key's items from the cache, which may hold an item the key adopted. */
     private void evictItems(CryptographicKeyFullModel key) {
         key.items().forEach(item -> cacheEvictor.evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.uuid()));
+        keyOperationCache.forgetKeyItemAnswers();
     }
 
     /** Read afresh: an earlier read in the request may have left an older copy of the key and its items. */

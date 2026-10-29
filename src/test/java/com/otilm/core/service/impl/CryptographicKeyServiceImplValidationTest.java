@@ -21,6 +21,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import java.util.List;
 import java.util.Optional;
@@ -60,6 +61,7 @@ class CryptographicKeyServiceImplValidationTest {
         service.setCryptographicKeyItemRepository(itemRepository);
         service.setCryptographicKeyWriter(writer);
         service.setCacheEvictor(cacheEvictor);
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         key.setUuid(UUID.randomUUID());
         privateItem.setKey(key);
         publicItem.setKey(key);
