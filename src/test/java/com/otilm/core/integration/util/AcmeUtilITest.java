@@ -7,6 +7,7 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
+import org.bouncycastle.jcajce.provider.asymmetric.rsa.BCRSAPublicKey;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -44,5 +45,6 @@ class AcmeUtilITest {
         String publicKeyString = AcmePublicKeyProcessor.publicKeyPemStringFromObject(publicKey);
         PublicKey pubkey1 = AcmePublicKeyProcessor.publicKeyObjectFromString(publicKeyString);
         Assertions.assertEquals(pubkey1, publicKey);
+        Assertions.assertInstanceOf(BCRSAPublicKey.class, pubkey1);
     }
 }

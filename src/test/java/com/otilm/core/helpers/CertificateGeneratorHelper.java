@@ -7,6 +7,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
+import java.security.Provider;
 import java.security.PublicKey;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
@@ -59,6 +60,8 @@ import org.bouncycastle.pqc.jcajce.spec.FalconParameterSpec;
 
 public class CertificateGeneratorHelper {
 
+    private static final Provider BOUNCY_CASTLE = new BouncyCastleProvider();
+
     private CertificateGeneratorHelper() {
     }
 
@@ -88,7 +91,7 @@ public class CertificateGeneratorHelper {
 
     public static KeyPair generateKeyPair(KeyAlgorithm algorithm, AlgorithmParameterSpec params)
             throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
-        KeyPairGenerator keyGen = KeyPairGenerator.getInstance(algorithm.getCode());
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance(algorithm.getCode(), BOUNCY_CASTLE);
         keyGen.initialize(params == null ? getDefaultParameterSpec(algorithm) : params);
         return keyGen.generateKeyPair();
     }

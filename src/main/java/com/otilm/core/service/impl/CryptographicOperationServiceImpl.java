@@ -49,6 +49,7 @@ import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.KeyProviderV1Adapter;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import com.otilm.core.util.CertificateRequestUtils;
+import com.otilm.core.util.CryptographyUtil;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.security.NoSuchAlgorithmException;
@@ -590,8 +591,7 @@ public class CryptographicOperationServiceImpl
             List<RequestAttribute> signatureAttributes, CsrKeyPair altKeyPair,
             List<RequestAttribute> altSignatureAttributes)
             throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, NotFoundException {
-        var publicKey = CertificateRequestUtils
-                .publicKeyObjectFromString(keyPair.publicKey(), keyPair.publicKeyItem().keyAlgorithm().getCode());
+        var publicKey = CryptographyUtil.decodePublicKey(Base64.getDecoder().decode(keyPair.publicKey()));
         PKCS10CertificationRequestBuilder p10Builder = new JcaPKCS10CertificationRequestBuilder(subject, publicKey);
 
         if (altKeyPair != null) {
