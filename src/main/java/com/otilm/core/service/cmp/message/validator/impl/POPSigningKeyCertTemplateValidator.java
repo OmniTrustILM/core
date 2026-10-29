@@ -112,8 +112,8 @@ public class POPSigningKeyCertTemplateValidator implements Validator<PKIMessage,
     private PublicKey getPublicKey(ASN1OctetString tid, SubjectPublicKeyInfo subjectPublicKeyInfo)
             throws CmpProcessingException {
         try {
-            return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo.getEncoded(ASN1Encoding.DER));
-        } catch (InvalidKeySpecException | NoSuchAlgorithmException | IOException e) {
+            return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo);
+        } catch (InvalidKeySpecException | NoSuchAlgorithmException e) {
             throw new CmpProcessingException(tid, PKIFailureInfo.badPOP, ImplFailureInfo.CMPVALPOP501, e);
         }
     }

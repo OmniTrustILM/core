@@ -4,7 +4,6 @@ import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CryptographyUtil;
-import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
@@ -58,8 +57,8 @@ public class CrmfCertificateRequest implements CertificateRequest {
             throw new CertificateRequestException("Cannot get public key from certificate request.");
         }
         try {
-            return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo.getEncoded());
-        } catch (IOException | NoSuchAlgorithmException | InvalidKeySpecException e) {
+            return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
             throw new CertificateRequestException("Cannot get public key from certificate request.", e);
         }
     }

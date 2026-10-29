@@ -110,8 +110,8 @@ public final class InspectedEntryMapper {
         inspected.setSubjectDn(X500Name.getInstance(new PlatformX500NameStyle(false), request.getSubject()).toString());
         PublicKey publicKey;
         try {
-            publicKey = CryptographyUtil.decodePublicKey(request.getSubjectPublicKeyInfo().getEncoded());
-        } catch (GeneralSecurityException | IOException e) {
+            publicKey = CryptographyUtil.decodePublicKey(request.getSubjectPublicKeyInfo());
+        } catch (GeneralSecurityException e) {
             // The request's key cannot be read, so the platform names no algorithm for it.
             return;
         }

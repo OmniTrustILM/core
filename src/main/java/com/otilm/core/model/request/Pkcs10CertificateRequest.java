@@ -4,7 +4,6 @@ import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CryptographyUtil;
-import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
@@ -51,8 +50,8 @@ public class Pkcs10CertificateRequest implements CertificateRequest {
     @Override
     public PublicKey getPublicKey() throws NoSuchAlgorithmException, CertificateRequestException {
         try {
-            return CryptographyUtil.decodePublicKey(jcaObject.getSubjectPublicKeyInfo().getEncoded());
-        } catch (IOException | InvalidKeySpecException e) {
+            return CryptographyUtil.decodePublicKey(jcaObject.getSubjectPublicKeyInfo());
+        } catch (InvalidKeySpecException e) {
             throw new CertificateRequestException("Cannot get public key from certificate request.", e);
         }
     }
@@ -65,8 +64,8 @@ public class Pkcs10CertificateRequest implements CertificateRequest {
                 SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo
                         .getInstance(attribute.getAttributeValues()[0]);
                 try {
-                    return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo.getEncoded());
-                } catch (IOException | InvalidKeySpecException e) {
+                    return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo);
+                } catch (InvalidKeySpecException e) {
                     throw new CertificateRequestException("Could not extract alternative public key.", e);
                 }
             }

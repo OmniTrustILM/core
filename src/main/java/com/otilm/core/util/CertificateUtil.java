@@ -78,6 +78,7 @@ import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.SubjectAltPublicKeyInfo;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.asn1.x509.qualified.ETSIQCObjectIdentifiers;
 import org.bouncycastle.asn1.x509.qualified.QCStatement;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
@@ -587,7 +588,9 @@ public class CertificateUtil {
             throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         ASN1Primitive primitive = getAsn1Primitive(altPublicKeyInfoEncoded);
         SubjectAltPublicKeyInfo subjectAltPublicKeyInfo = SubjectAltPublicKeyInfo.getInstance(primitive);
-        return CryptographyUtil.decodePublicKey(subjectAltPublicKeyInfo.getEncoded());
+        SubjectPublicKeyInfo publicKeyInfo = new SubjectPublicKeyInfo(subjectAltPublicKeyInfo.getAlgorithm(),
+                subjectAltPublicKeyInfo.getSubjectAltPublicKey());
+        return CryptographyUtil.decodePublicKey(publicKeyInfo);
     }
 
     private static ASN1Primitive getAsn1Primitive(byte[] encodedAsn1Primitive) throws IOException {

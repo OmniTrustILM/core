@@ -7,15 +7,9 @@ import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import java.io.IOException;
 import java.io.StringWriter;
-import java.security.KeyFactory;
-import java.security.NoSuchAlgorithmException;
-import java.security.PublicKey;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
-import org.bouncycastle.pqc.jcajce.provider.BouncyCastlePQCProvider;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,27 +39,6 @@ public class CertificateRequestUtils {
         pemWriter.close();
         str.close();
         return normalizeCsrContent(str.toString());
-    }
-
-    public static PublicKey publicKeyObjectFromString(String publicKey, String pqcAlgorithm)
-            throws NoSuchAlgorithmException, InvalidKeySpecException {
-        byte[] publicBytes = Base64.getDecoder().decode(publicKey);
-
-        PublicKey publicKeyObject;
-        try {
-            publicKeyObject = CryptographyUtil.decodePublicKey(publicBytes);
-        } catch (NoSuchAlgorithmException e) {
-            try {
-
-                publicKeyObject = KeyFactory
-                        .getInstance(pqcAlgorithm, BouncyCastlePQCProvider.PROVIDER_NAME)
-                        .generatePublic(new X509EncodedKeySpec(publicBytes));
-            } catch (Exception e1) {
-                logger.error(e1.getMessage());
-                throw new NoSuchAlgorithmException();
-            }
-        }
-        return publicKeyObject;
     }
 
     /**

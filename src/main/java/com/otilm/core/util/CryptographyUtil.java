@@ -15,12 +15,10 @@ import com.otilm.core.attribute.RsaSignatureAttributes;
 import com.otilm.core.model.crypto.KeyMaterial;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyFactory;
+import java.security.GeneralSecurityException;
 import java.security.NoSuchAlgorithmException;
-import java.security.Provider;
 import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
@@ -41,7 +39,6 @@ public class CryptographyUtil {
                     List.of(KeyUsage.SIGN, KeyUsage.DECRYPT, KeyUsage.UNWRAP));
     private static final Map<KeyAlgorithm, List<KeyUsage>> FORBIDDEN_ALGORITHM_USAGES = Map
             .of(KeyAlgorithm.ECDSA, List.of(KeyUsage.ENCRYPT, KeyUsage.DECRYPT));
-    private static final Provider BOUNCY_CASTLE = new BouncyCastleProvider();
 
     /**
      * Returns usages prohibited by the key type or algorithm.
@@ -160,52 +157,33 @@ public class CryptographyUtil {
      * @throws ValidationException if a PQC public key cannot be parsed
      */
     public static String resolvePqcParameterSpecName(KeyAlgorithm keyAlgorithm, String publicKey) {
+        if (keyAlgorithm != KeyAlgorithm.FALCON && keyAlgorithm != KeyAlgorithm.MLDSA
+                && keyAlgorithm != KeyAlgorithm.SLHDSA) {
+            return null;
+        }
         if (publicKey == null) {
-            return switch (keyAlgorithm) {
-                case FALCON, MLDSA, SLHDSA -> throw new ValidationException(ValidationError
-                        .create("PQC algorithm requires a public key to derive the parameter-spec name"));
-                default -> null;
-            };
+            throw new ValidationException(
+                    ValidationError.create("PQC algorithm requires a public key to derive the parameter-spec name"));
         }
-        // IOException is declared by each BC constructor but not triggered by any known input —
-        // caught defensively in case a future BC version starts throwing it for malformed payloads.
-        switch (keyAlgorithm) {
-            case FALCON -> {
-                try {
-                    return new BCFalconPublicKey(
-                            SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
-                            .getParameterSpec()
-                            .getName();
-                } catch (IOException | IllegalArgumentException | ClassCastException e) {
-                    throw new ValidationException(
-                            ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
-                }
-            }
-            case MLDSA -> {
-                try {
-                    return new BCMLDSAPublicKey(SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
-                            .getParameterSpec()
-                            .getName();
-                } catch (IOException | IllegalArgumentException | ClassCastException e) {
-                    throw new ValidationException(
-                            ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
-                }
-            }
-            case SLHDSA -> {
-                try {
-                    return new BCSLHDSAPublicKey(
-                            SubjectPublicKeyInfo.getInstance(Base64.getDecoder().decode(publicKey)))
-                            .getParameterSpec()
-                            .getName();
-                } catch (IOException | IllegalArgumentException | ClassCastException e) {
-                    throw new ValidationException(
-                            ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
-                }
-            }
-            default -> {
-                return null;
-            }
+        PublicKey decoded;
+        try {
+            decoded = decodePublicKey(Base64.getDecoder().decode(publicKey));
+        } catch (IllegalArgumentException | GeneralSecurityException e) {
+            throw unparsablePqcPublicKey();
         }
+        return switch (decoded) {
+            case BCFalconPublicKey falcon when keyAlgorithm == KeyAlgorithm.FALCON ->
+                falcon.getParameterSpec().getName();
+            case BCMLDSAPublicKey mldsa when keyAlgorithm == KeyAlgorithm.MLDSA -> mldsa.getParameterSpec().getName();
+            case BCSLHDSAPublicKey slhdsa when keyAlgorithm == KeyAlgorithm.SLHDSA ->
+                slhdsa.getParameterSpec().getName();
+            default -> throw unparsablePqcPublicKey();
+        };
+    }
+
+    private static ValidationException unparsablePqcPublicKey() {
+        return new ValidationException(
+                ValidationError.create("Failed parsing PQC public key to derive parameter-spec name"));
     }
 
     public static AlgorithmIdentifier getAlgorithmIdentifierInstance(String algorithm) {
@@ -223,17 +201,48 @@ public class CryptographyUtil {
     }
 
     /**
-     * Decodes a public key through BouncyCastle, so it is the BouncyCastle key class Core inspects even where the JDK
-     * implements the algorithm itself.
+     * Decodes a public key as BouncyCastle decodes a certificate's, so a key arriving in a request is the same
+     * BouncyCastle class as in a certificate, even where the JDK implements the algorithm.
+     *
+     * @param publicKeyInfo {@code SubjectPublicKeyInfo} of the key
+     * @return the public key
+     * @throws NoSuchAlgorithmException when BouncyCastle decodes no key of this algorithm, or no BouncyCastle provider
+     * has been constructed yet
+     * @throws InvalidKeySpecException when the key is malformed
+     */
+    public static PublicKey decodePublicKey(SubjectPublicKeyInfo publicKeyInfo)
+            throws NoSuchAlgorithmException, InvalidKeySpecException {
+        PublicKey publicKey;
+        try {
+            publicKey = BouncyCastleProvider.getPublicKey(publicKeyInfo);
+        } catch (IOException e) {
+            throw new InvalidKeySpecException("Public key is malformed.", e);
+        }
+        if (publicKey == null) {
+            throw new NoSuchAlgorithmException(
+                    "No public key decoder for algorithm " + publicKeyInfo.getAlgorithm().getAlgorithm().getId() + ".");
+        }
+        return publicKey;
+    }
+
+    /**
+     * Parses a DER-encoded {@code SubjectPublicKeyInfo} and decodes it as
+     * {@link #decodePublicKey(SubjectPublicKeyInfo)} does.
      *
      * @param encodedPublicKey DER-encoded {@code SubjectPublicKeyInfo}
      * @return the public key
+     * @throws NoSuchAlgorithmException when BouncyCastle decodes no key of this algorithm, or no BouncyCastle provider
+     * has been constructed yet
+     * @throws InvalidKeySpecException when the bytes are not a {@code SubjectPublicKeyInfo} or hold no valid key
      */
     public static PublicKey decodePublicKey(byte[] encodedPublicKey)
             throws NoSuchAlgorithmException, InvalidKeySpecException {
-        String algorithm = SubjectPublicKeyInfo.getInstance(encodedPublicKey).getAlgorithm().getAlgorithm().getId();
-        return KeyFactory
-                .getInstance(algorithm, BOUNCY_CASTLE)
-                .generatePublic(new X509EncodedKeySpec(encodedPublicKey));
+        SubjectPublicKeyInfo publicKeyInfo;
+        try {
+            publicKeyInfo = SubjectPublicKeyInfo.getInstance(encodedPublicKey);
+        } catch (IllegalArgumentException e) {
+            throw new InvalidKeySpecException("Public key is not a DER-encoded SubjectPublicKeyInfo.", e);
+        }
+        return decodePublicKey(publicKeyInfo);
     }
 }
