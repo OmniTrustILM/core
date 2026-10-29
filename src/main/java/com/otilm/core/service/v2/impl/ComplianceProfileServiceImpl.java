@@ -55,6 +55,7 @@ import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.ComplianceProfileRuleHandler;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ComplianceProfileInternalService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.NullUtil;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -96,6 +97,7 @@ public class ComplianceProfileServiceImpl
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     private CertificateRequestRepository certificateRequestRepository;
     private CertificateRepository certificateRepository;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -166,6 +168,12 @@ public class ComplianceProfileServiceImpl
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Override
@@ -611,18 +619,20 @@ public class ComplianceProfileServiceImpl
         if (!complianceProfileRepository.existsById(uuid.getValue())) {
             throw new NotFoundException(ComplianceProfile.class, uuid.getValue());
         }
-        if (complianceProfileAssociationRepository
-                .existsByComplianceProfileUuidAndResourceAndObjectUuid(uuid.getValue(), resource,
-                        associationObjectUuid)) {
-            throw new AlreadyExistException("Compliance profile is already associated to %s with UUID %s"
-                    .formatted(resource.getLabel(), associationObjectUuid));
+        if (!isAssociable(resource)) {
+            throw new ValidationException(
+                    "Compliance profiles cannot be associated with %s".formatted(resource.getLabel()));
         }
 
-        ComplianceProfileAssociation association = new ComplianceProfileAssociation();
-        association.setComplianceProfileUuid(uuid.getValue());
-        association.setResource(resource);
-        association.setObjectUuid(associationObjectUuid);
-        complianceProfileAssociationRepository.save(association);
+        complianceProfileAssociationWriter.create(uuid.getValue(), resource, associationObjectUuid);
+    }
+
+    /**
+     * The resources whose associations compliance checks read: an association with any other would never be used.
+     */
+    private static boolean isAssociable(Resource resource) {
+        return resource.hasComplianceProfiles() || resource.complianceSubject()
+                || resource == Resource.CRYPTOGRAPHIC_KEY_ITEM;
     }
 
     @Override

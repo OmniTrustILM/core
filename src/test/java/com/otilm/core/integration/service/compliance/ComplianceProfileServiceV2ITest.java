@@ -693,6 +693,55 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
                         exception.getMessage());
     }
 
+    @Test
+    void associateComplianceProfile_refusesAnObjectThatDoesNotExist() {
+        SecuredUUID profileUuid = complianceProfile.getSecuredUuid();
+        UUID missingRaProfileUuid = UUID.randomUUID();
+
+        Assertions
+                .assertThrows(NotFoundException.class, () -> complianceProfileService
+                        .associateComplianceProfile(profileUuid, Resource.RA_PROFILE, missingRaProfileUuid));
+
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.RA_PROFILE, List.of(missingRaProfileUuid)));
+    }
+
+    @Test
+    void associateComplianceProfile_refusesAResourceComplianceChecksDoNotApplyTo() {
+        SecuredUUID profileUuid = complianceProfile.getSecuredUuid();
+
+        Assertions
+                .assertThrows(ValidationException.class, () -> complianceProfileService
+                        .associateComplianceProfile(profileUuid, Resource.AUTHORITY, authorityUuid));
+
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.AUTHORITY, List.of(authorityUuid)));
+    }
+
+    @Test
+    void associateComplianceProfile_acceptsKeyItemsAndCertificateRequests() throws Exception {
+        SecuredUUID profileUuid = complianceProfile.getSecuredUuid();
+        UUID keyItemUuid = newKeyItem("associatedKeyItem").getUuid();
+        UUID certificateRequestUuid = newCertificateRequestOfACertificate("CN=associatedRequest").getUuid();
+
+        complianceProfileService.associateComplianceProfile(profileUuid, Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItemUuid);
+        complianceProfileService
+                .associateComplianceProfile(profileUuid, Resource.CERTIFICATE_REQUEST, certificateRequestUuid);
+
+        Assertions
+                .assertTrue(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.CRYPTOGRAPHIC_KEY_ITEM, List.of(keyItemUuid)));
+        Assertions
+                .assertTrue(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST,
+                                List.of(certificateRequestUuid)));
+        Assertions
+                .assertThrows(NotFoundException.class, () -> complianceProfileService
+                        .associateComplianceProfile(profileUuid, Resource.CRYPTOGRAPHIC_KEY_ITEM, UUID.randomUUID()));
+    }
+
     private CryptographicKeyItem newKeyItem(String name) {
         CryptographicKey key = cryptographicKeyRepository
                 .saveAndFlush(CryptographicKeyBuilder.aCryptographicKey().withName(name + "Key").build());
