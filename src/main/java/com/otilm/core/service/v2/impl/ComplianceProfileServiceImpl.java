@@ -29,17 +29,22 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
 import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.ComplianceProfile_;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.workflows.ConditionItem;
+import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceInternalRuleRepository;
 import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRuleRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.workflows.ConditionItemRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -87,6 +92,10 @@ public class ComplianceProfileServiceImpl
     private ComplianceProfileRuleHandler ruleHandler;
 
     private CommentInternalService commentService;
+
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+    private CertificateRequestRepository certificateRequestRepository;
+    private CertificateRepository certificateRepository;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -142,6 +151,21 @@ public class ComplianceProfileServiceImpl
     @Autowired
     public void setRuleHandler(ComplianceProfileRuleHandler ruleHandler) {
         this.ruleHandler = ruleHandler;
+    }
+
+    @Autowired
+    public void setCryptographicKeyItemRepository(CryptographicKeyItemRepository cryptographicKeyItemRepository) {
+        this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
+    }
+
+    @Autowired
+    public void setCertificateRequestRepository(CertificateRequestRepository certificateRequestRepository) {
+        this.certificateRequestRepository = certificateRequestRepository;
+    }
+
+    @Autowired
+    public void setCertificateRepository(CertificateRepository certificateRepository) {
+        this.certificateRepository = certificateRepository;
     }
 
     @Override
@@ -654,8 +678,7 @@ public class ComplianceProfileServiceImpl
         List<ResourceObjectDto> associatedObjects = new ArrayList<>();
         for (ComplianceProfileAssociation association : complianceProfile.getAssociations()) {
             try {
-                associatedObjects
-                        .add(resourceService.getResourceObject(association.getResource(), association.getObjectUuid()));
+                associatedObjects.add(getAssociatedObject(association.getResource(), association.getObjectUuid()));
             } catch (NotFoundException e) {
                 logger
                         .warn("Compliance profile {} is associated with {} {}, which no longer exists",
@@ -664,6 +687,45 @@ public class ComplianceProfileServiceImpl
             }
         }
         return associatedObjects;
+    }
+
+    private ResourceObjectDto getAssociatedObject(Resource resource, UUID objectUuid) throws NotFoundException {
+        return switch (resource) {
+            case CRYPTOGRAPHIC_KEY_ITEM -> getAssociatedKeyItem(objectUuid);
+            case CERTIFICATE_REQUEST -> getAssociatedCertificateRequest(objectUuid);
+            default -> resourceService.getResourceObject(resource, objectUuid);
+        };
+    }
+
+    /**
+     * A key item has no lookup of its own, so it is read with DETAIL on its key, as its compliance result is.
+     */
+    private ResourceObjectDto getAssociatedKeyItem(UUID keyItemUuid) throws NotFoundException {
+        CryptographicKeyItem keyItem = cryptographicKeyItemRepository
+                .findByUuid(keyItemUuid)
+                .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, keyItemUuid));
+        resourceService.getResourceObject(Resource.CRYPTOGRAPHIC_KEY, keyItem.getKeyUuid());
+        return new ResourceObjectDto(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItemUuid, keyItem.getName());
+    }
+
+    /**
+     * A certificate request has no lookup of its own, so it is read with DETAIL on a certificate issued from it. A
+     * request no certificate refers to is treated as gone.
+     */
+    private ResourceObjectDto getAssociatedCertificateRequest(UUID certificateRequestUuid) throws NotFoundException {
+        CertificateRequestEntity certificateRequest = certificateRequestRepository
+                .findByUuid(certificateRequestUuid)
+                .orElseThrow(() -> new NotFoundException(CertificateRequestEntity.class, certificateRequestUuid));
+        UUID certificateUuid = certificateRepository
+                .findUuidsByCertificateRequestUuid(certificateRequestUuid)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException(CertificateRequestEntity.class, certificateRequestUuid));
+        resourceService.getResourceObject(Resource.CERTIFICATE, certificateUuid);
+        String name = certificateRequest.getCommonName() != null
+                ? certificateRequest.getCommonName()
+                : certificateRequest.getSubjectDn();
+        return new ResourceObjectDto(Resource.CERTIFICATE_REQUEST, certificateRequestUuid, name);
     }
 
     private void deleteComplianceProfile(ComplianceProfile complianceProfile, boolean isForce) {

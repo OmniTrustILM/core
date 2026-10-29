@@ -28,21 +28,34 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
 import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
+import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.compliance.BaseComplianceTest;
+import com.otilm.core.util.builders.CertificateBuilder;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import com.otilm.core.util.builders.ComplianceProfileFixtures;
+import com.otilm.core.util.builders.CryptographicKeyBuilder;
+import com.otilm.core.util.builders.CryptographicKeyItemBuilder;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -52,6 +65,15 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
 
     @MockitoSpyBean
     private ComplianceProfileRepository complianceProfileRepositorySpy;
+
+    @Autowired
+    private CryptographicKeyRepository cryptographicKeyRepository;
+
+    @Autowired
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+
+    @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
 
     @Test
     void testResourceObjectsHandling() throws NotFoundException {
@@ -627,12 +649,87 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
         Assertions.assertEquals(Set.of(associatedRaProfileUuid, vaultProfileUuid), Set.copyOf(objectUuids));
     }
 
+    @Test
+    void getAssociations_namesAssociatedKeyItemsAndCertificateRequests() throws NotFoundException {
+        CryptographicKeyItem keyItem = newKeyItem("associatedKeyItem");
+        CertificateRequestEntity certificateRequest = newCertificateRequestOfACertificate("CN=associatedRequest");
+        associate(complianceProfile, Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+        associate(complianceProfile, Resource.CERTIFICATE_REQUEST, certificateRequest.getUuid());
+
+        List<ResourceObjectDto> associations = complianceProfileService
+                .getAssociations(complianceProfile.getSecuredUuid());
+
+        Assertions.assertEquals(4, associations.size());
+        Assertions
+                .assertTrue(associations
+                        .stream()
+                        .anyMatch(a -> a.getResource() == Resource.CRYPTOGRAPHIC_KEY_ITEM
+                                && a.getObjectUuid().equals(keyItem.getUuid())
+                                && "associatedKeyItem".equals(a.getName())));
+        Assertions
+                .assertTrue(associations
+                        .stream()
+                        .anyMatch(a -> a.getResource() == Resource.CERTIFICATE_REQUEST
+                                && a.getObjectUuid().equals(certificateRequest.getUuid())
+                                && "CN=associatedRequest".equals(a.getName())));
+    }
+
+    @Test
+    void deleteComplianceProfile_refusesNamingAnAssociatedKeyItem() {
+        CryptographicKeyItem keyItem = newKeyItem("associatedKeyItem");
+        ComplianceProfile profile = ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+        SecuredUUID profileUuid = profile.getSecuredUuid();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> complianceProfileService.deleteComplianceProfile(profileUuid));
+
+        Assertions
+                .assertTrue(exception
+                        .getMessage()
+                        .contains("%s 'associatedKeyItem'".formatted(Resource.CRYPTOGRAPHIC_KEY_ITEM.getLabel())),
+                        exception.getMessage());
+    }
+
+    private CryptographicKeyItem newKeyItem(String name) {
+        CryptographicKey key = cryptographicKeyRepository
+                .saveAndFlush(CryptographicKeyBuilder.aCryptographicKey().withName(name + "Key").build());
+        CryptographicKeyItem keyItem = CryptographicKeyItemBuilder.aKeyItem().withName(name).build();
+        keyItem.setKey(key);
+        keyItem.setKeyUuid(key.getUuid());
+        return cryptographicKeyItemRepository.saveAndFlush(keyItem);
+    }
+
+    private CertificateRequestEntity newCertificateRequestOfACertificate(String subjectDn) {
+        CertificateRequestEntity certificateRequest = certificateRequestRepository
+                .saveAndFlush(CertificateRequestEntityBuilder
+                        .aCertificateRequest()
+                        .withContent(Base64.getEncoder().encodeToString(subjectDn.getBytes(StandardCharsets.UTF_8)))
+                        .withSubjectDn(subjectDn)
+                        .build());
+        certificateRepository
+                .saveAndFlush(CertificateBuilder
+                        .aCertificate()
+                        .withSerialNumber(UUID.randomUUID().toString())
+                        .withFingerprint(UUID.randomUUID().toString())
+                        .withCertificateRequest(certificateRequest)
+                        .withCertificateRequestUuid(certificateRequest.getUuid())
+                        .build());
+        return certificateRequest;
+    }
+
     private void associateWithMissingRaProfile(ComplianceProfile profile) {
-        ComplianceProfileAssociation dangling = new ComplianceProfileAssociation();
-        dangling.setComplianceProfileUuid(profile.getUuid());
-        dangling.setResource(Resource.RA_PROFILE);
-        dangling.setObjectUuid(UUID.randomUUID());
-        complianceProfileAssociationRepository.save(dangling);
+        associate(profile, Resource.RA_PROFILE, UUID.randomUUID());
+    }
+
+    private void associate(ComplianceProfile profile, Resource resource, UUID objectUuid) {
+        ComplianceProfileAssociation association = new ComplianceProfileAssociation();
+        association.setComplianceProfileUuid(profile.getUuid());
+        association.setResource(resource);
+        association.setObjectUuid(objectUuid);
+        complianceProfileAssociationRepository.save(association);
     }
 
     @Test
