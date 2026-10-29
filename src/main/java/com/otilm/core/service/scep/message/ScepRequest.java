@@ -5,16 +5,17 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.scep.FailInfo;
 import com.otilm.api.model.core.scep.MessageType;
 import com.otilm.core.provider.key.PlatformPrivateKey;
+import com.otilm.core.util.CryptographyUtil;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
 import java.security.ProviderException;
 import java.security.PublicKey;
 import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
@@ -432,11 +433,11 @@ public class ScepRequest {
     // TODO: this method should have own implementation in PKCS#10 request, as it is general for all such requests, not
     // only SCEP
     public boolean verifyRequest()
-            throws NoSuchAlgorithmException, InvalidKeyException, PKCSException, OperatorCreationException {
+            throws NoSuchAlgorithmException, InvalidKeySpecException, PKCSException, OperatorCreationException {
         if (pkcs10Request == null) {
             return false;
         }
-        PublicKey publicKey = pkcs10Request.getPublicKey();
+        PublicKey publicKey = CryptographyUtil.decodePublicKey(pkcs10Request.getSubjectPublicKeyInfo());
         ContentVerifierProvider contentVerifierProvider = new JcaContentVerifierProviderBuilder()
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                 .build(publicKey);
