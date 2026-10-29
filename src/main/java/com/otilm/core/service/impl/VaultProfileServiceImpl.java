@@ -30,7 +30,6 @@ import com.otilm.core.dao.entity.Audited_;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.VaultProfile_;
-import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
@@ -45,6 +44,7 @@ import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
@@ -78,7 +78,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     private ConnectorApiFactory connectorApiFactory;
 
     private CommentInternalService commentService;
-    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -86,9 +86,9 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     }
 
     @Autowired
-    public void setComplianceProfileAssociationRepository(
-            ComplianceProfileAssociationRepository complianceProfileAssociationRepository) {
-        this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired
@@ -234,8 +234,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         }
         attributeEngine.deleteObjectAttributeContent(Resource.VAULT_PROFILE, securedUUID.getValue());
         commentService.removeObjectComments(Resource.VAULT_PROFILE, vaultProfile.getUuid());
-        complianceProfileAssociationRepository
-                .deleteByResourceAndObjectUuid(Resource.VAULT_PROFILE, vaultProfile.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.VAULT_PROFILE, vaultProfile.getUuid());
         vaultProfileRepository.delete(vaultProfile);
     }
 

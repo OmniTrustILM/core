@@ -109,7 +109,6 @@ import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationReposit
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
-import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
 import com.otilm.core.dao.repository.GroupAssociationRepository;
 import com.otilm.core.dao.repository.GroupRepository;
@@ -168,6 +167,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.CertificateValidationWriter;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.settings.SettingsCache;
@@ -340,7 +340,7 @@ public class CertificateServiceImpl
     }
 
     private CommentInternalService commentService;
-    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -348,9 +348,9 @@ public class CertificateServiceImpl
     }
 
     @Autowired
-    public void setComplianceProfileAssociationRepository(
-            ComplianceProfileAssociationRepository complianceProfileAssociationRepository) {
-        this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired
@@ -907,7 +907,7 @@ public class CertificateServiceImpl
         certificate.getGroups().clear();
         objectAssociationService.removeObjectAssociations(Resource.CERTIFICATE, uuid.getValue());
         commentService.removeObjectComments(Resource.CERTIFICATE, uuid.getValue());
-        complianceProfileAssociationRepository.deleteByResourceAndObjectUuid(Resource.CERTIFICATE, uuid.getValue());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.CERTIFICATE, uuid.getValue());
         attributeEngine.deleteObjectAttributeContent(Resource.CERTIFICATE, uuid.getValue());
 
         scepProfileRepository.clearCaCertificateReference(certificate.getUuid());
@@ -1174,7 +1174,7 @@ public class CertificateServiceImpl
         });
         objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, permittedUuids);
         commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, permittedUuids);
-        complianceProfileAssociationRepository.deleteByResourceAndObjectUuidIn(Resource.CERTIFICATE, permittedUuids);
+        complianceProfileAssociationWriter.deleteAllForObjects(Resource.CERTIFICATE, permittedUuids);
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, permittedUuids);
 
         // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths

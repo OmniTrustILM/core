@@ -6,6 +6,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -33,10 +36,15 @@ public interface ComplianceProfileAssociationRepository
             UUID associationObjectUuid);
 
     /**
-     * An association names its object without a foreign key, so whoever deletes the object removes its associations.
+     * One bulk statement, so a row another transaction already removed does not fail the delete.
      */
-    void deleteByResourceAndObjectUuid(Resource resource, UUID associationObjectUuid);
+    @Modifying
+    @Query("DELETE FROM ComplianceProfileAssociation a WHERE a.resource = :resource AND a.objectUuid = :objectUuid")
+    int deleteByResourceAndObjectUuid(@Param("resource") Resource resource, @Param("objectUuid") UUID objectUuid);
 
-    void deleteByResourceAndObjectUuidIn(Resource resource, Collection<UUID> associationObjectUuids);
+    @Modifying
+    @Query("DELETE FROM ComplianceProfileAssociation a WHERE a.resource = :resource AND a.objectUuid IN :objectUuids")
+    int deleteByResourceAndObjectUuidIn(@Param("resource") Resource resource,
+            @Param("objectUuids") Collection<UUID> objectUuids);
 
 }

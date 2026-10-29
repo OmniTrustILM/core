@@ -44,7 +44,6 @@ import com.otilm.core.dao.repository.ApprovalProfileRelationRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
-import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.RaProfileProtocolAttributeRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
@@ -67,6 +66,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.ValidatorUtil;
@@ -909,7 +909,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
         attributeEngine.deleteObjectAttributeContent(Resource.RA_PROFILE, raProfile.getUuid());
         commentService.removeObjectComments(Resource.RA_PROFILE, raProfile.getUuid());
-        complianceProfileAssociationRepository.deleteByResourceAndObjectUuid(Resource.RA_PROFILE, raProfile.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.RA_PROFILE, raProfile.getUuid());
         raProfileRepository.delete(raProfile);
     }
 
@@ -935,7 +935,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     // SETTERs
 
     private CommentInternalService commentService;
-    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -943,9 +943,9 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     }
 
     @Autowired
-    public void setComplianceProfileAssociationRepository(
-            ComplianceProfileAssociationRepository complianceProfileAssociationRepository) {
-        this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired

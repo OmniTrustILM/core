@@ -29,7 +29,6 @@ import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.UniquelyIdentified;
 import com.otilm.core.dao.repository.CertificateRepository;
-import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
@@ -108,7 +107,7 @@ public class CryptographicKeyWriter {
     private final CryptographicKeyEventHistoryService keyEventHistoryService;
     private final CertificateInternalService certificateService;
     private final KeyImportRepository keyImportRepository;
-    private final ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
+    private final ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     public CryptographicKeyWriter(CryptographicKeyRepository cryptographicKeyRepository,
             CryptographicKeyItemRepository cryptographicKeyItemRepository,
@@ -116,7 +115,7 @@ public class CryptographicKeyWriter {
             AttributeEngine attributeEngine, EntityManager entityManager, CertificateRepository certificateRepository,
             CommentWriter commentWriter, CryptographicKeyEventHistoryService keyEventHistoryService,
             @Lazy CertificateInternalService certificateService, KeyImportRepository keyImportRepository,
-            ComplianceProfileAssociationRepository complianceProfileAssociationRepository) {
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
         this.cryptographicKeyRepository = cryptographicKeyRepository;
         this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
         this.tokenProfileRepository = tokenProfileRepository;
@@ -128,7 +127,7 @@ public class CryptographicKeyWriter {
         this.keyEventHistoryService = keyEventHistoryService;
         this.certificateService = certificateService;
         this.keyImportRepository = keyImportRepository;
-        this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     /**
@@ -548,8 +547,8 @@ public class CryptographicKeyWriter {
      * Deletes a local key and its associations in one transaction.
      *
      * <p>
-     * Certificate references are cleared, and key and item attributes, owner/group associations, and key comments are
-     * removed. JPA deletion cascades from the key to its items and their event histories.
+     * Certificate references are cleared, and key and item attributes, owner/group and compliance profile associations,
+     * and key comments are removed. JPA deletion cascades from the key to its items and their event histories.
      *
      * @param key model identifying the parent key to delete
      */
@@ -620,9 +619,8 @@ public class CryptographicKeyWriter {
         attributeEngine.deleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
         objectAssociationService.removeObjectAssociations(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
         commentWriter.deleteAllForObject(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
-        complianceProfileAssociationRepository
-                .deleteByResourceAndObjectUuidIn(Resource.CRYPTOGRAPHIC_KEY_ITEM, itemUuids);
-        complianceProfileAssociationRepository.deleteByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
+        complianceProfileAssociationWriter.deleteAllForObjects(Resource.CRYPTOGRAPHIC_KEY_ITEM, itemUuids);
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
         cryptographicKeyRepository.deleteById(keyUuid);
     }
 
@@ -643,10 +641,11 @@ public class CryptographicKeyWriter {
     }
 
     /**
-     * Deletes selected local key items and their attributes and history. Parents left without items are deleted with
-     * their certificate references, attributes, owner/group associations, and comments. All changes commit or roll back
-     * together; parents with remaining items are preserved. Parent rows are locked in UUID order before loading items
-     * so concurrent sibling deletions cannot both leave the parent behind.
+     * Deletes selected local key items and their attributes, compliance profile associations and history. Parents left
+     * without items are deleted with their certificate references, attributes, owner/group and compliance profile
+     * associations, and comments. All changes commit or roll back together; parents with remaining items are preserved.
+     * Parent rows are locked in UUID order before loading items so concurrent sibling deletions cannot both leave the
+     * parent behind.
      *
      * @param keyItemUuids non-null list of item UUIDs to delete; missing items are ignored
      * @param parentsRead the parents as the caller read them, locked to serialize concurrent sibling deletions; must
@@ -682,8 +681,7 @@ public class CryptographicKeyWriter {
 
         List<UUID> existingItemUuids = keyItems.stream().map(UniquelyIdentified::getUuid).toList();
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, existingItemUuids);
-        complianceProfileAssociationRepository
-                .deleteByResourceAndObjectUuidIn(Resource.CRYPTOGRAPHIC_KEY_ITEM, existingItemUuids);
+        complianceProfileAssociationWriter.deleteAllForObjects(Resource.CRYPTOGRAPHIC_KEY_ITEM, existingItemUuids);
         cryptographicKeyItemRepository.deleteAll(keyItems);
 
         if (!emptyKeyUuids.isEmpty()) {
@@ -692,15 +690,15 @@ public class CryptographicKeyWriter {
             attributeEngine.bulkDeleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
             objectAssociationService.bulkRemoveObjectAssociations(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
             commentWriter.deleteAllForObjects(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
-            complianceProfileAssociationRepository
-                    .deleteByResourceAndObjectUuidIn(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
+            complianceProfileAssociationWriter.deleteAllForObjects(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
             cryptographicKeyRepository.deleteAllById(emptyKeyUuids);
         }
         return keyItems.size();
     }
 
     /**
-     * Deletes a local key item with its attribute links and event history without loading the item.
+     * Deletes a local key item with its attribute links, compliance profile associations and event history without
+     * loading the item.
      *
      * <p>
      * Event history is removed by the database foreign key cascade.
@@ -715,8 +713,7 @@ public class CryptographicKeyWriter {
     public boolean deleteKeyItem(CryptographicKeyBasicModel keyRead, UUID keyItemUuid) {
         requireTokenAsRead(keyRead);
         attributeEngine.deleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, keyItemUuid);
-        complianceProfileAssociationRepository
-                .deleteByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItemUuid);
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItemUuid);
         return cryptographicKeyItemRepository.deleteItemByUuid(keyItemUuid) > 0;
     }
 

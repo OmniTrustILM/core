@@ -13,7 +13,6 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
-import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
@@ -39,13 +38,13 @@ public class TokenProfileWriter {
     private final CryptographicKeyRepository cryptographicKeyRepository;
     private final SigningProfileVersionRepository signingProfileVersionRepository;
     private final EntityManager entityManager;
-    private final ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
+    private final ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     public TokenProfileWriter(TokenProfileRepository tokenProfileRepository,
             TokenInstanceReferenceRepository tokenInstanceReferenceRepository, AttributeEngine attributeEngine,
             CommentInternalService commentService, CryptographicKeyRepository cryptographicKeyRepository,
             SigningProfileVersionRepository signingProfileVersionRepository, EntityManager entityManager,
-            ComplianceProfileAssociationRepository complianceProfileAssociationRepository) {
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
         this.tokenProfileRepository = tokenProfileRepository;
         this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.attributeEngine = attributeEngine;
@@ -53,7 +52,7 @@ public class TokenProfileWriter {
         this.cryptographicKeyRepository = cryptographicKeyRepository;
         this.signingProfileVersionRepository = signingProfileVersionRepository;
         this.entityManager = entityManager;
-        this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -184,7 +183,7 @@ public class TokenProfileWriter {
         String profileName = profile.getName();
         attributeEngine.deleteObjectAttributeContent(Resource.TOKEN_PROFILE, profile.getUuid());
         commentService.removeObjectComments(Resource.TOKEN_PROFILE, profile.getUuid());
-        complianceProfileAssociationRepository.deleteByResourceAndObjectUuid(Resource.TOKEN_PROFILE, profile.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.TOKEN_PROFILE, profile.getUuid());
         try {
             tokenProfileRepository.delete(profile);
             // Force the DELETE to execute here; without the flush it runs at commit,

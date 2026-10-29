@@ -1779,6 +1779,23 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void deleteKey_removesComplianceProfileAssociationsOfTheItemsOfAKeyWithoutToken() throws ConnectorException {
+        // given
+        UUID itemUuid = cryptographicKeyItemRepository
+                .findByKeyUuidIn(List.of(keyWithoutToken.getUuid()))
+                .getFirst()
+                .getUuid();
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY_ITEM, itemUuid);
+
+        // when
+        cryptographicKeyService.deleteKey(List.of(keyWithoutToken.getUuid().toString()));
+
+        // then
+        Assertions.assertFalse(cryptographicKeyRepository.existsById(keyWithoutToken.getUuid()));
+        Assertions.assertFalse(hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY_ITEM, itemUuid));
+    }
+
+    @Test
     void deleteKey_selectedSubsetPreservesParentAndSibling() throws ConnectorException, NotFoundException {
         // given
         CryptographicKeyItem selectedItem = createKeyItem(keyWithoutToken, KeyType.PRIVATE_KEY, KeyState.ACTIVE, true);
@@ -2809,7 +2826,6 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                 .collect(Collectors.toSet()));
     }
 
-    /** The fixture's key as a request reads it. */
     private void associateComplianceProfile(Resource resource, UUID objectUuid) {
         ComplianceProfileFixtures
                 .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
@@ -2820,6 +2836,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         return complianceProfileAssociationRepository.existsByResourceAndObjectUuidIn(resource, List.of(objectUuid));
     }
 
+    /** The fixture's key as a request reads it. */
     private CryptographicKeyBasicModel keyAsRead() {
         return cryptographicKeyRepository.findBasicModelByUuid(key.getUuid()).orElseThrow();
     }
