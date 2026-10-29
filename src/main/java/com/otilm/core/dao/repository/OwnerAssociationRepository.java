@@ -32,9 +32,9 @@ public interface OwnerAssociationRepository extends JpaRepository<OwnerAssociati
      */
     @Query(value = """
             SELECT r.resource FROM unnest(CAST(:resources AS text[])) AS r(resource)
-            WHERE EXISTS (SELECT 1 FROM owner_association oa
+            WHERE EXISTS (SELECT 1 FROM {h-schema}owner_association oa
                           WHERE oa.owner_uuid = :ownerUuid AND oa.resource = r.resource)
-               OR EXISTS (SELECT 1 FROM group_association ga
+               OR EXISTS (SELECT 1 FROM {h-schema}group_association ga
                           WHERE ga.resource = r.resource
                             AND (:allGroups OR ga.group_uuid = ANY (CAST(:groupUuids AS uuid[]))))
             """, nativeQuery = true)
