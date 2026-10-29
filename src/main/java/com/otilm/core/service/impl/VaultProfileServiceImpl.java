@@ -30,6 +30,7 @@ import com.otilm.core.dao.entity.Audited_;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.VaultProfile_;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
@@ -77,10 +78,17 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     private ConnectorApiFactory connectorApiFactory;
 
     private CommentInternalService commentService;
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationRepository(
+            ComplianceProfileAssociationRepository complianceProfileAssociationRepository) {
+        this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
     }
 
     @Autowired
@@ -226,6 +234,8 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         }
         attributeEngine.deleteObjectAttributeContent(Resource.VAULT_PROFILE, securedUUID.getValue());
         commentService.removeObjectComments(Resource.VAULT_PROFILE, vaultProfile.getUuid());
+        complianceProfileAssociationRepository
+                .deleteByResourceAndObjectUuid(Resource.VAULT_PROFILE, vaultProfile.getUuid());
         vaultProfileRepository.delete(vaultProfile);
     }
 

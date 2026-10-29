@@ -29,6 +29,7 @@ import com.otilm.core.dao.entity.KeyImportState;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.UniquelyIdentified;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.KeyImportRepository;
@@ -107,13 +108,15 @@ public class CryptographicKeyWriter {
     private final CryptographicKeyEventHistoryService keyEventHistoryService;
     private final CertificateInternalService certificateService;
     private final KeyImportRepository keyImportRepository;
+    private final ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
     public CryptographicKeyWriter(CryptographicKeyRepository cryptographicKeyRepository,
             CryptographicKeyItemRepository cryptographicKeyItemRepository,
             TokenProfileRepository tokenProfileRepository, ResourceObjectAssociationService objectAssociationService,
             AttributeEngine attributeEngine, EntityManager entityManager, CertificateRepository certificateRepository,
             CommentWriter commentWriter, CryptographicKeyEventHistoryService keyEventHistoryService,
-            @Lazy CertificateInternalService certificateService, KeyImportRepository keyImportRepository) {
+            @Lazy CertificateInternalService certificateService, KeyImportRepository keyImportRepository,
+            ComplianceProfileAssociationRepository complianceProfileAssociationRepository) {
         this.cryptographicKeyRepository = cryptographicKeyRepository;
         this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
         this.tokenProfileRepository = tokenProfileRepository;
@@ -125,6 +128,7 @@ public class CryptographicKeyWriter {
         this.keyEventHistoryService = keyEventHistoryService;
         this.certificateService = certificateService;
         this.keyImportRepository = keyImportRepository;
+        this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
     }
 
     /**
@@ -616,6 +620,9 @@ public class CryptographicKeyWriter {
         attributeEngine.deleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
         objectAssociationService.removeObjectAssociations(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
         commentWriter.deleteAllForObject(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
+        complianceProfileAssociationRepository
+                .deleteByResourceAndObjectUuidIn(Resource.CRYPTOGRAPHIC_KEY_ITEM, itemUuids);
+        complianceProfileAssociationRepository.deleteByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY, keyUuid);
         cryptographicKeyRepository.deleteById(keyUuid);
     }
 
@@ -675,6 +682,8 @@ public class CryptographicKeyWriter {
 
         List<UUID> existingItemUuids = keyItems.stream().map(UniquelyIdentified::getUuid).toList();
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, existingItemUuids);
+        complianceProfileAssociationRepository
+                .deleteByResourceAndObjectUuidIn(Resource.CRYPTOGRAPHIC_KEY_ITEM, existingItemUuids);
         cryptographicKeyItemRepository.deleteAll(keyItems);
 
         if (!emptyKeyUuids.isEmpty()) {
@@ -683,6 +692,8 @@ public class CryptographicKeyWriter {
             attributeEngine.bulkDeleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
             objectAssociationService.bulkRemoveObjectAssociations(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
             commentWriter.deleteAllForObjects(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
+            complianceProfileAssociationRepository
+                    .deleteByResourceAndObjectUuidIn(Resource.CRYPTOGRAPHIC_KEY, emptyKeyUuids);
             cryptographicKeyRepository.deleteAllById(emptyKeyUuids);
         }
         return keyItems.size();
@@ -704,6 +715,8 @@ public class CryptographicKeyWriter {
     public boolean deleteKeyItem(CryptographicKeyBasicModel keyRead, UUID keyItemUuid) {
         requireTokenAsRead(keyRead);
         attributeEngine.deleteObjectAttributeContent(Resource.CRYPTOGRAPHIC_KEY, keyItemUuid);
+        complianceProfileAssociationRepository
+                .deleteByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItemUuid);
         return cryptographicKeyItemRepository.deleteItemByUuid(keyItemUuid) > 0;
     }
 

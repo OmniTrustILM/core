@@ -567,13 +567,7 @@ public class ComplianceProfileServiceImpl
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(ComplianceProfile.class, uuid));
 
-        List<ResourceObjectDto> associatedObjects = new ArrayList<>();
-        for (ComplianceProfileAssociation association : complianceProfile.getAssociations()) {
-            associatedObjects
-                    .add(resourceService.getResourceObject(association.getResource(), association.getObjectUuid()));
-        }
-
-        return associatedObjects;
+        return getExistingAssociatedObjects(complianceProfile);
     }
 
     @Override
@@ -652,18 +646,39 @@ public class ComplianceProfileServiceImpl
                 .orElseThrow(() -> new NotFoundException(ComplianceProfile.class, uuid));
     }
 
-    private void deleteComplianceProfile(ComplianceProfile complianceProfile, boolean isForce)
-            throws NotFoundException {
-        if (!isForce && !complianceProfile.getAssociations().isEmpty()) {
-            var associations = getAssociations(complianceProfile.getSecuredUuid());
-            String associatedObjects = String
-                    .join(", ",
-                            associations
-                                    .stream()
-                                    .map(a -> "%s '%s'".formatted(a.getResource().getLabel(), a.getName()))
-                                    .toList());
-            throw new ValidationException(
-                    "Unable to delete compliance profile due to associated resource objects: " + associatedObjects);
+    /**
+     * An association names its object without a foreign key, so it can outlive the object. Such an association is left
+     * out instead of failing the whole list.
+     */
+    private List<ResourceObjectDto> getExistingAssociatedObjects(ComplianceProfile complianceProfile) {
+        List<ResourceObjectDto> associatedObjects = new ArrayList<>();
+        for (ComplianceProfileAssociation association : complianceProfile.getAssociations()) {
+            try {
+                associatedObjects
+                        .add(resourceService.getResourceObject(association.getResource(), association.getObjectUuid()));
+            } catch (NotFoundException e) {
+                logger
+                        .warn("Compliance profile {} is associated with {} {}, which no longer exists",
+                                complianceProfile.getUuid(), association.getResource().getLabel(),
+                                association.getObjectUuid());
+            }
+        }
+        return associatedObjects;
+    }
+
+    private void deleteComplianceProfile(ComplianceProfile complianceProfile, boolean isForce) {
+        if (!isForce) {
+            List<ResourceObjectDto> associations = getExistingAssociatedObjects(complianceProfile);
+            if (!associations.isEmpty()) {
+                String associatedObjects = String
+                        .join(", ",
+                                associations
+                                        .stream()
+                                        .map(a -> "%s '%s'".formatted(a.getResource().getLabel(), a.getName()))
+                                        .toList());
+                throw new ValidationException(
+                        "Unable to delete compliance profile due to associated resource objects: " + associatedObjects);
+            }
         }
 
         complianceProfileAssociationRepository.deleteByComplianceProfileUuid(complianceProfile.getUuid());

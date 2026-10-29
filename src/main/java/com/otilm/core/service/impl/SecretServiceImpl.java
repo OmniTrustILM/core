@@ -63,6 +63,7 @@ import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.VaultProfile_;
 import com.otilm.core.dao.repository.ApprovalRepository;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
@@ -189,10 +190,17 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     private CommentInternalService commentService;
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationRepository(
+            ComplianceProfileAssociationRepository complianceProfileAssociationRepository) {
+        this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
     }
 
     @Autowired
@@ -730,6 +738,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         secret.getGroups().clear();
         objectAssociationService.removeObjectAssociations(Resource.SECRET, secret.getUuid());
         commentService.removeObjectComments(Resource.SECRET, secret.getUuid());
+        complianceProfileAssociationRepository.deleteByResourceAndObjectUuid(Resource.SECRET, secret.getUuid());
         secretRepository.delete(secret);
         secretVersionRepository.deleteAll(secretVersions);
     }

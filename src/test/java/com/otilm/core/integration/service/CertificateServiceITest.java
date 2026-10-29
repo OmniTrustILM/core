@@ -96,6 +96,8 @@ import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationReposit
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CrlRepository;
@@ -134,6 +136,7 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -281,6 +284,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateRequestRepository certificateRequestRepository;
+
+    @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
     @Autowired
     private AuthenticationCache authenticationCache;
@@ -1184,6 +1193,38 @@ class CertificateServiceITest extends BaseSpringBootTest {
             Optional<Crl> updatedCrl = crlRepository.findByUuid(crl.getSecuredUuid());
             assertThat(updatedCrl).isPresent();
             assertThat(updatedCrl.get().getCaCertificateUuid()).isNull();
+        }
+
+        @Test
+        void removesComplianceProfileAssociations_whenDeletingCertificate() throws NotFoundException {
+            // given
+            ComplianceProfileFixtures
+                    .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                            Resource.CERTIFICATE, certificate.getUuid());
+
+            // when
+            certificateService.deleteCertificate(certificate.getSecuredUuid());
+
+            // then
+            assertThat(complianceProfileAssociationRepository
+                    .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE, List.of(certificate.getUuid()))).isFalse();
+        }
+
+        @Test
+        void removesComplianceProfileAssociations_whenBulkDeletingCertificates() {
+            // given
+            ComplianceProfileFixtures
+                    .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                            Resource.CERTIFICATE, certificate.getUuid());
+            RemoveCertificateDto request = new RemoveCertificateDto();
+            request.setUuids(List.of(certificate.getUuid().toString()));
+
+            // when
+            certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
+
+            // then
+            assertThat(complianceProfileAssociationRepository
+                    .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE, List.of(certificate.getUuid()))).isFalse();
         }
 
         @Test

@@ -22,6 +22,7 @@ import com.otilm.api.model.core.compliance.v2.ComplianceProfileDto;
 import com.otilm.api.model.core.compliance.v2.ComplianceProfileListDto;
 import com.otilm.api.model.core.compliance.v2.ComplianceRuleListDto;
 import com.otilm.api.model.core.compliance.v2.ProviderComplianceRulesDto;
+import com.otilm.api.model.core.other.ResourceObjectDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
@@ -36,6 +37,7 @@ import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.compliance.BaseComplianceTest;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -552,7 +554,7 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
         ComplianceProfileAssociation assoc = new ComplianceProfileAssociation();
         assoc.setComplianceProfileUuid(profile2.getUuid());
         assoc.setResource(Resource.RA_PROFILE);
-        assoc.setObjectUuid(UUID.randomUUID());
+        assoc.setObjectUuid(unassociatedRaProfileUuid);
         complianceProfileAssociationRepository.save(assoc);
 
         // perform bulk delete
@@ -577,6 +579,60 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
                         "Failure message should reference the failing profile UUID");
         Assertions.assertNotNull(messages.getFirst().getMessage());
         Assertions.assertFalse(messages.getFirst().getMessage().isBlank());
+    }
+
+    @Test
+    void deleteComplianceProfile_succeedsWhenEveryAssociatedObjectIsGone() throws NotFoundException {
+        ComplianceProfile profile = ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.RA_PROFILE, UUID.randomUUID());
+
+        complianceProfileService.deleteComplianceProfile(profile.getSecuredUuid());
+
+        Assertions.assertFalse(complianceProfileRepository.existsById(profile.getUuid()));
+    }
+
+    @Test
+    void deleteComplianceProfile_refusesNamingExistingObjects_whenSomeAssociatedObjectsAreGone() {
+        associateWithMissingRaProfile(complianceProfile);
+        SecuredUUID complianceProfileUuid = complianceProfile.getSecuredUuid();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> complianceProfileService.deleteComplianceProfile(complianceProfileUuid));
+
+        Assertions
+                .assertTrue(
+                        exception.getMessage().contains("%s 'TestProfile'".formatted(Resource.RA_PROFILE.getLabel())),
+                        exception.getMessage());
+        Assertions
+                .assertTrue(
+                        exception
+                                .getMessage()
+                                .contains("%s 'TestVaultProfile'".formatted(Resource.VAULT_PROFILE.getLabel())),
+                        exception.getMessage());
+    }
+
+    @Test
+    void getAssociations_skipsObjectsThatAreGone() throws NotFoundException {
+        associateWithMissingRaProfile(complianceProfile);
+
+        List<UUID> objectUuids = complianceProfileService
+                .getAssociations(complianceProfile.getSecuredUuid())
+                .stream()
+                .map(ResourceObjectDto::getObjectUuid)
+                .toList();
+
+        Assertions.assertEquals(2, objectUuids.size());
+        Assertions.assertEquals(Set.of(associatedRaProfileUuid, vaultProfileUuid), Set.copyOf(objectUuids));
+    }
+
+    private void associateWithMissingRaProfile(ComplianceProfile profile) {
+        ComplianceProfileAssociation dangling = new ComplianceProfileAssociation();
+        dangling.setComplianceProfileUuid(profile.getUuid());
+        dangling.setResource(Resource.RA_PROFILE);
+        dangling.setObjectUuid(UUID.randomUUID());
+        complianceProfileAssociationRepository.save(dangling);
     }
 
     @Test
@@ -758,7 +814,7 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
         ComplianceProfileAssociation assoc = new ComplianceProfileAssociation();
         assoc.setComplianceProfileUuid(profile.getUuid());
         assoc.setResource(Resource.RA_PROFILE);
-        assoc.setObjectUuid(UUID.randomUUID());
+        assoc.setObjectUuid(unassociatedRaProfileUuid);
         complianceProfileAssociationRepository.save(assoc);
 
         List<BulkActionMessageDto> messages = complianceProfileService

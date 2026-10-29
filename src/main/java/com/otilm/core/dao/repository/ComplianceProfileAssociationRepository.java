@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository;
 
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -30,5 +31,12 @@ public interface ComplianceProfileAssociationRepository
 
     void deleteByComplianceProfileUuidAndResourceAndObjectUuid(UUID complianceProfileUuid, Resource resource,
             UUID associationObjectUuid);
+
+    /**
+     * An association names its object without a foreign key, so whoever deletes the object removes its associations.
+     */
+    void deleteByResourceAndObjectUuid(Resource resource, UUID associationObjectUuid);
+
+    void deleteByResourceAndObjectUuidIn(Resource resource, Collection<UUID> associationObjectUuids);
 
 }

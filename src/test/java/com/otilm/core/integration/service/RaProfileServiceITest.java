@@ -46,6 +46,7 @@ import com.otilm.core.dao.entity.ApprovalProfileRelation;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
@@ -58,6 +59,8 @@ import com.otilm.core.dao.repository.ApprovalProfileRelationRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
@@ -76,6 +79,7 @@ import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.builders.AuthorityFixtures;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -123,6 +127,10 @@ class RaProfileServiceITest extends ApprovalProfileData {
 
     @Autowired
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
+    @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
     private RaProfile raProfile;
     private Certificate certificate;
     private CertificateContent certificateContent;
@@ -435,6 +443,33 @@ class RaProfileServiceITest extends ApprovalProfileData {
         raProfileService.deleteRaProfile(raProfile.getSecuredUuid());
         Assertions
                 .assertThrows(NotFoundException.class, () -> raProfileService.getRaProfile(raProfile.getSecuredUuid()));
+    }
+
+    @Test
+    void deleteRaProfile_removesItsComplianceProfileAssociations() throws NotFoundException {
+        ComplianceProfile complianceProfile = ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.RA_PROFILE, raProfile.getUuid());
+
+        raProfileService.deleteRaProfile(raProfile.getSecuredUuid());
+
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.RA_PROFILE, List.of(raProfile.getUuid())));
+        Assertions.assertTrue(complianceProfileRepository.existsById(complianceProfile.getUuid()));
+    }
+
+    @Test
+    void bulkDeleteRaProfile_removesTheirComplianceProfileAssociations() {
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.RA_PROFILE, raProfile.getUuid());
+
+        raProfileService.bulkDeleteRaProfile(List.of(raProfile.getSecuredUuid()));
+
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.RA_PROFILE, List.of(raProfile.getUuid())));
     }
 
     @Test
