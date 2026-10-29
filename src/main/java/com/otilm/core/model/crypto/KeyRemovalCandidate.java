@@ -34,4 +34,11 @@ public record KeyRemovalCandidate(CryptographicKeyBasicModel key, ImmutableConne
                 .toList();
         return new KeyRemovalCandidate(ImmutableCryptographicKeyBasicModel.from(key), tokenConnectorInterface, items);
     }
+
+    public static KeyRemovalCandidate from(CryptographicKeyFullModel key) {
+        Objects.requireNonNull(key, "Cryptographic key is required.");
+        TokenInstanceFullModel token = key.tokenInstance();
+        ImmutableConnectorInterface tokenConnectorInterface = token == null ? null : token.connectorInterface();
+        return new KeyRemovalCandidate(key, tokenConnectorInterface, key.items());
+    }
 }
