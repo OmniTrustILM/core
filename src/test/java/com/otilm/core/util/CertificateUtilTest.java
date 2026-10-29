@@ -24,6 +24,8 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.Security;
 import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -31,6 +33,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.bouncycastle.asn1.crmf.SubsequentMessage;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
@@ -39,11 +42,14 @@ import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.asn1.x509.SubjectAltPublicKeyInfo;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.crmf.CertificateRequestMessageBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.cms.CMSAbsentContent;
 import org.bouncycastle.cms.CMSSignedDataGenerator;
+import org.bouncycastle.jcajce.provider.asymmetric.rsa.BCRSAPublicKey;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
@@ -133,6 +139,22 @@ class CertificateUtilTest {
         CertificateUtil.prepareIssuedCertificate(certificateEntity, certificate);
         Assertions.assertEquals("ML-DSA-44", certificateEntity.getAltSignatureAlgorithm());
 
+    }
+
+    @Test
+    void getAltPublicKey_rsa_returnsBouncyCastleKey() throws Exception {
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+        keyPairGenerator.initialize(2048);
+        SubjectAltPublicKeyInfo altPublicKeyInfo = new SubjectAltPublicKeyInfo(
+                SubjectPublicKeyInfo.getInstance(keyPairGenerator.generateKeyPair().getPublic().getEncoded()));
+        byte[] extensionValue = new DEROctetString(altPublicKeyInfo).getEncoded();
+
+        PublicKey altPublicKey = CertificateUtil.getAltPublicKey(extensionValue);
+
+        Assertions.assertInstanceOf(BCRSAPublicKey.class, altPublicKey);
     }
 
     @Test

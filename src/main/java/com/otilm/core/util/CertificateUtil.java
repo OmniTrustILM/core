@@ -39,7 +39,6 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
-import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -51,7 +50,6 @@ import java.security.cert.CertificateException;
 import java.security.cert.CertificateParsingException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
@@ -75,12 +73,12 @@ import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AltSignatureAlgorithm;
-import org.bouncycastle.asn1.x509.AltSignatureValue;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.SubjectAltPublicKeyInfo;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.asn1.x509.qualified.ETSIQCObjectIdentifiers;
 import org.bouncycastle.asn1.x509.qualified.QCStatement;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
@@ -586,18 +584,13 @@ public class CertificateUtil {
         return new DefaultAlgorithmNameFinder().getAlgorithmName(algorithm.getAlgorithm());
     }
 
-    public static byte[] getAltSignatureValue(byte[] altSignatureValue) throws IOException {
-        ASN1Primitive primitive = getAsn1Primitive(altSignatureValue);
-        AltSignatureValue signatureValue = AltSignatureValue.getInstance(primitive);
-        return signatureValue.getSignature().getEncoded();
-    }
-
     public static PublicKey getAltPublicKey(byte[] altPublicKeyInfoEncoded)
             throws IOException, NoSuchAlgorithmException, InvalidKeySpecException {
         ASN1Primitive primitive = getAsn1Primitive(altPublicKeyInfoEncoded);
         SubjectAltPublicKeyInfo subjectAltPublicKeyInfo = SubjectAltPublicKeyInfo.getInstance(primitive);
-        KeyFactory keyFactory = KeyFactory.getInstance(subjectAltPublicKeyInfo.getAlgorithm().getAlgorithm().getId());
-        return keyFactory.generatePublic(new X509EncodedKeySpec(subjectAltPublicKeyInfo.getEncoded()));
+        SubjectPublicKeyInfo publicKeyInfo = new SubjectPublicKeyInfo(subjectAltPublicKeyInfo.getAlgorithm(),
+                subjectAltPublicKeyInfo.getSubjectAltPublicKey());
+        return CryptographyUtil.decodePublicKey(publicKeyInfo);
     }
 
     private static ASN1Primitive getAsn1Primitive(byte[] encodedAsn1Primitive) throws IOException {

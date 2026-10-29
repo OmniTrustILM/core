@@ -77,7 +77,7 @@ public class CertificateTestUtil {
         X509v3CertificateBuilder certBuilder = new JcaX509v3CertificateBuilder(new X500Name("CN=issuer"),
                 BigInteger.ONE, notBefore, notAfter, new X500Name("CN=subject"), defaultKeyPair.getPublic());
 
-        KeyPairGenerator altKeyGen = KeyPairGenerator.getInstance("ML-DSA");
+        KeyPairGenerator altKeyGen = KeyPairGenerator.getInstance("ML-DSA", provider);
         altKeyGen.initialize(MLDSAParameterSpec.ml_dsa_44);
         KeyPair alternativeKeyPair = altKeyGen.generateKeyPair();
 
@@ -104,7 +104,7 @@ public class CertificateTestUtil {
         tbsCertificateGenerator.setExtensions(extensionsGenerator.generate());
         TBSCertificate tbsCertificate = tbsCertificateGenerator.generateTBSCertificate();
 
-        Signature signature = Signature.getInstance("ML-DSA");
+        Signature signature = Signature.getInstance("ML-DSA", provider);
         signature.initSign(alternativeKeyPair.getPrivate());
         signature.update(tbsCertificate.getEncoded());
         byte[] signedData = signature.sign();
