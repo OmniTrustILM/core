@@ -24,4 +24,21 @@ public interface OwnerAssociationRepository extends JpaRepository<OwnerAssociati
             + " AND oa.resource = :resource AND oa.objectUuid IN :objectUuids")
     long countOwnedObjects(@Param("ownerUuid") UUID ownerUuid, @Param("resource") Resource resource,
             @Param("objectUuids") List<UUID> objectUuids);
+
+    /**
+     * Returns those of {@code resources} with at least one object owned by {@code ownerUuid}, or assigned to one of
+     * {@code groupUuids} (to any group when {@code allGroups}). Both lists are Postgres array literals, so an empty
+     * group list matches nothing rather than rendering an invalid {@code IN ()}.
+     */
+    @Query(value = """
+            SELECT r.resource FROM unnest(CAST(:resources AS text[])) AS r(resource)
+            WHERE EXISTS (SELECT 1 FROM {h-schema}owner_association oa
+                          WHERE oa.owner_uuid = :ownerUuid AND oa.resource = r.resource)
+               OR EXISTS (SELECT 1 FROM {h-schema}group_association ga
+                          WHERE ga.resource = r.resource
+                            AND (:allGroups OR ga.group_uuid = ANY (CAST(:groupUuids AS uuid[]))))
+            """, nativeQuery = true)
+    List<String> findResourcesWithOwnedOrGroupAssignedObjects(@Param("resources") String resources,
+            @Param("ownerUuid") UUID ownerUuid, @Param("allGroups") boolean allGroups,
+            @Param("groupUuids") String groupUuids);
 }
