@@ -733,6 +733,27 @@ class ComplianceServiceITest extends BaseComplianceTest {
     }
 
     @Test
+    void checkingARuleLessComplianceProfileMarksTheCertificatesItAppliesToCompliant() throws Exception {
+        ComplianceProfile ruleLess = new ComplianceProfile();
+        ruleLess.setName("RuleLessProfileChecked");
+        complianceProfileRepository.save(ruleLess);
+        ComplianceProfileAssociation association = new ComplianceProfileAssociation();
+        association.setComplianceProfileUuid(ruleLess.getUuid());
+        association.setResource(Resource.RA_PROFILE);
+        association.setObjectUuid(unassociatedRaProfileUuid);
+        complianceProfileAssociationRepository.save(association);
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-RuleLessProfileCheck",
+                unassociatedRaProfileUuid);
+
+        complianceService.checkCompliance(List.of(SecuredUUID.fromUUID(ruleLess.getUuid())), null, null);
+
+        Assertions
+                .assertEquals(ComplianceStatus.OK,
+                        certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus(),
+                        "A check of the profile agrees with a check of the certificate");
+    }
+
+    @Test
     void checkingASecretNoComplianceProfileAppliesToClearsItsStoredResult() {
         complianceProfileAssociationRepository
                 .findDistinctByResourceAndObjectUuid(Resource.VAULT_PROFILE, vaultProfileUuid)

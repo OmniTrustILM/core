@@ -400,7 +400,7 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
         List<ComplianceProfile> complianceProfiles = complianceProfileRepository
                 .findWithAssociationsByUuidIn(uuids.stream().map(SecuredUUID::getValue).toList())
                 .stream()
-                .filter(p -> !p.getAssociations().isEmpty() && !p.getComplianceRules().isEmpty())
+                .filter(p -> !p.getAssociations().isEmpty())
                 .toList();
         logger.debug("Loaded {} compliance profiles to be checked", complianceProfiles.size());
         for (ComplianceProfile profile : complianceProfiles) {
