@@ -53,6 +53,8 @@ import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.ApprovalRepository;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
@@ -80,6 +82,7 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.SecretEncodingVersion;
 import com.otilm.core.util.SecretsUtil;
 import com.otilm.core.util.WireMockPorts;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import com.otilm.core.util.seeders.TspProfileBasicCredentialSeeder;
 import java.io.Serializable;
 import java.security.NoSuchAlgorithmException;
@@ -152,6 +155,10 @@ class SecretServiceITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private TspProfileBasicCredentialSeeder tspCredentialSeeder;
+    @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
     @MockitoBean
     private ActionProducer actionProducer;
     @MockitoBean
@@ -596,6 +603,22 @@ class SecretServiceITest extends BaseSpringBootTest {
         // then
         assertThat(secretRepository.findById(secret.getUuid())).isEmpty();
         assertThat(mockServer.findAll(WireMock.deleteRequestedFor(WireMock.anyUrl()))).isEmpty();
+    }
+
+    @Test
+    void deleteSecret_removesItsComplianceProfileAssociations() throws Exception {
+        // given
+        unlinkLatestVersion();
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.SECRET, secret.getUuid());
+
+        // when
+        secretService.deleteSecret(secret.getUuid(), false);
+
+        // then
+        assertThat(complianceProfileAssociationRepository
+                .existsByResourceAndObjectUuidIn(Resource.SECRET, List.of(secret.getUuid()))).isFalse();
     }
 
     @Test

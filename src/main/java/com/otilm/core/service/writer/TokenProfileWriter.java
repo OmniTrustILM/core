@@ -38,11 +38,13 @@ public class TokenProfileWriter {
     private final CryptographicKeyRepository cryptographicKeyRepository;
     private final SigningProfileVersionRepository signingProfileVersionRepository;
     private final EntityManager entityManager;
+    private final ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     public TokenProfileWriter(TokenProfileRepository tokenProfileRepository,
             TokenInstanceReferenceRepository tokenInstanceReferenceRepository, AttributeEngine attributeEngine,
             CommentInternalService commentService, CryptographicKeyRepository cryptographicKeyRepository,
-            SigningProfileVersionRepository signingProfileVersionRepository, EntityManager entityManager) {
+            SigningProfileVersionRepository signingProfileVersionRepository, EntityManager entityManager,
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
         this.tokenProfileRepository = tokenProfileRepository;
         this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.attributeEngine = attributeEngine;
@@ -50,6 +52,7 @@ public class TokenProfileWriter {
         this.cryptographicKeyRepository = cryptographicKeyRepository;
         this.signingProfileVersionRepository = signingProfileVersionRepository;
         this.entityManager = entityManager;
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -180,6 +183,7 @@ public class TokenProfileWriter {
         String profileName = profile.getName();
         attributeEngine.deleteObjectAttributeContent(Resource.TOKEN_PROFILE, profile.getUuid());
         commentService.removeObjectComments(Resource.TOKEN_PROFILE, profile.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.TOKEN_PROFILE, profile.getUuid());
         try {
             tokenProfileRepository.delete(profile);
             // Force the DELETE to execute here; without the flush it runs at commit,

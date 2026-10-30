@@ -16,6 +16,7 @@ import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDto;
@@ -25,6 +26,8 @@ import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
@@ -38,6 +41,7 @@ import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
@@ -82,6 +86,10 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
     private EntityManager entityManager;
     @Autowired
     private PlatformTransactionManager transactionManager;
+    @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
     private TokenProfile tokenProfile;
     private TokenInstanceReference tokenInstanceReference;
@@ -232,6 +240,22 @@ class TokenProfileServiceITest extends BaseSpringBootTest {
 
         // then
         Assertions.assertTrue(tokenProfileRepository.findByUuid(disconnectedProfileUuid).isEmpty());
+    }
+
+    @Test
+    void deleteTokenProfile_removesItsComplianceProfileAssociations() throws NotFoundException {
+        TokenProfile profile = createDisconnectedProfile();
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.TOKEN_PROFILE, profile.getUuid());
+
+        tokenProfileService
+                .deleteTokenProfile(profile.getTokenInstanceReference().getSecuredParentUuid(),
+                        profile.getSecuredUuid());
+
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.TOKEN_PROFILE, List.of(profile.getUuid())));
     }
 
     @Test

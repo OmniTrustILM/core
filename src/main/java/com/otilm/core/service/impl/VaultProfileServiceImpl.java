@@ -44,6 +44,7 @@ import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
 import com.otilm.core.util.SearchHelper;
@@ -77,10 +78,17 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     private ConnectorApiFactory connectorApiFactory;
 
     private CommentInternalService commentService;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired
@@ -226,6 +234,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         }
         attributeEngine.deleteObjectAttributeContent(Resource.VAULT_PROFILE, securedUUID.getValue());
         commentService.removeObjectComments(Resource.VAULT_PROFILE, vaultProfile.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.VAULT_PROFILE, vaultProfile.getUuid());
         vaultProfileRepository.delete(vaultProfile);
     }
 
