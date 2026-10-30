@@ -1,28 +1,34 @@
 package com.otilm.core.integration.migration;
 
 import com.otilm.core.util.BaseSpringBootTest;
-import db.migration.V202610301000__SplitSharedCertificateRequests;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
-import org.flywaydb.core.api.migration.Context;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 /**
- * Runs {@code V202610301000__SplitSharedCertificateRequests} in a scratch schema and asserts that every certificate but
- * the oldest of those sharing a request gets a copy of it, with the request's columns and attribute values, that the
- * oldest keeps the row and its compliance profile associations, and that a second run changes nothing.
+ * Runs {@code V202610301000__split_shared_certificate_requests.sql} in a scratch schema, in one transaction as Flyway
+ * does, and asserts that every certificate but the oldest of those sharing a request gets a copy of it, with the
+ * request's columns and attribute values, that the oldest keeps the row and its compliance profile associations, that a
+ * second run changes nothing, and that a certificate another transaction changes while the split runs keeps its change.
  */
 class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
 
+    private static final String MIGRATION_RESOURCE = "db/migration/V202610301000__split_shared_certificate_requests.sql";
     private static final String SCRATCH_SCHEMA = "split_shared_certificate_requests_migration_check";
     private static final String SHARED_REQUEST = "10000000-0000-0000-0000-000000000001";
     private static final String OWN_REQUEST = "10000000-0000-0000-0000-000000000002";
@@ -40,10 +46,7 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
     void certificatesSharingARequestGetACopyEach() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
             try (Statement statement = connection.createStatement()) {
-                statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
-                statement.execute("CREATE SCHEMA " + SCRATCH_SCHEMA);
-                statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
-                createTables(statement);
+                createScratchSchema(statement);
                 insertRequest(statement, SHARED_REQUEST, "CN=shared", "NOK");
                 insertRequest(statement, OWN_REQUEST, "CN=own", "OK");
                 // Inserted out of creation order, so the oldest is found by its creation time, not by insertion
@@ -68,13 +71,8 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
                 String thirdCopy = requestOf(statement, THIRD);
                 assertThat(List.of(secondCopy, thirdCopy)).doesNotContain(SHARED_REQUEST).doesNotHaveDuplicates();
                 for (String copy : List.of(secondCopy, thirdCopy)) {
-                    assertThat(single(statement,
-                            "SELECT content || '|' || fingerprint || '|' || compliance_status"
-                                    + " || '|' || compliance_result::text FROM certificate_request WHERE uuid = '"
-                                    + copy + "'"))
-                            .isEqualTo(single(statement, "SELECT content || '|' || fingerprint || '|' ||"
-                                    + " compliance_status || '|' || compliance_result::text FROM certificate_request"
-                                    + " WHERE uuid = '" + SHARED_REQUEST + "'"));
+                    assertThat(single(statement, describeRequest(copy)))
+                            .isEqualTo(single(statement, describeRequest(SHARED_REQUEST)));
                     assertThat(single(statement, "SELECT attribute_content_item_uuid || '|' || item_order FROM"
                             + " attribute_content_2_object WHERE object_type = 'CERTIFICATE_REQUEST' AND object_uuid"
                             + " = '" + copy + "'")).isEqualTo(ATTRIBUTE_ITEM + "|3");
@@ -91,17 +89,59 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
                 assertThat(requestOf(statement, SECOND)).isEqualTo(secondCopy);
                 assertThat(column(statement, "SELECT uuid::text FROM attribute_content_2_object")).hasSize(3);
             } finally {
-                try (Statement statement = connection.createStatement()) {
-                    // The connection goes back to a pool shared with the rest of the suite: the session's search_path
-                    // must not point at the schema this drops.
-                    statement.execute("RESET search_path");
-                    statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
-                }
+                dropScratchSchema(connection);
             }
         }
     }
 
-    private static void createTables(Statement statement) throws Exception {
+    /**
+     * The previous release keeps running during a rolling update, and a rejected approval detaches a placeholder's
+     * request. A detach that commits while the split runs must not be undone by pointing the certificate at its copy.
+     */
+    @Test
+    void aCertificateDetachedWhileTheSplitRunsStaysDetached() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (Connection connection = dataSource.getConnection();
+                Connection previousRelease = dataSource.getConnection()) {
+            try (Statement statement = connection.createStatement();
+                    Statement previousReleaseStatement = previousRelease.createStatement()) {
+                createScratchSchema(statement);
+                insertRequest(statement, SHARED_REQUEST, "CN=shared", "NOK");
+                insertCertificate(statement, OLDEST, SHARED_REQUEST, "2026-01-01");
+                insertCertificate(statement, SECOND, SHARED_REQUEST, "2026-02-01");
+                previousReleaseStatement.execute("SET search_path TO " + SCRATCH_SCHEMA);
+                previousRelease.setAutoCommit(false);
+                previousReleaseStatement
+                        .execute(
+                                "UPDATE certificate SET certificate_request_uuid = NULL WHERE uuid = '" + SECOND + "'");
+
+                Future<?> split = executor.submit(() -> {
+                    runMigration(connection);
+                    return null;
+                });
+                awaitRowLockWaiter();
+                previousRelease.commit();
+                split.get(10, TimeUnit.SECONDS);
+
+                assertThat(requestOf(statement, SECOND)).isNull();
+                assertThat(requestOf(statement, OLDEST)).isEqualTo(SHARED_REQUEST);
+            } finally {
+                previousRelease.rollback();
+                previousRelease.setAutoCommit(true);
+                try (Statement statement = previousRelease.createStatement()) {
+                    statement.execute("RESET search_path");
+                }
+                dropScratchSchema(connection);
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static void createScratchSchema(Statement statement) throws Exception {
+        statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
+        statement.execute("CREATE SCHEMA " + SCRATCH_SCHEMA);
+        statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
         statement.execute("""
                 CREATE TABLE "certificate_request" (
                     "uuid" UUID PRIMARY KEY,
@@ -137,6 +177,42 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
                 """);
     }
 
+    /**
+     * The connection goes back to a pool shared with the rest of the suite: the session's search_path must not point at
+     * the schema this drops.
+     */
+    private static void dropScratchSchema(Connection connection) throws Exception {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("RESET search_path");
+            statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
+        }
+    }
+
+    private static void runMigration(Connection connection) throws Exception {
+        String migration = new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
+        connection.setAutoCommit(false);
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(migration);
+            connection.commit();
+        } catch (Exception e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(true);
+        }
+    }
+
+    /** The split's UPDATE must be waiting on the row the other transaction holds before that one commits. */
+    private void awaitRowLockWaiter() {
+        Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> {
+            try (Connection observer = dataSource.getConnection();
+                    Statement statement = observer.createStatement();
+                    ResultSet rows = statement.executeQuery("SELECT count(*) FROM pg_locks WHERE NOT granted")) {
+                return rows.next() && rows.getLong(1) >= 1;
+            }
+        });
+    }
+
     private static void insertRequest(Statement statement, String uuid, String subject, String complianceStatus)
             throws Exception {
         statement
@@ -152,10 +228,9 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
                         + (requestUuid == null ? "NULL" : "'" + requestUuid + "'") + ")");
     }
 
-    private static void runMigration(Connection connection) throws Exception {
-        Context context = mock(Context.class);
-        when(context.getConnection()).thenReturn(connection);
-        new V202610301000__SplitSharedCertificateRequests().migrate(context);
+    private static String describeRequest(String requestUuid) {
+        return "SELECT content || '|' || fingerprint || '|' || compliance_status || '|' || compliance_result::text"
+                + " FROM certificate_request WHERE uuid = '" + requestUuid + "'";
     }
 
     private static String requestOf(Statement statement, String certificateUuid) throws Exception {
