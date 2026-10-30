@@ -29,17 +29,22 @@ import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
 import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.ComplianceProfile_;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.workflows.ConditionItem;
+import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceInternalRuleRepository;
 import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRuleRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.workflows.ConditionItemRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -50,7 +55,9 @@ import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.handler.ComplianceProfileRuleHandler;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ComplianceProfileInternalService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.NullUtil;
+import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -87,6 +94,12 @@ public class ComplianceProfileServiceImpl
     private ComplianceProfileRuleHandler ruleHandler;
 
     private CommentInternalService commentService;
+
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+    private CertificateRequestRepository certificateRequestRepository;
+    private CertificateRepository certificateRepository;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private EntityManager entityManager;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -142,6 +155,32 @@ public class ComplianceProfileServiceImpl
     @Autowired
     public void setRuleHandler(ComplianceProfileRuleHandler ruleHandler) {
         this.ruleHandler = ruleHandler;
+    }
+
+    @Autowired
+    public void setCryptographicKeyItemRepository(CryptographicKeyItemRepository cryptographicKeyItemRepository) {
+        this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
+    }
+
+    @Autowired
+    public void setCertificateRequestRepository(CertificateRequestRepository certificateRequestRepository) {
+        this.certificateRequestRepository = certificateRequestRepository;
+    }
+
+    @Autowired
+    public void setCertificateRepository(CertificateRepository certificateRepository) {
+        this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
+    }
+
+    @Autowired
+    public void setEntityManager(EntityManager entityManager) {
+        this.entityManager = entityManager;
     }
 
     @Override
@@ -567,13 +606,7 @@ public class ComplianceProfileServiceImpl
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(ComplianceProfile.class, uuid));
 
-        List<ResourceObjectDto> associatedObjects = new ArrayList<>();
-        for (ComplianceProfileAssociation association : complianceProfile.getAssociations()) {
-            associatedObjects
-                    .add(resourceService.getResourceObject(association.getResource(), association.getObjectUuid()));
-        }
-
-        return associatedObjects;
+        return getExistingAssociatedObjects(complianceProfile);
     }
 
     @Override
@@ -593,18 +626,20 @@ public class ComplianceProfileServiceImpl
         if (!complianceProfileRepository.existsById(uuid.getValue())) {
             throw new NotFoundException(ComplianceProfile.class, uuid.getValue());
         }
-        if (complianceProfileAssociationRepository
-                .existsByComplianceProfileUuidAndResourceAndObjectUuid(uuid.getValue(), resource,
-                        associationObjectUuid)) {
-            throw new AlreadyExistException("Compliance profile is already associated to %s with UUID %s"
-                    .formatted(resource.getLabel(), associationObjectUuid));
+        if (!isAssociable(resource)) {
+            throw new ValidationException(
+                    "Compliance profiles cannot be associated with %s".formatted(resource.getLabel()));
         }
 
-        ComplianceProfileAssociation association = new ComplianceProfileAssociation();
-        association.setComplianceProfileUuid(uuid.getValue());
-        association.setResource(resource);
-        association.setObjectUuid(associationObjectUuid);
-        complianceProfileAssociationRepository.save(association);
+        complianceProfileAssociationWriter.create(uuid.getValue(), resource, associationObjectUuid);
+    }
+
+    /**
+     * The resources whose associations compliance checks read: an association with any other would never be used.
+     */
+    private static boolean isAssociable(Resource resource) {
+        return resource.hasComplianceProfiles() || resource.complianceSubject()
+                || resource == Resource.CRYPTOGRAPHIC_KEY_ITEM;
     }
 
     @Override
@@ -621,9 +656,7 @@ public class ComplianceProfileServiceImpl
                     .formatted(resource.getLabel(), associationObjectUuid));
         }
 
-        complianceProfileAssociationRepository
-                .deleteByComplianceProfileUuidAndResourceAndObjectUuid(uuid.getValue(), resource,
-                        associationObjectUuid);
+        complianceProfileAssociationWriter.delete(uuid.getValue(), resource, associationObjectUuid);
     }
 
     @Override
@@ -652,21 +685,82 @@ public class ComplianceProfileServiceImpl
                 .orElseThrow(() -> new NotFoundException(ComplianceProfile.class, uuid));
     }
 
-    private void deleteComplianceProfile(ComplianceProfile complianceProfile, boolean isForce)
-            throws NotFoundException {
-        if (!isForce && !complianceProfile.getAssociations().isEmpty()) {
-            var associations = getAssociations(complianceProfile.getSecuredUuid());
-            String associatedObjects = String
-                    .join(", ",
-                            associations
-                                    .stream()
-                                    .map(a -> "%s '%s'".formatted(a.getResource().getLabel(), a.getName()))
-                                    .toList());
-            throw new ValidationException(
-                    "Unable to delete compliance profile due to associated resource objects: " + associatedObjects);
+    /**
+     * An association can outlive its object (see {@link ComplianceProfileAssociationWriter}); such an association is
+     * left out instead of failing the whole list.
+     */
+    private List<ResourceObjectDto> getExistingAssociatedObjects(ComplianceProfile complianceProfile) {
+        List<ResourceObjectDto> associatedObjects = new ArrayList<>();
+        for (ComplianceProfileAssociation association : complianceProfile.getAssociations()) {
+            try {
+                associatedObjects.add(getAssociatedObject(association.getResource(), association.getObjectUuid()));
+            } catch (NotFoundException e) {
+                logger
+                        .warn("Compliance profile {} is associated with {} {}, which no longer exists",
+                                complianceProfile.getUuid(), association.getResource().getLabel(),
+                                association.getObjectUuid());
+            }
+        }
+        return associatedObjects;
+    }
+
+    private ResourceObjectDto getAssociatedObject(Resource resource, UUID objectUuid) throws NotFoundException {
+        return switch (resource) {
+            case CRYPTOGRAPHIC_KEY_ITEM -> getAssociatedKeyItem(objectUuid);
+            case CERTIFICATE_REQUEST -> getAssociatedCertificateRequest(objectUuid);
+            default -> resourceService.getResourceObject(resource, objectUuid);
+        };
+    }
+
+    /**
+     * A key item has no lookup of its own, so it is read with DETAIL on its key, as its compliance result is.
+     */
+    private ResourceObjectDto getAssociatedKeyItem(UUID keyItemUuid) throws NotFoundException {
+        CryptographicKeyItem keyItem = cryptographicKeyItemRepository
+                .findByUuid(keyItemUuid)
+                .orElseThrow(() -> new NotFoundException(CryptographicKeyItem.class, keyItemUuid));
+        resourceService.getResourceObject(Resource.CRYPTOGRAPHIC_KEY, keyItem.getKeyUuid());
+        return new ResourceObjectDto(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItemUuid, keyItem.getName());
+    }
+
+    /**
+     * A certificate request has no lookup of its own, so it is read with DETAIL on a certificate issued from it. A
+     * request no certificate refers to is treated as gone.
+     */
+    private ResourceObjectDto getAssociatedCertificateRequest(UUID certificateRequestUuid) throws NotFoundException {
+        CertificateRequestEntity certificateRequest = certificateRequestRepository
+                .findByUuid(certificateRequestUuid)
+                .orElseThrow(() -> new NotFoundException(CertificateRequestEntity.class, certificateRequestUuid));
+        UUID certificateUuid = certificateRepository
+                .findUuidsByCertificateRequestUuid(certificateRequestUuid)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException(CertificateRequestEntity.class, certificateRequestUuid));
+        resourceService.getResourceObject(Resource.CERTIFICATE, certificateUuid);
+        String name = certificateRequest.getCommonName() != null
+                ? certificateRequest.getCommonName()
+                : certificateRequest.getSubjectDn();
+        return new ResourceObjectDto(Resource.CERTIFICATE_REQUEST, certificateRequestUuid, name);
+    }
+
+    private void deleteComplianceProfile(ComplianceProfile complianceProfile, boolean isForce) {
+        if (!isForce) {
+            List<ResourceObjectDto> associations = getExistingAssociatedObjects(complianceProfile);
+            if (!associations.isEmpty()) {
+                String associatedObjects = String
+                        .join(", ",
+                                associations
+                                        .stream()
+                                        .map(a -> "%s '%s'".formatted(a.getResource().getLabel(), a.getName()))
+                                        .toList());
+                throw new ValidationException(
+                        "Unable to delete compliance profile due to associated resource objects: " + associatedObjects);
+            }
         }
 
-        complianceProfileAssociationRepository.deleteByComplianceProfileUuid(complianceProfile.getUuid());
+        complianceProfileAssociationWriter.deleteAllOfProfile(complianceProfile.getUuid());
+        // The bulk delete leaves the loaded associations managed, still referring to the profile removed below
+        complianceProfile.getAssociations().forEach(entityManager::detach);
         attributeEngine.deleteObjectAttributeContent(Resource.COMPLIANCE_PROFILE, complianceProfile.getUuid());
 
         commentService.removeObjectComments(Resource.COMPLIANCE_PROFILE, complianceProfile.getUuid());

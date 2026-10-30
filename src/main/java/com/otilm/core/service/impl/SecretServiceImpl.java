@@ -92,6 +92,7 @@ import com.otilm.core.service.SecretExternalService;
 import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.VaultInstanceInternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -189,10 +190,17 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     private CommentInternalService commentService;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired
@@ -730,6 +738,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         secret.getGroups().clear();
         objectAssociationService.removeObjectAssociations(Resource.SECRET, secret.getUuid());
         commentService.removeObjectComments(Resource.SECRET, secret.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.SECRET, secret.getUuid());
         secretRepository.delete(secret);
         secretVersionRepository.deleteAll(secretVersions);
     }
