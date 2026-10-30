@@ -221,6 +221,7 @@ import java.util.concurrent.Future;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.bouncycastle.asn1.ASN1Primitive;
@@ -889,6 +890,7 @@ public class CertificateServiceImpl
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DELETE)
     public void deleteCertificate(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = getCertificateEntity(uuid);
+        UUID certificateRequestUuid = certificate.getCertificateRequestUuid();
         if (certificate.getUserUuid() != null) {
             certificateEventHistoryService
                     .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.DELETE,
@@ -925,6 +927,8 @@ public class CertificateServiceImpl
             certificateContentRepository.delete(content);
             certificate.setCertificateContent(null);
         }
+        complianceProfileAssociationWriter
+                .deleteAllForCertificateRequestsWithoutCertificate(Stream.ofNullable(certificateRequestUuid).toList());
     }
 
     @Override
@@ -1181,8 +1185,15 @@ public class CertificateServiceImpl
         scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
         cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
 
+        List<UUID> certificateRequestUuids = certificates
+                .stream()
+                .map(Certificate::getCertificateRequestUuid)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
+        complianceProfileAssociationWriter.deleteAllForCertificateRequestsWithoutCertificate(certificateRequestUuids);
         return certificates.size();
     }
 

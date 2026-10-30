@@ -4,14 +4,18 @@ import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -29,6 +33,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -49,6 +54,9 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
 
     @Autowired
     private CertificateRepository certificateRepository;
+
+    @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -78,7 +86,7 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
         CountDownLatch mayCommitCreate = new CountDownLatch(1);
 
         Future<ComplianceProfileAssociation> creator = executor.submit(() -> transactionTemplate.execute(status -> {
-            ComplianceProfileAssociation saved = create(profile, certificate.getUuid());
+            ComplianceProfileAssociation saved = create(profile, Resource.CERTIFICATE, certificate.getUuid());
             created.countDown();
             await(mayCommitCreate);
             return saved;
@@ -98,7 +106,7 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
 
         assertThat(creator.get(10, TimeUnit.SECONDS)).isNotNull();
         assertThat(purger.get(10, TimeUnit.SECONDS)).isEqualTo(1);
-        assertThat(hasAssociation(certificate.getUuid())).isFalse();
+        assertThat(hasAssociation(Resource.CERTIFICATE, certificate.getUuid())).isFalse();
     }
 
     @Test
@@ -121,14 +129,46 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
         assertThat(purged.await(10, TimeUnit.SECONDS)).isTrue();
 
         Future<ComplianceProfileAssociation> creator = executor
-                .submit(() -> transactionTemplate.execute(status -> create(profile, certificate.getUuid())));
+                .submit(() -> transactionTemplate
+                        .execute(status -> create(profile, Resource.CERTIFICATE, certificate.getUuid())));
 
         awaitAdvisoryLockWaiter();
         mayCommitPurge.countDown();
 
         assertThat(purger.get(10, TimeUnit.SECONDS)).isZero();
         assertThatThrownBy(() -> creator.get(10, TimeUnit.SECONDS)).hasRootCauseInstanceOf(NotFoundException.class);
-        assertThat(hasAssociation(certificate.getUuid())).isFalse();
+        assertThat(hasAssociation(Resource.CERTIFICATE, certificate.getUuid())).isFalse();
+    }
+
+    @Test
+    void requestPurgeRunningConcurrentlyWithCreateStillRemovesTheRacingAssociation() throws Exception {
+        ComplianceProfile profile = newComplianceProfile();
+        CertificateRequestEntity request = newCertificateRequest();
+        Certificate certificate = newCertificateOf(request);
+        CountDownLatch created = new CountDownLatch(1);
+        CountDownLatch mayCommitCreate = new CountDownLatch(1);
+
+        Future<ComplianceProfileAssociation> creator = executor.submit(() -> transactionTemplate.execute(status -> {
+            ComplianceProfileAssociation saved = create(profile, Resource.CERTIFICATE_REQUEST, request.getUuid());
+            created.countDown();
+            await(mayCommitCreate);
+            return saved;
+        }));
+
+        assertThat(created.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Integer> purger = executor.submit(() -> transactionTemplate.execute(status -> {
+            certificateRepository.delete(certificate);
+            return complianceProfileAssociationWriter
+                    .deleteAllForCertificateRequestsWithoutCertificate(List.of(request.getUuid()));
+        }));
+
+        awaitAdvisoryLockWaiter();
+        mayCommitCreate.countDown();
+
+        assertThat(creator.get(10, TimeUnit.SECONDS)).isNotNull();
+        assertThat(purger.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(hasAssociation(Resource.CERTIFICATE_REQUEST, request.getUuid())).isFalse();
     }
 
     private ComplianceProfile newComplianceProfile() {
@@ -145,17 +185,33 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
                         .build());
     }
 
-    private ComplianceProfileAssociation create(ComplianceProfile profile, UUID certificateUuid) {
+    private Certificate newCertificateOf(CertificateRequestEntity request) {
+        return certificateRepository
+                .saveAndFlush(aCertificate()
+                        .withSerialNumber(UUID.randomUUID().toString())
+                        .withFingerprint(UUID.randomUUID().toString())
+                        .withCertificateRequest(request)
+                        .withCertificateRequestUuid(request.getUuid())
+                        .build());
+    }
+
+    private CertificateRequestEntity newCertificateRequest() {
+        String content = Base64
+                .getEncoder()
+                .encodeToString(UUID.randomUUID().toString().getBytes(StandardCharsets.UTF_8));
+        return certificateRequestRepository.saveAndFlush(aCertificateRequest().withContent(content).build());
+    }
+
+    private ComplianceProfileAssociation create(ComplianceProfile profile, Resource resource, UUID objectUuid) {
         try {
-            return complianceProfileAssociationWriter.create(profile.getUuid(), Resource.CERTIFICATE, certificateUuid);
+            return complianceProfileAssociationWriter.create(profile.getUuid(), resource, objectUuid);
         } catch (NotFoundException | AlreadyExistException e) {
             throw new IllegalStateException(e);
         }
     }
 
-    private boolean hasAssociation(UUID certificateUuid) {
-        return complianceProfileAssociationRepository
-                .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE, List.of(certificateUuid));
+    private boolean hasAssociation(Resource resource, UUID objectUuid) {
+        return complianceProfileAssociationRepository.existsByResourceAndObjectUuidIn(resource, List.of(objectUuid));
     }
 
     /**
