@@ -42,6 +42,7 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.compliance.BaseComplianceTest;
 import com.otilm.core.util.builders.CertificateBuilder;
 import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
@@ -56,10 +57,13 @@ import java.util.UUID;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 
 class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
 
@@ -747,6 +751,36 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
                         () -> complianceProfileService
                                 .associateComplianceProfile(profileUuid, Resource.CERTIFICATE_REQUEST,
                                         requestWithoutCertificateUuid));
+    }
+
+    @Test
+    void getAssociations_isRefusedWithoutDetailOnTheKeyOfAnAssociatedKeyItem() {
+        associate(complianceProfile, Resource.CRYPTOGRAPHIC_KEY_ITEM, newKeyItem("hiddenKeyItem").getUuid());
+        denyAccessTo(Resource.CRYPTOGRAPHIC_KEY);
+        SecuredUUID profileUuid = complianceProfile.getSecuredUuid();
+
+        Assertions
+                .assertThrows(AccessDeniedException.class, () -> complianceProfileService.getAssociations(profileUuid));
+    }
+
+    @Test
+    void getAssociations_isRefusedWithoutDetailOnTheCertificateOfAnAssociatedCertificateRequest() {
+        associate(complianceProfile, Resource.CERTIFICATE_REQUEST,
+                newCertificateRequestOfACertificate("CN=hiddenRequest").getUuid());
+        denyAccessTo(Resource.CERTIFICATE);
+        SecuredUUID profileUuid = complianceProfile.getSecuredUuid();
+
+        Assertions
+                .assertThrows(AccessDeniedException.class, () -> complianceProfileService.getAssociations(profileUuid));
+    }
+
+    private void denyAccessTo(Resource resource) {
+        when(opaClient
+                .checkResourceAccess(any(),
+                        argThat(requested -> requested != null && requested.getProperties() != null
+                                && resource.getCode().equals(requested.getProperties().get("name"))),
+                        any(), any()))
+                .thenReturn(OpaResourceAccessResult.unauthorized());
     }
 
     private CryptographicKeyItem newKeyItem(String name) {
