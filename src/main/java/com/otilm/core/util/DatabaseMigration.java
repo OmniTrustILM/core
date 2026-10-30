@@ -78,7 +78,7 @@ public class DatabaseMigration {
         V202608311000__GrantRaProfileMembersToAttributeContentResolver(-2072942854),
         V202609101100__GrantSecretContentToAcme(1954353889),
         V202610181200__RepairDateAttributeContent(-875815430),
-        V202610301000__SplitSharedCertificateRequests(468525832);
+        V202610301000__SplitSharedCertificateRequests(-1406281111);
 
         private final int checksum;
 

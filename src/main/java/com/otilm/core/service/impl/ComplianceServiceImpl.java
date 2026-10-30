@@ -553,9 +553,9 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
     }
 
     /**
-     * Collects the compliance profiles that apply to the objects through their RA, token or vault profile. A subject
-     * none applies to is collected into {@code subjectsWithoutProfile}, unless a profile is associated with the subject
-     * itself.
+     * Collects the compliance profiles that apply to the objects through their RA, token or vault profile. A
+     * certificate, request, key item or secret none applies to is collected into {@code subjectsWithoutProfile}, unless
+     * a profile is associated with the subject itself; checking an RA, token or vault profile collects none.
      */
     private void loadComplianceProfilesFromComplianceSubjects(Resource resource, List<UUID> objectUuids,
             Map<UUID, ComplianceProfile> complianceProfilesMap,

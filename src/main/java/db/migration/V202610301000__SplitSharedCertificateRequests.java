@@ -22,12 +22,14 @@ import java.util.stream.Collectors;
  * <p>
  * The oldest certificate keeps the row, and every other certificate gets a copy of it. A copy keeps every column of the
  * row, the stored compliance result included: the row does not record which certificate that result was computed for,
- * so each certificate shows what it showed before, and a certificate not yet issued is checked again before it is. The
- * attribute values submitted with the request are mapped to each copy as well. Compliance profile associations name the
- * request itself, so they stay with the row the oldest certificate keeps.
+ * so each certificate shows what it showed before until it is checked again. The result gates nothing any more: a
+ * request is checked for issuance only when it is submitted. The attribute values submitted with the request are mapped
+ * to each copy as well. Compliance profile associations name the request itself, so they stay with the row the oldest
+ * certificate keeps.
  * <p>
  * The columns are read from the catalog, so a copy carries every column the table has when this runs. A certificate
- * the previous release points at a shared row while this runs, during a rolling update, keeps sharing it.
+ * the previous release points at a stored request, while this runs or after it during a rolling update, shares that
+ * request from then on.
  */
 // Flyway requires the V<timestamp>__Name class name to resolve the migration version; it cannot match S101's
 // class-name pattern.
