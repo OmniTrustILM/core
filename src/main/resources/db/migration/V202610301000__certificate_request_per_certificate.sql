@@ -1,14 +1,15 @@
--- Gives every certificate a request of its own. Earlier releases shared one row among all certificates submitted with
--- an identical CSR, so its compliance result, written by whichever RA profile checked it last, gated all of them.
---
--- The oldest certificate keeps the row; every other one gets a copy with all its columns (read from the catalog) and
--- attribute values. Copies keep the stored compliance result, as the row does not record whose it is; it gates
--- nothing now, since a request is checked only when it is submitted. Compliance profile associations stay on the row.
---
--- The previous release keeps running during a rolling update. A certificate it repoints while this runs is left as it
--- is, and the copy made for it is dropped by the sweep that follows. One it points at a stored request afterwards
--- keeps sharing that request.
+-- Gives every certificate its own certificate request and drops requests no certificate refers to.
 
+-- Certificates are looked up by their request on delete and when a request's compliance result is authorized; the
+-- index skips uploaded and discovered certificates, which have no request.
+--
+-- CREATE INDEX blocks writes to certificate; Flyway's transaction rules out CONCURRENTLY. The lock lasts until
+-- commit, so the previous release cannot repoint a certificate during the split below.
+CREATE INDEX IF NOT EXISTS "idx_certificate_certificate_request_uuid" ON "certificate" ("certificate_request_uuid")
+    WHERE "certificate_request_uuid" IS NOT NULL;
+
+-- The oldest certificate keeps a shared row; each other one gets a copy of all its columns (read from the catalog) and
+-- attribute values, compliance result included, as the row does not record whose it is. Associations stay on the row.
 CREATE TEMP TABLE "certificate_request_split" ON COMMIT DROP AS
 SELECT "ranked"."uuid" AS "certificate_uuid", "ranked"."certificate_request_uuid" AS "request_uuid",
        gen_random_uuid() AS "copy_uuid"
@@ -57,3 +58,14 @@ UPDATE "certificate"
   FROM "certificate_request_split" AS "split"
  WHERE "certificate"."uuid" = "split"."certificate_uuid"
    AND "certificate"."certificate_request_uuid" = "split"."request_uuid";
+
+DELETE FROM "compliance_profile_association" AS "association"
+ WHERE "association"."resource" = 'CERTIFICATE_REQUEST'
+   AND NOT EXISTS (SELECT 1 FROM "certificate" WHERE "certificate"."certificate_request_uuid" = "association"."object_uuid");
+
+DELETE FROM "attribute_content_2_object" AS "mapping"
+ WHERE "mapping"."object_type" = 'CERTIFICATE_REQUEST'
+   AND NOT EXISTS (SELECT 1 FROM "certificate" WHERE "certificate"."certificate_request_uuid" = "mapping"."object_uuid");
+
+DELETE FROM "certificate_request" AS "request"
+ WHERE NOT EXISTS (SELECT 1 FROM "certificate" WHERE "certificate"."certificate_request_uuid" = "request"."uuid");

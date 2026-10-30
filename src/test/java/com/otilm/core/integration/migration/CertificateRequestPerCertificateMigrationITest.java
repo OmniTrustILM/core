@@ -21,13 +21,13 @@ import org.springframework.core.io.ClassPathResource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Runs {@code V202610301000__split_shared_certificate_requests.sql} in a scratch schema, in one transaction as Flyway
+ * Runs {@code V202610301000__certificate_request_per_certificate.sql} in a scratch schema, in one transaction as Flyway
  * does.
  */
-class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
+class CertificateRequestPerCertificateMigrationITest extends BaseSpringBootTest {
 
-    private static final String MIGRATION_RESOURCE = "db/migration/V202610301000__split_shared_certificate_requests.sql";
-    private static final String SCRATCH_SCHEMA = "split_shared_certificate_requests_migration_check";
+    private static final String MIGRATION_RESOURCE = "db/migration/V202610301000__certificate_request_per_certificate.sql";
+    private static final String SCRATCH_SCHEMA = "certificate_request_per_certificate_migration_check";
     private static final String SHARED_REQUEST = "10000000-0000-0000-0000-000000000001";
     private static final String OWN_REQUEST = "10000000-0000-0000-0000-000000000002";
     private static final String OLDEST = "20000000-0000-0000-0000-000000000001";
@@ -36,6 +36,8 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
     private static final String ALONE = "20000000-0000-0000-0000-000000000004";
     private static final String WITHOUT_REQUEST = "20000000-0000-0000-0000-000000000005";
     private static final String ATTRIBUTE_ITEM = "30000000-0000-0000-0000-000000000001";
+    private static final String UNREFERENCED_REQUEST = "10000000-0000-0000-0000-000000000003";
+    private static final String OTHER_OBJECT = "40000000-0000-0000-0000-000000000001";
 
     @Autowired
     private DataSource dataSource;
@@ -94,10 +96,10 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
 
     /**
      * A rejected approval on the previous release, still running during a rolling update, detaches a placeholder's
-     * request while the split runs.
+     * request while the migration starts.
      */
     @Test
-    void aCertificateDetachedWhileTheSplitRunsStaysDetached() throws Exception {
+    void aCertificateDetachedDuringTheUpgradeStaysDetached() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (Connection connection = dataSource.getConnection();
                 Connection previousRelease = dataSource.getConnection()) {
@@ -117,12 +119,14 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
                     runMigration(connection);
                     return null;
                 });
-                awaitRowLockWaiter();
+                awaitLockWaiter();
                 previousRelease.commit();
                 split.get(10, TimeUnit.SECONDS);
 
                 assertThat(requestOf(statement, SECOND)).isNull();
                 assertThat(requestOf(statement, OLDEST)).isEqualTo(SHARED_REQUEST);
+                assertThat(column(statement, "SELECT uuid::text FROM certificate_request"))
+                        .containsExactly(SHARED_REQUEST);
             } finally {
                 previousRelease.rollback();
                 previousRelease.setAutoCommit(true);
@@ -133,6 +137,42 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
             }
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void requestsNoCertificateRefersToAreDropped() throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try (Statement statement = connection.createStatement()) {
+                createScratchSchema(statement);
+                insertRequest(statement, OWN_REQUEST, "CN=own", "OK");
+                insertRequest(statement, UNREFERENCED_REQUEST, "CN=unreferenced", "NOK");
+                insertCertificate(statement, ALONE, OWN_REQUEST, "2026-01-01");
+                insertCertificate(statement, WITHOUT_REQUEST, null, "2026-01-01");
+                for (String objectUuid : List.of(OWN_REQUEST, UNREFERENCED_REQUEST)) {
+                    insertMapping(statement, "CERTIFICATE_REQUEST", objectUuid);
+                    insertAssociation(statement, "CERTIFICATE_REQUEST", objectUuid);
+                }
+                insertMapping(statement, "CERTIFICATE", OTHER_OBJECT);
+                insertAssociation(statement, "RA_PROFILE", OTHER_OBJECT);
+
+                for (int run = 0; run < 2; run++) {
+                    runMigration(connection);
+
+                    assertThat(column(statement, "SELECT uuid::text FROM certificate_request"))
+                            .containsExactly(OWN_REQUEST);
+                    assertThat(column(statement, "SELECT object_uuid::text FROM attribute_content_2_object"))
+                            .containsExactlyInAnyOrder(OWN_REQUEST, OTHER_OBJECT);
+                    assertThat(column(statement, "SELECT object_uuid::text FROM compliance_profile_association"))
+                            .containsExactlyInAnyOrder(OWN_REQUEST, OTHER_OBJECT);
+                    assertThat(column(statement,
+                            "SELECT indexname FROM pg_indexes WHERE schemaname = '" + SCRATCH_SCHEMA
+                                    + "' AND tablename = 'certificate' AND indexname <> 'certificate_pkey'"))
+                            .containsExactly("idx_certificate_certificate_request_uuid");
+                }
+            } finally {
+                dropScratchSchema(connection);
+            }
         }
     }
 
@@ -200,8 +240,8 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
         }
     }
 
-    /** The split's UPDATE must be waiting on the row the other transaction holds before that one commits. */
-    private void awaitRowLockWaiter() {
+    /** The migration must be waiting on the other transaction before that one commits. */
+    private void awaitLockWaiter() {
         Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> {
             try (Connection observer = dataSource.getConnection();
                     Statement statement = observer.createStatement();
@@ -224,6 +264,18 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
         statement
                 .execute("INSERT INTO certificate VALUES ('" + uuid + "', '" + created + "', "
                         + (requestUuid == null ? "NULL" : "'" + requestUuid + "'") + ")");
+    }
+
+    private static void insertMapping(Statement statement, String objectType, String objectUuid) throws Exception {
+        statement
+                .execute("INSERT INTO attribute_content_2_object VALUES (gen_random_uuid(), gen_random_uuid(), '"
+                        + objectType + "', '" + objectUuid + "', 0)");
+    }
+
+    private static void insertAssociation(Statement statement, String resource, String objectUuid) throws Exception {
+        statement
+                .execute("INSERT INTO compliance_profile_association VALUES (gen_random_uuid(), gen_random_uuid(), '"
+                        + resource + "', '" + objectUuid + "')");
     }
 
     private static String describeRequest(String requestUuid) {
