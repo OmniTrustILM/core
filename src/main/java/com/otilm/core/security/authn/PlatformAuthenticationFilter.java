@@ -1,0 +1,170 @@
+package com.otilm.core.security.authn;
+
+import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.core.logging.LoggingHelper;
+import com.otilm.core.security.authn.client.AuthenticationInfo;
+import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
+import com.otilm.core.util.AuthHelper;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.security.NoSuchAlgorithmException;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.lang.NonNull;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+public class PlatformAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(PlatformAuthenticationFilter.class);
+
+    private final String certificateHeaderName;
+    private final PlatformAuthenticationClient authClient;
+
+    private final String context;
+
+    public PlatformAuthenticationFilter(PlatformAuthenticationClient authClient, final String certificateHeaderName,
+            final String context) {
+        this.authClient = authClient;
+        this.context = context;
+        this.certificateHeaderName = certificateHeaderName;
+    }
+
+    @Override
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain) throws ServletException, IOException {
+        if (isAuthenticationNeeded(request)) {
+            log.trace("Going to authenticate the '{}' request on '{}'.", request.getMethod(), request.getRequestURI());
+
+            String rawCertHeader = request.getHeader(certificateHeaderName);
+            try {
+                AuthenticationInfo authInfo;
+                if (rawCertHeader != null) {
+                    authInfo = authenticateByCertificate(request);
+                } else {
+                    authInfo = authClient.authenticate(AuthMethod.NONE, null, isLocalhostAddress(request));
+                }
+
+                if (rawCertHeader != null && authInfo.isAnonymous()) {
+                    log
+                            .warn("Certificate authentication request for '{}' rejected: certificate was not authenticated.",
+                                    request.getRequestURI());
+                    rejectCertificate(response);
+                    return;
+                }
+
+                Authentication authentication;
+                if (authInfo.isAnonymous()) {
+                    authentication = new PlatformAnonymousToken(UUID.randomUUID().toString(),
+                            new PlatformUserDetails(authInfo), authInfo.getAuthorities());
+                } else {
+                    authentication = new PlatformAuthenticationToken(new PlatformUserDetails(authInfo));
+                }
+
+                updateSecurityContext(authentication);
+
+            } catch (AuthenticationException e) {
+                SecurityContextHolder.clearContext();
+                if (rawCertHeader != null) {
+                    log
+                            .warn("Certificate authentication request for '{}' failed: {}", request.getRequestURI(),
+                                    PlatformAuthenticationClient.certificateFailureReason(e));
+                    rejectCertificate(response);
+                    return;
+                }
+                if (e instanceof PlatformAuthenticationException) {
+                    log.warn("Authentication request for '{}' failed: {}", request.getRequestURI(), e.getMessage());
+                } else {
+                    throw e;
+                }
+            }
+        }
+        filterChain.doFilter(request, response);
+    }
+
+    private static void rejectCertificate(HttpServletResponse response) throws IOException {
+        SecurityContextHolder.clearContext();
+        LoggingHelper.clearActorInfo();
+        response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    private static void updateSecurityContext(Authentication authentication) {
+        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
+        securityContext.setAuthentication(authentication);
+        SecurityContextHolder.setContext(securityContext);
+        PlatformUserDetails userDetails = (PlatformUserDetails) authentication.getPrincipal();
+        if (userDetails.getAuthMethod() == AuthMethod.CERTIFICATE) {
+            log
+                    .debug("User with username '{}' has been successfully authenticated with certificate.",
+                            userDetails.getUsername());
+        } else {
+            log.debug("User has not been identified, using anonymous user.");
+        }
+    }
+
+    private AuthenticationInfo authenticateByCertificate(HttpServletRequest request) {
+        AuthenticationInfo authInfo;
+        try {
+            var certificate = ForwardedClientCertificateParser.parse(request, certificateHeaderName);
+            authInfo = authClient.authenticateByCertificate(certificate);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm not available", e);
+        } catch (IllegalArgumentException e) {
+            throw new PlatformAuthenticationException("Invalid certificate header.", e);
+        }
+        return authInfo;
+    }
+
+    private boolean isAuthenticationNeeded(final HttpServletRequest request) {
+        SecurityContext securityContext = SecurityContextHolder.getContext();
+
+        if (AuthHelper.permitAllEndpointInRequest(request.getRequestURI(), request.getMethod(), context)
+                || (AuthHelper.oauth2EndpointInRequest(request.getRequestURI(), context)
+                        && securityContext.getAuthentication() == null)) {
+            log.trace("Endpoint {} does not need authentication, using anonymous user.", request.getRequestURI());
+            AuthenticationInfo authenticationInfo = AuthenticationInfo.getAnonymousAuthenticationInfo();
+            PlatformAnonymousToken authentication = new PlatformAnonymousToken(UUID.randomUUID().toString(),
+                    new PlatformUserDetails(authenticationInfo), authenticationInfo.getAuthorities());
+            authentication.setAccessingPermitAllEndpoint(true);
+            SecurityContext emptyContext = SecurityContextHolder.createEmptyContext();
+            emptyContext.setAuthentication(authentication);
+            SecurityContextHolder.setContext(emptyContext);
+            return false;
+        }
+
+        // User is already authenticated and is not anonymous user
+        if (securityContext != null && securityContext.getAuthentication() != null
+                && securityContext.getAuthentication().isAuthenticated()) {
+            log
+                    .trace("The user {} is already authenticated. Will not re-authenticate.",
+                            securityContext.getAuthentication().getName());
+            return false;
+        }
+
+        // If there is no token header, user will need to be authenticated in this filter
+        return request.getHeader("Authorization") == null || request.getHeader(certificateHeaderName) != null;
+
+    }
+
+    private boolean isLocalhostAddress(HttpServletRequest request) {
+        boolean isLocalhostAddress;
+        String ipAddress = AuthHelper.getClientIPAddress(request);
+        try {
+            InetAddress address = InetAddress.getByName(ipAddress);
+            isLocalhostAddress = address.isAnyLocalAddress() || address.isLoopbackAddress();
+        } catch (UnknownHostException ignored) {
+            isLocalhostAddress = false;
+        }
+        return isLocalhostAddress;
+    }
+
+}

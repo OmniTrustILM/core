@@ -1,0 +1,216 @@
+package com.otilm.core.service.handler.key;
+
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.EncryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.core.secret.Passphrase;
+import com.otilm.core.key.normalization.NormalizedKey;
+import com.otilm.core.model.crypto.CryptographicKeyFullModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.KeyImportAttempt;
+import com.otilm.core.model.crypto.KeyImportTerms;
+import com.otilm.core.model.crypto.ProviderKeyItem;
+import com.otilm.core.model.crypto.ProviderKeyPairPage;
+import com.otilm.core.model.crypto.ProviderKeyPairResolution;
+import com.otilm.core.model.crypto.RemoteKeyReference;
+import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * Version boundary for synchronous key management. Persistence and authorization belong to Core services.
+ */
+public interface KeyProviderAdapter {
+
+    /**
+     * Lists provider items with their association identifiers for grouping by Core.
+     */
+    List<ProviderKeyItem> listKeys(TokenInstanceBasicModel tokenInstance) throws ConnectorException;
+
+    /**
+     * Destroys a remote key synchronously using its provider-owned reference.
+     *
+     * @param cryptographicKey key context for the operation
+     * @param reference remote UUID for v1, or the key item's stored metadata handle for v2
+     * @throws ConnectorException if destruction fails or synchronous completion is not confirmed
+     * @throws IllegalArgumentException if the reference is missing or incompatible with the adapter
+     */
+    void destroyKeyItem(CryptographicKeyFullModel cryptographicKey, RemoteKeyReference reference)
+            throws ConnectorException;
+
+    /**
+     * Creates a secret key or key pair and returns its items for persistence by Core.
+     *
+     * @param exportable whether the key may later be exported; only the v2 contract carries it, and the caller has
+     * already refused the request when a connector without {@code KEY_EXPORT} was asked for an exportable key
+     */
+    List<ProviderKeyItem> createKey(TokenProfileFullModel tokenProfile, KeyRequestType type,
+            List<RequestAttribute> attributes, String keyName, boolean exportable) throws ConnectorException;
+
+    /** The key types the connector exports from the token profile, with the algorithms it accepts for each. */
+    List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
+
+    /** The key types the connector imports into the token profile, with the algorithms it accepts for each. */
+    List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile) throws ConnectorException;
+
+    /**
+     * One page of the key pairs the token holds, whoever created them.
+     *
+     * @throws ConnectorException if the connector fails or its page breaks the contract
+     */
+    ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit)
+            throws ConnectorException;
+
+    /** The token's answer for each key pair handle, one per handle, in handle order. */
+    List<ProviderKeyPairResolution> resolveKeyPairs(TokenProfileFullModel tokenProfile,
+            List<List<MetadataAttribute>> keyPairMetas) throws ConnectorException;
+
+    /** Lists the attribute schema for creating a secret key or key pair. */
+    List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
+            throws ConnectorException;
+
+    /** Lists the attribute schema for importing a key of the type into the token profile. */
+    List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
+            throws ConnectorException;
+
+    /** Translates a JCA signature algorithm into this provider version's operation attributes. */
+    List<RequestAttribute> signatureAttributesFor(String algorithm);
+
+    /** Constructs this provider version's cipher selection locally; execution validates it against the key's schema. */
+    List<RequestAttribute> cipherAttributesFor(String cipherAlgorithm);
+
+    boolean areSignatureAttributesSupportedByKey(CryptographicKeyItemOperationModel keyItem,
+            List<RequestAttribute> signatureAttributes) throws ConnectorException, NotFoundException;
+
+    /**
+     * Checks algorithm support and returns the signing definitions. Providers with a connector-owned schema override
+     * this method to reuse one response for both operations. Other attribute validation remains the caller's task.
+     */
+    default List<BaseAttribute> listValidatedSignAttributes(CryptographicKeyItemOperationModel keyItem,
+            List<RequestAttribute> signatureAttributes) throws ConnectorException, NotFoundException {
+        Objects.requireNonNull(keyItem, "keyItem must not be null");
+        Objects.requireNonNull(signatureAttributes, "signatureAttributes must not be null");
+        if (!areSignatureAttributesSupportedByKey(keyItem, signatureAttributes)) {
+            throw new ValidationException(
+                    "The signature attribute values or their combination are not supported by the key.");
+        }
+        return listSignAttributes(keyItem);
+    }
+
+    EncryptDataResponseDto encryptData(CryptographicKeyItemOperationModel keyItem, CipherDataRequestDto request)
+            throws ConnectorException, NotFoundException;
+
+    DecryptDataResponseDto decryptData(CryptographicKeyItemOperationModel keyItem, CipherDataRequestDto request)
+            throws ConnectorException, NotFoundException;
+
+    SignDataResponseDto signData(CryptographicKeyItemOperationModel keyItem, SignDataRequestDto request)
+            throws ConnectorException, NotFoundException;
+
+    /**
+     * The signature algorithm the signing attributes select, read from the selection itself so it is known before
+     * anything is signed.
+     *
+     * @param privateKeyItem the signing key item
+     * @param publicKeyItem the matching public key item, which carries the parameter set of a PQC key
+     * @param signatureAttributes the attributes the caller intends to sign with
+     * @throws ValidationException when the signing attributes select no algorithm the key can sign with
+     */
+    ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes);
+
+    VerifyDataResponseDto verifyData(CryptographicKeyItemOperationModel keyItem, VerifyDataRequestDto request)
+            throws ConnectorException, NotFoundException;
+
+    List<BaseAttribute> listEncryptAttributes(CryptographicKeyItemOperationModel keyItem)
+            throws ConnectorException, NotFoundException;
+
+    List<BaseAttribute> listDecryptAttributes(CryptographicKeyItemOperationModel keyItem)
+            throws ConnectorException, NotFoundException;
+
+    List<BaseAttribute> listSignAttributes(CryptographicKeyItemOperationModel keyItem)
+            throws ConnectorException, NotFoundException;
+
+    List<BaseAttribute> listVerifyAttributes(CryptographicKeyItemOperationModel keyItem)
+            throws ConnectorException, NotFoundException;
+
+    /** Lists the attribute schema for exporting the key item. */
+    List<BaseAttribute> listExportKeyAttributes(CryptographicKeyItemOperationModel keyItem)
+            throws ConnectorException, NotFoundException;
+
+    /**
+     * Exports the key item as a DER-encoded PKCS#8 EncryptedPrivateKeyInfo protected under the passphrase, refusing an
+     * answer that describes a key other than the one the platform holds. A failed export is reported in the platform's
+     * words only, never the connector's.
+     *
+     * @param heldKey what the platform holds about the key, to check the answer against
+     * @param attributes the export attributes the caller stated, validated against the connector's export schema
+     * @throws ConnectorException if the connector fails to export the key, or exports something else
+     * @throws ValidationException if the attributes do not follow the schema, or the connector refuses the export
+     */
+    byte[] exportKey(CryptographicKeyItemOperationModel keyItem, HeldKey heldKey, Passphrase passphrase,
+            List<RequestAttribute> attributes) throws ConnectorException, NotFoundException;
+
+    /**
+     * Asks the connector to import the normalized key under the attempt's import identifier and key reference,
+     * asynchronously where the connector declares it. The answer is checked to echo no secret the request carried.
+     *
+     * @param keyName the name the key's items are registered under
+     * @return the imported key, or the handle of an import the connector runs asynchronously
+     * @throws ValidationException naming the connector's error code when it refuses the import; nothing was imported
+     * @throws ConnectorException in the platform's words for any other failure; whether a key was imported is unknown
+     */
+    ImportAnswer importKey(KeyImportTerms terms, KeyImportAttempt attempt, NormalizedKey key, String keyName)
+            throws ConnectorException;
+
+    /**
+     * How the import the handle tracks stands. The answer is checked to echo no secret the import carried.
+     *
+     * @param secretDigests the digests of the secrets the import was sent with, which the answer must not carry
+     * @throws ConnectorException in the platform's words when the connector cannot say
+     */
+    ImportAnswer importKeyStatus(TokenProfileFullModel tokenProfile, List<MetadataAttribute> operationMeta,
+            List<String> secretDigests, String keyName) throws ConnectorException;
+
+    /**
+     * How the connector recorded the import with the identifier; {@link ImportAnswer.NotAccepted} when it has no record
+     * of it. The answer is checked to echo no secret the import or this request carried.
+     *
+     * @param secretDigests the digests of the secrets the import was sent with, which the answer must not carry
+     * @throws ConnectorException in the platform's words when the connector cannot say
+     */
+    ImportAnswer importKeyResult(TokenProfileFullModel tokenProfile, UUID keyImportId, List<String> secretDigests,
+            String keyName) throws ConnectorException;
+
+    /**
+     * Asks the connector to abandon the import the handle tracks.
+     *
+     * @return whether the connector aborted it, which only a 204 says; {@code false} whatever else it answers,
+     * including no answer
+     */
+    boolean cancelImportKey(List<MetadataAttribute> operationMeta);
+
+    /**
+     * Destroys an item of an imported key the platform never registered, by the connector's handle for it.
+     *
+     * @throws ValidationException naming the connector's error code when it refuses; the item is still there
+     * @throws ConnectorException in the platform's words for any other outcome, an answer that the connector knows no
+     * such item included; whether the item is gone is unknown
+     * @throws IllegalArgumentException when there is no handle to destroy the item by; the connector is not asked
+     */
+    void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta)
+            throws ConnectorException;
+}

@@ -1,0 +1,194 @@
+package com.otilm.core.integration.tasks;
+
+import com.otilm.api.exception.CbomRepositoryException;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.core.api.ScheduledJobSkippedException;
+import com.otilm.core.cbom.client.CbomRepositoryNotDeployedException;
+import com.otilm.core.model.ScheduledTaskResult;
+import com.otilm.core.service.impl.CbomServiceImpl;
+import com.otilm.core.tasks.CbomReconcileTask;
+import com.otilm.core.tasks.CbomSyncTask;
+import com.otilm.core.tasks.ScheduledJobInfo;
+import com.otilm.core.util.BaseSpringBootTest;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class CbomSyncTaskITest extends BaseSpringBootTest {
+
+    @MockitoBean
+    private CbomServiceImpl cbomService;
+
+    @Autowired
+    private CbomSyncTask cbomSyncTask;
+
+    @Autowired
+    private CbomReconcileTask cbomReconcileTask;
+
+    @Test
+    void testPerformJob_Success() throws Exception {
+        ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
+        Object taskData = new Object();
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+
+        ScheduledTaskResult result = cbomSyncTask.performJob(scheduledJobInfo, taskData);
+
+        assertEquals(SchedulerJobExecutionStatus.SUCCESS, result.getStatus());
+        verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
+        verify(cbomService, times(1)).sync();
+    }
+
+    @Test
+    void testPerformJob_Failure() throws Exception {
+        ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        doThrow(new RuntimeException("Sync failed")).when(cbomService).sync();
+
+        ScheduledTaskResult result = cbomSyncTask.performJob(scheduledJobInfo, new Object());
+
+        assertEquals(SchedulerJobExecutionStatus.FAILED, result.getStatus());
+        // A bare RuntimeException is not a PlatformException, so its raw message must not reach the operator-visible
+        // result -- only the fallback text may.
+        assertTrue(result.getResultMessage().contains("unexpected error, see the Core log"));
+        assertFalse(result.getResultMessage().contains("Sync failed"));
+        verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
+        verify(cbomService, times(1)).sync();
+    }
+
+    @Test
+    void testPerformJob_Failure_PlatformExceptionMessageIsSurfaced() throws Exception {
+        ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        ProblemDetail problemDetail = ProblemDetail
+                .forStatusAndDetail(HttpStatus.BAD_GATEWAY, "CBOM Repository repeated the page cursor");
+        doThrow(new CbomRepositoryException(problemDetail)).when(cbomService).sync();
+
+        ScheduledTaskResult result = cbomSyncTask.performJob(scheduledJobInfo, new Object());
+
+        assertEquals(SchedulerJobExecutionStatus.FAILED, result.getStatus());
+        // CbomRepositoryException is a PlatformException with a Core-shaped message, so it is surfaced verbatim.
+        assertTrue(result.getResultMessage().contains("CBOM Repository repeated the page cursor"));
+        verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
+        verify(cbomService, times(1)).sync();
+    }
+
+    @Test
+    void testPerformJob_Skip() throws Exception {
+        ScheduledJobInfo scheduledJobInfo = new ScheduledJobInfo(CbomSyncTask.NAME);
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
+
+        Object triggerObject = new Object();
+        ScheduledJobSkippedException skipped = assertThrows(ScheduledJobSkippedException.class,
+                () -> cbomSyncTask.performJob(scheduledJobInfo, triggerObject));
+        assertEquals("No CBOM repository client is configured", skipped.getReason());
+
+        verify(cbomService, times(1)).isCbomRepositoryClientConfigured();
+        verify(cbomService, times(0)).sync();
+    }
+
+    @Test
+    void testGetDefaultJobName() {
+        assertEquals(CbomSyncTask.NAME, cbomSyncTask.getDefaultJobName());
+    }
+
+    @Test
+    void testGetDefaultCronExpression() {
+        assertEquals("0 0 * ? * *", cbomSyncTask.getDefaultCronExpression());
+    }
+
+    @Test
+    void testIsDefaultOneTimeJob() {
+        assertFalse(cbomSyncTask.isDefaultOneTimeJob());
+    }
+
+    @Test
+    void testGetJobClassName() {
+        assertEquals(CbomSyncTask.class.getName(), cbomSyncTask.getJobClassName());
+    }
+
+    /** The weekly pass runs the reconciliation, never the hourly window, and reports it as its own job. */
+    @Test
+    void theReconcileTaskRunsTheWholeListingPass() throws Exception {
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+
+        ScheduledTaskResult result = cbomReconcileTask
+                .performJob(new ScheduledJobInfo(CbomReconcileTask.NAME), new Object());
+
+        assertEquals(SchedulerJobExecutionStatus.SUCCESS, result.getStatus());
+        verify(cbomService, times(1)).reconcile();
+        verify(cbomService, times(0)).sync();
+    }
+
+    /** The failure handling is the base class's, so it is proved once here rather than copied test for test. */
+    @Test
+    void theReconcileTaskIsSkippedWhileTheRepositoryIsNotConfigured() throws Exception {
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(false);
+
+        assertThrows(ScheduledJobSkippedException.class,
+                () -> cbomReconcileTask.performJob(new ScheduledJobInfo(CbomReconcileTask.NAME), new Object()));
+
+        verify(cbomService, times(0)).reconcile();
+    }
+
+    @Test
+    void theReconcileTaskIsWeeklyAndOffTheHourlySyncsMinute() {
+        assertEquals(CbomReconcileTask.NAME, cbomReconcileTask.getDefaultJobName());
+        assertEquals("0 30 2 ? * SUN", cbomReconcileTask.getDefaultCronExpression());
+        assertFalse(cbomReconcileTask.isDefaultOneTimeJob());
+        assertEquals(CbomReconcileTask.class.getName(), cbomReconcileTask.getJobClassName());
+    }
+
+    @Test
+    void testPerformJob_WhenSyncThrowsCbomRepositoryExceptionWith503_ThrowsScheduledJobSkippedException()
+            throws CbomRepositoryException {
+        // Arrange
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+
+        ProblemDetail problemDetail = ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+        CbomRepositoryException cbomException = new CbomRepositoryException(problemDetail);
+
+        when(cbomService.sync()).thenThrow(cbomException);
+
+        // Act & Assert
+        ScheduledJobSkippedException skipped = assertThrows(ScheduledJobSkippedException.class,
+                () -> cbomSyncTask.performJob(null, null));
+        assertEquals("The CBOM repository answered 503 Service Unavailable", skipped.getReason());
+
+        verify(cbomService).sync();
+    }
+
+    @Test
+    void aRunIsSkippedWhenNoRepositoryAnswersAtTheConfiguredUrl() throws CbomRepositoryException {
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        when(cbomService.sync()).thenThrow(new CbomRepositoryNotDeployedException());
+
+        ScheduledJobSkippedException skipped = assertThrows(ScheduledJobSkippedException.class,
+                () -> cbomSyncTask.performJob(new ScheduledJobInfo(CbomSyncTask.NAME), new Object()));
+        assertEquals("No CBOM repository answers at the configured URL", skipped.getReason());
+    }
+
+    /** Only the opening listing's 404 means "not deployed"; any other 404 is a failed run. */
+    @Test
+    void aPlain404FailsTheRun() throws CbomRepositoryException {
+        when(cbomService.isCbomRepositoryClientConfigured()).thenReturn(true);
+        when(cbomService.sync())
+                .thenThrow(new CbomRepositoryException(ProblemDetail
+                        .forStatusAndDetail(HttpStatus.NOT_FOUND, "CBOM Repository failed a page request (HTTP 404)")));
+
+        ScheduledTaskResult result = cbomSyncTask.performJob(new ScheduledJobInfo(CbomSyncTask.NAME), new Object());
+
+        assertEquals(SchedulerJobExecutionStatus.FAILED, result.getStatus());
+    }
+
+}

@@ -1,0 +1,476 @@
+package com.otilm.core.service.handler.key;
+
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v1.CryptographicOperationsSyncApiClient;
+import com.otilm.api.interfaces.client.v1.KeyManagementSyncApiClient;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.CipherRequestData;
+import com.otilm.api.model.client.cryptography.operations.CipherResponseData;
+import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.EncryptDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
+import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
+import com.otilm.api.model.client.cryptography.operations.SignatureResponseData;
+import com.otilm.api.model.client.cryptography.operations.VerificationResponseData;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.connector.cryptography.key.CreateKeyRequestDto;
+import com.otilm.api.model.connector.cryptography.key.KeyData;
+import com.otilm.api.model.connector.cryptography.key.KeyDataResponseDto;
+import com.otilm.api.model.connector.cryptography.key.KeyPairDataResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.secret.Passphrase;
+import com.otilm.core.attribute.EcdsaSignatureAttributes;
+import com.otilm.core.attribute.RsaEncryptionAttributes;
+import com.otilm.core.attribute.RsaSignatureAttributes;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.key.normalization.NormalizedKey;
+import com.otilm.core.model.crypto.CryptographicKeyFullModel;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+import com.otilm.core.model.crypto.KeyImportAttempt;
+import com.otilm.core.model.crypto.KeyImportTerms;
+import com.otilm.core.model.crypto.KeyMaterial;
+import com.otilm.core.model.crypto.ProviderKeyItem;
+import com.otilm.core.model.crypto.ProviderKeyPairPage;
+import com.otilm.core.model.crypto.ProviderKeyPairResolution;
+import com.otilm.core.model.crypto.RemoteKeyReference;
+import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.model.crypto.TransferableKeyType;
+import com.otilm.core.service.handler.LegacyOperationCodec;
+import com.otilm.core.service.handler.OperationDataItem;
+import com.otilm.core.service.handler.OperationResultItem;
+import com.otilm.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.CryptographicHelper;
+import com.otilm.core.util.CryptographyUtil;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
+
+/** Legacy cryptography-provider v1 key management. */
+@Slf4j
+public class KeyProviderV1Adapter implements KeyProviderAdapter, KeyCreationValidationCapability {
+
+    private static final String UNSUPPORTED_KEY_ALGORITHM = "Cryptographic key algorithm not supported";
+
+    private final ApiClientConnectorInfo connectorInfo;
+    private final KeyManagementSyncApiClient keyManagementSyncApiClient;
+    private final CryptographicOperationsSyncApiClient operationsApiClient;
+    private final AttributeEngine attributeEngine;
+
+    public KeyProviderV1Adapter(ConnectorApiFactory connectorApiFactory, ApiClientConnectorInfo connectorInfo,
+            AttributeEngine attributeEngine) {
+        this.connectorInfo = connectorInfo;
+        this.attributeEngine = attributeEngine;
+        this.keyManagementSyncApiClient = connectorApiFactory.getKeyManagementApiClient(connectorInfo);
+        this.operationsApiClient = connectorApiFactory.getCryptographicOperationsApiClient(connectorInfo);
+    }
+
+    @Override
+    public List<ProviderKeyItem> listKeys(TokenInstanceBasicModel tokenInstance) throws ConnectorException {
+        List<KeyDataResponseDto> keys = keyManagementSyncApiClient
+                .listKeys(connectorInfo, tokenInstance.tokenInstanceUuid());
+        return keys.stream().map(this::toCreatedKeyItem).toList();
+    }
+
+    @Override
+    public void destroyKeyItem(CryptographicKeyFullModel cryptographicKey, RemoteKeyReference reference)
+            throws ConnectorException {
+        if (!(reference instanceof RemoteKeyReference.UuidReference(UUID uuid)) || uuid == null) {
+            throw new IllegalArgumentException("V1 key destruction requires a remote key UUID.");
+        }
+        try {
+            keyManagementSyncApiClient
+                    .destroyKey(connectorInfo, cryptographicKey.tokenInstance().tokenInstanceUuid(), uuid.toString());
+        } catch (ConnectorEntityNotFoundException e) {
+            log
+                    .info("Key item '{}' was not found on the remote token; treating destruction as successful",
+                            reference.toIdentifierString());
+        } catch (ConnectorException e) {
+            if (cryptographicKey.tokenInstance().status().equals(TokenInstanceStatus.DEACTIVATED)) {
+                log
+                        .warn("Key item '{}' could not be deleted. The associated Token '{}' is DEACTIVATED.",
+                                reference.toIdentifierString(), cryptographicKey.tokenInstance().toIdentifierString());
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    @Override
+    public List<ProviderKeyItem> createKey(TokenProfileFullModel tokenProfile, KeyRequestType type,
+            List<RequestAttribute> attributes, String keyName, boolean exportable) throws ConnectorException {
+        CreateKeyRequestDto request = new CreateKeyRequestDto();
+        request.setCreateKeyAttributes(attributes);
+        request
+                .setTokenProfileAttributes(attributeEngine
+                        .getRequestObjectDataAttributesContent(ObjectAttributeContentInfo
+                                .builder(Resource.TOKEN_PROFILE, tokenProfile.uuid())
+                                .connector(tokenProfile.tokenInstance().connectorUuid())
+                                .build()));
+
+        if (type.equals(KeyRequestType.KEY_PAIR)) {
+            return createKeyPair(tokenProfile.tokenInstance().tokenInstanceUuid(), request);
+        }
+        ProviderKeyItem secretKeyItem = createSecretKey(tokenProfile.tokenInstance().tokenInstanceUuid(), request);
+        return List.of(secretKeyItem);
+    }
+
+    private List<ProviderKeyItem> createKeyPair(String tokenInstanceUuid, CreateKeyRequestDto request)
+            throws ConnectorException {
+        KeyPairDataResponseDto response = keyManagementSyncApiClient
+                .createKeyPair(connectorInfo, tokenInstanceUuid, request);
+        ProviderKeyItem publicKeyItem = toCreatedKeyItem(response.getPublicKeyData());
+        ProviderKeyItem privateKeyItem = toCreatedKeyItem(response.getPrivateKeyData());
+        log
+                .info("A key pair has been created on remote device through connector {} ({}); Private key reference: {}; Public key reference: {}",
+                        connectorInfo.getName(), connectorInfo.getUuid(),
+                        privateKeyItem.reference().toIdentifierString(),
+                        publicKeyItem.reference().toIdentifierString());
+        return List.of(publicKeyItem, privateKeyItem);
+    }
+
+    private ProviderKeyItem createSecretKey(String tokenInstanceUuid, CreateKeyRequestDto request)
+            throws ConnectorException {
+        KeyDataResponseDto response = keyManagementSyncApiClient
+                .createSecretKey(connectorInfo, tokenInstanceUuid, request);
+        ProviderKeyItem secretKeyItem = toCreatedKeyItem(response);
+        log
+                .info("A secret key has been created on remote device through connector {} ({}); Key reference: {}",
+                        connectorInfo.getName(), connectorInfo.getUuid(),
+                        secretKeyItem.reference().toIdentifierString());
+        return secretKeyItem;
+    }
+
+    private ProviderKeyItem toCreatedKeyItem(KeyDataResponseDto response) {
+        KeyData data = response.getKeyData();
+        String serializedValue = CryptographicHelper.serializeKeyValue(data.getFormat(), data.getValue());
+        KeyMaterial material = new KeyMaterial(data.getFormat(), serializedValue);
+        UUID referenceUuid = UUID.fromString(response.getUuid());
+        RemoteKeyReference reference = new RemoteKeyReference.UuidReference(referenceUuid);
+        return new ProviderKeyItem(response.getName(), data.getType(), data.getAlgorithm(), data.getLength(), reference,
+                material, data.getMetadata(), response.getAssociation());
+    }
+
+    @Override
+    public void validateCreateKeyAttributes(TokenInstanceBasicModel tokenInstance, KeyRequestType type,
+            List<RequestAttribute> attributes) throws ConnectorException {
+        if (type == KeyRequestType.KEY_PAIR) {
+            keyManagementSyncApiClient
+                    .validateCreateKeyPairAttributes(connectorInfo, tokenInstance.tokenInstanceUuid(), attributes);
+        } else {
+            keyManagementSyncApiClient
+                    .validateCreateSecretKeyAttributes(connectorInfo, tokenInstance.tokenInstanceUuid(), attributes);
+        }
+    }
+
+    /** The V1 contract has no export, so a V1 connector exports nothing. */
+    @Override
+    public List<TransferableKeyType> listExportableKeyTypes(TokenProfileFullModel tokenProfile) {
+        return List.of();
+    }
+
+    @Override
+    public ProviderKeyPairPage listKeyPairs(TokenProfileFullModel tokenProfile, int offset, int limit) {
+        throw new UnsupportedOperationException("Key pair listing is unsupported on a V1 connector");
+    }
+
+    @Override
+    public List<ProviderKeyPairResolution> resolveKeyPairs(TokenProfileFullModel tokenProfile,
+            List<List<MetadataAttribute>> keyPairMetas) {
+        throw new UnsupportedOperationException("Key pair resolution is unsupported on a V1 connector");
+    }
+
+    /** The V1 contract has no import, so a V1 connector imports nothing. */
+    @Override
+    public List<TransferableKeyType> listImportableKeyTypes(TokenProfileFullModel tokenProfile) {
+        return List.of();
+    }
+
+    @Override
+    public List<BaseAttribute> listImportKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type) {
+        return List.of();
+    }
+
+    @Override
+    public List<BaseAttribute> listExportKeyAttributes(CryptographicKeyItemOperationModel key) {
+        return List.of();
+    }
+
+    @Override
+    public byte[] exportKey(CryptographicKeyItemOperationModel key, HeldKey heldKey, Passphrase passphrase,
+            List<RequestAttribute> attributes) {
+        throw new ValidationException(
+                ValidationError.create("Key export is not part of the v1 cryptography provider contract."));
+    }
+
+    @Override
+    public ImportAnswer importKey(KeyImportTerms terms, KeyImportAttempt attempt, NormalizedKey key, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public ImportAnswer importKeyStatus(TokenProfileFullModel tokenProfile, List<MetadataAttribute> operationMeta,
+            List<String> secretDigests, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public ImportAnswer importKeyResult(TokenProfileFullModel tokenProfile, UUID keyImportId,
+            List<String> secretDigests, String keyName) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public void destroyImportedKeyItem(TokenProfileFullModel tokenProfile, List<MetadataAttribute> keyMeta) {
+        throw importNotSupported();
+    }
+
+    @Override
+    public boolean cancelImportKey(List<MetadataAttribute> operationMeta) {
+        throw importNotSupported();
+    }
+
+    private static ValidationException importNotSupported() {
+        return new ValidationException(
+                ValidationError.create("Key import is not part of the v1 cryptography provider contract."));
+    }
+
+    @Override
+    public List<BaseAttribute> listCreateKeyAttributes(TokenProfileFullModel tokenProfile, KeyRequestType type)
+            throws ConnectorException {
+
+        if (type.equals(KeyRequestType.KEY_PAIR)) {
+            return keyManagementSyncApiClient
+                    .listCreateKeyPairAttributes(connectorInfo, tokenProfile.tokenInstance().tokenInstanceUuid());
+        } else {
+            return keyManagementSyncApiClient
+                    .listCreateSecretKeyAttributes(connectorInfo, tokenProfile.tokenInstance().tokenInstanceUuid());
+        }
+    }
+
+    @Override
+    public List<RequestAttribute> signatureAttributesFor(String algorithm) {
+        return LegacyJcaAttributes.signature(algorithm);
+    }
+
+    @Override
+    public List<RequestAttribute> cipherAttributesFor(String cipherAlgorithm) {
+        return LegacyJcaAttributes.cipher(cipherAlgorithm);
+    }
+
+    @Override
+    public boolean areSignatureAttributesSupportedByKey(CryptographicKeyItemOperationModel keyItem,
+            List<RequestAttribute> signatureAttributes) {
+        return true;
+    }
+
+    @Override
+    public EncryptDataResponseDto encryptData(CryptographicKeyItemOperationModel key, CipherDataRequestDto request)
+            throws ConnectorException {
+        var connectorRequest = LegacyOperationCodec
+                .cipherRequest(cipherItems(request.getCipherData()), request.getCipherAttributes());
+        var response = operationsApiClient
+                .encryptData(connectorInfo, remoteTokenUuid(key), requireV1KeyReference(key), connectorRequest);
+        EncryptDataResponseDto result = new EncryptDataResponseDto();
+        if (response.getEncryptedData() != null) {
+            result.setEncryptedData(toCipherResponse(LegacyOperationCodec.cipherResults(response.getEncryptedData())));
+        }
+        return result;
+    }
+
+    @Override
+    public DecryptDataResponseDto decryptData(CryptographicKeyItemOperationModel key, CipherDataRequestDto request)
+            throws ConnectorException {
+        var connectorRequest = LegacyOperationCodec
+                .cipherRequest(cipherItems(request.getCipherData()), request.getCipherAttributes());
+        var response = operationsApiClient
+                .decryptData(connectorInfo, remoteTokenUuid(key), requireV1KeyReference(key), connectorRequest);
+        DecryptDataResponseDto result = new DecryptDataResponseDto();
+        if (response.getDecryptedData() != null) {
+            result.setDecryptedData(toCipherResponse(LegacyOperationCodec.cipherResults(response.getDecryptedData())));
+        }
+        return result;
+    }
+
+    /**
+     * Resolves the algorithm through Core's signature registry. Unlike raw execution, RSA and ECDSA resolution requires
+     * a digest to name the algorithm.
+     */
+    @Override
+    public ResolvedSignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
+            CryptographicKeyItemOperationModel publicKeyItem, List<RequestAttribute> signatureAttributes) {
+        validateSignatureAttributes(privateKeyItem.keyAlgorithm(), signatureAttributes, true);
+        String name = CryptographyUtil
+                .resolveSignatureAlgorithmName(privateKeyItem.keyAlgorithm(), signatureAttributes,
+                        publicKeyItem.pqcParameterSpecName());
+        return new ResolvedSignatureAlgorithm(name, SignatureAlgorithm.lookupByCode(name).orElse(null));
+    }
+
+    @Override
+    public SignDataResponseDto signData(CryptographicKeyItemOperationModel key, SignDataRequestDto request)
+            throws ConnectorException {
+        validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes(), false);
+        var connectorRequest = LegacyOperationCodec
+                .signRequest(signatureItems(request.getData()), request.getSignatureAttributes());
+        var response = operationsApiClient
+                .signData(connectorInfo, remoteTokenUuid(key), requireV1KeyReference(key), connectorRequest);
+        if (response == null) {
+            throw new ConnectorException("Connector returned no signing result.", connectorInfo);
+        }
+        SignDataResponseDto result = new SignDataResponseDto();
+        if (response.getSignatures() != null) {
+            List<OperationResultItem> signatures = LegacyOperationCodec.signatureResults(response.getSignatures());
+            result.setSignatures(signatures.stream().map(item -> {
+                SignatureResponseData data = new SignatureResponseData();
+                data.setData(item.data());
+                data.setIdentifier(item.identifier());
+                data.setDetails(item.details());
+                return data;
+            }).toList());
+        }
+        return result;
+    }
+
+    @Override
+    public VerifyDataResponseDto verifyData(CryptographicKeyItemOperationModel key, VerifyDataRequestDto request)
+            throws ConnectorException {
+        validateSignatureAttributes(key.keyAlgorithm(), request.getSignatureAttributes(), false);
+        var connectorRequest = LegacyOperationCodec
+                .verifyRequest(request.getData() == null ? null : signatureItems(request.getData()),
+                        signatureItems(request.getSignatures()), request.getSignatureAttributes());
+        var response = operationsApiClient
+                .verifyData(connectorInfo, remoteTokenUuid(key), requireV1KeyReference(key), connectorRequest);
+        if (response == null) {
+            throw new ConnectorException("Connector returned no verification result.", connectorInfo);
+        }
+        VerifyDataResponseDto result = new VerifyDataResponseDto();
+        if (response.getVerifications() != null) {
+            List<OperationResultItem> verifications = LegacyOperationCodec
+                    .verificationResults(response.getVerifications());
+            result.setVerifications(verifications.stream().map(item -> {
+                VerificationResponseData data = new VerificationResponseData();
+                data.setResult(Boolean.TRUE.equals(item.result()));
+                data.setIdentifier(item.identifier());
+                data.setDetails(item.details());
+                return data;
+            }).toList());
+        }
+        return result;
+    }
+
+    @Override
+    public List<BaseAttribute> listEncryptAttributes(CryptographicKeyItemOperationModel key) {
+        return cipherAttributes(key.keyAlgorithm());
+    }
+
+    @Override
+    public List<BaseAttribute> listDecryptAttributes(CryptographicKeyItemOperationModel key) {
+        return cipherAttributes(key.keyAlgorithm());
+    }
+
+    @Override
+    public List<BaseAttribute> listSignAttributes(CryptographicKeyItemOperationModel key) {
+        return signatureAttributes(key.keyAlgorithm());
+    }
+
+    @Override
+    public List<BaseAttribute> listVerifyAttributes(CryptographicKeyItemOperationModel key) {
+        return signatureAttributes(key.keyAlgorithm());
+    }
+
+    /** Core-internal cipher schema served for legacy providers, which publish none of their own. */
+    public static List<BaseAttribute> cipherAttributes(KeyAlgorithm keyAlgorithm) {
+        if (keyAlgorithm == KeyAlgorithm.RSA) {
+            return RsaEncryptionAttributes.getRsaEncryptionAttributes();
+        }
+        throw new ValidationException(ValidationError.create(UNSUPPORTED_KEY_ALGORITHM));
+    }
+
+    /** Core-internal signature schema served for legacy providers, which publish none of their own. */
+    public static List<BaseAttribute> signatureAttributes(KeyAlgorithm keyAlgorithm) {
+        return switch (keyAlgorithm) {
+            case RSA -> RsaSignatureAttributes.getRsaSignatureAttributes();
+            case ECDSA -> EcdsaSignatureAttributes.getEcdsaSignatureAttributes();
+            case FALCON, MLDSA, SLHDSA -> List.of();
+            default -> throw new ValidationException(ValidationError.create(UNSUPPORTED_KEY_ALGORITHM));
+        };
+    }
+
+    /** Execution accepts pre-hashed input without a digest; resolving an algorithm still requires a digest. */
+    private static void validateSignatureAttributes(KeyAlgorithm keyAlgorithm, List<RequestAttribute> attributes,
+            boolean requireDigest) {
+        Objects.requireNonNull(keyAlgorithm, "keyAlgorithm must not be null");
+        List<BaseAttribute> definitions = switch (keyAlgorithm) {
+            case RSA -> RsaSignatureAttributes.getRsaSignatureAttributes();
+            case ECDSA -> EcdsaSignatureAttributes.getEcdsaSignatureAttributes();
+            case FALCON, MLDSA, SLHDSA -> // key-intrinsic algorithms carry no request attributes
+                List.of();
+            default -> throw new ValidationException(ValidationError.create(UNSUPPORTED_KEY_ALGORITHM));
+        };
+        if (definitions.isEmpty()) {
+            return;
+        }
+        if (!requireDigest) {
+            for (BaseAttribute definition : definitions) {
+                if (definition instanceof DataAttribute dataAttribute
+                        && RsaSignatureAttributes.ATTRIBUTE_DATA_SIG_DIGEST.equals(definition.getName())) {
+                    // NONEwithRSA, NONEwithRSA/PSS and NONEwithECDSA receive already-hashed data. Their requests omit
+                    // data_sigDigest because the digest algorithm is not known, so requiring it would reject these
+                    // requests before they reach the connector.
+                    dataAttribute.getProperties().setRequired(false);
+                }
+            }
+        }
+        AttributeDefinitionUtils.validateAttributes(definitions, attributes == null ? List.of() : attributes);
+    }
+
+    private static String requireV1KeyReference(CryptographicKeyItemOperationModel key) throws ConnectorException {
+        if (key.reference() instanceof RemoteKeyReference.UuidReference(UUID uuid) && uuid != null) {
+            return uuid.toString();
+        }
+        throw new ConnectorException(
+                "This cryptographic operation requires a v1 remote key UUID; metadata references are not supported.");
+    }
+
+    private static String remoteTokenUuid(CryptographicKeyItemOperationModel key) throws ConnectorException {
+        if (key.tokenInstanceUuid() == null) {
+            throw new ConnectorException("This cryptographic operation requires a v1 remote token UUID.");
+        }
+        return key.tokenInstanceUuid().toString();
+    }
+
+    private static List<OperationDataItem> cipherItems(List<CipherRequestData> items) {
+        return items.stream().map(item -> new OperationDataItem(item.getData(), item.getIdentifier())).toList();
+    }
+
+    private static List<OperationDataItem> signatureItems(List<SignatureRequestData> items) {
+        return items.stream().map(item -> new OperationDataItem(item.getData(), item.getIdentifier())).toList();
+    }
+
+    private static List<CipherResponseData> toCipherResponse(List<OperationResultItem> items) {
+        return items.stream().map(item -> {
+            CipherResponseData data = new CipherResponseData();
+            data.setData(item.data());
+            data.setIdentifier(item.identifier());
+            data.setDetails(item.details());
+            return data;
+        }).toList();
+    }
+}

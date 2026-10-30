@@ -1,0 +1,6 @@
+{
+  "fieldType" : "rdn",
+  "order" : 1,
+  "source" : "csr",
+  "rdn" : "CN"
+}

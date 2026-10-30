@@ -1,0 +1,6 @@
+{
+  "fieldType" : "san",
+  "order" : 2,
+  "source" : "csrThenPlatform",
+  "generalNameType" : "dns"
+}

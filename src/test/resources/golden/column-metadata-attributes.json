@@ -1,0 +1,18 @@
+[
+  {
+    "content" : [
+      {
+        "contentType" : "string",
+        "data" : "network-scan",
+        "reference" : "ref-source"
+      }
+    ],
+    "contentType" : "string",
+    "description" : "Where the certificate was discovered",
+    "name" : "discoverySource",
+    "properties" : null,
+    "type" : "meta",
+    "uuid" : "3a8f61d2-0000-4000-8000-000000000002",
+    "version" : 3
+  }
+]

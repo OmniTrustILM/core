@@ -1,0 +1,8 @@
+{
+  "schemaVersion" : "v3",
+  "uuid" : "2c9e5f11-0000-4000-8000-000000000002",
+  "name" : "groupAttribute",
+  "description" : "A v3 group attribute",
+  "version" : 3,
+  "type" : "group"
+}

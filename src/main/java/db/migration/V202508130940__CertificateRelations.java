@@ -2,8 +2,8 @@ package db.migration;
 
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.czertainly.core.util.CertificateUtil;
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.DatabaseMigration;
 import org.bouncycastle.asn1.x509.Extension;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;

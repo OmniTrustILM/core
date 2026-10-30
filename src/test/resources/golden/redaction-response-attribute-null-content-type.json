@@ -1,0 +1,13 @@
+{
+  "content" : [
+    {
+      "reference" : "ref-untyped",
+      "data" : "value with no declared content type"
+    }
+  ],
+  "uuid" : "7e3b1f80-0000-4000-8000-000000000001",
+  "name" : "credentialAttribute",
+  "label" : "Credential",
+  "type" : "data",
+  "version" : "v2"
+}

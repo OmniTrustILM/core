@@ -1,0 +1,6 @@
+{
+  "description" : "Alphanumeric only",
+  "errorMessage" : "Value must be alphanumeric",
+  "type" : "regExp",
+  "data" : "^[a-zA-Z0-9]+$"
+}

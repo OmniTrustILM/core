@@ -1,0 +1,17 @@
+{
+  "status" : "pending",
+  "expires" : "2026-01-15T09:30:00Z",
+  "identifiers" : [
+    {
+      "type" : "dns",
+      "value" : "host.example.com"
+    }
+  ],
+  "notBefore" : "2026-01-15T00:00:00Z",
+  "notAfter" : "2026-04-15T00:00:00Z",
+  "authorizations" : [
+    "https://acme.example/acme/authz/1"
+  ],
+  "finalize" : "https://acme.example/acme/order/1/finalize",
+  "certificate" : "https://acme.example/acme/cert/1"
+}

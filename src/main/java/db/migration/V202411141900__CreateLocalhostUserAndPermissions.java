@@ -2,9 +2,9 @@ package db.migration;
 
 import com.otilm.api.model.core.auth.*;
 import com.otilm.core.model.auth.ResourceAction;
-import com.czertainly.core.util.AuthHelper;
-import com.czertainly.core.util.DatabaseAuthMigration;
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.util.AuthHelper;
+import com.otilm.core.util.DatabaseAuthMigration;
+import com.otilm.core.util.DatabaseMigration;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 

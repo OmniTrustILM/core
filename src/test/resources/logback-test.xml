@@ -7,7 +7,7 @@
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
             <level>${CONSOLE_LOG_THRESHOLD}</level>
         </filter>
-        <!-- com.czertainly.core.tasks.ScheduledLoggingFilter removed for tests to avoid null marker issues -->
+        <!-- com.otilm.core.tasks.ScheduledLoggingFilter removed for tests to avoid null marker issues -->
         <encoder>
             <pattern>${CONSOLE_LOG_PATTERN}</pattern>
             <charset>${CONSOLE_LOG_CHARSET}</charset>
@@ -17,5 +17,5 @@
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
     </root>
-    <logger name="com.czertainly" level="INFO"/>
+    <logger name="com.otilm" level="INFO"/>
 </configuration>

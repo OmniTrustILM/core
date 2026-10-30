@@ -1,0 +1,134 @@
+name: Dispatch preview docker
+on:
+  workflow_run:
+    workflows: [ "Prepare preview" ]
+    types: [ completed ]
+
+permissions:
+  actions: write # download artifact + create workflow dispatch
+  contents: read
+  pull-requests: read # re-read the PR to confirm the preview label
+
+jobs:
+  dispatch:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download PR context artifact from upstream run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pr-context
+          path: pr_context
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # A pull_request run executes the workflow file from the PR head, so a fork
+      # authors the job that writes this artifact and controls every value in it.
+      # Only the PR number is taken from here, and the step below binds the PR it
+      # names to this run's own head before any build input is exported.
+      - name: Read the PR number from the artifact
+        id: ctx
+        run: |
+          pr_number="$(jq -r '.pr_number' pr_context/pr-context.json)"
+          if ! [[ "$pr_number" =~ ^[0-9]+$ ]]; then
+            echo "::error::pr_number in pr-context.json is not a number"
+            exit 1
+          fi
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+      # The label is the authorisation to build and publish fork-authored code
+      # with this repository's credentials, so it is confirmed against the API
+      # rather than against the artifact, which the fork wrote. Every build input
+      # is taken from the same response for the same reason.
+      - name: Resolve the PR and confirm the preview label
+        id: pr
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER)
+            });
+
+            if (pr.state !== "open") {
+              core.setFailed(`PR #${pr.number} is ${pr.state}; refusing to build a preview.`);
+              return;
+            }
+            if (!pr.labels.some(label => label.name === "preview")) {
+              core.setFailed(`PR #${pr.number} does not carry the preview label; refusing to build a preview.`);
+              return;
+            }
+            // Null once the fork is deleted, which would otherwise surface as an
+            // opaque 422 from the dispatch call below.
+            if (!pr.head.repo) {
+              core.setFailed(`PR #${pr.number} has no head repository; the fork was probably deleted.`);
+              return;
+            }
+
+            // Bind the PR to the run that asked for the build. The number came from
+            // the fork-written artifact, so without this a fork could name any
+            // labelled PR and drive its builds: the concurrency group is keyed on
+            // the PR number, so repeated dispatches would cancel that PR's own
+            // preview builds. The workflow_run payload is GitHub's, not the fork's.
+            const run = context.payload.workflow_run;
+            if (pr.head.repo.full_name !== run.head_repository.full_name ||
+                pr.head.ref !== run.head_branch) {
+              core.setFailed(
+                `PR #${pr.number} is ${pr.head.repo.full_name}@${pr.head.ref}, but this run is ` +
+                `${run.head_repository.full_name}@${run.head_branch}; refusing to build another PR.`
+              );
+              return;
+            }
+
+            // The branch moved on while this relay was in flight. The push that
+            // moved it starts its own run, so this one has nothing left to do.
+            if (pr.head.sha !== run.head_sha) {
+              core.notice(
+                `PR #${pr.number} has moved from ${run.head_sha} to ${pr.head.sha}; a newer run will build it.`
+              );
+              core.setOutput("dispatch", "false");
+              return;
+            }
+
+            core.setOutput("dispatch", "true");
+            core.setOutput("pr_number", String(pr.number));
+            core.setOutput("head_sha", pr.head.sha);
+            core.setOutput("head_repo", pr.head.repo.full_name);
+            core.setOutput("head_branch", pr.head.ref);
+            core.setOutput("base_ref", pr.base.ref);
+
+      # A branch name may legally contain a quote or a backtick, so PR-derived
+      # values reach the script through the environment. Interpolating them into
+      # the body would let a crafted name execute with this token.
+      - name: Dispatch build preview docker workflow with inputs
+        if: ${{ steps.pr.outputs.dispatch == 'true' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          HEAD_REPO: ${{ steps.pr.outputs.head_repo }}
+          HEAD_BRANCH: ${{ steps.pr.outputs.head_branch }}
+          BASE_REF: ${{ steps.pr.outputs.base_ref }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build_preview_docker.yml',
+              // The build workflow always comes from the default branch. Using the
+              // PR's base branch would run whatever branch-local copy it happens to
+              // carry, or fail outright on a release or hotfix branch that has none.
+              // base_ref stays an input, as build metadata.
+              ref: context.payload.repository.default_branch,
+              inputs: {
+                pr_number: process.env.PR_NUMBER,
+                head_sha: process.env.HEAD_SHA,
+                head_repo: process.env.HEAD_REPO,
+                head_branch: process.env.HEAD_BRANCH,
+                base_ref: process.env.BASE_REF
+              }
+            });

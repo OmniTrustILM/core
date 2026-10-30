@@ -1,0 +1,26 @@
+package com.otilm.core.dao.entity.oid;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.DiscriminatorValue;
+import jakarta.persistence.Entity;
+import java.util.ArrayList;
+import java.util.List;
+import lombok.Getter;
+import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+@Entity
+@Getter
+@Setter
+@DiscriminatorValue("RDN_ATTRIBUTE_TYPE")
+public class RdnAttributeTypeCustomOidEntry extends CustomOidEntry {
+
+    @Column(name = "code")
+    private String code;
+
+    @Column(name = "alt_codes")
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<String> altCodes = new ArrayList<>();
+
+}

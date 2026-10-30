@@ -1,0 +1,9 @@
+{
+  "reference" : "ref-file",
+  "data" : {
+    "content" : "ZmlsZS1ib2R5",
+    "fileName" : "bundle.pem",
+    "mimeType" : "application/x-pem-file"
+  },
+  "contentType" : "file"
+}

@@ -7,15 +7,235 @@ concurrency:
   group: pr-${{ github.event.pull_request.number || github.ref }}-build-pr
   cancel-in-progress: true
 
+# Read-only token. Every job checks out, resolves the parent POM and build-tools from GitHub
+# Packages, and exchanges artifacts within the run; none writes to the repository, and a
+# workflow that declares no permissions inherits whatever the repository default grants.
+permissions:
+  contents: read
+  packages: read
+
 jobs:
-  compile:
-    name: Compile
+  # A marker in the PR body redirects this build at an unmerged interfaces PR's
+  # snapshot. The pom is never touched: core dismisses approvals on push and
+  # forbids self-approval, so a revert commit would cost a second review round.
+  resolve-interfaces:
+    name: Resolve interfaces version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
+    outputs:
+      mvnarg:   ${{ steps.resolve.outputs.mvnarg }}
+      override: ${{ steps.resolve.outputs.override }}
+    steps:
+      # No checkout: nothing here reads the working tree.
+      - id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          emit() { echo "mvnarg=$1" >>"$GITHUB_OUTPUT"; echo "override=$2" >>"$GITHUB_OUTPUT"; }
+          fail() { echo "::error::$1"; exit 1; }
+
+          # merge_group carries no pull_request object. Unreachable under the
+          # current triggers; kept so adding one cannot silently resolve wrong.
+          if [ "$EVENT" != pull_request ]; then
+            echo "Not a pull_request event - using the pom value."
+            emit "" "none"; exit 0
+          fi
+
+          # Live, not github.event.pull_request.body: a re-run replays the original
+          # payload, so an edited marker would be invisible and the override could
+          # never clear without a push, which dismisses the approval.
+          if ! BODY=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/$PR" --jq '.body // ""'); then
+            fail "Could not read the body of ${GITHUB_REPOSITORY}#${PR}."
+          fi
+
+          # Fenced blocks and HTML comments go first: the regexes are line-oriented,
+          # so a body quoting the marker syntax would otherwise pin the build.
+          BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
+
+          # head -1 below would otherwise take the earlier line silently.
+          DUPD=$(printf '%s' "$BODY" | grep -ciP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' || true)
+          DUPV=$(printf '%s' "$BODY" | grep -ciP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' || true)
+          [ "${DUPD:-0}" -le 1 ] || fail "The PR body has ${DUPD} Depends-On lines. Keep exactly one."
+          [ "${DUPV:-0}" -le 1 ] || fail "The PR body has ${DUPV} Interfaces-Version lines. Keep exactly one."
+
+          NUM=$(printf '%s' "$BODY" \
+            | grep -oiP '^Depends-On:[[:space:]]*OmniTrustILM/interfaces#\K[0-9]{1,7}(?=[[:space:]]*$)' \
+            | head -1 || true)
+          VER=$(printf '%s' "$BODY" \
+            | grep -oiP '^Interfaces-Version:[[:space:]]*\K[0-9][0-9A-Za-z.\-]{0,60}(?=[[:space:]]*$)' \
+            | head -1 || true)
+          # Strict extractors, loose probes.
+          #
+          # Strict: line start, nothing after the value - `Interfaces-Version:
+          # 2.20.0; rm -rf /` is rejected, not truncated to a pin on 2.20.0.
+          #
+          # Loose: a decorated marker misses the extractor, so the probe catches it
+          # and fails loudly. The Depends-On probe closes off the repository name,
+          # so another repo's marker - or a same-prefix sibling - is ignored.
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' && [ -z "$NUM" ]; then
+            fail "A Depends-On: line for interfaces is present but not in the accepted form. It must begin the line and read: Depends-On: OmniTrustILM/interfaces#<number> - a pull-request URL is not accepted."
+          fi
+          if printf '%s' "$BODY" | grep -qiP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' && [ -z "$VER" ]; then
+            fail "An Interfaces-Version: line is present but not in the accepted form. It must begin the line and name a published version, e.g. Interfaces-Version: 2.20.0-M906-480022e4"
+          fi
+
+          # Both markers set: name the loser rather than letting it disappear.
+          if [ -n "$VER" ] && [ -n "$NUM" ]; then
+            echo "::warning::Both markers present - Interfaces-Version wins; ignoring Depends-On: OmniTrustILM/interfaces#${NUM}."
+          fi
+
+          # Reaches the build jobs through the environment, never interpolated into
+          # their run: blocks, so the value is never shell source text.
+          if [ -n "$VER" ]; then
+            echo "Explicit override: $VER"
+            emit "-Dinterfaces.version=$VER" "explicit"; exit 0
+          fi
+
+          if [ -z "$NUM" ]; then
+            emit "" "none"; exit 0
+          fi
+
+          # Captured, not tested inline: a substitution inside an `if` does not trip
+          # `set -e`, so a 404 or rate limit would read as "not merged".
+          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, .state, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
+            fail "Cannot read OmniTrustILM/interfaces#${NUM} - check that the number names an existing pull request."
+          fi
+          read -r MERGED ISTATE MSHA MAT <<<"$IPR"
+
+          if ! VERSIONS=$(gh api --paginate \
+                  "/orgs/OmniTrustILM/packages/maven/com.otilm.interfaces/versions?per_page=100" \
+                  --jq '.[] | [.created_at, .name] | @tsv'); then
+            fail "Could not list the published interfaces package versions."
+          fi
+
+          # Self-clearing: once the interfaces PR merges, the same unchanged
+          # marker stops meaning "override" and starts meaning "nothing to do".
+          if [ "$MERGED" = true ]; then
+            # Mainline SNAPSHOT carries the change only once the interfaces
+            # publish finishes. The merge commit's -M build is evidence that run
+            # reached its pin job, not that the SNAPSHOT deploy in it succeeded -
+            # that job mints the pin even when it did not.
+            if ! printf '%s\n' "$VERSIONS" | cut -f2 \
+                 | grep -qE "^[0-9][0-9A-Za-z.-]*-M[0-9]+-${MSHA:0:8}\$"; then
+              AGE=$(( $(date -u +%s) - $(date -u -d "${MAT:-@0}" +%s) ))
+              if [ "$AGE" -lt 900 ]; then
+                fail "interfaces#${NUM} merged ${AGE}s ago but its build has not published yet. Wait for it, then re-run all jobs."
+              fi
+              echo "::warning::interfaces#${NUM} merged ${AGE}s ago with no -M build; a release-cut merge produces none. Proceeding against mainline."
+            fi
+            echo "interfaces#$NUM is merged - using the mainline pom value."
+            emit "" "none"; exit 0
+          fi
+
+          # A PR closed without merging would otherwise read as "still open" and keep
+          # this build pinned to an abandoned branch; its snapshot outlives it.
+          if [ "$ISTATE" = closed ]; then
+            fail "OmniTrustILM/interfaces#${NUM} was closed without merging. Remove the Depends-On line, or repoint it at whatever superseded it."
+          fi
+
+          # Looked up, not derived from core's own property: across a release cut
+          # interfaces publishes 2.21.0-alpha-PR<n>-SNAPSHOT while this pom still
+          # reads 2.20.0.
+          #
+          # The whole name is anchored, not just the suffix - the prefix comes from
+          # the interfaces PR's own pom, so it would otherwise carry PR-controlled
+          # text into the mvn argument. Newest by created_at, not API order, which
+          # is not contractual and matters when a PR spans a release cut.
+          PRV=$(printf '%s\n' "$VERSIONS" \
+            | awk -F'\t' -v n="$NUM" '$2 ~ "^[0-9][0-9A-Za-z.-]*-alpha-PR" n "-SNAPSHOT$"' \
+            | sort -r | head -1 | cut -f2)
+
+          if [ -z "$PRV" ]; then
+            fail "No published snapshot for interfaces#${NUM}. It needs the publish-snapshot label and a finished build. Fork PRs never publish - their token is read-only."
+          fi
+
+          echo "interfaces#$NUM is open - building against $PRV"
+          emit "-Dinterfaces.version=$PRV" "pr"
+
+      # sonar.yaml is a separate workflow and cannot read job outputs; without this
+      # it analyses the compiled classes against a classpath they were not built with.
+      - name: Publish the resolved argument
+        env:
+          ARG: ${{ steps.resolve.outputs.mvnarg }}
+        run: printf '%s\n' "$ARG" > mvnarg.txt
+
+      - name: Upload the resolved interfaces argument
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: interfaces-mvnarg
+          path: mvnarg.txt
+
+      - name: Summarise
+        env:
+          MODE: ${{ steps.resolve.outputs.override }}
+          ARG: ${{ steps.resolve.outputs.mvnarg }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Interfaces resolution"
+            echo ""
+            echo "- mode: \`$MODE\`"
+            echo "- mvn arg: \`${ARG:-(none)}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Reached transitively by the required `Build` job's `needs` - "Interfaces pin"
+  # is not itself a required context, so do not drop it from that list.
+  # Red on both override modes; `pr` clears itself once the interfaces PR
+  # merges and the workflow is re-run, `explicit` only when the line is deleted.
+  pin-gate:
+    name: Interfaces pin
+    needs: resolve-interfaces
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - name: Reject an active interfaces override
+        env:
+          MODE: ${{ needs.resolve-interfaces.outputs.override }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            none) echo "No override active." ;;
+            pr)   echo "::error::Building against an unmerged interfaces PR. Merge it, wait for the publish, then re-run all jobs."; exit 1 ;;
+            explicit) echo "::error::An explicit Interfaces-Version override is active. Remove the marker from the PR body, then re-run all jobs - re-running only the failed job replays the cached resolution."; exit 1 ;;
+            *) echo "::error::Unknown resolver mode '$MODE'"; exit 1 ;;
+          esac
+
+  formatting:
+    name: Formatting and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          java-version: 21
+          distribution: 'temurin'
+          cache: maven
+
+      # Both goals are bound to verify in the parent POM, and no job here goes past package,
+      # so without this the gates would never run on a PR. Neither goal needs compiled output,
+      # so this is a fast job independent of the compile/test chain.
+      - name: Check formatting and lint
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # resolves com.otilm parent and build-tools from GitHub Packages
+        run: mvn -B -U -ntp spotless:check checkstyle:check
+
+  compile:
+    name: Compile
+    needs: resolve-interfaces
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           java-version: 21
           distribution: 'temurin'
@@ -24,129 +244,117 @@ jobs:
       - name: Compile
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -U -ntp test-compile -Dmaven.compiler.proc=full
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        # $MVNARG unquoted on purpose: empty contributes no argument.
+        run: mvn -B -U -ntp test-compile -Dmaven.compiler.proc=full $MVNARG
 
       - name: Package compiled output
         run: tar -czf compiled.tar.gz target/classes target/test-classes
 
       - name: Upload compiled output
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compiled
           path: compiled.tar.gz
           retention-days: 7
 
-  test-services:
-    name: Test (services)
-    needs: compile
+  test:
+    name: Test (${{ matrix.group }})
+    needs: [compile, resolve-interfaces]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [non-integration, integration-core, integration-service-1, integration-service-2]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           java-version: 21
           distribution: 'temurin'
           cache: maven
 
       - name: Download compiled output
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: compiled
 
       - name: Extract compiled output
         run: tar -xzf compiled.tar.gz
 
-      - name: Run service tests
+      - name: Run ${{ matrix.group }} tests
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -U -ntp test -Ptest-services -Dmaven.compiler.skip=true
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        run: mvn -B -U -ntp test -Ptest-${{ matrix.group }} -Dmaven.compiler.skip=true $MVNARG
 
       - name: Upload coverage exec
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: jacoco-exec-services
-          path: target/jacoco.exec
-          retention-days: 7
-
-  test-non-services:
-    name: Test (non-services)
-    needs: compile
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          java-version: 21
-          distribution: 'temurin'
-          cache: maven
-
-      - name: Download compiled output
-        uses: actions/download-artifact@v8
-        with:
-          name: compiled
-
-      - name: Extract compiled output
-        run: tar -xzf compiled.tar.gz
-
-      - name: Run non-service tests
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -U -ntp test -Ptest-non-services -Dmaven.compiler.skip=true
-
-      - name: Upload coverage exec
-        uses: actions/upload-artifact@v7
-        with:
-          name: jacoco-exec-non-services
+          name: jacoco-exec-${{ matrix.group }}
           path: target/jacoco.exec
           retention-days: 7
 
   package:
     name: Package
-    needs: [test-services, test-non-services]
+    needs: [test, resolve-interfaces]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           java-version: 21
           distribution: 'temurin'
           cache: maven
 
       - name: Download compiled output
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: compiled
 
       - name: Extract compiled output
         run: tar -xzf compiled.tar.gz
 
-      - name: Download service coverage exec
-        uses: actions/download-artifact@v8
+      - name: Download non-integration coverage exec
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: jacoco-exec-services
+          name: jacoco-exec-non-integration
           path: jacoco-partial/group1
 
-      - name: Download non-service coverage exec
-        uses: actions/download-artifact@v8
+      - name: Download integration-core coverage exec
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: jacoco-exec-non-services
+          name: jacoco-exec-integration-core
           path: jacoco-partial/group2
+
+      - name: Download integration-service-1 coverage exec
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: jacoco-exec-integration-service-1
+          path: jacoco-partial/group3
+
+      - name: Download integration-service-2 coverage exec
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: jacoco-exec-integration-service-2
+          path: jacoco-partial/group4
 
       - name: Rename partial exec files for merge
         run: |
-          mv jacoco-partial/group1/jacoco.exec jacoco-partial/jacoco-services.exec
-          mv jacoco-partial/group2/jacoco.exec jacoco-partial/jacoco-non-services.exec
+          mv jacoco-partial/group1/jacoco.exec jacoco-partial/jacoco-non-integration.exec
+          mv jacoco-partial/group2/jacoco.exec jacoco-partial/jacoco-integration-core.exec
+          mv jacoco-partial/group3/jacoco.exec jacoco-partial/jacoco-integration-service-1.exec
+          mv jacoco-partial/group4/jacoco.exec jacoco-partial/jacoco-integration-service-2.exec
 
       - name: Merge coverage, generate report, and package
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-        run: mvn -B -U -ntp package -DskipTests -Pmerge-coverage -Dmaven.compiler.skip=true
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        run: mvn -B -U -ntp package -DskipTests -Pmerge-coverage -Dmaven.compiler.skip=true $MVNARG
 
       # Write PR number to file
       - name: Write PR number to file
@@ -154,28 +362,143 @@ jobs:
 
       # Upload PR number artifact
       - name: Upload PR number artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pr-number
           path: pr-number.txt
 
       # Upload compiled classes
       - name: Upload Compiled Classes
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: compiled-classes
           path: target/classes
 
       # Upload Jacoco XML report(s)
       - name: Upload Coverage Reports
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-reports
           path: target/site/jacoco/jacoco.xml
 
-  build:
-    name: Build
-    needs: package
+  generated:
+    name: Generated artifacts
+    # `mvn test` runs the compile and test-compile phases, so this job builds the
+    # whole tree and needs the override as much as compile/test/package do.
+    needs: resolve-interfaces
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Build complete"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The generator is deterministic on any CPython 3.7+, so this pin is not a requirement
+      # of the script - it pins the interpreter the proof is carried out on, so a runner image
+      # bump can never quietly become the reason the bytes changed.
+      - name: Set up Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      # cbom/identity-tables.json is committed so that builds stay offline and need no Python:
+      # every developer and every release build reads the bytes straight from the repository.
+      # That is only safe while the committed bytes are provably the generator's output, which
+      # is what this step establishes. It regenerates the artifact in place from the inputs
+      # under src/main/cbom/identity and fails if a single byte moved.
+      #
+      # It catches a hand-edit to the artifact that no input justifies. The complementary
+      # failure - a legitimate input change that silently re-keys the inventory - is caught by
+      # the SHA-256 pin in IdentityTablesTest, which forces the new hash to be ratified in the
+      # same commit. Neither guard subsumes the other.
+      - name: Regenerate the CBOM identity tables
+        run: python3 scripts/cbom/build_identity_tables.py --output src/main/resources/cbom/identity-tables.json
+
+      - name: Fail if the committed tables are not the generator's output
+        run: |
+          # git status, not git diff: if the committed artifact were deleted or moved, regeneration
+          # writes an untracked file that `git diff` does not see, and the guard would pass on a
+          # tree whose committed bytes are gone.
+          if [ -n "$(git status --porcelain -- src/main/resources/cbom/identity-tables.json)" ]; then
+            git status --short -- src/main/resources/cbom/identity-tables.json
+            git diff -- src/main/resources/cbom/identity-tables.json
+            echo
+            echo "::error file=src/main/resources/cbom/identity-tables.json::The committed identity tables are not reproducible from the inputs in src/main/cbom/identity."
+            echo "The status line above names what moved, and the diff - present only when the artifact is"
+            echo "tracked and modified - is what regeneration produced minus what is committed. A deleted or"
+            echo "untracked artifact shows in the status line with no diff, which is the case git diff missed."
+            echo
+            echo "To fix, run this and commit the result:"
+            echo "  python3 scripts/cbom/build_identity_tables.py --output src/main/resources/cbom/identity-tables.json"
+            echo
+            echo "If the change is intended, it re-keys the cryptographic asset inventory: update the"
+            echo "SHA-256 pinned by IdentityTablesTest in the same commit, and re-run the identity"
+            echo "vector suite, ratifying every expectation that moves. IdentityRuleset.VERSION is a"
+            echo "separate decision: a table edit that moves no key does not bump it, and one that does"
+            echo "may skip the bump only while no environment holds a keyed row. See that class's"
+            echo "Javadoc for the exemption and IdentityRulesetStampArchTest for what ends it."
+            exit 1
+          fi
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          java-version: 21
+          distribution: 'temurin'
+          cache: maven
+
+      # cbom/corpus-keys.tsv is the second committed artifact of the identity chain: every identity key
+      # the extractor produces for the authored documents under src/test/resources/cbom/corpus. It
+      # exists because the ratified vectors are all single-component documents, so they cannot see
+      # anything DocumentScope decides - suite refutation, assetType barring, a duplicated bom-ref,
+      # a reference into a nested component - and the external corpus that can is third-party and
+      # gated behind -Dcorpus.dir, which no CI job sets. Two certificate-key collisions landed green
+      # that way. The step below keys the miniature corpus with CorpusKeySnapshotTest's own external
+      # form and fails if a single row differs from the committed pin, naming the row that moved.
+      - name: Key the miniature CBOM corpus
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # resolves com.otilm parent and build-tools from GitHub Packages
+          MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
+        run: |
+          mvn -B -U -ntp test -Dtest=CorpusKeySnapshotTest#snapshot -Dsurefire.failIfNoSpecifiedTests=false \
+            -Dcorpus.dir=src/test/resources/cbom/corpus -Dcorpus.out=target/corpus-keys.tsv $MVNARG
+
+      - name: Fail if the committed corpus keys are not the instrument's output
+        run: |
+          if ! diff -u src/test/resources/cbom/corpus-keys.tsv target/corpus-keys.tsv; then
+            echo
+            echo "::error file=src/test/resources/cbom/corpus-keys.tsv::The miniature corpus keys differently from the committed pin."
+            echo "Each '-' line above is a pinned row and the '+' line under it is what this head produces for the"
+            echo "same document and asset index: a key that moved on a document-scoped shape the ratified vectors"
+            echo "cannot see. Read it before re-pinning - the miniature corpus carries the shapes that let two"
+            echo "certificate-key collisions land green. If the move is intended, re-pin and commit:"
+            echo "  mvn -B test -Dtest=CorpusKeySnapshotTest#snapshot -Dsurefire.failIfNoSpecifiedTests=false \\"
+            echo "    -Dcorpus.dir=src/test/resources/cbom/corpus -Dcorpus.out=src/test/resources/cbom/corpus-keys.tsv"
+            exit 1
+          fi
+
+  build:
+    name: Build
+    needs: [package, formatting, generated, pin-gate]
+    # Runs when an upstream job failed or was skipped, not only when all of them succeeded. With
+    # the default condition this job is skipped whenever a dependency fails, and GitHub counts a
+    # skipped required check as passing -- so a red `generated` or `formatting` job blocked the
+    # merge only through the Sonar workflow declining to report. `!cancelled()` rather than
+    # `always()`: a run superseded through cancel-in-progress should stay cancelled, not turn red.
+    #
+    # The converse constraint, because it is not obvious and it bites in the opposite direction:
+    # `Build` is the only required Actions context on `main`, and the scan below counts a skipped
+    # dependency as a failure. So adding `paths:` or an `if:` to `generated`, `formatting`,
+    # `compile`, `test` or `package` would turn `Build` red on every PR that does not touch those
+    # paths. Wanting a path filter therefore means teaching the scan to separate `skipped` (pass)
+    # from `failure` and `cancelled` (fail), and changing the ruleset, in the same PR.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every upstream job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          not_ok=$(jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"' <<< "$NEEDS")
+          if [ -n "$not_ok" ]; then
+            echo "::error::Upstream jobs did not succeed: $(echo "$not_ok" | paste -sd ',' -)"
+            exit 1
+          fi
+          echo "Build complete"

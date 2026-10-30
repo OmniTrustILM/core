@@ -1,0 +1,7 @@
+{
+  "uuid" : "1b7c9e20-0000-4000-8000-000000000002",
+  "name" : "groupAttribute",
+  "description" : "A group attribute",
+  "version" : 2,
+  "type" : "group"
+}

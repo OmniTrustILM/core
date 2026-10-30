@@ -1,0 +1,139 @@
+name: Build Preview Docker image
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:   { description: "PR number", required: true }
+      head_sha:    { description: "Head commit SHA", required: true }
+      head_repo:   { description: "Fork repo full_name", required: true }
+      head_branch: { description: "Fork branch", required: true }
+      base_ref:    { description: "Base branch", required: true }
+
+run-name: >-
+  Docker Preview • PR #${{ inputs.pr_number }}
+  • ${{ inputs.head_repo }}@${{ inputs.head_branch }} → ${{ inputs.base_ref }}
+  • ${{ inputs.head_sha }}
+
+# Superseding an earlier run cancels it, and finalize_check closes the stale
+# commit's check as cancelled rather than leaving it at in_progress.
+concurrency:
+  group: preview-pr-${{ inputs.pr_number }}-docker
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  # A dispatched run does not attach to the PR on its own, so the build reports
+  # through a check created against the head commit.
+  create_check:
+    name: Create GitHub Check
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      check_id: ${{ steps.create_check.outputs.check_id }}
+    steps:
+      - name: Generate token
+        id: app_token
+        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
+        with:
+          app_id: ${{ secrets.SONAR_GH_APP_ID }}
+          private_key: ${{ secrets.SONAR_GH_APP_PRIVATE_KEY }}
+
+      - name: Create GitHub Check (in_progress)
+        id: create_check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+        with:
+          github-token: ${{ steps.app_token.outputs.token }}
+          script: |
+            const check = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: "Docker preview build",
+              head_sha: process.env.HEAD_SHA,
+              status: "in_progress"
+            });
+            core.setOutput("check_id", check.data.id);
+
+  build:
+    name: Build & push preview image
+    needs: [create_check]
+    permissions:
+      contents: read
+      # The Maven pre-build resolves the com.otilm parent POM from GitHub
+      # Packages, which refuses an unauthenticated read.
+      packages: read
+    # Deliberately unpinned: this is a first-party OmniTrustILM reusable workflow
+    # and edits to it are meant to reach every repo without a bump here.
+    uses: OmniTrustILM/.github/.github/workflows/containers-build-and-push.yml@main
+    secrets:
+      CONTAINER_REGISTRY_USERNAME: ${{ secrets.CONTAINER_REGISTRY_USERNAME }}
+      CONTAINER_REGISTRY_PASSWORD: ${{ secrets.CONTAINER_REGISTRY_PASSWORD }}
+    with:
+      image: ilm-preview/core
+      cache-scope: core-preview
+      pre-build: maven
+      # Pinning the commit rather than the branch keeps the published tag
+      # honest when a push lands mid-run. A fork commit resolves here because
+      # fork objects live in this repository's network.
+      ref: ${{ inputs.head_sha }}
+      # A preview is not a release: it carries no signature, and its checkout is
+      # a fork branch rather than the canonical README.
+      sign: false
+      push-readme: false
+      # Replaces the default rules, which would otherwise publish rolling
+      # develop-latest and develop-<sha> tags onto the preview path.
+      tag-rules: type=raw,value=pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+
+  finalize_check:
+    name: Finalize GitHub Check
+    runs-on: ubuntu-latest
+    needs: [create_check, build]
+    permissions: {}
+    # Keyed on the check id rather than on create_check's conclusion, which reads
+    # 'cancelled' or 'failure' in exactly the cases where a created check still
+    # needs closing. The id is recorded a round trip after the check exists, so a
+    # run cancelled inside that window strands its check on the superseded commit.
+    # The current commit always gets a fresh check either way.
+    if: ${{ always() && needs.create_check.outputs.check_id != '' }}
+    steps:
+      - name: Generate token
+        id: app_token
+        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a # v2.1.0
+        with:
+          app_id: ${{ secrets.SONAR_GH_APP_ID }}
+          private_key: ${{ secrets.SONAR_GH_APP_PRIVATE_KEY }}
+
+      - name: Report the build result on the check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CHECK_ID: ${{ needs.create_check.outputs.check_id }}
+          CREATE_RESULT: ${{ needs.create_check.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        with:
+          github-token: ${{ steps.app_token.outputs.token }}
+          script: |
+            const build = process.env.BUILD_RESULT;
+            const create = process.env.CREATE_RESULT;
+
+            // The build is skipped whenever create_check did not succeed, so the
+            // check reports that job's outcome instead. create_check can fail
+            // after emitting the check id, because the token action revokes the
+            // token in a post step.
+            let conclusion;
+            if (build === "success") {
+              conclusion = "success";
+            } else if (build === "cancelled" || create === "cancelled") {
+              conclusion = "cancelled";
+            } else {
+              conclusion = "failure";
+            }
+
+            await github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: Number(process.env.CHECK_ID),
+              status: "completed",
+              conclusion
+            });

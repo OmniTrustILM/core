@@ -1,0 +1,618 @@
+package com.otilm.core.cbom.asset.identity;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.core.cbom.asset.OccurrenceEvidenceCapper;
+import com.otilm.core.model.cbom.CbomHeaderCounts;
+import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
+import com.otilm.core.serialization.ObjectMapperFactory;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.ToIntFunction;
+
+/**
+ * Walks a CycloneDX document's component tree and extracts every cryptographic asset it carries.
+ *
+ * <p>
+ * Version-agnostic by construction. Nothing here reads {@code specVersion}: 1.6 and 1.7 differ in field <em>names</em>
+ * -- {@code curve} became {@code ellipticCurve}, and every reference field was renamed -- and those differences are
+ * absorbed by the normalizer reading both spellings and by the hashed projection stripping references before any
+ * digest. A walker that branched on the declared version would have to be right about a value producers get wrong: one
+ * really does ship {@code specVersion} as the number {@code 999}.
+ *
+ * <p>
+ * <b>Nothing a producer can write makes this throw.</b> A component that cannot be keyed is reported as a skip and the
+ * walk continues, because one malformed asset must not cost an operator the other four thousand. The skips are values,
+ * not log lines: a document is untrusted input, and a walker that logged what it could not parse would print
+ * pre-redaction content into an appender the redaction proof does not cover.
+ */
+public final class CbomAssetExtractor {
+
+    /**
+     * How deep a component tree may nest before the walk stops descending.
+     *
+     * <p>
+     * Set to match the JSON parser's own default nesting limit, and that is the point: the parser refuses a document
+     * nested deeper than this before the walker ever sees it, so nothing that parses can be truncated here. A tighter
+     * bound would silently drop real assets out of a document the parser accepted, which is data loss dressed as
+     * robustness -- measured the hard way, with a bound of 64 that would have discarded everything below it.
+     *
+     * <p>
+     * The walk is iterative regardless, so depth costs heap rather than stack. {@code components} nests arbitrarily in
+     * both schema versions, and a recursive descent over a deep document would exhaust the stack and take the whole
+     * ingest with it -- a denial of service costing one small file.
+     */
+    private static final int MAX_DEPTH = 1000;
+
+    private static final ObjectMapper MAPPER = ObjectMapperFactory.storage();
+
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+    };
+
+    private final CryptoAssetIdentity identity;
+
+    public CbomAssetExtractor(CryptoAssetIdentity identity) {
+        this.identity = identity;
+    }
+
+    /**
+     * One asset that was extracted, with everything the persistence layer needs to store it.
+     *
+     * <p>
+     * <b>The raw component is deliberately not here.</b> An earlier shape carried it beside the redacted payload, which
+     * quietly undid the one property redaction exists for: the plaintext is dropped before identity, persistence,
+     * logging or metrics can observe it, and handing the caller the original node put it back within reach of all four.
+     * It cost nothing to notice and everything to miss -- a record's generated {@code toString} alone would have
+     * printed inlined key material into any log that reported an extraction.
+     *
+     * <p>
+     * {@code retainedProperties} is the redacted payload, which is what {@code crypto_asset_source} stores.
+     *
+     * <p>
+     * {@code guard} is the safety rule that forced this asset to stay its own row, or {@code null} when none fired. It
+     * is published here because the alias-repair path has to refuse an alias where a safety rule caused the split, and
+     * two of the three signals are visible only inside the tier that produced the key.
+     *
+     * <p>
+     * {@code findings} carries what the pipeline has to tell the producer -- a dropped value, a withheld digest, an
+     * inlined secret, a dropped extension, an occurrence whose stated location rendered as no location. It is published
+     * because {@code MaterialRedaction.findings()} had no reader anywhere: the values were computed, and then died at
+     * this boundary, so a promise the redaction class makes in its own Javadoc was unreachable the moment extraction
+     * returned. {@code IngestFindingRollup} is that reader -- it rolls these up, per distinct message, into the
+     * {@code cbom_ingest_finding} report the ingest writes for the document.
+     *
+     * <p>
+     * {@code bomRefs} is the {@code bom-ref} of every component folded into the asset that gives one as a non-empty
+     * string, spelled as the document spells it and in document order; the ingest resolves other assets'
+     * {@code references} against it. A source row stores only its bounded, storable part, {@link #storedBomRefs}, as
+     * navigation data. Neither is an input to the key.
+     *
+     * <p>
+     * <b>{@code identityKey}, and this file is allowlisted for that vocabulary.</b> The component was called
+     * {@code key} so the exposure fence's regex would not see it -- which worked, and was the wrong shape: a production
+     * source routing <em>around</em> a fence is invisible to the next reader, where an allowlist entry is a reviewed
+     * record that this file carries the value on purpose. It does carry it: this record is how the keyed asset reaches
+     * the persistence path. The entry exempts only the stored-value vocabulary, so a pre-image spelling here still
+     * fails, and the logging rule carries no allowlist at all -- which is why the {@code toString} override below is
+     * still the thing that keeps the value out of a log line.
+     */
+    public record ExtractedAsset(String identityKey, String chainStep, NormalizedAsset normalized, String componentName,
+            JsonNode retainedProperties, List<Map<String, Object>> evidence, int reportedOccurrences,
+            CryptoAssetIdentityGuard guard, List<String> findings, List<String> bomRefs,
+            List<AssetReferences.Reference> references) {
+
+        public ExtractedAsset {
+            bomRefs = bomRefs == null ? List.of() : List.copyOf(bomRefs);
+            references = references == null ? List.of() : List.copyOf(references);
+        }
+
+        /**
+         * How many {@code bom-ref} values one source row keeps: the first this many in document order, the rest dropped
+         * whole. Every component of a document that folds into one asset adds its ref, so a document naming one
+         * algorithm from thousands of components would otherwise grow one row -- and every page that serves it --
+         * without bound. A component past the cap links to nothing, which the contract says: this is the number
+         * {@code CbomContributedAssetDto} documents.
+         */
+        public static final int MAX_BOM_REFS = 256;
+
+        /**
+         * The longest {@code bom-ref} a source row stores, in code points -- the unit PostgreSQL's {@code length()}
+         * counts, so a ref of astral characters is measured as the database measures it rather than at twice its
+         * length. A longer one links to nothing, like an unencodable one: the JSON reader bounds a string at megabytes,
+         * and a row -- and every page serving it -- must not carry that.
+         */
+        public static final int MAX_BOM_REF_LENGTH = 1024;
+
+        /**
+         * The refs the source row stores as navigation data: {@link #bomRefs} in document order, each once, without the
+         * ones no row can hold, and at most {@link #MAX_BOM_REFS} of them.
+         *
+         * <p>
+         * Derived when the row is written rather than filtered into {@code bomRefs}, because that list is also the
+         * index the ingest resolves a certificate's and a protocol's references against, and has to stay every ref the
+         * document defines: a reference to the 300th component folded into one algorithm, or to a ref too long to
+         * store, still resolves. Each once is insurance: a document that repeats a ref is refused before any asset or
+         * source row is written.
+         *
+         * <p>
+         * A ref that cannot be stored is dropped, not refused like every other string headed for storage
+         * ({@link CbomAssetExtractor#requireEncodable}): it is not part of the asset, and a component whose ref cannot
+         * be stored is still an asset the inventory has to hold. The NUL rule is PostgreSQL's: no text column can hold
+         * that character, so a ref carrying one would fail the source write, and with it the document's ingest on every
+         * retry. The empty ref is excluded here as well as where {@code bomRefs} is read, so the stored rule does not
+         * depend on every producer of this record applying it.
+         */
+        public List<String> storedBomRefs() {
+            return bomRefs.stream().filter(ExtractedAsset::isStorable).distinct().limit(MAX_BOM_REFS).toList();
+        }
+
+        private static boolean isStorable(String ref) {
+            return !ref.isEmpty() && ref.codePointCount(0, ref.length()) <= MAX_BOM_REF_LENGTH && ref.indexOf('\0') < 0
+                    && hasEncoding(ref);
+        }
+
+        /**
+         * Folds the assets of one document that key as the same asset into one, in first-seen order.
+         *
+         * <p>
+         * Extraction yields one asset per cryptographic-asset component, and several components of one document
+         * routinely report the same algorithm. The source row they all become has {@code (asset_uuid, cbom_uuid)} as
+         * its arbiter and assigns rather than accumulates on a {@code last_seen_at} tie -- which every component of one
+         * document is, the observation time being a per-document constant. Written one at a time the last component
+         * therefore replaces every earlier one's payload, evidence and occurrence count, and the cross-source merge
+         * re-elects on whatever it happened to be.
+         *
+         * <p>
+         * Here rather than in the ingest that needs it, because this is where the identity lives: the fold reads the
+         * key as its own field, so no method outside this record has to hand the value on to group by it.
+         *
+         * @param richness how much detail a payload carries, by whatever measure the caller's merge elects on. The
+         * richest payload of the group survives wherever it sits in the document, and a tie keeps the earlier
+         * component's; the refs are not elected but kept, every component's, in document order
+         */
+        public static List<ExtractedAsset> coalesceByIdentity(List<ExtractedAsset> assets,
+                ToIntFunction<ExtractedAsset> richness) {
+            Map<String, ExtractedAsset> byIdentity = new LinkedHashMap<>();
+            for (ExtractedAsset asset : assets) {
+                byIdentity.merge(asset.identityKey, asset, (first, next) -> merge(first, next, richness));
+            }
+            return List.copyOf(byIdentity.values());
+        }
+
+        private static ExtractedAsset merge(ExtractedAsset first, ExtractedAsset next,
+                ToIntFunction<ExtractedAsset> richness) {
+            List<Map<String, Object>> evidence = new ArrayList<>(first.evidence == null ? List.of() : first.evidence);
+            if (next.evidence != null) {
+                evidence.addAll(next.evidence);
+            }
+            ExtractedAsset richer = richness.applyAsInt(next) > richness.applyAsInt(first) ? next : first;
+            List<String> bomRefs = new ArrayList<>(first.bomRefs);
+            bomRefs.addAll(next.bomRefs);
+            // The richer component's, beside the richer payload they were read from.
+            return new ExtractedAsset(first.identityKey, richer.chainStep, richer.normalized, first.componentName,
+                    richer.retainedProperties, List.copyOf(evidence),
+                    first.reportedOccurrences + next.reportedOccurrences,
+                    first.guard == null ? next.guard : first.guard, first.findings, bomRefs, richer.references);
+        }
+
+        /**
+         * Omits the identity key. The generated {@code toString} would print it, and a record is printed by anything
+         * that logs the value or a collection holding it -- including {@link Extraction}, whose own generated
+         * {@code toString} recurses into this one. The fence's logging rule has no allowlist, so this file may name the
+         * value and may not log it: this override is what makes that true rather than merely stated.
+         */
+        @Override
+        public String toString() {
+            return "ExtractedAsset[componentName=" + componentName + ", chainStep=" + chainStep + ", guard=" + guard
+                    + ", reportedOccurrences=" + reportedOccurrences + "]";
+        }
+    }
+
+    /**
+     * One component that could not be extracted, and why.
+     *
+     * <p>
+     * The reason names the failure class and the component's own name, never the payload. A skip that quoted what it
+     * could not parse would be a disclosure channel for exactly the documents least worth trusting.
+     *
+     * <p>
+     * {@code findings} are what the pipeline had to tell the producer before the component was skipped -- a withheld
+     * digest, a refuted arc -- so a component that keys but routes to no asset type loses none of them.
+     */
+    public record Skip(String componentName, String reason, List<String> findings) {
+
+        public Skip {
+            findings = List.copyOf(findings);
+        }
+
+        public Skip(String componentName, String reason) {
+            this(componentName, reason, List.of());
+        }
+    }
+
+    /**
+     * Everything a document yielded: the assets, and the components that could not be turned into assets.
+     *
+     * <p>
+     * {@code documentScopeUnavailable} records that the whole-document scope could not be built and the walk ran
+     * without it. That is not the recoverable direction: with nothing refuted a fabricated placeholder digest is
+     * trusted, and with no reference resolving every certificate's public-key slot empties -- both over-merges. It is
+     * recorded here because a caller reading only the assets would see rows and no sign of what they lack.
+     *
+     * <p>
+     * {@code ambiguousRefs} carries the {@code bom-ref} values the document defines more than once. CycloneDX requires
+     * the value to be unique, so a repeat is invalid input rather than a shape to resolve: the ingest refuses such a
+     * document, and {@link DocumentScope#of} explains why neither reading of a duplicate can be trusted. A ref with no
+     * UTF-8 encoding is replaced by {@link #UNENCODABLE_REF} -- it cannot be stored or shown, and dropping it silently
+     * would understate how many the document carries.
+     *
+     * <p>
+     * {@code headerCounts} is the document's count by the cbom-repository's version-2 rule (see {@link #countOf}). It
+     * is deliberately not {@code assetCount()}: that counts what this class could key, the header counts what the
+     * repository would report.
+     */
+    public record Extraction(List<ExtractedAsset> assets, List<Skip> skips, boolean depthLimitReached,
+            boolean documentScopeUnavailable, List<String> ambiguousRefs, CbomHeaderCounts headerCounts) {
+
+        public int assetCount() {
+            return assets.size();
+        }
+    }
+
+    /** Extracts with document scope only. Equivalent to passing no batch-scoped refutations. */
+    public Extraction extract(JsonNode document) {
+        return extract(document, Set.of());
+    }
+
+    /**
+     * Extracts every cryptographic asset in the document.
+     *
+     * <p>
+     * Output order is document order. Which rows result, and what they are keyed as, do not depend on it: an asset's
+     * identity is a function of the asset alone, so permuting the components -- or the documents -- changes neither.
+     * The order of the refs folded into a row does depend on it.
+     *
+     * @param batchRefutedDigests certificate digests a batch-scoped index found contradicted <em>across</em> documents;
+     * empty reduces to document-scoped refutation
+     */
+    public Extraction extract(JsonNode document, Set<String> batchRefutedDigests) {
+        if (document == null || !document.isObject()) {
+            return new Extraction(List.of(), List.of(), false, false, List.of(), CbomHeaderCounts.ZERO);
+        }
+        Set<String> refuted = batchRefutedDigests == null ? Set.of() : batchRefutedDigests;
+
+        DocumentScope scope;
+        boolean scopeUnavailable = false;
+        try {
+            scope = DocumentScope.of(document, identity.normalizer());
+        } catch (RuntimeException e) {
+            // The scope is a whole-document derivation, so a failure here is not attributable to one component. The
+            // walk still runs with nothing refuted and no reference resolving -- see Extraction for why that is the
+            // over-merging direction, and why it is recorded rather than only survived.
+            scope = DocumentScope.none();
+            scopeUnavailable = true;
+        }
+
+        List<ExtractedAsset> assets = new ArrayList<>();
+        List<Skip> skips = new ArrayList<>();
+        Walk walk = walkComponents(document);
+        for (JsonNode component : walk.components()) {
+            if (!isCryptographicAsset(component)) {
+                continue;
+            }
+            try {
+                // Named `extracted`, not anything beginning with "key". The exposure fence matches
+                // identity[_-<space>]?key, so the type name followed by such a variable reads as the fenced token
+                // across the space between them -- a rule about text, applied to text, with no idea what a type is.
+                CryptoAssetIdentity.Identity extracted = identity.of(component, scope, refuted);
+                if (extracted.asset().assetType() == null) {
+                    String reason = unroutableReason(component);
+                    skips
+                            .add(new Skip(encodable(nameOf(component)), reason,
+                                    encodableFindings(extracted.findings(), reason)));
+                    continue;
+                }
+                List<JsonNode> occurrences = occurrencesOf(component);
+                ExtractedAsset asset = new ExtractedAsset(extracted.key(), extracted.step(), extracted.asset(),
+                        nameOf(component), extracted.redaction().storedPayload(),
+                        OccurrenceEvidenceCapper.cap(occurrences == null ? null : retainedOccurrences(occurrences)),
+                        occurrences == null ? 0 : occurrences.size(), extracted.guard(), extracted.findings(),
+                        bomRefOf(component), AssetReferences.of(component));
+                requireEncodable(asset);
+                assets.add(asset);
+            } catch (RuntimeException e) {
+                // Deliberately broad, and deliberately not logged with the throwable. Producer input reaches every
+                // derivation below this line; the failure classes are open-ended, and one of them must not be fatal.
+                // The name goes through the same encodability rule as everything else headed for storage. It
+                // cannot be refused the way an asset's is: this is the refusal path, and a component whose name has
+                // no UTF-8 encoding is exactly the one whose skip has to be reportable.
+                skips.add(new Skip(encodable(nameOf(component)), e.getClass().getSimpleName()));
+            }
+        }
+        return new Extraction(List.copyOf(assets), List.copyOf(skips), walk.depthLimitReached(), scopeUnavailable,
+                encodable(scope.ambiguousRefs()), countOf(walk.components()));
+    }
+
+    /**
+     * Counts the walked components exactly as the cbom-repository's version-2 {@code CalculateCryptoStats} does, so a
+     * recounted header agrees with what a current upload reports.
+     *
+     * <p>
+     * <b>Narrower than {@link #isCryptographicAsset} on purpose.</b> The repository counts a component only when it is
+     * typed {@code cryptographic-asset} <em>and</em> carries {@code cryptoProperties}; extraction takes either, so as
+     * not to lose an asset. Unifying the two would make the header disagree with every version-2 count, or make
+     * extraction drop assets.
+     */
+    private static CbomHeaderCounts countOf(List<JsonNode> components) {
+        int algorithms = 0;
+        int certificates = 0;
+        int protocols = 0;
+        int relatedCryptoMaterials = 0;
+        int total = 0;
+        for (JsonNode component : components) {
+            JsonNode type = component.get("type");
+            JsonNode properties = component.get("cryptoProperties");
+            if (type == null || !"cryptographic-asset".equals(type.textValue()) || properties == null
+                    || !properties.isObject()) {
+                continue;
+            }
+            total++;
+            // Any other assetType, or none, is counted in the total only -- as the repository does.
+            String assetType = properties.path("assetType").asText("");
+            if ("algorithm".equals(assetType)) {
+                algorithms++;
+            } else if ("certificate".equals(assetType)) {
+                certificates++;
+            } else if ("protocol".equals(assetType)) {
+                protocols++;
+            } else if ("related-crypto-material".equals(assetType)) {
+                relatedCryptoMaterials++;
+            }
+        }
+        return new CbomHeaderCounts(algorithms, certificates, protocols, relatedCryptoMaterials, total);
+    }
+
+    /** Stands in for a duplicated {@code bom-ref} that has no UTF-8 encoding, so no column can hold its spelling. */
+    static final String UNENCODABLE_REF = "(a bom-ref with no valid encoding)";
+
+    /** Stands in for a component name with no UTF-8 encoding, on the one path that reports rather than refuses. */
+    static final String UNENCODABLE_NAME = "(a component name with no valid encoding)";
+
+    /**
+     * The duplicated refs a report can carry, with the ones that have no encoding replaced.
+     *
+     * <p>
+     * Every string this class hands toward an <em>asset</em> is refused for an unpaired surrogate rather than replaced
+     * -- see {@link #requireEncodable}. The two reporting surfaces cannot be: there is no row to refuse, and a document
+     * whose refs or unreadable components are spelled that way is exactly the one whose producer needs to hear about
+     * them. A skip carrying such a name reached the report's own text column and was refused there by the database, on
+     * the path whose whole purpose is to survive a component this class cannot read.
+     */
+    private static List<String> encodable(Set<String> refs) {
+        List<String> readable = new ArrayList<>(refs.size());
+        for (String ref : refs) {
+            readable.add(encodable(ref, UNENCODABLE_REF));
+        }
+        return List.copyOf(readable);
+    }
+
+    /**
+     * The findings a skip carries beside its reason: the reason itself once, and only those that can be stored. An
+     * asset with an unencodable finding is refused whole by {@link #requireEncodable}; a skip is already the refusal,
+     * so the finding goes and the rest are kept.
+     */
+    private static List<String> encodableFindings(List<String> findings, String reason) {
+        return findings
+                .stream()
+                .filter(finding -> !finding.equals(reason))
+                .filter(CbomAssetExtractor::hasEncoding)
+                .toList();
+    }
+
+    /** The skipped component's name, or a stand-in when it has none that can be stored. */
+    private static String encodable(String name) {
+        return encodable(name, UNENCODABLE_NAME);
+    }
+
+    private static boolean hasEncoding(String text) {
+        try {
+            IdentityDigests.requireWellFormedUnicode(text);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static String encodable(String text, String standIn) {
+        if (text == null) {
+            return null;
+        }
+        return hasEncoding(text) ? text : standIn;
+    }
+
+    /** The component's occurrence objects in producer order, or {@code null} when it reported none. */
+    private static List<JsonNode> occurrencesOf(JsonNode component) {
+        JsonNode evidence = component.get("evidence");
+        JsonNode occurrences = evidence == null ? null : evidence.get("occurrences");
+        if (occurrences == null || !occurrences.isArray()) {
+            return null;
+        }
+        List<JsonNode> objects = new ArrayList<>(occurrences.size());
+        for (JsonNode occurrence : occurrences) {
+            if (occurrence.isObject()) {
+                objects.add(occurrence);
+            }
+        }
+        return objects;
+    }
+
+    /**
+     * The occurrences the cap can keep, converted for it, or {@code null} when the component reported none.
+     *
+     * <p>
+     * Only the first {@link OccurrenceEvidenceCapper#MAX_OCCURRENCES} are converted: the cap keeps that prefix in
+     * producer order and drops the rest whole, so converting a million occurrences to retain fifty was three copies of
+     * the parsed subtree spent on a count the caller already has.
+     *
+     * <p>
+     * <b>The location is not sanitized here.</b> A location is a real shape like
+     * {@code tcp://user:pass@host:443/path?token=...}, and the keying path strips its credential or a password would be
+     * hashed into the key; the stored evidence is the other half of the same rule, and the capper applies it to every
+     * {@code location} member of every occurrence it retains, at every depth. A pass here sanitized the top-level
+     * member a second time, which made the served string depend on neither pass alone -- deleting either left every
+     * test green, and a paragraph calling this one load-bearing would have licensed weakening the other. The property
+     * is pinned where it is observable, on the extracted evidence, not on which class produced it.
+     *
+     * <p>
+     * A source that reported no evidence is distinct from one whose evidence capping emptied, and the capper preserves
+     * that distinction downstream -- so the absent case is decided by the caller and never reaches here, and this
+     * method always answers with a list.
+     */
+    private static List<Map<String, Object>> retainedOccurrences(List<JsonNode> occurrences) {
+        List<JsonNode> retained = occurrences.size() > OccurrenceEvidenceCapper.MAX_OCCURRENCES
+                ? occurrences.subList(0, OccurrenceEvidenceCapper.MAX_OCCURRENCES)
+                : occurrences;
+        List<Map<String, Object>> converted = new ArrayList<>(retained.size());
+        for (JsonNode occurrence : retained) {
+            converted.add(MAPPER.convertValue(occurrence, MAP_TYPE));
+        }
+        return converted;
+    }
+
+    /**
+     * Refuses an asset whose stored surfaces carry a string with no UTF-8 encoding, so the refusal is a rule stated
+     * here rather than an accident of which tier ran.
+     *
+     * <p>
+     * {@link IdentityDigests#sha256Hex} refuses an unpaired surrogate in a pre-image, so a component spelling one into
+     * a keyed slot was already a reported skip. A string that reaches storage without reaching a pre-image was not: a
+     * cipher-suite name on a version-less protocol row, or an unread member of {@code algorithmProperties} on a row
+     * keyed by family, was retained in a payload that has no valid encoding for the {@code jsonb} column -- so whether
+     * the row survived was decided by the database, on a path that once rolled back a whole source upsert. Each surface
+     * checked here is refused: the component name, the stored payload, the sanitized evidence, the provenance notes,
+     * and the findings -- which echo producer member names, so a surrogate in a member the redaction dropped reached
+     * them on a tier whose pre-image never read that member. The navigation refs are persisted too but filtered rather
+     * than refused, by {@link ExtractedAsset#storedBomRefs}, so an unstorable ref costs only its link.
+     *
+     * <p>
+     * The one exemption is the occurrence {@code location}: {@link Occurrences} scrubs a surrogate there rather than
+     * refusing it, and the evidence checked here is the scrubbed form. The exemption is that member alone -- a
+     * surrogate in any sibling member of the same occurrence, name or value, still costs the component its row.
+     */
+    private static void requireEncodable(ExtractedAsset asset) {
+        IdentityDigests.requireWellFormedUnicode(asset.componentName());
+        requireEncodable(asset.retainedProperties());
+        asset.normalized().notes().forEach(IdentityDigests::requireWellFormedUnicode);
+        asset.findings().forEach(IdentityDigests::requireWellFormedUnicode);
+        if (asset.evidence() != null) {
+            asset.evidence().forEach(CbomAssetExtractor::requireEncodable);
+        }
+    }
+
+    private static void requireEncodable(JsonNode node) {
+        if (node == null) {
+            return;
+        }
+        if (node.isTextual()) {
+            IdentityDigests.requireWellFormedUnicode(node.textValue());
+        } else if (node.isContainerNode()) {
+            node.properties().forEach(member -> IdentityDigests.requireWellFormedUnicode(member.getKey()));
+            node.forEach(CbomAssetExtractor::requireEncodable);
+        }
+    }
+
+    private static void requireEncodable(Object value) {
+        if (value instanceof String text) {
+            IdentityDigests.requireWellFormedUnicode(text);
+        } else if (value instanceof Map<?, ?> map) {
+            map.forEach((key, member) -> {
+                requireEncodable(key);
+                requireEncodable(member);
+            });
+        } else if (value instanceof Iterable<?> members) {
+            members.forEach(CbomAssetExtractor::requireEncodable);
+        }
+    }
+
+    /**
+     * A component this specification has an opinion about.
+     *
+     * <p>
+     * Either declaration is enough. A component <em>typed</em> {@code cryptographic-asset} with no
+     * {@code cryptoProperties} at all is one, and is reported as a skip rather than inventoried: there is no algorithm
+     * to assess and no type to serve, and a stored row would only ever read "unroutable". And a component carrying
+     * {@code cryptoProperties} while typed something else is still a cryptographic asset by the only evidence that
+     * matters, since the type field is producer text like any other.
+     */
+    private static boolean isCryptographicAsset(JsonNode component) {
+        JsonNode type = component.get("type");
+        boolean declaredType = type != null && type.isTextual() && "cryptographic-asset".equals(type.textValue());
+        JsonNode properties = component.get("cryptoProperties");
+        return declaredType || (properties != null && properties.isObject());
+    }
+
+    /** Why a component routed to no asset type is skipped: the member and the failure, never the value. */
+    private static String unroutableReason(JsonNode component) {
+        String finding = CryptoAssetIdentity.unroutedTypeFinding(component);
+        return finding != null ? finding : "cryptoProperties is absent, so the component declares no asset type";
+    }
+
+    private static List<String> bomRefOf(JsonNode component) {
+        JsonNode ref = component.get("bom-ref");
+        return ref != null && ref.isTextual() && !ref.textValue().isEmpty() ? List.of(ref.textValue()) : List.of();
+    }
+
+    private static String nameOf(JsonNode component) {
+        JsonNode name = component.get("name");
+        return name != null && name.isTextual() ? name.textValue() : "";
+    }
+
+    private record Walk(List<JsonNode> components, boolean depthLimitReached) {
+    }
+
+    /**
+     * Every component in the tree, in document order, without recursing.
+     *
+     * <p>
+     * An explicit stack rather than a recursive descent: see {@link #MAX_DEPTH}. The children of a component are pushed
+     * in reverse so they pop in document order -- depth first, the components nested in one before its next sibling.
+     * How an asset is keyed does not depend on that order; the order of the refs folded into it does.
+     */
+    private static Walk walkComponents(JsonNode document) {
+        List<JsonNode> found = new ArrayList<>();
+        Deque<Entry> pending = new ArrayDeque<>();
+        pushChildren(document.get("components"), 1, pending);
+        boolean depthLimitReached = false;
+        while (!pending.isEmpty()) {
+            Entry entry = pending.pop();
+            found.add(entry.component());
+            if (entry.depth() >= MAX_DEPTH) {
+                depthLimitReached = true;
+                continue;
+            }
+            pushChildren(entry.component().get("components"), entry.depth() + 1, pending);
+        }
+        return new Walk(found, depthLimitReached);
+    }
+
+    private static void pushChildren(JsonNode components, int depth, Deque<Entry> pending) {
+        if (components == null || !components.isArray()) {
+            return;
+        }
+        for (int index = components.size() - 1; index >= 0; index--) {
+            JsonNode child = components.get(index);
+            if (child.isObject()) {
+                pending.push(new Entry(child, depth));
+            }
+        }
+    }
+
+    private record Entry(JsonNode component, int depth) {
+    }
+}

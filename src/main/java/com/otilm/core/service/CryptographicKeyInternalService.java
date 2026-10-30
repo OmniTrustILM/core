@@ -1,0 +1,66 @@
+package com.otilm.core.service;
+
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
+
+import java.security.PublicKey;
+import java.util.UUID;
+
+public interface CryptographicKeyInternalService extends ResourceExtensionService {
+
+    /**
+     * Function to get the key based on the SHA-256 key fingerprint
+     *
+     * @param fingerprint SHA-256 fingerprint of the key
+     * @return Cryptographic Key UUID
+     */
+    UUID findKeyByFingerprint(String fingerprint);
+
+    /**
+     * Get the key item of specified type based on the cryptographic key
+     *
+     * @param key Cryptographic Key wrapper object
+     * @param keyType Key type
+     * @return Key Item
+     */
+    CryptographicKeyItem getKeyItemFromKey(CryptographicKey key, KeyType keyType);
+
+    /**
+     * Returns the cached model for a key item including its full connector chain. The result is cached by key item
+     * UUID; cache is invalidated whenever the key item is mutated.
+     */
+    CryptographicKeyItemOperationModel getKeyItemModel(UUID keyItemUuid) throws NotFoundException;
+
+    /**
+     * Returns the private item of the key.
+     *
+     * @throws NotFoundException when the key holds no private item, or its token has no connector
+     */
+    CryptographicKeyItemOperationModel getPrivateKeyItemModel(UUID keyUuid) throws NotFoundException;
+
+    /**
+     * Returns the connector whose schema the key's signing attributes are stored under. It is read from the key's
+     * token, so it outlives the key's items.
+     *
+     * @return the connector UUID for a key on a cryptography provider v2; null for Core's registry (crypto v1), and for
+     * a null or unknown key
+     */
+    UUID getSignAttributeOwner(UUID keyUuid);
+
+    /**
+     * Upload public key of existing certificate
+     *
+     * @param name Name of the cryptographic key
+     * @param publicKey Public Key to be uploaded
+     * @param keyLength Length of the Public Key
+     * @param fingerprint Unique fingerprint of the Public Key
+     * @return UUID of the Cryptographic Key holding this public key — the one created by this call, or, when a
+     * concurrent caller committed the same fingerprint first, that pre-existing key. In the latter case the key created
+     * by this call is discarded, so no key is left without a key item. Callers must therefore not assume exclusive
+     * ownership of the returned key.
+     */
+    UUID uploadCertificatePublicKey(String name, PublicKey publicKey, int keyLength, String fingerprint);
+}

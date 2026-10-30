@@ -1,0 +1,9 @@
+{
+  "type" : "Private",
+  "algorithm" : "ECDSA",
+  "format" : "EncryptedPrivateKeyInfo",
+  "value" : {
+    "value" : "ZXBya2kta2V5LWJ5dGVz"
+  },
+  "length" : 256
+}

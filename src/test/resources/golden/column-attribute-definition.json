@@ -1,0 +1,20 @@
+{
+  "attributeCallback" : null,
+  "constraints" : null,
+  "content" : [
+    {
+      "contentType" : "string",
+      "data" : "digitalSignature",
+      "reference" : "ref-usage"
+    }
+  ],
+  "contentType" : "string",
+  "description" : "Key usage requested for the certificate",
+  "fieldMapping" : null,
+  "name" : "keyUsage",
+  "properties" : null,
+  "type" : "data",
+  "uuid" : "3a8f61d2-0000-4000-8000-000000000003",
+  "valueSource" : null,
+  "version" : 3
+}

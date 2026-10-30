@@ -1,0 +1,33 @@
+package com.otilm.core.tasks;
+
+import com.otilm.api.exception.SchedulerException;
+import com.otilm.core.service.SchedulerInternalService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@Configuration
+@EnableScheduling
+public class SystemScheduledJobs {
+
+    private SchedulerInternalService schedulerService;
+
+    @Autowired
+    public void setSchedulerService(SchedulerInternalService schedulerService) {
+        this.schedulerService = schedulerService;
+    }
+
+    @Bean
+    @ConditionalOnProperty(value = "scheduled-tasks.enabled", matchIfMissing = true, havingValue = "true")
+    public Void registerJobs() throws SchedulerException {
+        schedulerService.registerScheduledJob(UpdateCertificateStatusTask.class);
+        schedulerService.registerScheduledJob(UpdateIntuneRevocationRequestsTask.class);
+        schedulerService.registerScheduledJob(CbomSyncTask.class);
+        schedulerService.registerScheduledJob(CbomReconcileTask.class);
+        schedulerService.registerScheduledJob(CryptoAssetPqcSweepTask.class);
+        schedulerService.registerScheduledJob(CbomSyncSkipRetentionTask.class);
+        return null;
+    }
+}

@@ -1,0 +1,5 @@
+{
+  "reference" : "ref-object",
+  "data" : "opaque-serializable",
+  "contentType" : "object"
+}

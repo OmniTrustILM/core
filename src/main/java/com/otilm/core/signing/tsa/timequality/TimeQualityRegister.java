@@ -1,0 +1,15 @@
+package com.otilm.core.signing.tsa.timequality;
+
+import com.otilm.api.model.messaging.timequality.TimeQualityStatus;
+import com.otilm.core.model.signing.timequality.TimeQualityConfigurationModel;
+
+import java.util.UUID;
+
+public interface TimeQualityRegister {
+
+    TimeQualityStatus getStatus(TimeQualityConfigurationModel profile);
+
+    void update(TimeQualityResult result);
+
+    void remove(UUID configurationId);
+}

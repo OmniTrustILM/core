@@ -1,8 +1,21 @@
 # CLAUDE.md
 
+This file instructs an agent implementing changes in this repository. Review rules live in
+`.github/copilot-instructions.md`.
+
 General engineering principles and process guidance for working effectively on this codebase. Project-specific facts (build commands, architecture, package layout) belong in the README, scripts, or code itself — they can be derived from the repo. This file is for the things that aren't obvious from the code.
 
+## Forwarded certificate identity
+
+Keep REST and TSP on request-aware forwarded certificate parsing so RFC companions and every asserted candidate are validated before cache lookup. Pass the immutable parsed identity to the Auth client: the cache fingerprint and canonical leaf payload must come from the same object. Validated non-leaf candidates are untrusted path material, never anchors. Auth preserves existing .NET System trust and deployment CA mounts; forwarded candidates belong only in X509Chain ExtraStore. Core sends no trust policy and requires no acknowledgment or new environment variable. Preserve legacy defaults, method priority and the existing expire-after-write cache interval. CA loading and refresh follow the existing runtime behavior; do not promise per-validation file rereads or immediate CA removal. Keep user-facing certificate setup and format details in the documentation repository; the README links to its client certificate authentication guide.
+
+## New dependencies
+
+New dependencies must be compatible with Apache-2.0 and permitted by the CNCF third-party license policy. Verify new transitive dependencies and preserve required notices.
+
 ## Working with reviews
+
+This section is for an agent preparing its own pull request for review, not for a reviewer.
 
 ### Independent review pass on substantial PRs
 
@@ -33,6 +46,8 @@ A purely line-based local script will systematically over-report. Match the form
 ## Tests that look green but cover nothing
 
 When a test passes but JaCoCo (or the coverage report) shows the relevant lines as uncovered, the test is reaching a different code path than expected — usually a `catch (Exception)` upstream is swallowing the actual flow before the asserted code runs. Investigate the trace, don't trust the green. Common signal: the assertion checks the *type* of an exception or response without checking the *origin*; the test passes because *any* exception of that type is thrown, including ones from setup steps.
+
+A mock shaped like the implementation proves nothing either. When a test stubs a collaborator at whatever nesting level the production code happens to read — one `when(attr.get())` because the code calls `get()`, one enumeration entry because the loop reads one — the test passes for every input the code already handles and cannot fail for the input it mishandles. It encodes the bug as the expectation. Prefer a real instance of the collaborator's value type (`BasicAttributes`, a real DTO, a real record) built to look like what the external system actually returns, and mock only the boundary you cannot construct. If a mock's stubbing mirrors the production call sequence line for line, it is asserting that the code does what it does.
 
 For logic deep in private methods or complex Spring contexts, extract a static testable kernel — a pure function that takes inputs and returns outputs — and unit-test it independently. Keep the integration test for the integration concerns (DB, AOP, transactions). The kernel + integration split makes both halves much easier to reason about.
 
@@ -88,9 +103,34 @@ try {
 
 Capture entry state before the external call (`final State entryState = entity.getState();`) so the restoration path has something to restore *to*.
 
+## Historical figures must not be derived from deletable rows
+
+A dashboard series, counter, or report that aggregates a table whose rows get deleted is rewritten by every one of those deletions — and retention sweeps and delete-after-retrieval mean the history changes with nobody touching it. Derive such a figure from a separate append-only aggregate instead, and fold rows into it in the **same statement** that deletes them:
+
+```sql
+WITH victim AS MATERIALIZED (
+    SELECT uuid, ... FROM detail WHERE ... LIMIT :limit FOR UPDATE OF detail [SKIP LOCKED]
+)
+, rolled AS (
+    INSERT INTO aggregate AS a (...) SELECT ... FROM victim GROUP BY ... ORDER BY <aggregate key>
+    ON CONFLICT (...) DO UPDATE SET row_count = a.row_count + EXCLUDED.row_count
+)
+DELETE FROM detail WHERE uuid IN (SELECT uuid FROM victim)
+```
+
+PostgreSQL runs a data-modifying CTE exactly once and to completion, and every part reads the same snapshot of the materialized `victim` rows, so the roll-up and the delete cover the identical set and commit together: no double counting, no gap, and nothing added to the write path. The statement's own result is still the DELETE's row count, so batch loops keep working. Native, so `@Modifying(flushAutomatically = true)` — Hibernate cannot auto-flush for SQL it does not parse.
+
+**Claim the rows, and fold them in in key order.** Without a locking clause a second deleter sees the same rows in its own snapshot, folds them in too, and then deletes nothing — one row counted twice. Without an `ORDER BY` on the grouped upsert, two writers carrying rows for the same aggregate keys can take those locks in opposite orders and deadlock. Which clause depends on the caller's contract: a keyed delete **waits** (`FOR UPDATE`), because its caller is told the row is gone and skipping would report success for a row the winner might yet roll back; a batch **skips** (`FOR UPDATE ... SKIP LOCKED`), because it has no per-record contract and waiting lets two sweeps picking overlapping victims in different index orders deadlock. Lock only the table you delete from (`FOR UPDATE OF sr`), never the ones you join for the predicate.
+
+Assemble the figure under one snapshot — `@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)`. Read across the two tables in separate READ COMMITTED statements and a row deleted between them is counted as both live and history.
+
+The aggregate keeps the column its detail rows were access-controlled by, and **no FK to it**: the parent is usually deletable once its detail rows are gone, and the aggregate has to outlive it. Read it back through the parent half of the security filter only — a rolled-up row has no detail identity left for a row-level filter to match on.
+
+Align the live half's window to the aggregate's bucket boundary, not to the exact cutoff. Against an exact cutoff a row inside the first bucket but before the cutoff counts for nothing while live and for one once deleted — deleting it *raises* the figure. Floored on both sides the two are exactly equivalent, and deletion becomes invisible. Say on the API field that the window opens on a bucket boundary.
+
 ## Transactional boundaries live on services, not repositories
 
-Repositories in `com.czertainly.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods use `NOT_SUPPORTED` when needed to avoid holding locks across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
+Repositories in `com.otilm.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods use `NOT_SUPPORTED` when needed to avoid holding locks across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
 
 ## Race conditions on multi-actor endpoints
 
@@ -100,6 +140,10 @@ Use pessimistic locking on the read-and-update path: a custom repository finder 
 
 Don't span the lock across slow external calls (see "Transactions and external calls" above) — split the transaction so the lock covers only the local writes that need atomicity.
 
+## Open-in-view keeps what a request reads managed
+
+`spring.jpa.open-in-view` is on, so an entity read through the request's EntityManager stays managed there until the response is written, and every transaction that runs on that EntityManager flushes the changes made to it, as a whole row unless the entity is `@DynamicUpdate`. A `Propagation.NOT_SUPPORTED` method does not keep them out: the transactions it starts run on the request's EntityManager until it first uses that EntityManager outside a transaction, on EntityManagers of their own from then until it returns, and the request's next transaction runs on the request's EntityManager again. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it can pass whatever the code does.
+
 ## New operator-facing settings go through the Settings UI, not env vars
 
 An operator-configurable tunable belongs in the Settings subsystem (persisted, exposed via the settings API/UI), not in
@@ -108,8 +152,16 @@ only configuration surface, so anything living solely in yml/env is unreachable 
 
 Reserve `@Value`/`application.yml` for things that genuinely can't be runtime settings: bootstrap/infrastructure wiring
 needed before the settings store exists, or per-environment plumbing (datasource, ports). When unsure, ask rather than
-default to `@Value`. If you do add a deploy-time env-var override (`${ENV_VAR_NAME:default}`), it must also be wired
-into the Helm charts (separate repo) — **warn the user** and hand them a prompt for a Claude Code session in that repo.
+default to `@Value`.
+
+This governs where a *new* setting is designed to live. A key that tunes behaviour an existing yml-only block already
+configures follows that block: configuring one key differently from its siblings is worse for an operator than the
+current uniform answer. Migrating a block to the Settings subsystem is its own decision, not something to raise against
+a change that adds one key to it. A new operator-facing capability still goes to Settings, wherever its neighbours
+live.
+
+A deploy-time env-var override (`${ENV_VAR_NAME:default}`) also needs wiring in the Helm charts, which live in a
+separate repository. When you implement one, tell the user that the charts need a matching change.
 
 ## Don't leak runtime details to the wire
 
@@ -124,6 +176,56 @@ String safeText = e instanceof OurDomainException && e.getMessage() != null
 ```
 
 This applies to PKI/CMP/SCEP `PKIFreeText`, ACME `error.detail`, REST API error responses, and any other surface where the message reaches an external party.
+
+A connector's error text is its own words. On a call that carried a secret (a passphrase, key material), drop that text and report the failure with a fixed message, as `KeyProviderV2Adapter.sendExport` does: the connector may echo the secret back.
+
+## Uploaded key files are normalized in Core
+
+`KeyNormalizer` opens an uploaded key file in memory, derives the key's public key and protects the key afresh in the connector contract's pinned profile under a passphrase it generates, so neither the file nor the user's passphrase reaches a connector. Its refusals are fixed messages: what can be seen without the passphrase (the format, the protection scheme, a cost or nesting limit) is named, and every failure after decryption shares one message, so a refusal tells nothing about the passphrase. Cost limits are checked before any key is derived.
+
+## Key import is a saga across the connector boundary
+
+`KeyImportSaga` records an attempt in `key_import` before `importKey` is sent, and resolves an open attempt of the same
+import through `/import/result` before it starts another. The row holds no secret: it keeps digests of the transport
+passphrase and envelope each send carried, and every answer about the attempt is checked not to echo them. An attempt is
+closed as `FAILED` only when nothing can have been imported: it was never sent, or the connector answered with a refusal
+with an error code, a failed or cancelled status, or a cancel it confirmed. Every other failure leaves the attempt open,
+because the connector may hold a key the platform has not registered, and the caller is told to retry. An open attempt
+the connector does not know is sent again only within `key-import.unresolved-after` of its creation, while the connector
+still keeps its records. Registration and `COMPLETED` commit in one transaction under the attempt's row lock, so a retry
+racing the original request registers the key once.
+
+`KeyImportSweeper` settles the attempts whose outcome their requesters never learned. A requester keeps an attempt for
+`key-import.retry-window` after each send; then one node at a time claims it under `KEY_IMPORT_SWEEP`, with its row
+locked, and asks `/import/result` after the claim commits. A key the connector imported is destroyed through the
+connector's handles only after the attempt moved to `COMPENSATING` under its row lock, so a retry that reaches
+registration afterwards finds it closed, and no other import of the key starts until the attempt settles. A key the connector refuses to destroy is registered deactivated
+(`QUARANTINED`). An attempt last sent longer than `key-import.unresolved-after` ago gets one last look, where a
+connector that no longer knows it proves nothing but one that holds its key still has it undone; what that look cannot
+settle, like a key that can be neither destroyed nor registered, ends `UNRESOLVED` with its key reference logged. A registration that fails in the request makes the attempt
+due at once. Each run then deletes the attempts that completed, failed or were compensated longer than
+`key-import.retention` ago, in bounded batches of one statement and one
+transaction each. Every node deletes without the cluster lock; a batch skips the rows another node's batch holds
+(`FOR UPDATE SKIP LOCKED`), so nodes never wait for each other.
+
+An import may adopt a certificate's public-key-only record, so writers of keys and key items must not act on a copy read
+before it: `CryptographicKey` and `CryptographicKeyItem` are `@DynamicUpdate`, every local item deletion or destruction
+passes the key as the caller read it and is refused when its token changed, and compliance results are stored through
+`ComplianceSubjectWriter`, never by saving the checked subject. An adoption needs `CRYPTOGRAPHIC_KEY`/`UPDATE` on the
+record, checked before the import is sent and again as the requester at registration, and it leaves the record's
+identity and ownership as they are.
+
+## Controllers reach services through `*ExternalService` interfaces
+
+`ExternalServiceAuthorizationArchTest` fails the build when a controller depends on a `*Service`, `*InternalService` or `*ServiceImpl` type directly. Give the interface a controller calls a name ending in `ExternalService`, keep it flat (no super-interfaces) with exactly one implementation, and put exactly one authorization annotation on each implementing method.
+
+## Audit records that must precede the response
+
+`@AuditLogged(synchronous = true)` writes the record through `AuditLogInternalService` before the method returns, instead of queueing it, so a record that cannot be written fails the call. It still follows the audit settings: while audit logs are off, or filter the operation out, no record is kept. Use it for operations that hand out sensitive material, such as key export.
+
+## Proxy requests expire when Core stops waiting
+
+`CoreMessageProducer.send` takes how long Core waits for the request and sends it with a JMS time to live of the time still left, so a proxy that comes back after an outage never executes a request Core has given up on. Pass the request's own timeout, not `proxy.request-timeout`: discovery waits longer. The time to live is a parameter of the send: a JMS provider overwrites `JMSExpiration` on the message, so a `MessagePostProcessor` cannot set it.
 
 ## AI-written code: refactor before review
 
@@ -155,6 +257,9 @@ When a user provides a credential (API token, key, password) for a one-off opera
 When writing code, comments, or docs, assume the next reader is an AI model with no conversation context. Prefer:
 
 - Self-explaining identifiers over comments
+- Prefer separate statements with descriptive local variables for converted or constructed values before combining them
+  in a return expression. For example, assign `publicKeyItem` and `privateKeyItem` before returning
+  `List.of(publicKeyItem, privateKeyItem)` instead of nesting both conversions inside `List.of(...)`.
 - Method-level Javadoc on non-obvious behaviour over inline blocks
 - Spec docs that match the shipped code
 - A plan doc that names what's next
@@ -164,3 +269,36 @@ Avoid:
 - "TODO: refactor later" without a specific target
 - Comments referring to PR numbers or review threads ("Fixed in PR #1234") — those rot fast
 - Comments restating method names or class purposes
+
+## The cost of a new test-context combination
+
+Every distinct combination of test mock-modules + profiles + property sources + `@SpringBootTest` args +
+nested `@TestConfiguration` + `@AutoConfigure*` slice annotations is a distinct Spring context — one context
+boot, ~15s of CI time. Reusing an existing combination is free; introducing a new one is a deliberate purchase.
+
+- Prefer composing an existing `@Import` set from `com/otilm/core/util/mockbeans/` over inventing a new one.
+- A mock a test only needs to *exist* belongs in a module (registered there as `@Bean @Primary`); a mock it
+  stubs/verifies can still use the module — `@Autowired` the handle (the `MockBeanResetListener` isolates it
+  per test).
+- `ContextSignatureGuardTest.BASELINE` is an exact snapshot of the current distinct-signature count, not a
+  ceiling — the guard asserts equality so slack can't accumulate silently. A genuinely new combination requires
+  raising it in the same PR (the reviewed record of the purchase — do not raise it casually); removing a
+  combination requires lowering it in lock-step. Run the `census()` test to read the current count.
+- `@MockitoSpyBean` stays local (it wraps a real bean and is verified); it does not go in a module.
+- Avoid per-class `@SpringBootTest(webEnvironment = ...)` / nested `@TestConfiguration` / `@AutoConfigure*`
+  unless the context genuinely must differ — each forks a new cached context, and the guard now counts them
+  as distinct signatures.
+
+## The tested PostgreSQL version is the minimum supported version
+
+The Testcontainers image pinned in `src/test/resources/application.yml` is the single source of truth for
+the minimum supported PostgreSQL server. Nothing else in the repo declares one — the parent pom pins the
+JDBC *driver*, not the server.
+
+To support an older server, pin the older image and let the integration suite prove it. An untested version
+is not a supported version, and raising the pin raises the floor deliberately rather than by accident.
+
+Do not restate the version anywhere else — not here, not in a README, not in a comment. A second copy
+goes stale the moment the pin moves, and then the floor can only be inferred again: the oldest server the
+migrations happen to parse on, the newest feature the native queries happen to use, and the image the
+tests happen to run give three different answers. The pin is the answer.

@@ -1,0 +1,14 @@
+{
+  "content" : [
+    {
+      "reference" : "ref-cn",
+      "data" : "host.example.com"
+    }
+  ],
+  "uuid" : "d41f8c9b-0000-4000-8000-000000000004",
+  "name" : "commonName",
+  "label" : "Common Name",
+  "type" : "data",
+  "contentType" : "string",
+  "version" : "v2"
+}

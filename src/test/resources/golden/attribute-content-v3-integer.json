@@ -1,0 +1,5 @@
+{
+  "reference" : "ref-integer",
+  "data" : 42,
+  "contentType" : "integer"
+}

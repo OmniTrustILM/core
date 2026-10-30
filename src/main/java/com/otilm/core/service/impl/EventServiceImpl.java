@@ -1,0 +1,241 @@
+package com.otilm.core.service.impl;
+
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.PaginationResponseDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.other.ResourceObjectDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.workflows.EventHistoryDto;
+import com.otilm.api.model.core.workflows.EventHistoryRequestDto;
+import com.otilm.api.model.core.workflows.ObjectEventHistoryDto;
+import com.otilm.core.dao.entity.Comment;
+import com.otilm.core.dao.entity.workflows.EventHistory;
+import com.otilm.core.dao.entity.workflows.TriggerHistory;
+import com.otilm.core.dao.repository.CommentRepository;
+import com.otilm.core.dao.repository.workflows.EventHistoryRepository;
+import com.otilm.core.dao.repository.workflows.TriggerHistoryRepository;
+import com.otilm.core.mapper.workflows.EventHistoryMapper;
+import com.otilm.core.mapper.workflows.PaginationResponseMapper;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.service.EventExternalService;
+import com.otilm.core.service.ResourceInternalService;
+import com.otilm.core.util.RequestValidatorHelper;
+import jakarta.transaction.Transactional;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+
+@Service
+public class EventServiceImpl implements EventExternalService {
+
+    private ResourceInternalService resourceService;
+
+    private TriggerHistoryRepository triggerHistoryRepository;
+    private EventHistoryRepository eventHistoryRepository;
+    private CommentRepository commentRepository;
+
+    @Autowired
+    public void setCommentRepository(CommentRepository commentRepository) {
+        this.commentRepository = commentRepository;
+    }
+
+    @Autowired
+    public void setResourceService(ResourceInternalService resourceService) {
+        this.resourceService = resourceService;
+    }
+
+    @Autowired
+    public void setTriggerHistoryRepository(TriggerHistoryRepository triggerHistoryRepository) {
+        this.triggerHistoryRepository = triggerHistoryRepository;
+    }
+
+    @Autowired
+    public void setEventHistoryRepository(EventHistoryRepository eventHistoryRepository) {
+        this.eventHistoryRepository = eventHistoryRepository;
+    }
+
+    @Override
+    @Transactional
+    @ExternalAuthorization(resource = Resource.RESOURCE_EVENT, action = ResourceAction.DETAIL)
+    public PaginationResponseDto<ObjectEventHistoryDto> getEventHistory(Resource resource, UUID uuid,
+            PaginationRequestDto pagination) throws NotFoundException {
+        // Check if object is present for the given resource and uuid and if user has permissions for details of the
+        // object
+        resourceService.getResourceObject(resource, uuid);
+        RequestValidatorHelper.revalidatePaginationRequestDto(pagination);
+        Page<TriggerHistory> triggerHistoryPage = triggerHistoryRepository
+                .findByObjectUuidAndObjectResourceOrderByTriggeredAtDesc(uuid, resource,
+                        PageRequest.of(pagination.getPageNumber() - 1, pagination.getItemsPerPage()));
+        List<ObjectEventHistoryDto> eventHistoryDtos = triggerHistoryPage.get().map(triggerHistory -> {
+            ResourceObjectDto resourceObjectDto = getOriginResourceObjectDto(triggerHistory);
+            return EventHistoryMapper.toObjectEventHistoryDto(triggerHistory, resourceObjectDto);
+        }).toList();
+        return PaginationResponseMapper.toDto(triggerHistoryPage, eventHistoryDtos);
+    }
+
+    /**
+     * Names the host object of every comment on the page: a comment has no page of its own, so its history row is shown
+     * from the host's. A host deleted since is left out; its comments cascade with it, so that is only ever a race.
+     */
+    private Map<UUID, ResourceObjectDto> hostObjectsOfComments(
+            Map<UUID, Map<UUID, List<TriggerHistory>>> triggerHistoriesByEventAndObject) {
+        List<UUID> commentUuids = triggerHistoriesByEventAndObject
+                .values()
+                .stream()
+                .flatMap(perObject -> perObject.values().stream())
+                .flatMap(Collection::stream)
+                .filter(th -> th.getObjectResource() == Resource.COMMENT && th.getObjectUuid() != null)
+                .map(TriggerHistory::getObjectUuid)
+                .distinct()
+                .toList();
+        if (commentUuids.isEmpty()) {
+            return Map.of();
+        }
+        List<Comment> comments = commentRepository.findAllById(commentUuids);
+        // Several comments on the page usually share a host; look each host up once
+        Map<UUID, ResourceObjectDto> hostsByUuid = new HashMap<>();
+        for (Comment comment : comments) {
+            hostsByUuid
+                    .computeIfAbsent(comment.getObjectUuid(),
+                            hostUuid -> hostObjectOf(comment.getResource(), hostUuid));
+        }
+        Map<UUID, ResourceObjectDto> hostObjects = new HashMap<>();
+        for (Comment comment : comments) {
+            ResourceObjectDto host = hostsByUuid.get(comment.getObjectUuid());
+            if (host != null) {
+                hostObjects.put(comment.getUuid(), host);
+            }
+        }
+        return hostObjects;
+    }
+
+    private ResourceObjectDto hostObjectOf(Resource resource, UUID hostUuid) {
+        try {
+            return new ResourceObjectDto(resource, hostUuid,
+                    resourceService.getResourceObjectInternal(resource, hostUuid).getName());
+        } catch (NotFoundException e) {
+            return null;
+        }
+    }
+
+    private ResourceObjectDto getOriginResourceObjectDto(TriggerHistory triggerHistory) {
+        ResourceObjectDto resourceObjectDto = new ResourceObjectDto();
+        if (triggerHistory.getTriggerAssociation() != null) {
+            if (triggerHistory.getTriggerAssociation().getResource() == null) {
+                resourceObjectDto.setResource(Resource.SETTINGS);
+            } else {
+                try {
+                    resourceObjectDto = resourceService
+                            .getResourceObject(triggerHistory.getTriggerAssociation().getResource(),
+                                    triggerHistory.getTriggerAssociation().getObjectUuid());
+                } catch (NotFoundException e) {
+                    resourceObjectDto.setResource(triggerHistory.getTriggerAssociation().getResource());
+                }
+            }
+        }
+        return resourceObjectDto;
+    }
+
+    @Override
+    @Transactional
+    @ExternalAuthorization(resource = Resource.RESOURCE_EVENT, action = ResourceAction.DETAIL)
+    public PaginationResponseDto<EventHistoryDto> getEventHistory(ResourceEvent event, Resource resource, UUID uuid,
+            EventHistoryRequestDto request) throws NotFoundException {
+        if (uuid == null && resource != null || uuid != null && resource == null) {
+            throw new ValidationException("Missing UUID or Resource");
+        }
+        if (uuid != null) {
+            // Check if object is present for the given resource and uuid and if user has permissions for details of the
+            // object
+            resourceService.getResourceObject(resource, uuid);
+        }
+        RequestValidatorHelper.revalidatePaginationRequestDto(request.getPagination());
+        RequestValidatorHelper.revalidatePaginationRequestDto(request.getObjectsPagination());
+
+        Page<EventHistory> eventHistories = eventHistoryRepository
+                .findByEventAndResourceAndResourceUuidOrderByStartedAtDesc(event, resource, uuid, PageRequest
+                        .of(request.getPagination().getPageNumber() - 1, request.getPagination().getItemsPerPage()));
+        if (eventHistories.isEmpty()) {
+            return PaginationResponseMapper.toDto(eventHistories, List.of());
+        }
+
+        List<UUID> eventHistoryUuids = eventHistories.stream().map(EventHistory::getUuid).toList();
+
+        // Batch 1: all three counts in one GROUP BY query (replaces 3 per-row count queries)
+        Map<UUID, int[]> countsPerEvent = triggerHistoryRepository
+                .countStatsByEventHistoryUuids(eventHistoryUuids)
+                .stream()
+                .collect(Collectors
+                        .toMap(row -> (UUID) row[0],
+                                row -> new int[]{
+                                        ((Number) row[1]).intValue(),
+                                        ((Number) row[2]).intValue(),
+                                        ((Number) row[3]).intValue()}));
+
+        // Batch 2: paginated object UUIDs for all event histories in one window-function query
+        int objectsPageNumber = request.getObjectsPagination().getPageNumber();
+        int objectsItemsPerPage = request.getObjectsPagination().getItemsPerPage();
+        int offset = (objectsPageNumber - 1) * objectsItemsPerPage;
+        Map<UUID, List<UUID>> paginatedObjectUuidsPerEvent = triggerHistoryRepository
+                .findPaginatedObjectUuidsByEventHistoryUuids(eventHistoryUuids, offset, objectsItemsPerPage)
+                .stream()
+                .collect(Collectors
+                        .groupingBy(row -> (UUID) row[0], LinkedHashMap::new,
+                                Collectors.mapping(row -> (UUID) row[1], Collectors.toList())));
+
+        // Batch 3: all trigger histories for the paginated object UUIDs in one query, then group in Java.
+        // Null object_uuid (ignored certificates) is a valid paginated entry; filter it from the IN parameter
+        // since OR t.objectUuid IS NULL in the query handles that clause. Hibernate renders an empty IN as (1=0),
+        // so the OR branch still fires when the page contains only null entries.
+        List<UUID> allPaginatedObjectUuids = paginatedObjectUuidsPerEvent
+                .values()
+                .stream()
+                .flatMap(Collection::stream)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        boolean hasNullObjectUuid = paginatedObjectUuidsPerEvent
+                .values()
+                .stream()
+                .anyMatch(list -> list.contains(null));
+        Map<UUID, Map<UUID, List<TriggerHistory>>> triggerHistoriesByEventAndObject = new LinkedHashMap<>();
+        if (!allPaginatedObjectUuids.isEmpty() || hasNullObjectUuid) {
+            for (TriggerHistory th : triggerHistoryRepository
+                    .findByEventHistoryUuidsAndObjectUuids(eventHistoryUuids, allPaginatedObjectUuids)) {
+                triggerHistoriesByEventAndObject
+                        .computeIfAbsent(th.getEventHistoryUuid(), k -> new LinkedHashMap<>())
+                        .computeIfAbsent(th.getObjectUuid(), k -> new ArrayList<>())
+                        .add(th);
+            }
+        }
+
+        Map<UUID, ResourceObjectDto> hostObjects = hostObjectsOfComments(triggerHistoriesByEventAndObject);
+
+        List<EventHistoryDto> eventHistoriesResponse = eventHistories.stream().map(eventHistory -> {
+            int[] counts = countsPerEvent.getOrDefault(eventHistory.getUuid(), new int[]{0, 0, 0});
+            List<UUID> paginatedObjectUuids = paginatedObjectUuidsPerEvent
+                    .getOrDefault(eventHistory.getUuid(), List.of());
+            Map<UUID, List<TriggerHistory>> triggerHistoriesPerObject = triggerHistoriesByEventAndObject
+                    .getOrDefault(eventHistory.getUuid(), Map.of());
+            return EventHistoryMapper
+                    .toEventHistoryDto(eventHistory, counts[0], counts[1], counts[2], paginatedObjectUuids,
+                            objectsPageNumber, objectsItemsPerPage, triggerHistoriesPerObject, hostObjects);
+        }).toList();
+
+        return PaginationResponseMapper.toDto(eventHistories, eventHistoriesResponse);
+    }
+
+}

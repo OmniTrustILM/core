@@ -1,6 +1,6 @@
 package db.migration;
 
-import com.czertainly.core.util.DatabaseMigration;
+import com.otilm.core.util.DatabaseMigration;
 import com.otilm.core.util.V2AttributeMigrationUtils;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;

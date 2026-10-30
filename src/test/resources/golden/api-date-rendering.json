@@ -1,0 +1,9 @@
+{
+  "uuid" : "d41f8c9b-0000-4000-8000-000000000002",
+  "commonName" : "host.example.com",
+  "notBefore" : "2026-01-15T09:30:00.000+00:00",
+  "notAfter" : "2026-04-15T09:30:00.000+00:00",
+  "hybridCertificate" : false,
+  "privateKeyAvailability" : false,
+  "archived" : false
+}

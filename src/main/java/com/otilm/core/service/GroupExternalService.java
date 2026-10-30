@@ -1,0 +1,32 @@
+package com.otilm.core.service;
+
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.certificate.group.GroupDto;
+import com.otilm.api.model.core.certificate.group.GroupRequestDto;
+import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.security.authz.SecurityFilter;
+
+import java.util.List;
+
+public interface GroupExternalService {
+
+    List<GroupDto> listGroups(SecurityFilter filter);
+
+    GroupDto getGroup(SecuredUUID uuid) throws NotFoundException;
+
+    GroupDto createGroup(GroupRequestDto request)
+            throws ValidationException, AlreadyExistException, NotFoundException, AttributeException;
+
+    GroupDto editGroup(SecuredUUID uuid, GroupRequestDto request) throws NotFoundException, AttributeException;
+
+    void deleteGroup(SecuredUUID uuid) throws NotFoundException;
+
+    void bulkDeleteGroup(List<SecuredUUID> groupUuids);
+
+    List<NameAndUuidDto> getGroupUsers(SecuredParentUUID uuid) throws NotFoundException;
+}

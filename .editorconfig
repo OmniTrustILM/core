@@ -1,0 +1,111 @@
+# EditorConfig — IDE-level enforcement of line endings, indentation and the full
+# Java code style. https://editorconfig.org  (IntelliJ has built-in support; no
+# plugin required, and it takes precedence over the IDE's own code style scheme.)
+# This is the IDE's first line of defence; Spotless (mvn verify) is the authoritative gate.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.java]
+indent_style = space
+indent_size = 4
+continuation_indent_size = 8
+max_line_length = 120
+
+# Never auto-wrap while typing; Spotless owns final wrapping.
+ij_wrap_on_typing = false
+
+# Imports. Never collapse to a wildcard (Checkstyle AvoidStarImport forbids it and
+# Spotless cannot expand one back). Layout is IntelliJ's default and mirrors
+# eclipse.importorder (0= / 1=\#): one alphabetical block, blank line, static last.
+ij_java_class_count_to_use_import_on_demand = 999
+ij_java_names_count_to_use_import_on_demand = 999
+ij_java_imports_layout = *,|,$*
+
+# Javadoc. Eclipse puts a single space before a tag description and never pads to
+# align, nor adds <p> to empty lines, and it leaves a one-line /** ... */ alone
+# instead of exploding it to three.
+ij_java_doc_do_not_wrap_if_one_line = true
+ij_java_doc_align_param_comments = false
+ij_java_doc_align_exception_comments = false
+ij_java_doc_add_p_tag_on_empty_lines = false
+
+# Blank lines. Eclipse has ONE knob for this (number_of_empty_lines_to_preserve=1);
+# IntelliJ splits it into three, and the two added below default to 2 — omit them
+# and a second blank line between members survives the IDE only for Spotless to
+# collapse it, which is exactly the round-trip drift this file exists to prevent.
+# The key is ..._before_rbrace, NOT ..._before_right_brace: a misspelled ij_*
+# property is silently ignored, so a typo here fails open and undetected.
+ij_java_keep_blank_lines_in_code = 1
+ij_java_keep_blank_lines_in_declarations = 1
+ij_java_keep_blank_lines_before_rbrace = 1
+ij_java_blank_lines_after_class_header = 0
+ij_java_blank_lines_around_method = 1
+ij_java_blank_lines_around_field = 0
+
+# Eclipse always breaks a controlled statement onto its own line and never
+# collapses a simple block, method, lambda or class.
+ij_java_keep_control_statement_in_one_line = false
+ij_java_keep_simple_methods_in_one_line = false
+ij_java_keep_simple_lambdas_in_one_line = false
+ij_java_keep_simple_blocks_in_one_line = false
+ij_java_keep_simple_classes_in_one_line = false
+
+# Wrap per construct only when the line exceeds the margin ("normal" = wrap if
+# long). Do NOT set ij_java_wrap_long_lines = true: it force-breaks long
+# annotations and string literals that Eclipse leaves intact.
+ij_java_wrap_long_lines = false
+ij_java_method_parameters_wrap = normal
+ij_java_call_parameters_wrap = normal
+ij_java_throws_list_wrap = normal
+ij_java_throws_keyword_wrap = normal
+ij_java_binary_operation_wrap = normal
+ij_java_ternary_operation_wrap = normal
+ij_java_assignment_wrap = normal
+ij_java_array_initializer_wrap = normal
+ij_java_extends_list_wrap = normal
+# One call per line, but only for a chain that does not fit. Mirrors Eclipse's
+# alignment_for_selector_in_method_invocation=48.
+ij_java_method_call_chain_wrap = on_every_item
+# Every enum constant on its own line, even when several would fit. Mirrors Eclipse's
+# alignment_for_enum_constants=49: split_into_lines is IntelliJ's "wrap always" (=2), while
+# on_every_item — despite the name — is "chop down if long" (=5) and drops the force bit.
+ij_java_enum_constants_wrap = split_into_lines
+
+# Eclipse indents every continuation by a flat 8 spaces; IntelliJ aligns to the
+# opening delimiter instead. Continuation alignment is the single largest source of
+# IDE/build drift, so it is off everywhere below.
+ij_java_align_multiline_parameters = false
+ij_java_align_multiline_parameters_in_calls = false
+ij_java_align_multiline_method_parentheses = false
+ij_java_align_multiline_resources = false
+ij_java_align_multiline_for = false
+ij_java_align_multiline_binary_operation = false
+ij_java_align_multiline_ternary_operation = false
+ij_java_align_multiline_throws_list = false
+ij_java_align_throws_keyword = false
+ij_java_align_multiline_parenthesized_expression = false
+ij_java_align_multiline_array_initializer_expression = false
+ij_java_align_multiline_chained_methods = false
+ij_java_align_multiline_records = false
+
+[*.{xml,yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.{sh,cmd,bat}]
+indent_style = space
+indent_size = 4
+
+# Batch files are Windows-only and need CRLF, which is what .gitattributes checks
+# them out as. Without this the [*] default above claims LF and the two layers
+# assert opposite things about the same files.
+[*.{cmd,bat}]
+end_of_line = crlf
+
+[*.md]
+trim_trailing_whitespace = false

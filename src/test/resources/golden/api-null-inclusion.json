@@ -1,0 +1,7 @@
+{
+  "uuid" : "d41f8c9b-0000-4000-8000-000000000001",
+  "commonName" : "host.example.com",
+  "hybridCertificate" : false,
+  "privateKeyAvailability" : false,
+  "archived" : false
+}

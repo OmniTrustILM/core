@@ -1,0 +1,579 @@
+package com.otilm.core.attribute;
+
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.attribute.v3.mapping.ExtendedKeyUsageMappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.ExtensionMappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
+import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
+import com.otilm.api.model.common.attribute.v3.mapping.KeyUsageMappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.MappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
+import com.otilm.api.model.common.attribute.v3.mapping.SanMappedField;
+import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
+import com.otilm.api.model.connector.v3.certificate.RdnEntry;
+import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.GeneralNameType;
+import com.otilm.api.model.core.oid.ExtensionValueEncoding;
+import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
+
+class CertificateRequestAttributeProjectorTest {
+
+    // The OidHandler cache is process-wide static state shared across the whole test JVM.
+    // Snapshot CERTIFICATE_EXTENSION before this class replaces it; restore it afterwards.
+    private static Map<String, OidRecord> savedExtensionCache;
+
+    @BeforeAll
+    static void snapshotExtensionCache() {
+        Map<String, OidRecord> existing = OidHandler.getOidCache(OidCategory.CERTIFICATE_EXTENSION);
+        savedExtensionCache = existing == null ? null : new HashMap<>(existing);
+    }
+
+    @AfterAll
+    static void restoreExtensionCache() {
+        OidHandler
+                .cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION,
+                        savedExtensionCache != null ? savedExtensionCache : new HashMap<>());
+    }
+
+    @BeforeEach
+    void seedExtensionRegistry() {
+        OidHandler.cacheOidCategory(OidCategory.CERTIFICATE_EXTENSION, new HashMap<>());
+        OidHandler
+                .cacheOid(OidCategory.CERTIFICATE_EXTENSION, REGISTERED_EXT_OID,
+                        OidRecord
+                                .builder()
+                                .displayName("Registered Extension")
+                                .defaultCritical(true)
+                                .valueEncoding(ExtensionValueEncoding.IA5_STRING)
+                                .build());
+    }
+
+    @Test
+    void projectsExtensionCriticalityAndEncoding_fromOidRegistry_whenOidIsRegistered() {
+        // given — a mapped extension whose OID is registered as critical with an IA5_STRING encoding
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, extensionMapping(REGISTERED_EXT_OID));
+        var values = List.of(stringValue(uuid, "registered-value"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — criticality and encoding are taken from the registry, not hard-coded
+        assertThat(content.getExtensions()).singleElement().satisfies(ext -> {
+            assertThat(ext.getOid()).isEqualTo(REGISTERED_EXT_OID);
+            assertThat(ext.getCritical()).isTrue();
+            assertThat(ext.getEncoding()).isEqualTo(ExtensionValueEncoding.IA5_STRING);
+            assertThat(ext.getValue()).isEqualTo("registered-value");
+        });
+    }
+
+    @Test
+    void encodesAWrittenDerExtensionValueToBase64_soEveryWireCarriesBytes() {
+        // The register wire promises base64 DER and never passes through the renderer, so a value written out
+        // in JSON must already be bytes when it leaves the projection.
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, extensionMapping("2.5.29.19"));
+        var values = List.of(stringValue(uuid, "{\"cA\":true,\"pathLenConstraint\":0}"));
+
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        assertThat(content.getExtensions()).singleElement().satisfies(ext -> {
+            assertThat(ext.getOid()).isEqualTo("2.5.29.19");
+            assertThat(ext.getValue()).isEqualTo("MAYBAf8CAQA=");
+        });
+    }
+
+    @Test
+    void refusesAWrittenValueForAnExtensionWithoutAModule() {
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, extensionMapping("1.3.6.1.4.1.99999.8"));
+        var definitions = List.of(def);
+        var values = List.of(stringValue(uuid, "{\"a\":1}"));
+
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(definitions, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("1.3.6.1.4.1.99999.8")
+                .hasMessageContaining("no registered ASN.1 module");
+    }
+
+    @Test
+    void projectsExtensionAsNonCriticalWithoutEncoding_whenOidIsUnregistered() {
+        // given — a mapped extension whose OID is not in the registry
+        var unregisteredOid = "1.3.6.1.4.1.99999.7";
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, extensionMapping(unregisteredOid));
+        var values = List.of(stringValue(uuid, "unregistered-value"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — falls back to non-critical with no declared encoding
+        assertThat(content.getExtensions()).singleElement().satisfies(ext -> {
+            assertThat(ext.getCritical()).isFalse();
+            assertThat(ext.getEncoding()).isNull();
+        });
+    }
+
+    @Test
+    void projectsRdnSubject_fromRdnMappedField() {
+        // given — a CN RDN mapping carrying a value
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, rdnMapping("CN"));
+        var values = List.of(stringValue(uuid, "host.example.com"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then
+        assertThat(content.getSubject()).singleElement().satisfies(rdn -> {
+            assertThat(rdn.getType()).isEqualTo("CN");
+            assertThat(rdn.getValue()).isEqualTo("host.example.com");
+        });
+    }
+
+    @Test
+    void projectsSubjectAltName_fromSanMappedField() {
+        // given — a DNS SAN mapping carrying a value
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, sanMapping(GeneralNameType.DNS));
+        var values = List.of(stringValue(uuid, "alt.example.com"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then
+        assertThat(content.getSubjectAltNames()).singleElement().satisfies(san -> {
+            assertThat(san.getType()).isEqualTo(GeneralNameType.DNS);
+            assertThat(san.getValue()).isEqualTo("alt.example.com");
+        });
+    }
+
+    @Test
+    void projectsEveryValueOfMultiValuedAttribute_asRepeatedRdns() {
+        // given — one two-valued list attribute mapped to OU (many→1: one attribute, repeated RDNs)
+        var uuid = UUID.randomUUID();
+        var def = listDataAttribute(uuid, rdnMapping("OU"));
+        var values = List.of(multiStringValue(uuid, "unit-one", "unit-two"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — one OU entry per value, in content order
+        assertThat(content.getSubject())
+                .extracting(RdnEntry::getType, RdnEntry::getValue)
+                .containsExactly(tuple("OU", "unit-one"), tuple("OU", "unit-two"));
+    }
+
+    @Test
+    void projectsEveryValueOfMultiValuedAttribute_asMultipleSans() {
+        // given — one three-valued list attribute mapped to a DNS SAN (many→1: one SAN entry per value)
+        var uuid = UUID.randomUUID();
+        var def = listDataAttribute(uuid, sanMapping(GeneralNameType.DNS));
+        var values = List.of(multiStringValue(uuid, "a.example.com", "b.example.com", "c.example.com"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — one SAN entry per value, in content order
+        assertThat(content.getSubjectAltNames())
+                .extracting(GeneralNameEntry::getType, GeneralNameEntry::getValue)
+                .containsExactly(tuple(GeneralNameType.DNS, "a.example.com"),
+                        tuple(GeneralNameType.DNS, "b.example.com"), tuple(GeneralNameType.DNS, "c.example.com"));
+    }
+
+    @Test
+    void skipsNonStringContentItems_withoutDroppingTheAttribute() {
+        // given — mixed content: an integer item ahead of a string item
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, rdnMapping("CN"));
+        List<BaseAttributeContentV3<?>> mixed = List
+                .of(new IntegerAttributeContentV3(42), new StringAttributeContentV3("kept"));
+        var values = List
+                .<RequestAttribute>of(new RequestAttributeV3(uuid, "attr-" + uuid, AttributeContentType.STRING, mixed));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — the string item projects; only the non-string item is skipped
+        assertThat(content.getSubject()).extracting(RdnEntry::getValue).containsExactly("kept");
+    }
+
+    @Test
+    void omitsAttribute_whenContentHasNoStringValues() {
+        // given — content holding no string items at all
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, rdnMapping("CN"));
+        List<BaseAttributeContentV3<?>> integers = List.of(new IntegerAttributeContentV3(7));
+        var values = List
+                .<RequestAttribute>of(
+                        new RequestAttributeV3(uuid, "attr-" + uuid, AttributeContentType.INTEGER, integers));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — nothing to project
+        assertThat(content.getSubject()).isNull();
+    }
+
+    @Test
+    void projectsOneValueToEveryMappedField_cnAndDnsSan() {
+        // given — 1→many: one FQDN mapped to both CN and dNSName
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, mappingOf(rdnField("CN", 1), sanField(GeneralNameType.DNS, 2)));
+        var values = List.of(stringValue(uuid, "host.example.com"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — the single value lands in both target fields
+        assertThat(content.getSubject())
+                .extracting(RdnEntry::getType, RdnEntry::getValue)
+                .containsExactly(tuple("CN", "host.example.com"));
+        assertThat(content.getSubjectAltNames())
+                .extracting(GeneralNameEntry::getType, GeneralNameEntry::getValue)
+                .containsExactly(tuple(GeneralNameType.DNS, "host.example.com"));
+    }
+
+    @Test
+    void ordersProjectedEntries_byFieldOrderThenContentOrder() {
+        // given — two RDN fields declared in reverse of their explicit order, on a two-valued list attribute
+        var uuid = UUID.randomUUID();
+        var def = listDataAttribute(uuid, mappingOf(rdnField("OU", 2), rdnField("CN", 1)));
+        var values = List.of(multiStringValue(uuid, "first", "second"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — CN (order 1) precedes OU (order 2); values keep content order within each field
+        assertThat(content.getSubject())
+                .extracting(RdnEntry::getType, RdnEntry::getValue)
+                .containsExactly(tuple("CN", "first"), tuple("CN", "second"), tuple("OU", "first"),
+                        tuple("OU", "second"));
+    }
+
+    @Test
+    void projectsField_whenOrderIsNull() {
+        // given — a mapped RDN field with no explicit order (null coalesces to the default 0)
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, mappingOf(rdnField("CN", null)));
+        var values = List.of(stringValue(uuid, "host.example.com"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — a null order does not drop the field; it still projects
+        assertThat(content.getSubject())
+                .extracting(RdnEntry::getType, RdnEntry::getValue)
+                .containsExactly(tuple("CN", "host.example.com"));
+    }
+
+    @Test
+    void rejectsMultiValuedAttributeMappedToExtension() {
+        // given — two values feeding one extension OID: cannot render to valid RFC 5280 Extensions
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, extensionMapping(REGISTERED_EXT_OID));
+        var defs = List.of(def);
+        var values = List.of(multiStringValue(uuid, "value-one", "value-two"));
+
+        // when / then
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(REGISTERED_EXT_OID)
+                .hasMessageContaining(def.getName());
+    }
+
+    @Test
+    void rejectsDuplicateExtensionOidAcrossDefinitions() {
+        // given — two definitions mapping the same extension OID, each supplying a single value
+        var uuidA = UUID.randomUUID();
+        var uuidB = UUID.randomUUID();
+        var defA = dataAttribute(uuidA, extensionMapping(REGISTERED_EXT_OID));
+        var defB = dataAttribute(uuidB, extensionMapping(REGISTERED_EXT_OID));
+        var defs = List.of(defA, defB);
+        var values = List.of(stringValue(uuidA, "value-a"), stringValue(uuidB, "value-b"));
+
+        // when / then — an extension OID may appear only once (RFC 5280)
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(REGISTERED_EXT_OID);
+    }
+
+    @Test
+    void rejectsDuplicateExtensionOidWithinSingleMapping() {
+        // given — one definition whose mapping declares two extension fields sharing the same OID
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid,
+                mappingOf(extensionField(REGISTERED_EXT_OID, 1), extensionField(REGISTERED_EXT_OID, 2)));
+        var defs = List.of(def);
+        var values = List.of(stringValue(uuid, "value"));
+
+        // when / then — the projector's own dedup rejects it (an extension OID may appear only once, RFC 5280);
+        // AttributeEngine's definition-time rejection is covered separately in AttributeEngineITest
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(REGISTERED_EXT_OID);
+    }
+
+    @Test
+    void rejectsNonListAttributeSupplyingMultipleValues() {
+        // given — a non-list CN attribute carrying two content items
+        var uuid = UUID.randomUUID();
+        var def = nonListDataAttribute(uuid, rdnMapping("CN"));
+        var defs = List.of(def);
+        var values = List.of(multiStringValue(uuid, "first.example.com", "second.example.com"));
+
+        // when / then — only list attributes may be multi-valued; a non-list CN must map to one value
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(def.getName());
+    }
+
+    @Test
+    void rejectsSanEntriesCollidingWithExplicitSubjectAltNameExtension() {
+        // given — one definition mapping a DNS SAN, another mapping an explicit extension to the SAN OID
+        var sanUuid = UUID.randomUUID();
+        var extUuid = UUID.randomUUID();
+        var sanDef = dataAttribute(sanUuid, sanMapping(GeneralNameType.DNS));
+        var extDef = dataAttribute(extUuid, extensionMapping(SUBJECT_ALT_NAME_OID));
+        var defs = List.of(sanDef, extDef);
+        var values = List.of(stringValue(sanUuid, "alt.example.com"), stringValue(extUuid, "ZHVtbXk="));
+
+        // when / then — both render into the subjectAltName extension, which may appear only once (RFC 5280)
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(SUBJECT_ALT_NAME_OID);
+    }
+
+    @Test
+    void projectsKeyUsageIntoTheTypedField() {
+        // given — one list attribute mapped to Key Usage, selecting two bits
+        var uuid = UUID.randomUUID();
+        var def = listDataAttribute(uuid, mappingOf(keyUsageField()));
+        var values = List.of(multiStringValue(uuid, "digitalSignature", "keyEncipherment"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — typed values, and nothing in the opaque extension list
+        assertThat(content.getKeyUsage())
+                .containsExactly(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT);
+        assertThat(content.getExtensions()).isNull();
+    }
+
+    @Test
+    void projectsExtendedKeyUsagePurposesIntoTheTypedField() {
+        // given
+        var uuid = UUID.randomUUID();
+        var def = listDataAttribute(uuid, mappingOf(extendedKeyUsageField()));
+        var values = List.of(multiStringValue(uuid, "1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.3"));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then
+        assertThat(content.getExtendedKeyUsage()).containsExactly("1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.3");
+        assertThat(content.getExtensions()).isNull();
+    }
+
+    @Test
+    void rejectsAKeyUsageValue_thatIsNotAKnownBit() {
+        // given
+        var uuid = UUID.randomUUID();
+        var def = listDataAttribute(uuid, mappingOf(keyUsageField()));
+        var values = List.of(stringValue(uuid, "notABit"));
+
+        // when / then
+        var defs = List.of(def);
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("notABit");
+    }
+
+    @Test
+    void projectsNoTypedField_whenTheAttributeSuppliesNoValues() {
+        // given — the attribute carries no values at all
+        var uuid = UUID.randomUUID();
+        var def = listDataAttribute(uuid, mappingOf(keyUsageField()));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), List.of());
+
+        // then — RFC 5280 forbids an empty key usage bit string, so nothing is carried at all
+        assertThat(content.getKeyUsage()).isNull();
+    }
+
+    @Test
+    void rejectsAStructuredTargetColliding_withAnExplicitExtensionMappingOnTheSameOid() {
+        // given — one attribute mapped to Key Usage, another to 2.5.29.15 as opaque DER
+        var structuredUuid = UUID.randomUUID();
+        var opaqueUuid = UUID.randomUUID();
+        var defs = List
+                .of(listDataAttribute(structuredUuid, mappingOf(keyUsageField())),
+                        dataAttribute(opaqueUuid, extensionMapping("2.5.29.15")));
+        var values = List.of(stringValue(structuredUuid, "digitalSignature"), stringValue(opaqueUuid, "AwIFoA=="));
+
+        // when / then — an extension may appear only once (RFC 5280)
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("2.5.29.15");
+    }
+
+    @Test
+    void rejectsTheSameStructuredTarget_mappedByTwoAttributes() {
+        // given
+        var first = UUID.randomUUID();
+        var second = UUID.randomUUID();
+        var defs = List
+                .of(listDataAttribute(first, mappingOf(keyUsageField())),
+                        listDataAttribute(second, mappingOf(keyUsageField())));
+        var values = List.of(stringValue(first, "digitalSignature"), stringValue(second, "cRLSign"));
+
+        // when / then
+        assertThatThrownBy(() -> CertificateRequestAttributeProjector.project(defs, values))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("2.5.29.15");
+    }
+
+    @Test
+    void stillProjectsAStoredDerMapping_toAnOidThatNowHasAStructuredTarget() {
+        // given — a definition stored before the structured targets existed, mapping key usage as opaque
+        // base64 DER. Authoring one is now rejected, but projection never re-validates, so an existing
+        // definition must keep producing exactly what it produced before.
+        var uuid = UUID.randomUUID();
+        var def = dataAttribute(uuid, extensionMapping("2.5.29.15"));
+        var values = List.of(stringValue(uuid, "AwIFoA=="));
+
+        // when
+        X509RequestContent content = CertificateRequestAttributeProjector.project(List.of(def), values);
+
+        // then — still an opaque extension, untouched, and not diverted into the typed field
+        assertThat(content.getKeyUsage()).isNull();
+        assertThat(content.getExtensions()).singleElement().satisfies(ext -> {
+            assertThat(ext.getOid()).isEqualTo("2.5.29.15");
+            assertThat(ext.getValue()).isEqualTo("AwIFoA==");
+        });
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    /** OID of the subjectAltName extension; SAN entries render into this OID. */
+    private static final String SUBJECT_ALT_NAME_OID = "2.5.29.17";
+
+    private static final String REGISTERED_EXT_OID = "1.3.6.1.4.1.99999.1";
+
+    private static DataAttributeV3 dataAttribute(UUID uuid, FieldMapping fieldMapping) {
+        DataAttributeV3 attr = new DataAttributeV3();
+        attr.setUuid(uuid.toString());
+        attr.setName("attr-" + uuid);
+        attr.setContentType(AttributeContentType.STRING);
+        attr.setFieldMapping(fieldMapping);
+        return attr;
+    }
+
+    private static DataAttributeV3 listDataAttribute(UUID uuid, FieldMapping fieldMapping) {
+        return withList(dataAttribute(uuid, fieldMapping), true);
+    }
+
+    private static DataAttributeV3 nonListDataAttribute(UUID uuid, FieldMapping fieldMapping) {
+        return withList(dataAttribute(uuid, fieldMapping), false);
+    }
+
+    private static DataAttributeV3 withList(DataAttributeV3 attr, boolean list) {
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setList(list);
+        attr.setProperties(properties);
+        return attr;
+    }
+
+    private static FieldMapping extensionMapping(String extensionOid) {
+        return mappingOf(extensionField(extensionOid, 1));
+    }
+
+    private static ExtensionMappedField extensionField(String extensionOid, Integer order) {
+        ExtensionMappedField field = new ExtensionMappedField();
+        field.setFieldType(FieldType.EXTENSION);
+        field.setExtensionOid(extensionOid);
+        field.setOrder(order);
+        return field;
+    }
+
+    private static KeyUsageMappedField keyUsageField() {
+        KeyUsageMappedField field = new KeyUsageMappedField();
+        field.setFieldType(FieldType.KEY_USAGE);
+        field.setOrder(1);
+        return field;
+    }
+
+    private static ExtendedKeyUsageMappedField extendedKeyUsageField() {
+        ExtendedKeyUsageMappedField field = new ExtendedKeyUsageMappedField();
+        field.setFieldType(FieldType.EXTENDED_KEY_USAGE);
+        field.setOrder(1);
+        return field;
+    }
+
+    private static FieldMapping rdnMapping(String rdn) {
+        return mappingOf(rdnField(rdn, 1));
+    }
+
+    private static FieldMapping sanMapping(GeneralNameType type) {
+        return mappingOf(sanField(type, 1));
+    }
+
+    private static RdnMappedField rdnField(String rdn, Integer order) {
+        RdnMappedField field = new RdnMappedField();
+        field.setFieldType(FieldType.RDN);
+        field.setRdn(rdn);
+        field.setOrder(order);
+        return field;
+    }
+
+    private static SanMappedField sanField(GeneralNameType type, Integer order) {
+        SanMappedField field = new SanMappedField();
+        field.setFieldType(FieldType.SAN);
+        field.setGeneralNameType(type);
+        field.setOrder(order);
+        return field;
+    }
+
+    private static FieldMapping mappingOf(MappedField... fields) {
+        FieldMapping fm = new FieldMapping();
+        fm.setFields(List.of(fields));
+        return fm;
+    }
+
+    private static RequestAttribute stringValue(UUID uuid, String value) {
+        return multiStringValue(uuid, value);
+    }
+
+    private static RequestAttribute multiStringValue(UUID uuid, String... values) {
+        List<BaseAttributeContentV3<?>> content = new ArrayList<>();
+        for (String value : values) {
+            content.add(new StringAttributeContentV3(value));
+        }
+        return new RequestAttributeV3(uuid, "attr-" + uuid, AttributeContentType.STRING, content);
+    }
+}

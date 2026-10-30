@@ -1,0 +1,9 @@
+{
+  "type" : "Secret",
+  "algorithm" : "RSA",
+  "format" : "Raw",
+  "value" : {
+    "value" : "cmF3LWtleS1ieXRlcw=="
+  },
+  "length" : 2048
+}

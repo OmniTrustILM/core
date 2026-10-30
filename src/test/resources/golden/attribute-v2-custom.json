@@ -1,0 +1,7 @@
+{
+  "uuid" : "1b7c9e20-0000-4000-8000-000000000005",
+  "name" : "customAttribute",
+  "description" : "A custom attribute",
+  "version" : 2,
+  "type" : "custom"
+}

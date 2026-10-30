@@ -1,0 +1,1691 @@
+package com.otilm.core.integration.cbom;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.common.BulkActionMessageDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.cbom.CbomAssetSyncState;
+import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.api.model.core.cryptoasset.PqcVerdict;
+import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.core.cbom.asset.AssetRowKeys;
+import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
+import com.otilm.core.cbom.asset.identity.IdentityRuleset;
+import com.otilm.core.cbom.ingest.CbomAssetDetachService;
+import com.otilm.core.cbom.ingest.CbomAssetIngestService;
+import com.otilm.core.cbom.ingest.CbomIngestTestFixtures;
+import com.otilm.core.cbom.sync.CbomSyncPolicy;
+import com.otilm.core.dao.CryptoAssetConstraintTranslator;
+import com.otilm.core.dao.entity.Cbom;
+import com.otilm.core.dao.entity.cbom.CbomIngestFinding;
+import com.otilm.core.dao.entity.cbom.CbomTombstone;
+import com.otilm.core.dao.entity.cbom.CryptoAsset;
+import com.otilm.core.dao.entity.cbom.CryptoAssetAlias;
+import com.otilm.core.dao.entity.cbom.CryptoAssetSource;
+import com.otilm.core.dao.entity.workflows.ConditionItem;
+import com.otilm.core.dao.repository.CbomRepository;
+import com.otilm.core.dao.repository.cbom.CbomIngestFindingRepository;
+import com.otilm.core.dao.repository.cbom.CbomTombstoneRepository;
+import com.otilm.core.dao.repository.cbom.CryptoAssetAliasRepository;
+import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
+import com.otilm.core.dao.repository.cbom.CryptoAssetSourceRepository;
+import com.otilm.core.enums.FilterField;
+import com.otilm.core.evaluator.CryptoAssetTriggerEvaluator;
+import com.otilm.core.model.cbom.CbomIngestFindingKind;
+import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
+import com.otilm.core.service.CbomExternalService;
+import com.otilm.core.service.writer.cbom.CbomAssetSyncStateWriter;
+import com.otilm.core.service.writer.cbom.CbomTombstoneWriter;
+import com.otilm.core.service.writer.cbom.CryptoAssetAliasWriter;
+import com.otilm.core.service.writer.cbom.CryptoAssetSourceWriter;
+import com.otilm.core.service.writer.cbom.CryptoAssetWriter;
+import com.otilm.core.util.AuthHelper;
+import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.CommittedEventCapture;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
+import static org.awaitility.Awaitility.await;
+
+/**
+ * The cryptographic asset inventory against real PostgreSQL: the upsert paths, the merge election, the foreign-key
+ * behaviours the schema promises, and the alias table's invisibility to identity.
+ */
+class CryptoAssetInventoryITest extends BaseSpringBootTest {
+
+    private static final String SECRET_MARKER = "AKIA-SECRET-MARKER";
+
+    private static final OffsetDateTime NOW = OffsetDateTime.parse("2026-09-14T10:00:00Z");
+
+    /** What a sync run hands the ingest and the withdrawal; these tests do not vary the tunables. */
+    private static final CbomSyncPolicy POLICY = CbomSyncPolicy.DEFAULTS;
+
+    @Autowired
+    private CryptoAssetRepository assetRepository;
+
+    @Autowired
+    private CryptoAssetSourceRepository sourceRepository;
+
+    @Autowired
+    private CryptoAssetAliasRepository aliasRepository;
+
+    @Autowired
+    private CbomTombstoneRepository tombstoneRepository;
+
+    @Autowired
+    private CbomIngestFindingRepository findingRepository;
+
+    @Autowired
+    private CbomRepository cbomRepository;
+
+    @Autowired
+    private CbomExternalService cbomService;
+
+    @Autowired
+    private CryptoAssetWriter assetWriter;
+
+    @Autowired
+    private CryptoAssetTriggerEvaluator assetTriggerEvaluator;
+
+    @Autowired
+    private CryptoAssetSourceWriter sourceWriter;
+
+    @Autowired
+    private CryptoAssetAliasWriter aliasWriter;
+
+    @Autowired
+    private CbomAssetSyncStateWriter syncStateWriter;
+
+    @Autowired
+    private CbomTombstoneWriter tombstoneWriter;
+
+    @Autowired
+    private CbomAssetDetachService detachService;
+
+    @Autowired
+    private CbomAssetIngestService ingestService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ConfigurableApplicationContext applicationContext;
+
+    private Cbom leanCbom;
+    private Cbom richCbom;
+
+    @BeforeEach
+    void seedCboms() {
+        leanCbom = cbom("urn:uuid:lean", 1);
+        richCbom = cbom("urn:uuid:rich", 1);
+    }
+
+    // ---- upsert and the rule-set stamp ----
+
+    @Test
+    void reIngestingTheSameAssetKeepsOneRow() {
+        UUID first = upsert(rsa2048(), null);
+        UUID second = upsert(rsa2048(), null);
+
+        assertThat(second).isEqualTo(first);
+        assertThat(assetRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void onlyTheFirstSyncedStateTransitionCanPublishTheCbomEvent() {
+        try (var events = new CommittedEventCapture(applicationContext)) {
+            assertThat(syncStateWriter.markSynced(UUID.randomUUID(), NOW)).isZero();
+            assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isEqualTo(1);
+            assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW.plusMinutes(1))).isZero();
+
+            assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED)).singleElement().satisfies(message -> {
+                assertThat(message.getResource()).isEqualTo(Resource.CBOM);
+                assertThat(message.getObjectUuid()).isEqualTo(leanCbom.getUuid());
+                assertThat(message.getData()).isNull();
+                assertThat(message.getUserUuid()).isEqualTo(AuthHelper.getActingUserUuidOrNull());
+            });
+            assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetsSyncedAt()).isEqualTo(NOW);
+        }
+    }
+
+    @Test
+    void aVersionCannotAnnounceSyncAfterANewerVersionAlreadySynced() {
+        Cbom newer = cbom(leanCbom.getSerialNumber(), leanCbom.getVersion() + 1);
+        try (var events = new CommittedEventCapture(applicationContext)) {
+            assertThat(syncStateWriter.markSynced(newer.getUuid(), NOW)).isEqualTo(1);
+
+            assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isZero();
+            assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED))
+                    .extracting(message -> message.getObjectUuid())
+                    .containsExactly(newer.getUuid());
+            assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetSyncState())
+                    .isEqualTo(CbomAssetSyncState.PENDING);
+        }
+    }
+
+    @Test
+    void aRolledBackCbomSyncCanPublishOnlyWhenItsRetryCommits() {
+        try (var events = new CommittedEventCapture(applicationContext)) {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isEqualTo(1);
+                assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED)).isEmpty();
+                status.setRollbackOnly();
+            });
+
+            assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetSyncState())
+                    .isEqualTo(CbomAssetSyncState.PENDING);
+            assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED)).isEmpty();
+
+            assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isEqualTo(1);
+            assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED))
+                    .extracting(message -> message.getObjectUuid())
+                    .containsExactly(leanCbom.getUuid());
+        }
+    }
+
+    @Test
+    void concurrentVersionsSerializeTheirFirstSyncAndPublication() throws Exception {
+        Cbom newer = cbom(leanCbom.getSerialNumber(), leanCbom.getVersion() + 1);
+        CountDownLatch newerWritten = new CountDownLatch(1);
+        CountDownLatch commitNewer = new CountDownLatch(1);
+        try (var events = new CommittedEventCapture(applicationContext);
+                var workers = Executors.newFixedThreadPool(2)) {
+            var newerResult = workers.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                int transitioned = syncStateWriter.markSynced(newer.getUuid(), NOW);
+                newerWritten.countDown();
+                await().atMost(10, TimeUnit.SECONDS).until(() -> commitNewer.getCount() == 0);
+                return transitioned;
+            }));
+            try {
+                assertThat(newerWritten.await(10, TimeUnit.SECONDS)).isTrue();
+                assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED)).isEmpty();
+                var olderResult = workers
+                        .submit(() -> new TransactionTemplate(transactionManager)
+                                .execute(status -> syncStateWriter.markSynced(leanCbom.getUuid(), NOW)));
+                await()
+                        .atMost(10, TimeUnit.SECONDS)
+                        .until(() -> olderResult.isDone() || Boolean.TRUE
+                                .equals(jdbcTemplate
+                                        .queryForObject(
+                                                "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)",
+                                                Boolean.class)));
+                assertThat(olderResult.isDone())
+                        .as("the older transition waits for the newer version to commit")
+                        .isFalse();
+                commitNewer.countDown();
+                assertThat(newerResult.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+                assertThat(olderResult.get(10, TimeUnit.SECONDS)).isZero();
+            } finally {
+                commitNewer.countDown();
+            }
+            assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED))
+                    .extracting(message -> message.getObjectUuid())
+                    .containsExactly(newer.getUuid());
+            assertThat(cbomRepository.findById(leanCbom.getUuid()).orElseThrow().getAssetsSyncedAt()).isNull();
+        }
+    }
+
+    @Test
+    void supersededAndWithdrawnCbomsDoNotAnnounceAnIngest() {
+        try (var events = new CommittedEventCapture(applicationContext)) {
+            assertThat(syncStateWriter.markSuperseded(leanCbom.getUuid())).isEqualTo(1);
+            assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isZero();
+            assertThat(syncStateWriter.markInProgress(richCbom.getUuid())).isEqualTo(1);
+            assertThat(syncStateWriter.markWithdrawnButNotDeleted(richCbom.getUuid())).isEqualTo(1);
+            assertThat(syncStateWriter.markSynced(richCbom.getUuid(), NOW)).isZero();
+
+            assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED)).isEmpty();
+        }
+    }
+
+    @Test
+    void recoveryAfterWithdrawalDoesNotPublishASecondCbomSync() {
+        try (var events = new CommittedEventCapture(applicationContext)) {
+            assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), NOW)).isEqualTo(1);
+            assertThat(syncStateWriter.markWithdrawnButNotDeleted(leanCbom.getUuid())).isEqualTo(1);
+            assertThat(syncStateWriter.markInProgress(leanCbom.getUuid())).isEqualTo(1);
+
+            OffsetDateTime recoveredAt = NOW.plusMinutes(1);
+            assertThat(syncStateWriter.markSynced(leanCbom.getUuid(), recoveredAt)).isEqualTo(1);
+
+            assertThat(events.messages(ResourceEvent.Codes.CBOM_SYNCED))
+                    .extracting(message -> message.getObjectUuid())
+                    .containsExactly(leanCbom.getUuid());
+            Cbom recovered = cbomRepository.findById(leanCbom.getUuid()).orElseThrow();
+            assertThat(recovered.getAssetSyncState()).isEqualTo(CbomAssetSyncState.SYNCED);
+            assertThat(recovered.getAssetsSyncedAt()).isEqualTo(recoveredAt);
+        }
+    }
+
+    @Test
+    void assetEventRulesCanReadFreeTextAndSourceCbom() throws Exception {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), null, List.of(), NOW);
+        CryptoAsset asset = assetRepository.findById(assetUuid).orElseThrow();
+        ConditionItem condition = new ConditionItem();
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.CBOM_ASSET_FREE_TEXT.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("rsa");
+        assertThat(assetTriggerEvaluator.evaluateConditionItem(condition, asset, Resource.CRYPTO_ASSET)).isTrue();
+
+        condition.setFieldIdentifier(FilterField.CBOM_ASSET_SOURCE_CBOM.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(leanCbom.getSerialNumber());
+        assertThat(assetTriggerEvaluator.evaluateConditionItem(condition, asset, Resource.CRYPTO_ASSET)).isTrue();
+
+        condition.setValue("urn:uuid:unrelated");
+        assertThat(assetTriggerEvaluator.evaluateConditionItem(condition, asset, Resource.CRYPTO_ASSET)).isFalse();
+    }
+
+    @Test
+    void differentAssetsGetDifferentRows() {
+        upsert(rsa2048(), null);
+        upsert(algorithm("RSA", "4096"), null);
+
+        assertThat(assetRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void everyUpsertStampsTheRulesetVersionThatKeyedTheRow() {
+        UUID assetUuid = upsert(rsa2048(), null);
+
+        assertThat(asset(assetUuid).getRulesetVersion()).isEqualTo(IdentityRuleset.VERSION);
+
+        // A row left behind by an older rule set: findable by query, which is what recording the version buys.
+        CryptoAsset stale = asset(assetUuid);
+        stale.setRulesetVersion(IdentityRuleset.VERSION - 1);
+        assetRepository.save(stale);
+
+        assertThat(assetRepository.findUuidsKeyedBefore(IdentityRuleset.VERSION)).containsExactly(assetUuid);
+
+        // The update branch of the upsert restamps it, so a re-sync clears the backlog.
+        assertThat(upsert(rsa2048(), null)).isEqualTo(assetUuid);
+        assertThat(assetRepository.findUuidsKeyedBefore(IdentityRuleset.VERSION)).isEmpty();
+        assertThat(asset(assetUuid).getRulesetVersion()).isEqualTo(IdentityRuleset.VERSION);
+    }
+
+    @Test
+    void aPqcVerdictLeavesTheIdentityStampAlone() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        CryptoAsset before = asset(assetUuid);
+
+        assetWriter
+                .applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "RSA is not quantum resistant",
+                        Map.of("algorithmFamily", "rsa", "parameterSetIdentifier", "2048"));
+
+        CryptoAsset after = asset(assetUuid);
+        assertThat(after.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(after.getPqcRuleId()).isEqualTo("RSA-CLASSICAL");
+        assertThat(after.getPqcEvaluatedAt()).isNotNull();
+        assertThat(after.getPqcEvaluatedFields()).containsEntry("parameterSetIdentifier", "2048");
+        assertThat(after.getRulesetVersion())
+                .describedAs("a verdict is not an identity")
+                .isEqualTo(before.getRulesetVersion());
+        assertThat(after.getIdentityKey()).isEqualTo(before.getIdentityKey());
+    }
+
+    /**
+     * The contract distinguishes when a verdict was decided from when it was last looked at, so a re-evaluation that
+     * confirms the same verdict must advance one and not the other.
+     */
+    @Test
+    void aReEvaluationAdvancesEvaluatedAtButNotDecidedAt() {
+        UUID assetUuid = upsert(rsa2048(), null);
+
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "not quantum resistant", null);
+        CryptoAsset firstVerdict = asset(assetUuid);
+        assertThat(firstVerdict.getPqcDecidedAt()).isNotNull();
+        assertThat(firstVerdict.getPqcEvaluatedAt()).isNotNull();
+
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "not quantum resistant", null);
+        CryptoAsset confirmed = asset(assetUuid);
+        assertThat(confirmed.getPqcDecidedAt())
+                .describedAs("the verdict did not change, so the date it was decided must not move")
+                .isEqualTo(firstVerdict.getPqcDecidedAt());
+        assertThat(confirmed.getPqcEvaluatedAt())
+                .describedAs("but it was looked at again")
+                .isAfterOrEqualTo(firstVerdict.getPqcEvaluatedAt());
+
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.READY, "RSA-REKEYED", "re-keyed to ML-DSA", null);
+        assertThat(asset(assetUuid).getPqcDecidedAt())
+                .describedAs("a changed verdict is a new decision")
+                .isAfter(firstVerdict.getPqcDecidedAt());
+    }
+
+    // ---- the merge and its provenance pointer ----
+
+    @Test
+    void theMergedPayloadIsTheRichestSourcePayloadAndSaysWhichSourceItCameFrom() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        Map<String, Object> lean = Map.of("primitive", "signature");
+        Map<String, Object> rich = Map.of("primitive", "signature", "padding", "pkcs1v15", "parameterSet", "2048");
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), lean, List.of(), OffsetDateTime.now());
+        sourceWriter.upsertSource(assetUuid, richCbom.getUuid(), rich, List.of(), OffsetDateTime.now());
+
+        CryptoAsset merged = asset(assetUuid);
+        assertThat(merged.getSourceCount()).isEqualTo(2);
+        assertThat(merged.getMergedCryptoProperties()).isEqualTo(rich);
+        assertThat(merged.getPropertiesLeafCount()).isEqualTo(3);
+        assertThat(merged.getPropertiesHash()).isNotNull();
+        assertThat(merged.getPropertiesSourceUuid())
+                .describedAs("the merged payload must be attributable to the source it was adopted from")
+                .isEqualTo(source(assetUuid, richCbom.getUuid()).getUuid());
+    }
+
+    @Test
+    void detachingTheElectedSourceReElectsFromWhatIsLeft() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        Map<String, Object> lean = Map.of("primitive", "signature");
+        Map<String, Object> rich = Map.of("primitive", "signature", "padding", "pkcs1v15");
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), lean, List.of(), OffsetDateTime.now());
+        sourceWriter.upsertSource(assetUuid, richCbom.getUuid(), rich, List.of(), OffsetDateTime.now());
+
+        assertThat(sourceWriter.detachCbom(assetUuid, richCbom.getUuid())).isEqualTo(1);
+
+        CryptoAsset merged = asset(assetUuid);
+        assertThat(merged.getSourceCount()).isEqualTo(1);
+        assertThat(merged.getMergedCryptoProperties()).isEqualTo(lean);
+        assertThat(merged.getPropertiesSourceUuid()).isEqualTo(source(assetUuid, leanCbom.getUuid()).getUuid());
+    }
+
+    @Test
+    void detachingTheLastSourceLeavesTheAssetWithNothingToAttribute() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(),
+                        OffsetDateTime.now());
+
+        sourceWriter.detachCbom(assetUuid, leanCbom.getUuid());
+
+        CryptoAsset stripped = asset(assetUuid);
+        assertThat(stripped.getSourceCount()).isZero();
+        assertThat(stripped.getMergedCryptoProperties()).isNull();
+        assertThat(stripped.getPropertiesHash()).isNull();
+        assertThat(stripped.getPropertiesLeafCount()).isZero();
+        assertThat(stripped.getPropertiesSourceUuid()).isNull();
+        assertThat(assetRepository.findById(assetUuid))
+                .describedAs("retention is reversible by a later sweep; deletion is not, and the re-sync semantics "
+                        + "are not ratified")
+                .isPresent();
+    }
+
+    @Test
+    void deletingASourceRowNullsThePointerRatherThanLeavingItDangling() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(),
+                        OffsetDateTime.now());
+        UUID sourceUuid = source(assetUuid, leanCbom.getUuid()).getUuid();
+        assertThat(asset(assetUuid).getPropertiesSourceUuid()).isEqualTo(sourceUuid);
+
+        // Deliberately bypassing the writer: this asserts the schema's own guarantee, not the writer's discipline.
+        sourceRepository.deleteById(sourceUuid);
+
+        assertThat(asset(assetUuid).getPropertiesSourceUuid())
+                .describedAs("a NULL pointer is findable; a dangling uuid is indistinguishable from a valid one")
+                .isNull();
+    }
+
+    @Test
+    void reIngestingASourceKeepsWhenItWasFirstSeen() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        OffsetDateTime first = OffsetDateTime.now().minusDays(3);
+        OffsetDateTime later = OffsetDateTime.now();
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(), first);
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "keyAgree"), List.of(), later);
+
+        CryptoAssetSource stored = source(assetUuid, leanCbom.getUuid());
+        assertThat(sourceRepository.count()).isEqualTo(1);
+        assertThat(stored.getFirstSeenAt()).isCloseTo(first, within(1, ChronoUnit.SECONDS));
+        assertThat(stored.getLastSeenAt()).isCloseTo(later, within(1, ChronoUnit.SECONDS));
+        assertThat(stored.getOriginalCryptoProperties()).containsEntry("primitive", "keyAgree");
+    }
+
+    @Test
+    void aSourceThatReportedNoPropertiesLeavesTheMergeBookkeepingEmpty() {
+        UUID assetUuid = upsert(rsa2048(), null);
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), null, null, OffsetDateTime.now());
+
+        CryptoAssetSource stored = source(assetUuid, leanCbom.getUuid());
+        assertThat(stored.getOriginalCryptoProperties()).isNull();
+        assertThat(stored.getEvidence()).isNull();
+        assertThat(stored.getOccurrenceCount()).isZero();
+        assertThat(stored.getPropertiesHash()).isNull();
+
+        CryptoAsset merged = asset(assetUuid);
+        assertThat(merged.getSourceCount()).isEqualTo(1);
+        assertThat(merged.getMergedCryptoProperties()).isNull();
+        assertThat(merged.getPropertiesHash())
+                .describedAs("ck_crypto_asset_properties_pair requires payload and hash to be absent together")
+                .isNull();
+        assertThat(merged.getPropertiesSourceUuid())
+                .describedAs("an absent payload is still attributable to the source that reported nothing")
+                .isEqualTo(stored.getUuid());
+    }
+
+    @Test
+    void anEquallyRichPairElectsDeterministically() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        Map<String, Object> one = Map.of("primitive", "signature");
+        Map<String, Object> other = Map.of("primitive", "keyAgree");
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), one, List.of(), OffsetDateTime.now());
+        sourceWriter.upsertSource(assetUuid, richCbom.getUuid(), other, List.of(), OffsetDateTime.now());
+        Map<String, Object> firstElection = asset(assetUuid).getMergedCryptoProperties();
+
+        // Re-ingesting in the opposite order must not flip the election; without a total order the pointer would
+        // oscillate on every sync.
+        sourceWriter.upsertSource(assetUuid, richCbom.getUuid(), other, List.of(), OffsetDateTime.now());
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), one, List.of(), OffsetDateTime.now());
+
+        assertThat(asset(assetUuid).getMergedCryptoProperties()).isEqualTo(firstElection);
+    }
+
+    @Test
+    void aVerdictCanBeCleared() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        assetWriter.applyPqcVerdict(assetUuid, PqcVerdict.NOT_READY, "RSA-CLASSICAL", "reason", Map.of("a", "b"));
+
+        assetWriter.applyPqcVerdict(assetUuid, null, null, null, null);
+
+        CryptoAsset cleared = asset(assetUuid);
+        assertThat(cleared.getPqcVerdict()).isNull();
+        assertThat(cleared.getPqcRuleId()).isNull();
+        assertThat(cleared.getPqcEvaluatedFields()).isNull();
+        assertThat(cleared.getPqcEvaluatedAt()).isNotNull();
+    }
+
+    // ---- evidence capping ----
+
+    @Test
+    void storedEvidenceIsCappedAndTheOccurrenceCountStillRecordsWhatWasSeen() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        List<Map<String, Object>> occurrences = new ArrayList<>();
+        for (int i = 0; i < 60; i++) {
+            Map<String, Object> occurrence = new LinkedHashMap<>();
+            occurrence.put("location", "src/file" + i + ".java");
+            occurrence.put("additionalContext", SECRET_MARKER + "x".repeat(4096));
+            occurrences.add(occurrence);
+        }
+
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), occurrences,
+                        OffsetDateTime.now());
+
+        CryptoAssetSource stored = source(assetUuid, leanCbom.getUuid());
+        assertThat(stored.getOccurrenceCount()).isEqualTo(60);
+        assertThat(stored.getEvidence()).hasSize(50);
+        assertThat(stored.getEvidence())
+                .describedAs("the snippet is dropped whole, never shortened")
+                .allSatisfy(occurrence -> assertThat(occurrence).doesNotContainKey("additionalContext"));
+        assertThat(String.valueOf(stored.getEvidence())).doesNotContain(SECRET_MARKER);
+    }
+
+    /**
+     * F6: {@code cap()} filters JSON-null array elements out before it ever counts an occurrence, so a null carries no
+     * evidence and must not inflate {@code occurrence_count} either -- the stored count has to keep agreeing with what
+     * capping considered real.
+     */
+    @Test
+    void occurrenceCountExcludesJsonNullArrayElements() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        List<Map<String, Object>> occurrencesWithNulls = new ArrayList<>();
+        occurrencesWithNulls.add(Map.of("location", "src/a.java"));
+        occurrencesWithNulls.add(null);
+        occurrencesWithNulls.add(null);
+
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), occurrencesWithNulls,
+                        OffsetDateTime.now());
+
+        CryptoAssetSource stored = source(assetUuid, leanCbom.getUuid());
+        assertThat(stored.getOccurrenceCount())
+                .describedAs("a JSON-null array element carries no evidence and must not inflate the true count")
+                .isEqualTo(1);
+        assertThat(stored.getEvidence()).hasSize(1);
+    }
+
+    // ---- foreign-key behaviour ----
+
+    /**
+     * The schema's own behaviour, so it is provoked with a plain row delete rather than through
+     * {@code CryptoAssetWriter.delete}: that statement refuses a row an alias names or a source still points at, which
+     * is exactly the pair of cascades this test is here to prove fire. The writer's refusal is pinned separately.
+     */
+    @Test
+    void deletingAnAssetTakesItsSourcesAndAliasesWithIt() {
+        UUID absorbedUuid = upsert(algorithm("RSA", "2048"), null);
+        UUID canonicalUuid = upsert(algorithm("RSA", "4096"), null);
+        sourceWriter
+                .upsertSource(canonicalUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(),
+                        OffsetDateTime.now());
+        aliasWriter
+                .record(asset(absorbedUuid).getIdentityKey(), asset(canonicalUuid).getIdentityKey(), "typo",
+                        "operator");
+        assertThat(aliasRepository.count()).isEqualTo(1);
+
+        assetRepository.deleteById(canonicalUuid);
+
+        assertThat(sourceRepository.count())
+                .describedAs("a source reference is meaningless without its asset")
+                .isZero();
+        assertThat(aliasRepository.count()).describedAs("an alias pointing at nothing is a lie").isZero();
+        assertThat(cbomRepository.findById(leanCbom.getUuid()))
+                .describedAs("deleting an asset must not touch the CBOM it came from")
+                .isPresent();
+    }
+
+    @Test
+    void aCbomStillReferencedByTheInventoryCannotBeDeletedAndTheRefusalLeaksNothing() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(),
+                        OffsetDateTime.now());
+
+        DataIntegrityViolationException rejection = (DataIntegrityViolationException) org.junit.jupiter.api.Assertions
+                .assertThrows(DataIntegrityViolationException.class,
+                        () -> cbomRepository.deleteById(leanCbom.getUuid()));
+
+        assertThat(CryptoAssetConstraintTranslator.constraintNameOf(rejection))
+                .contains("crypto_asset_source_to_cbom_key");
+        String description = CryptoAssetConstraintTranslator.describe(rejection);
+        assertThat(description).contains("still referenced by the cryptographic asset inventory");
+        assertThat(description)
+                .describedAs("the driver's DETAIL line quotes the failing row")
+                .doesNotContain("Detail")
+                .doesNotContain("DETAIL")
+                .doesNotContain(leanCbom.getUuid().toString())
+                .doesNotContain(asset(assetUuid).getIdentityKey());
+
+        // Detaching first is what makes the deletion possible, which is what "through the service path" means.
+        sourceWriter.detachCbom(assetUuid, leanCbom.getUuid());
+        cbomRepository.deleteById(leanCbom.getUuid());
+        assertThat(cbomRepository.findById(leanCbom.getUuid())).isEmpty();
+    }
+
+    /**
+     * What the RESTRICT foreign key used to refuse. The delete path withdraws the CBOM's contribution first, so the
+     * deletion goes through and takes the asset nothing sources any more with it.
+     */
+    @Test
+    void theCbomDeleteServicePathWithdrawsTheInventoryAndTombstonesTheDocument() throws Exception {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(),
+                        OffsetDateTime.now());
+
+        cbomService.deleteCbom(leanCbom.getUuid());
+
+        assertThat(cbomRepository.findById(leanCbom.getUuid())).isEmpty();
+        assertThat(assetRepository.findById(assetUuid)).describedAs("its last source went with the document").isEmpty();
+        assertThat(tombstoneRepository.findById(leanCbom.getUuid()))
+                .describedAs("the next sync is told not to store it again")
+                .isPresent();
+    }
+
+    @Test
+    void theBulkDeletePathWithdrawsTheInventoryTheSameWay() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(),
+                        OffsetDateTime.now());
+
+        List<BulkActionMessageDto> messages = cbomService.bulkDeleteCbom(List.of(leanCbom.getUuid()));
+
+        assertThat(messages).isEmpty();
+        assertThat(cbomRepository.findById(leanCbom.getUuid())).isEmpty();
+        assertThat(assetRepository.findById(assetUuid)).isEmpty();
+        assertThat(tombstoneRepository.existsBySerialNumberAndVersion("urn:uuid:lean", 1)).isTrue();
+    }
+
+    /**
+     * An asset another CBOM still names outlives the deletion, with the deleted document's contribution gone from its
+     * merged payload.
+     *
+     * <p>
+     * The deleted document is the one whose payload was elected, which is the case worth pinning: re-election has to
+     * happen for the survivor's payload to be served. The {@code crypto_asset_to_properties_source_key} foreign key is
+     * {@code ON DELETE SET NULL}, so a withdrawal that did not re-elect would leave the pointer null and the stale
+     * payload in place -- a row whose merged properties are a deleted document's, attributable to nothing.
+     */
+    @Test
+    void anAssetAnotherCbomSourcesOutlivesTheDeletedOne() throws Exception {
+        UUID assetUuid = upsert(rsa2048(), null);
+        Map<String, Object> deleted = Map.of("primitive", "signature", "padding", "pkcs1v15", "parameterSet", "2048");
+        Map<String, Object> surviving = Map.of("primitive", "keyAgreement");
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), deleted, List.of(), OffsetDateTime.now());
+        sourceWriter.upsertSource(assetUuid, richCbom.getUuid(), surviving, List.of(), OffsetDateTime.now());
+        assertThat(asset(assetUuid).getMergedCryptoProperties())
+                .describedAs("the richer payload is elected first, so the deletion has something to re-elect from")
+                .isEqualTo(deleted);
+
+        cbomService.deleteCbom(leanCbom.getUuid());
+
+        CryptoAsset survivor = asset(assetUuid);
+        assertThat(survivor.getSourceCount()).isEqualTo(1);
+        assertThat(survivor.getMergedCryptoProperties()).isEqualTo(surviving);
+        assertThat(survivor.getPropertiesSourceUuid())
+                .describedAs("re-elected from what is left, not left pointing at nothing by the ON DELETE SET NULL")
+                .isEqualTo(source(assetUuid, richCbom.getUuid()).getUuid());
+    }
+
+    // ---- the alias table is invisible to identity ----
+
+    @Test
+    void addingRemovingAndRePointingAnAliasChangesNoIdentityKey() {
+        UUID absorbedUuid = upsert(algorithm("RSA", "2048"), null);
+        UUID canonicalUuid = upsert(algorithm("RSA", "4096"), null);
+        UUID otherUuid = upsert(algorithm("ECDSA", "P-256"), null);
+        Map<UUID, String> keysBefore = Map
+                .of(absorbedUuid, asset(absorbedUuid).getIdentityKey(), canonicalUuid,
+                        asset(canonicalUuid).getIdentityKey(), otherUuid, asset(otherUuid).getIdentityKey());
+
+        aliasWriter.record(keysBefore.get(absorbedUuid), keysBefore.get(canonicalUuid), "duplicate", "operator");
+        assertKeysUnchanged(keysBefore);
+
+        aliasWriter.record(keysBefore.get(absorbedUuid), keysBefore.get(otherUuid), "re-pointed", "operator");
+        assertThat(aliasRepository.count())
+                .describedAs("re-pointing replaces the decision, it does not add one")
+                .isEqualTo(1);
+        assertThat(aliasRepository.resolveCanonicalKey(keysBefore.get(absorbedUuid)))
+                .contains(keysBefore.get(otherUuid));
+        assertKeysUnchanged(keysBefore);
+
+        assertThat(aliasWriter.remove(keysBefore.get(absorbedUuid))).isEqualTo(1);
+        assertKeysUnchanged(keysBefore);
+
+        // And keying is unaffected: the same fields still land on the same row, alias or no alias.
+        assertThat(upsert(algorithm("RSA", "2048"), null)).isEqualTo(absorbedUuid);
+    }
+
+    /**
+     * A re-sync that arrives out of order must not invert the window. Keeping {@code first_seen_at} and assigning
+     * {@code last_seen_at} looks equivalent only while events arrive in order; a retry or a replayed document can
+     * present an older timestamp after a newer one.
+     */
+    @Test
+    void anOutOfOrderResyncStillLeavesARealSeenAtWindow() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        OffsetDateTime later = OffsetDateTime.now();
+        OffsetDateTime earlier = later.minusDays(2);
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), null, null, later);
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), null, null, earlier);
+
+        CryptoAssetSource stored = source(assetUuid, leanCbom.getUuid());
+        assertThat(stored.getFirstSeenAt())
+                .describedAs("an older event moves first_seen_at earlier")
+                .isCloseTo(earlier, within(1, ChronoUnit.SECONDS));
+        assertThat(stored.getLastSeenAt())
+                .describedAs("an older event does not drag last_seen_at back")
+                .isCloseTo(later, within(1, ChronoUnit.SECONDS));
+        assertThat(stored.getLastSeenAt())
+                .describedAs("the window is never inverted")
+                .isAfterOrEqualTo(stored.getFirstSeenAt());
+    }
+
+    /**
+     * The other half of the out-of-order rule. The window merge alone would leave stale content under a window claiming
+     * the newer sync: the row would attest "as of last_seen_at this CBOM said P1" at an instant when it said P2, and
+     * the merge election would run on P1. Content follows the newest observation, not the newest arrival.
+     */
+    @Test
+    void aDelayedRetryWidensTheWindowButKeepsTheNewerContent() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        OffsetDateTime later = OffsetDateTime.now();
+        OffsetDateTime earlier = later.minusDays(2);
+        Map<String, Object> newer = Map.of("primitive", "signature", "parameterSetIdentifier", "2048");
+        Map<String, Object> older = Map.of("primitive", "keyAgree");
+
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), newer,
+                        List.of(Map.of("location", "a.jar"), Map.of("location", "b.jar")), later);
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), older, List.of(Map.of("location", "c.jar")), earlier);
+
+        CryptoAssetSource stored = source(assetUuid, leanCbom.getUuid());
+        assertThat(stored.getFirstSeenAt())
+                .describedAs("the older sighting still widens the window")
+                .isCloseTo(earlier, within(1, ChronoUnit.SECONDS));
+        assertThat(stored.getLastSeenAt()).isCloseTo(later, within(1, ChronoUnit.SECONDS));
+        assertThat(stored.getOriginalCryptoProperties())
+                .describedAs("a stale arrival must not overwrite the newer payload")
+                .containsEntry("primitive", "signature");
+        assertThat(stored.getOccurrenceCount())
+                .describedAs("the counts move with the payload they describe")
+                .isEqualTo(2);
+        assertThat(stored.getEvidence()).hasSize(2);
+        assertThat(asset(assetUuid).getPropertiesHash())
+                .describedAs("the merge election re-derives the same answer, not the stale one")
+                .isEqualTo(stored.getPropertiesHash());
+    }
+
+    /**
+     * The tie must refresh, not freeze. If the ingest path ever derives the seen-at from the document rather than from
+     * the extraction run, every re-ingest is a tie -- and a strict comparison would lock the content forever, so a
+     * re-extraction under upgraded code could never correct the row.
+     */
+    @Test
+    void aReIngestAtTheSameInstantRefreshesTheContent() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        OffsetDateTime sameInstant = OffsetDateTime.now();
+
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "signature"), List.of(), sameInstant);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("primitive", "keyAgree"), List.of(), sameInstant);
+
+        assertThat(source(assetUuid, leanCbom.getUuid()).getOriginalCryptoProperties())
+                .containsEntry("primitive", "keyAgree");
+    }
+
+    /**
+     * A guard is a safety refusal, not a field: {@link CryptoAssetAliasWriter} reads the guard that is on the row now
+     * to decide whether a merge is allowed. If ordinary re-ingest could clear it, the refusal would evaporate on the
+     * next unguarded report of the same normalized identity.
+     */
+    @Test
+    void aLaterUnguardedReportDoesNotClearASafetyGuard() {
+        CryptoAssetIdentityFields bareCnFields = new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE,
+                "example.com", null, null, null, null, null, null, null, null);
+        UUID bareCn = upsert(bareCnFields, CryptoAssetIdentityGuard.BARE_CN_SUBJECT);
+
+        assertThat(upsert(bareCnFields, null))
+                .describedAs("the same normalized identity lands on the same row")
+                .isEqualTo(bareCn);
+        assertThat(asset(bareCn).getIdentityGuard())
+                .describedAs("re-ingest without a guard must not lift one that was set")
+                .isEqualTo(CryptoAssetIdentityGuard.BARE_CN_SUBJECT);
+
+        UUID fullDn = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE,
+                "CN=example.com,O=Example,C=CZ", null, null, null, null, null, null, null, null), null);
+        String bareCnKey = asset(bareCn).getIdentityKey();
+        String fullDnKey = asset(fullDn).getIdentityKey();
+
+        assertThatThrownBy(() -> aliasWriter.record(bareCnKey, fullDnKey, "still looks the same", "operator"))
+                .describedAs("the refusal survives the re-ingest that would otherwise have cleared the guard")
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("BARE_CN_SUBJECT");
+    }
+
+    @Test
+    void anAliasIsRefusedWhereASafetyRuleCausedTheSplit() {
+        UUID bareCn = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE, "example.com", null,
+                null, null, null, null, null, null, null), CryptoAssetIdentityGuard.BARE_CN_SUBJECT);
+        UUID fullDn = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.CERTIFICATE,
+                "CN=example.com,O=Example,C=CZ", null, null, null, null, null, null, null, null), null);
+        String bareCnKey = asset(bareCn).getIdentityKey();
+        String fullDnKey = asset(fullDn).getIdentityKey();
+
+        assertThatThrownBy(
+                () -> aliasWriter.record(bareCnKey, fullDnKey, "looks like the same certificate", "operator"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("BARE_CN_SUBJECT");
+        assertThat(aliasRepository.count()).isZero();
+
+        assertThatThrownBy(() -> aliasWriter.record(fullDnKey, bareCnKey, "the other way round", "operator"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("BARE_CN_SUBJECT");
+        assertThat(aliasRepository.count()).isZero();
+    }
+
+    /**
+     * The other half of the guard rule. An alias says this key <em>is</em> another one; a guard says a safety rule
+     * requires it to stand alone. Whichever arrives second has to fail, or the inventory ends up holding both
+     * statements and neither operator learns they disagreed.
+     */
+    @Test
+    void aGuardIsRefusedWhenAnAliasAlreadyMergesTheKey() {
+        CryptoAssetIdentityFields absorbedFields = algorithm("RSA", "2048");
+        UUID absorbed = upsert(absorbedFields, null);
+        UUID canonical = upsert(algorithm("RSA", "4096"), null);
+        aliasWriter.record(asset(absorbed).getIdentityKey(), asset(canonical).getIdentityKey(), "same key", "operator");
+
+        assertThatThrownBy(() -> upsert(absorbedFields, CryptoAssetIdentityGuard.REFUTED_OID))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("REFUTED_OID");
+        assertThat(asset(absorbed).getIdentityGuard()).describedAs("the refused guard left no trace").isNull();
+    }
+
+    @Test
+    void aGuardIsRefusedWhenAnotherAssetIsMergedIntoTheKey() {
+        UUID absorbed = upsert(algorithm("RSA", "2048"), null);
+        CryptoAssetIdentityFields canonicalFields = algorithm("RSA", "4096");
+        UUID canonical = upsert(canonicalFields, null);
+        aliasWriter.record(asset(absorbed).getIdentityKey(), asset(canonical).getIdentityKey(), "same key", "operator");
+
+        assertThatThrownBy(() -> upsert(canonicalFields, CryptoAssetIdentityGuard.REFUTED_CERTIFICATE_DIGEST))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("REFUTED_CERTIFICATE_DIGEST");
+        assertThat(asset(canonical).getIdentityGuard()).isNull();
+    }
+
+    @Test
+    void anUnguardedUpsertIsUnaffectedByAnAlias() {
+        CryptoAssetIdentityFields absorbedFields = algorithm("RSA", "2048");
+        UUID absorbed = upsert(absorbedFields, null);
+        UUID canonical = upsert(algorithm("RSA", "4096"), null);
+        aliasWriter.record(asset(absorbed).getIdentityKey(), asset(canonical).getIdentityKey(), "same key", "operator");
+
+        assertThat(upsert(absorbedFields, null))
+                .describedAs("only a guard contradicts an alias; ordinary re-ingest does not")
+                .isEqualTo(absorbed);
+    }
+
+    /**
+     * Eleven producer-supplied text columns are indexed, and a btree tuple wider than roughly 2704 bytes is refused by
+     * the index rather than by validation. The OID has a realistic bound, so it is capped at the column, where the
+     * error names the column instead of naming an index nobody asked about.
+     *
+     * <p>
+     * The refusal has to come from the writer, not from the CHECK. A failed CHECK makes PostgreSQL emit
+     * {@code DETAIL: Failing row contains (...)}, and Hibernate logs the driver's message at ERROR before any catch
+     * runs -- so a bound enforced only at the column turns an over-long name, which a producer chooses, into a way to
+     * make the platform log an identity key.
+     */
+    @Test
+    void anOverlongOidIsRefusedBeforeItReachesTheDatabase() {
+        CryptoAssetIdentityFields overlong = new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "RSA",
+                "1.2.840.113549".repeat(40), null, null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> upsert(overlong, null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("longer than 255 characters");
+        assertThat(assetRepository.count()).isZero();
+    }
+
+    @Test
+    void anOverlongNameIsRefusedBeforeItReachesTheDatabase() {
+        CryptoAssetIdentityFields overlong = new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM,
+                "A".repeat(1025), null, null, null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> upsert(overlong, null))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("longer than 1024 characters");
+        assertThat(assetRepository.count()).isZero();
+    }
+
+    /**
+     * The CHECK is the backstop, so it has to still be there. Addressed through the repository, which is the one way to
+     * reach the column without passing the writer's pre-check first.
+     *
+     * <p>
+     * The repository write runs inside an explicit transaction because it is {@code @Modifying}: without one, Hibernate
+     * refuses the statement before it is sent and the failure is an {@code InvalidDataAccessApiUsageException} from the
+     * JPA layer, not the constraint doing its job. A type-only assertion would not have told the two apart -- what has
+     * to be proven here is that the refusal came from the column.
+     */
+    @Test
+    void theColumnStillRefusesAnOverlongNameThatBypassesTheWriter() {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        assertThatThrownBy(() -> transaction
+                .executeWithoutResult(status -> assetRepository
+                        .upsertIdentity(UUID.randomUUID(), "b".repeat(64), IdentityRuleset.VERSION,
+                                CryptographicAssetType.ALGORITHM.name(), "A".repeat(1025), null, null, null, null, null,
+                                null, null, null, null)))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .satisfies(failure -> assertThat(CryptoAssetConstraintTranslator.constraintNameOf(failure))
+                        .describedAs("the refusal must come from the name bound, not "
+                                + "from another constraint or from the JPA layer")
+                        .contains("ck_crypto_asset_name_length"));
+        assertThat(assetRepository.count()).isZero();
+    }
+
+    /** The verdict history keeps only decided verdicts; an inconclusive one must not be written into it. */
+    @Test
+    void theVerdictHistoryColumnRefusesAnUndecidedVerdict() {
+        UUID assetUuid = upsert(new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "rsa-history", null,
+                null, null, null, null, null, null, null), null);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        assertThatThrownBy(() -> transaction
+                .executeWithoutResult(status -> assetRepository
+                        .applyPqcVerdict(assetUuid, PqcVerdict.UNKNOWN.name(), "rule", "reason", "{}", null, null,
+                                PqcVerdict.UNKNOWN.name())))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .satisfies(failure -> assertThat(CryptoAssetConstraintTranslator.constraintNameOf(failure))
+                        .describedAs("the refusal must come from the verdict history check")
+                        .contains("ck_crypto_asset_pqc_last_decided_verdict"));
+    }
+
+    @Test
+    void aNameAtTheLimitIsAccepted() {
+        CryptoAssetIdentityFields atLimit = new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM,
+                "A".repeat(1024), null, null, null, null, null, null, null, null);
+
+        assertThat(upsert(atLimit, null)).isNotNull();
+    }
+
+    @Test
+    void anOidAtTheLimitIsAccepted() {
+        CryptoAssetIdentityFields atLimit = new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, "RSA",
+                "1".repeat(255), null, null, null, null, null, null, null);
+
+        assertThat(upsert(atLimit, null)).isNotNull();
+    }
+
+    /**
+     * A wrong canonical key used to reach the foreign key as an untranslated {@code DataIntegrityViolationException},
+     * which the generic handler logs with the driver's DETAIL -- and that DETAIL quotes the missing identity key. The
+     * refusal has to come from us, with a sentence we wrote, so the driver never writes one.
+     */
+    @Test
+    void anAliasIsRefusedWhenTheCanonicalAssetDoesNotExist() {
+        UUID absorbed = upsert(algorithm("RSA", "2048"), null);
+        String absorbedKey = asset(absorbed).getIdentityKey();
+
+        assertThatThrownBy(() -> aliasWriter.record(absorbedKey, "0".repeat(64), "typo", "operator"))
+                .isInstanceOf(ValidationException.class)
+                .isNotInstanceOf(DataIntegrityViolationException.class);
+        assertThat(aliasRepository.count()).isZero();
+    }
+
+    @Test
+    void anAliasIsRefusedWhenItWouldFormAChainOrPointAtItself() {
+        UUID first = upsert(algorithm("RSA", "2048"), null);
+        UUID second = upsert(algorithm("RSA", "4096"), null);
+        UUID third = upsert(algorithm("RSA", "8192"), null);
+        String firstKey = asset(first).getIdentityKey();
+        String secondKey = asset(second).getIdentityKey();
+        String thirdKey = asset(third).getIdentityKey();
+
+        aliasWriter.record(firstKey, secondKey, "duplicate", "operator");
+
+        assertThatThrownBy(() -> aliasWriter.record(secondKey, thirdKey, "chained", "operator"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("chains");
+        assertThatThrownBy(() -> aliasWriter.record(thirdKey, thirdKey, "itself", "operator"))
+                .isInstanceOf(ValidationException.class);
+
+        // The other direction, which only requireNoChain's second branch can refuse: pointing at a key that is itself
+        // absorbed. The case above is caught by the first branch, so without this one that branch could be deleted
+        // and the whole build would stay green while the chain C -> A -> B became recordable.
+        assertThatThrownBy(() -> aliasWriter.record(thirdKey, firstKey, "pointing at an absorbed key", "operator"))
+                .describedAs("the acceptance criterion promises refusal in either direction")
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("itself absorbed");
+
+        assertThat(aliasRepository.findAll()).extracting(CryptoAssetAlias::getAbsorbedKey).containsExactly(firstKey);
+    }
+
+    @Test
+    void anAliasIsRefusedWhenThereIsNothingToDecideAboutOrAKeyIsMissing() {
+        String existing = asset(upsert(rsa2048(), null)).getIdentityKey();
+
+        assertThatThrownBy(() -> aliasWriter.record("never-ingested", existing, "typo", "operator"))
+                .describedAs("a redirect from a key no asset and no alias carries is one no ingest can follow")
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("no cryptographic asset to absorb");
+        assertThatThrownBy(() -> aliasWriter.record(null, existing, "typo", "operator"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("two distinct asset keys");
+        assertThatThrownBy(() -> aliasWriter.record(existing, null, "typo", "operator"))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("two distinct asset keys");
+        assertThat(aliasRepository.count()).isZero();
+    }
+
+    @Test
+    void removingAnAliasThatIsNotThereChangesNothing() {
+        assertThat(aliasWriter.remove("never-recorded")).isZero();
+    }
+
+    // ---- CBOM-level asset bookkeeping ----
+
+    @Test
+    void theSyncStateWriterMovesACbomThroughIngest() {
+        assertThat(cbom(leanCbom.getUuid()).getAssetSyncState())
+                .describedAs("an existing header-only row has never had its assets ingested")
+                .isEqualTo(CbomAssetSyncState.PENDING);
+
+        syncStateWriter.markInProgress(leanCbom.getUuid());
+        assertThat(cbom(leanCbom.getUuid()).getAssetSyncState()).isEqualTo(CbomAssetSyncState.IN_PROGRESS);
+
+        syncStateWriter.markFailed(leanCbom.getUuid(), "The CBOM document could not be parsed.");
+        Cbom failed = cbom(leanCbom.getUuid());
+        assertThat(failed.getAssetSyncState()).isEqualTo(CbomAssetSyncState.FAILED);
+        assertThat(failed.getAssetSyncError()).isEqualTo("The CBOM document could not be parsed.");
+        assertThat(failed.getAssetsSyncedAt()).isNull();
+
+        OffsetDateTime syncedAt = OffsetDateTime.now();
+        syncStateWriter.markSynced(leanCbom.getUuid(), syncedAt);
+        Cbom synced = cbom(leanCbom.getUuid());
+        assertThat(synced.getAssetSyncState()).isEqualTo(CbomAssetSyncState.SYNCED);
+        assertThat(synced.getAssetSyncError()).describedAs("a success clears the previous failure").isNull();
+        assertThat(synced.getAssetsSyncedAt()).isNotNull();
+    }
+
+    /**
+     * The case a {@code (uuid)} arbiter missed. Upload, delete, upload again under a new uuid with the same serial
+     * number and version -- which the create path allows, because it looks only at the live table -- then delete again.
+     * The second tombstone collides on the serial-and-version unique, and because this writer is REQUIRED that
+     * violation used to roll back the deletion calling it, leaving the re-created CBOM undeletable through the API.
+     */
+    @Test
+    void tombstoningARecreatedCbomDoesNotViolateTheSerialAndVersionUnique() {
+        tombstoneWriter.record(leanCbom.getUuid(), "urn:uuid:lean", 1, OffsetDateTime.now(), "operator");
+        UUID recreated = cbom("urn:uuid:recreated", 9).getUuid();
+
+        tombstoneWriter.record(recreated, "urn:uuid:lean", 1, OffsetDateTime.now(), "operator");
+
+        assertThat(tombstoneRepository.count())
+                .describedAs("the second tombstone is a no-op, not a violation that rolls the deletion back")
+                .isEqualTo(1);
+        assertThat(tombstoneRepository.findById(leanCbom.getUuid()))
+                .describedAs("the first record of a deletion is the true one")
+                .isPresent();
+        assertThat(tombstoneRepository.findById(recreated)).isEmpty();
+    }
+
+    @Test
+    void aDeletedCbomIsTombstonedOnceAndByItsOwnUuid() {
+        tombstoneWriter.record(leanCbom.getUuid(), "urn:uuid:lean", 1, OffsetDateTime.now(), "operator");
+        tombstoneWriter.record(leanCbom.getUuid(), "urn:uuid:lean", 1, OffsetDateTime.now(), "someone else");
+
+        assertThat(tombstoneRepository.findAll())
+                .describedAs("a retried deletion has nothing to add to the first record of it")
+                .singleElement()
+                .satisfies(tombstone -> {
+                    assertThat(tombstone.getUuid()).isEqualTo(leanCbom.getUuid());
+                    assertThat(tombstone.getDeletedBy()).isEqualTo("operator");
+                });
+        assertThat(tombstoneRepository.existsBySerialNumberAndVersion("urn:uuid:lean", 1)).isTrue();
+        assertThat(tombstoneRepository.findById(leanCbom.getUuid())).map(CbomTombstone::getVersion).contains(1);
+    }
+
+    // ---- withdrawal, the orphan rule and supersede ----
+
+    /**
+     * The orphan rule, in the direction the ticket's acceptance criterion names: the inventory says what the documents
+     * currently say, so an asset the last document stopped naming stops being an asset.
+     */
+    @Test
+    void withdrawingTheLastSourceCollectsTheAssetItOrphaned() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
+
+        CbomAssetDetachService.Withdrawal withdrawal = detachService
+                .withdraw(leanCbom.getUuid(), POLICY.assetBatchSize());
+
+        assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 1, 0, true));
+        assertThat(assetRepository.findById(assetUuid)).isEmpty();
+    }
+
+    /**
+     * The exception to it, and the reason there is one: an alias is an operator's decision that two assets are one, it
+     * is not derived from any document, and {@code crypto_asset_alias_to_canonical_key} cascades -- so collecting the
+     * canonical orphan would discard the decision with it, silently and on a schedule nobody triggered.
+     *
+     * <p>
+     * The absorbed side is collected like any other orphan. {@code absorbed_key} carries no foreign key at all, so no
+     * cascade can reach the alias from there, and the migration that declared the table says an absorbed row that no
+     * longer exists is its normal state. Keeping it would retain a row the documents no longer mention, to protect a
+     * decision that was never at risk.
+     */
+    @Test
+    void anOrphanAnAliasPointsAtIsKeptAndTheAbsorbedSideIsCollected() {
+        UUID absorbedUuid = upsert(algorithm("RSA", "2048"), null);
+        UUID canonicalUuid = upsert(algorithm("RSA", "4096"), null);
+        aliasWriter
+                .record(asset(absorbedUuid).getIdentityKey(), asset(canonicalUuid).getIdentityKey(), "duplicate",
+                        "operator");
+        sourceWriter.upsertSource(absorbedUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
+        sourceWriter.upsertSource(canonicalUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
+
+        CbomAssetDetachService.Withdrawal withdrawal = detachService
+                .withdraw(leanCbom.getUuid(), POLICY.assetBatchSize());
+
+        assertThat(withdrawal)
+                .describedAs("the canonical row is what the alias cascades from, so only it is kept")
+                .isEqualTo(new CbomAssetDetachService.Withdrawal(2, 1, 1, true));
+        assertThat(assetRepository.findById(absorbedUuid))
+                .describedAs("no cascade reaches the alias from the absorbed side, so nothing protects this row")
+                .isEmpty();
+        assertThat(asset(canonicalUuid).getSourceCount()).isZero();
+        assertThat(asset(canonicalUuid).getMergedCryptoProperties()).isNull();
+        assertThat(aliasRepository.count()).describedAs("the decision the carve-out exists for survives").isEqualTo(1);
+    }
+
+    /**
+     * The alias test is asset-specific, not "any alias anywhere". Without that the collector stops collecting entirely
+     * on any tenant that has ever recorded a merge -- quietly, since every orphan would simply be reported as kept.
+     */
+    @Test
+    void anUnrelatedAliasDoesNotSaveAnOrphanFromCollection() {
+        UUID absorbedUuid = upsert(algorithm("RSA", "2048"), null);
+        UUID canonicalUuid = upsert(algorithm("RSA", "4096"), null);
+        aliasWriter
+                .record(asset(absorbedUuid).getIdentityKey(), asset(canonicalUuid).getIdentityKey(), "duplicate",
+                        "operator");
+        UUID unrelated = upsert(algorithm("AES", "256"), null);
+        sourceWriter.upsertSource(canonicalUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
+        sourceWriter.upsertSource(unrelated, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
+
+        CbomAssetDetachService.Withdrawal withdrawal = detachService
+                .withdraw(leanCbom.getUuid(), POLICY.assetBatchSize());
+
+        assertThat(withdrawal)
+                .describedAs("the alias names one of these two assets; the other is an ordinary orphan")
+                .isEqualTo(new CbomAssetDetachService.Withdrawal(2, 1, 1, true));
+        assertThat(assetRepository.findById(unrelated)).isEmpty();
+        assertThat(assetRepository.findById(canonicalUuid)).isPresent();
+    }
+
+    @Test
+    void anAssetAnotherCbomStillSourcesSurvivesTheWithdrawal() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
+        sourceWriter.upsertSource(assetUuid, richCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
+
+        CbomAssetDetachService.Withdrawal withdrawal = detachService
+                .withdraw(leanCbom.getUuid(), POLICY.assetBatchSize());
+
+        assertThat(withdrawal).isEqualTo(new CbomAssetDetachService.Withdrawal(1, 0, 0, true));
+        assertThat(asset(assetUuid).getSourceCount()).isEqualTo(1);
+    }
+
+    /**
+     * Supersede across versions, which is why the withdrawal exists: every version keeps its own {@code cbom} row, so
+     * without it the revision that last named an asset would go on sourcing it for ever.
+     */
+    @Test
+    void theNewVersionOfAUrnTakesTheInventoryFromTheOldOne() {
+        Cbom first = cbom("urn:uuid:app", 1);
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+        assertThat(assetRepository.count()).isEqualTo(2);
+
+        Cbom second = cbom("urn:uuid:app", 2);
+        assertThat(ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(sourceRepository.findAssetUuidsByCbomUuid(first.getUuid()))
+                .describedAs("the superseded version sources nothing")
+                .isEmpty();
+        assertThat(assetRepository.findAll())
+                .describedAs("the asset the new version stopped naming is collected, the one it still names is not")
+                .singleElement()
+                .satisfies(surviving -> {
+                    assertThat(surviving.getName()).isEqualTo("aes-256");
+                    assertThat(surviving.getSourceCount()).isEqualTo(1);
+                });
+        assertThat(cbom(first.getUuid()).getAssetSyncState())
+                .describedAs("SYNCED here means the row owes no ingest, not that its assets are in the inventory: it "
+                        + "sources nothing at all, and the version that superseded it owns what it used to say")
+                .isEqualTo(CbomAssetSyncState.SYNCED);
+    }
+
+    /**
+     * The other direction of the same rule. A revision re-offered after a later one is already stored -- a retried
+     * failure, a resume pass -- has nothing to say about the URN, and ingesting it would take the inventory back to the
+     * older document until the next run undid it again.
+     */
+    @Test
+    void aVersionALaterOneAlreadySupersededIsNotIngestedAtAll() {
+        Cbom first = cbom("urn:uuid:app", 1);
+        Cbom second = cbom("urn:uuid:app", 2);
+        ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW, POLICY);
+
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
+
+        assertThat(sourceRepository.findAssetUuidsByCbomUuid(first.getUuid())).isEmpty();
+        assertThat(assetRepository.count()).isEqualTo(1);
+        assertThat(cbom(first.getUuid()).getAssetSyncState()).isEqualTo(CbomAssetSyncState.SYNCED);
+    }
+
+    /**
+     * A later row that has never itself been ingested supersedes nothing. After the upgrade that added the state column
+     * every pre-existing row is PENDING, so a serial's revisions are commonly all unsynced at once -- and writing the
+     * older one off against a newer row whose document may never be readable would leave the URN contributing nothing
+     * at all, where before it contributed a stale but present inventory. Nothing moves a SYNCED row back onto a work
+     * list, so that loss would be permanent.
+     */
+    @Test
+    void aLaterVersionThatWasNeverIngestedDoesNotSupersedeTheOlderOne() {
+        Cbom first = cbom("urn:uuid:app", 1);
+        cbom("urn:uuid:app", 2);
+
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
+                .describedAs("the newer row exists but has contributed nothing, so this document still speaks")
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+        assertThat(assetRepository.count()).isEqualTo(2);
+    }
+
+    /**
+     * A superseded revision gives back whatever it had already attached. A revision can reach the write-off holding
+     * part of an inventory -- an attempt that failed partway, or one a newer revision overtook between batches -- and
+     * marking it synced without withdrawing those links would strand them for ever: the withdrawal half of supersession
+     * only ever runs from the ingesting version, which has already been and gone.
+     */
+    @Test
+    void aSupersededVersionWithdrawsWhatItHadAlreadyContributed() {
+        Cbom first = cbom("urn:uuid:app", 1);
+        Cbom second = cbom("urn:uuid:app", 2);
+        assertThat(ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+        // The partial contribution a failed attempt of the older revision would have left behind.
+        UUID stranded = upsert(rsa2048(), null);
+        sourceWriter.upsertSource(stranded, first.getUuid(), Map.of("assetType", "algorithm"), List.of(), NOW);
+
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
+
+        assertThat(sourceRepository.findAssetUuidsByCbomUuid(first.getUuid()))
+                .describedAs("nothing else would ever come back for these links")
+                .isEmpty();
+        assertThat(assetRepository.findById(stranded)).describedAs("its last source went with the write-off").isEmpty();
+    }
+
+    /**
+     * A superseded revision is not stamped with a sync time. The column is not private bookkeeping: the dashboard
+     * serves its maximum over every CBOM as "last completed sync at", the DTO serves it per row, and
+     * {@code CBOM_ASSETS_SYNCED_AT} is a user-facing filter -- so stamping it would let a run that ingested nothing
+     * advance the platform's completion time.
+     */
+    @Test
+    void aSupersededVersionIsNotGivenASyncTimeOfItsOwn() {
+        Cbom first = cbom("urn:uuid:app", 1);
+        Cbom second = cbom("urn:uuid:app", 2);
+        ingestService.ingest(second.getUuid(), oneAlgorithm(), NOW, POLICY);
+
+        assertThat(ingestService.ingest(first.getUuid(), twoAlgorithms(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.SUPERSEDED);
+
+        assertThat(cbom(first.getUuid()).getAssetsSyncedAt())
+                .describedAs("it owes no ingest, but it never performed one either")
+                .isNull();
+        assertThat(cbom(second.getUuid()).getAssetsSyncedAt())
+                .describedAs("the version that really did ingest keeps its time")
+                .isNotNull();
+    }
+
+    // ---- the ingest report ----
+
+    /**
+     * CycloneDX requires {@code bom-ref} to be unique. A document that repeats one is refused whole -- both readings of
+     * a repeat move keys -- and the row keeps the reason an operator reads.
+     */
+    @Test
+    void aRepeatedBomRefRefusesTheDocumentAndTheRowSaysWhy() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.REFUSED);
+
+        assertThat(assetRepository.count()).describedAs("nothing of a refused document reaches the inventory").isZero();
+        Cbom refused = cbom(leanCbom.getUuid());
+        assertThat(refused.getAssetSyncState()).isEqualTo(CbomAssetSyncState.FAILED);
+        assertThat(refused.getAssetSyncError()).contains("bom-ref").contains("unique");
+        assertThat(findings(leanCbom.getUuid())).singleElement().satisfies(finding -> {
+            assertThat(finding.getKind()).isEqualTo(CbomIngestFindingKind.FINDING);
+            assertThat(finding.getComponentName()).isNull();
+            assertThat(finding.getDetail()).contains("bom-ref dup");
+        });
+    }
+
+    /**
+     * The finding names the member the producer inlined a secret under, and carries nothing of the value -- the same
+     * rule the redaction itself keeps, applied to the report about it.
+     */
+    @Test
+    void anInlinedSecretIsReportedByMemberAndNeverByValue() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), inlinedPrivateKey(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(findings(leanCbom.getUuid()))
+                .anySatisfy(finding -> assertThat(finding.getDetail())
+                        .contains("producer inlined a value")
+                        .contains("private-key"));
+        assertThat(String.valueOf(findings(leanCbom.getUuid()))).doesNotContain(SECRET_MARKER);
+        assertThat(findings(leanCbom.getUuid()))
+                .allSatisfy(finding -> assertThat(finding.getOccurrences()).isPositive());
+    }
+
+    /**
+     * A redone ingest read the whole document again, so its report replaces the previous one rather than joining it.
+     */
+    @Test
+    void theNextRunsReportReplacesTheLastOne() {
+        ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW, POLICY);
+        assertThat(findings(leanCbom.getUuid())).isNotEmpty();
+
+        assertThat(ingestService.ingest(leanCbom.getUuid(), twoAlgorithms(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(findings(leanCbom.getUuid()))
+                .describedAs("the complaint the current document does not make is gone")
+                .isEmpty();
+    }
+
+    /**
+     * A finding is a statement about one document, so it goes when the document goes -- unlike a source row, whose
+     * RESTRICT makes the delete path withdraw the inventory first.
+     */
+    @Test
+    void deletingTheCbomTakesItsReportWithIt() throws Exception {
+        ingestService.ingest(leanCbom.getUuid(), twoAlgorithmsSharingARef(), NOW, POLICY);
+        assertThat(findings(leanCbom.getUuid())).isNotEmpty();
+
+        cbomService.deleteCbom(leanCbom.getUuid());
+
+        assertThat(findings(leanCbom.getUuid())).isEmpty();
+    }
+
+    /**
+     * The skip path is the one that survives a component the extractor cannot read, and its own component name was the
+     * one string it handed to storage unchecked: an unpaired surrogate there has no UTF-8 encoding, so the report's
+     * insert was refused by the database on the very path whose purpose is to survive such a component.
+     */
+    @Test
+    void aComponentWhoseNameHasNoEncodingIsStillReported() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), unpairedSurrogateName(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(findings(leanCbom.getUuid())).anySatisfy(finding -> {
+            assertThat(finding.getKind()).isEqualTo(CbomIngestFindingKind.SKIP);
+            assertThat(finding.getComponentName()).isEqualTo("(a component name with no valid encoding)");
+        });
+    }
+
+    // ---- bom-ref navigation data ----
+
+    private static JsonNode threeComponentsTwoAssets() {
+        return CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "a1"),
+                        CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "b"),
+                        CbomIngestTestFixtures.algorithmWithRef("AES-256", "a2"));
+    }
+
+    private UUID assetNamed(String name) {
+        return assetRepository
+                .findAll()
+                .stream()
+                .filter(asset -> name.equals(asset.getName()))
+                .map(CryptoAsset::getUuid)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no asset named " + name));
+    }
+
+    private List<String> storedRefs(UUID assetUuid, UUID cbomUuid) {
+        return sourceRepository.findByAssetUuidAndCbomUuid(assetUuid, cbomUuid).orElseThrow().getBomRefs();
+    }
+
+    @Test
+    void theRefsOfEveryComponentFoldedIntoAnAssetAreStoredOnItsSourceRow() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).containsExactly("a1", "a2");
+        assertThat(storedRefs(assetNamed("rsa-2048"), leanCbom.getUuid())).containsExactly("b");
+    }
+
+    /** A re-sync rewrites the list; folded before the write, it can never be appended to. */
+    @Test
+    void reIngestingTheSameDocumentRewritesTheRefsRatherThanAccumulatingThem() {
+        ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY);
+        ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW.plusSeconds(1), POLICY);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).containsExactly("a1", "a2");
+        assertThat(sourceRepository.count()).isEqualTo(2);
+    }
+
+    /**
+     * A newer version carrying different refs replaces the source list whole: the refs of components the document no
+     * longer carries are gone, not kept beside the new ones and not frozen at the first insert.
+     */
+    @Test
+    void aNewerVersionReplacesTheRefsWhole() {
+        ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY);
+        JsonNode renamedRefs = CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "a3"),
+                        CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "b2"));
+
+        Cbom newer = cbom(leanCbom.getSerialNumber(), leanCbom.getVersion() + 1);
+        assertThat(ingestService.ingest(newer.getUuid(), renamedRefs, NOW.plusSeconds(1), POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(storedRefs(assetNamed("aes-256"), newer.getUuid())).containsExactly("a3");
+        assertThat(storedRefs(assetNamed("rsa-2048"), newer.getUuid())).containsExactly("b2");
+        assertThat(sourceRepository.findByAssetUuidAndCbomUuid(assetNamed("aes-256"), leanCbom.getUuid())).isEmpty();
+        assertThat(sourceRepository.findByAssetUuidAndCbomUuid(assetNamed("rsa-2048"), leanCbom.getUuid())).isEmpty();
+    }
+
+    /** The refs follow the payload's recency rule: an older observation widens the window and changes nothing. */
+    @Test
+    void aStrictlyOlderObservationLeavesTheRefsAlone() {
+        ingestService.ingest(leanCbom.getUuid(), threeComponentsTwoAssets(), NOW, POLICY);
+        JsonNode renamedRefs = CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "stale"),
+                        CbomIngestTestFixtures.algorithmWithRef("RSA-2048", "stale-b"));
+
+        ingestService.ingest(leanCbom.getUuid(), renamedRefs, NOW.minusSeconds(1), POLICY);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).containsExactly("a1", "a2");
+        assertThat(storedRefs(assetNamed("rsa-2048"), leanCbom.getUuid())).containsExactly("b");
+    }
+
+    @Test
+    void anUnencodableRefIsNotStoredButItsAssetIs() {
+        JsonNode document = CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"\\ud800\",\"name\":\"AES-256\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+
+        assertThat(ingestService.ingest(leanCbom.getUuid(), document, NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).isEmpty();
+    }
+
+    /**
+     * PostgreSQL stores no NUL character in any text column, so writing this ref would fail the batch and leave the
+     * document FAILED on every retry. It links nothing instead, and the asset is ingested.
+     */
+    @Test
+    void aRefCarryingANulCharacterIsNotStoredButItsAssetIs() {
+        JsonNode document = CbomIngestTestFixtures
+                .documentOf(CbomIngestTestFixtures.algorithmWithRef("AES-256", "aes\\u0000x"));
+
+        assertThat(ingestService.ingest(leanCbom.getUuid(), document, NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(storedRefs(assetNamed("aes-256"), leanCbom.getUuid())).isEmpty();
+    }
+
+    /**
+     * Real refs are purls and URNs, so the array keeps each element whole whatever it carries: a separator, a quote, a
+     * brace, a backslash, a space, or the spelling of an absent element. Read back as the listing reads them too.
+     */
+    @Test
+    void refsThatNeedQuotingInAnArrayAreReadBackExactly() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        List<String> refs = List.of("pkg:a,b", "q\"t", "{x}", "b\\s", "s p", "NULL");
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("name", "RSA"), List.of(), 0, refs, NOW);
+
+        assertThat(storedRefs(assetUuid, leanCbom.getUuid())).containsExactlyElementsOf(refs);
+        assertThat(sourceRepository.findBomRefsByCbomUuidAndAssetUuids(leanCbom.getUuid(), List.of(assetUuid)))
+                .singleElement()
+                .satisfies(row -> assertThat(row.bomRefs()).containsExactlyElementsOf(refs));
+    }
+
+    /** The writer's short form, which every persistence test uses, stores an empty list rather than nothing. */
+    @Test
+    void aSourceWrittenWithoutRefsReadsAnEmptyList() {
+        UUID assetUuid = upsert(rsa2048(), null);
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("name", "RSA"), List.of(), NOW);
+
+        assertThat(storedRefs(assetUuid, leanCbom.getUuid())).isNotNull().isEmpty();
+    }
+
+    @Test
+    void theShortFormClearsStoredRefsOnAnEqualOrNewerObservation() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("name", "RSA"), List.of(), 0, List.of("r"), NOW);
+
+        sourceWriter.upsertSource(assetUuid, leanCbom.getUuid(), Map.of("name", "RSA"), List.of(), NOW);
+
+        assertThat(storedRefs(assetUuid, leanCbom.getUuid())).isEmpty();
+    }
+
+    // ---- helpers ----
+
+    private void assertKeysUnchanged(Map<UUID, String> keysBefore) {
+        keysBefore
+                .forEach((uuid, key) -> assertThat(asset(uuid).getIdentityKey())
+                        .describedAs("no alias operation may move an asset's identity")
+                        .isEqualTo(key));
+    }
+
+    private static CryptoAssetIdentityFields rsa2048() {
+        return algorithm("RSA", "2048");
+    }
+
+    private static CryptoAssetIdentityFields algorithm(String name, String parameterSet) {
+        return new CryptoAssetIdentityFields(CryptographicAssetType.ALGORITHM, name, null,
+                name.toLowerCase(java.util.Locale.ROOT), "signature", parameterSet, null, null, null, null);
+    }
+
+    private CryptoAsset asset(UUID uuid) {
+        return assetRepository.findById(uuid).orElseThrow();
+    }
+
+    private CryptoAssetSource source(UUID assetUuid, UUID cbomUuid) {
+        return sourceRepository.findByAssetUuidAndCbomUuid(assetUuid, cbomUuid).orElseThrow();
+    }
+
+    private Cbom cbom(UUID uuid) {
+        return cbomRepository.findById(uuid).orElseThrow();
+    }
+
+    private Cbom cbom(String serialNumber, int version) {
+        Cbom cbom = new Cbom();
+        cbom.setSerialNumber(serialNumber);
+        cbom.setVersion(version);
+        cbom.setSpecVersion("1.7");
+        Optional<Cbom> saved = Optional.of(cbomRepository.save(cbom));
+        return saved.orElseThrow();
+    }
+
+    /**
+     * Upserts through the writer with a fixture key derived from the fields.
+     *
+     * <p>
+     * The writer no longer computes the key -- the extraction pipeline does, from the whole component -- so a
+     * persistence test has to supply one. {@link AssetRowKeys} makes it a stable function of the normalized fields,
+     * which is what keeps every dedup assertion below meaning what it meant before.
+     */
+    // ---- the collection statement's own guard ----
+
+    /**
+     * The orphan read and the delete are two statements. Nothing can attach a source between them today -- the
+     * withdrawal and the ingest both write under {@code ALIAS_DECISION_LOCK} -- but that is a property of the callers,
+     * and it is the statement that destroys the row. So the statement carries the condition: an asset a source came
+     * back to is left alone, and the caller is told 0 rather than losing a row an ingest is about to source.
+     */
+    @Test
+    void anAssetASourceCameBackToIsNotCollected() {
+        UUID assetUuid = upsert(rsa2048(), null);
+        sourceWriter
+                .upsertSource(assetUuid, leanCbom.getUuid(), Map.of("assetType", "algorithm"), List.of(),
+                        OffsetDateTime.now());
+
+        assertThat(assetWriter.delete(assetUuid)).describedAs("it is sourced, so it is not an orphan").isZero();
+        assertThat(assetRepository.findById(assetUuid)).isPresent();
+    }
+
+    /**
+     * The irreversible arm. {@code crypto_asset_alias} cascades from {@code canonical_key}, so a delete that raced an
+     * operator pointing an alias at the row would take that decision with it and no re-ingest would bring it back. The
+     * read applies this rule already; asserting it on the write is what makes it true of the row.
+     */
+    @Test
+    void anAssetAnAliasWasPointedAtIsNotCollected() {
+        UUID canonicalUuid = upsert(rsa2048(), null);
+        UUID absorbedUuid = upsert(algorithm("AES", "256"), null);
+        aliasWriter
+                .record(asset(absorbedUuid).getIdentityKey(), asset(canonicalUuid).getIdentityKey(), "duplicate",
+                        "operator");
+
+        assertThat(assetWriter.delete(canonicalUuid))
+                .describedAs("an operator's merge decision is not a sweep's to discard")
+                .isZero();
+        assertThat(assetRepository.findById(canonicalUuid)).isPresent();
+    }
+
+    /** The row the rule is actually for: no source, no alias, collected. */
+    @Test
+    void aTrulyOrphanedAssetIsCollected() {
+        UUID assetUuid = upsert(rsa2048(), null);
+
+        assertThat(assetWriter.delete(assetUuid)).isEqualTo(1);
+        assertThat(assetRepository.findById(assetUuid)).isEmpty();
+    }
+
+    private UUID upsert(CryptoAssetIdentityFields fields, CryptoAssetIdentityGuard guard) {
+        return assetWriter.upsertIdentity(AssetRowKeys.forFields(fields), fields, guard);
+    }
+
+    private static JsonNode oneAlgorithm() {
+        return CbomIngestTestFixtures.algorithmDocument("AES-256");
+    }
+
+    private List<CbomIngestFinding> findings(UUID cbomUuid) {
+        return findingRepository.findAllByCbomUuidOrderByKindAscDetailAsc(cbomUuid);
+    }
+
+    /** A lone high surrogate in the name: well-formed to Java, and no UTF-8 encoding at all. */
+    private static JsonNode unpairedSurrogateName() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"\\ud800\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+    }
+
+    private static JsonNode twoAlgorithmsSharingARef() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dup\",\"name\":\"AES-256\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dup\",\"name\":\"RSA-2048\","
+                        + "\"cryptoProperties\":{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+    }
+
+    private static JsonNode inlinedPrivateKey() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[{\"type\":\"cryptographic-asset\",\"name\":\"a-signing-key\","
+                        + "\"cryptoProperties\":{\"assetType\":\"related-crypto-material\","
+                        + "\"relatedCryptoMaterialProperties\":{\"type\":\"private-key\",\"value\":\"" + SECRET_MARKER
+                        + "\"}}}]}");
+    }
+
+    private static JsonNode twoAlgorithms() {
+        return CbomIngestTestFixtures.algorithmDocument("AES-256", "RSA-2048");
+    }
+}

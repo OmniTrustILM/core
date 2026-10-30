@@ -1,0 +1,9 @@
+{
+  "type" : "Private",
+  "algorithm" : "ECDSA",
+  "format" : "PrivateKeyInfo",
+  "value" : {
+    "value" : "cHJraS1rZXktYnl0ZXM="
+  },
+  "length" : 256
+}

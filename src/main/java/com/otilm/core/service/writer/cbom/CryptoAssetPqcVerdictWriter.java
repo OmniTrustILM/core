@@ -1,0 +1,89 @@
+package com.otilm.core.service.writer.cbom;
+
+import com.otilm.core.cbom.asset.JsonColumnText;
+import com.otilm.core.cbom.pqc.PqcVerdictTransition;
+import com.otilm.core.cbom.pqc.PqcVerdictWrite;
+import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
+import com.otilm.core.events.handlers.CryptoAssetPqcNotReadyEventHandler;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * The sweep's batch write: one short transaction per batch.
+ *
+ * <p>
+ * A separate bean because {@code TransactionalBoundaryArchTest} Rule D requires every public method of a
+ * {@code @Service} in this package to be {@code REQUIRED}, and this one must not be. {@code SigningRecordWriter}
+ * escapes Rule D only by being a {@code @Component}, so this is one too. It was also kept off {@code CryptoAssetWriter}
+ * by {@code IdentityRulesetStampArchTest}, the tripwire that forced {@code IdentityRuleset.VERSION} to move when ingest
+ * was wired; that tripwire fired in core#2073 and is gone.
+ *
+ * <p>
+ * {@code REQUIRES_NEW} because a {@code REQUIRED} write would join the sweep's lock transaction and hold every row lock
+ * until the sweep ended.
+ */
+@Component
+public class CryptoAssetPqcVerdictWriter {
+
+    private final CryptoAssetRepository assetRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
+
+    public CryptoAssetPqcVerdictWriter(CryptoAssetRepository assetRepository,
+            ApplicationEventPublisher applicationEventPublisher) {
+        this.assetRepository = assetRepository;
+        this.applicationEventPublisher = applicationEventPublisher;
+    }
+
+    /**
+     * @return which rows were written, in batch order -- fewer than were offered when another writer reached a row
+     * after the sweep read it, which is normal. The identities rather than a count, because the sweep has to know
+     * whether the row it stamped as unevaluable is the one that landed before it can report having recorded it.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public List<UUID> applyStaleBatch(List<PqcVerdictWrite> batch) {
+        List<UUID> written = new ArrayList<>(batch.size());
+        for (PqcVerdictWrite write : batch) {
+            if (apply(write) == 1) {
+                written.add(write.assetUuid());
+            }
+        }
+        return written;
+    }
+
+    /**
+     * One row in one transaction, for retrying a batch that rolled back. Without it a single row the database refuses
+     * -- a constraint the rules have drifted past, a deadlock -- takes its whole batch down, and since the cursor
+     * restarts at the nil uuid every sweep, that batch is reached first on every run and starves every stale row behind
+     * it.
+     *
+     * @return true if the row was written, false if the guard refused it
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean applyStaleRow(PqcVerdictWrite write) {
+        return apply(write) == 1;
+    }
+
+    private int apply(PqcVerdictWrite write) {
+        PqcVerdictTransition transition = PqcVerdictTransition
+                .decide(write.row().pqcVerdict(), write.row().pqcLastDecidedVerdict(), write.decision().verdict());
+        int written = assetRepository
+                .applyPqcVerdictIfStale(write.assetUuid(), write.rowVersion(), write.decision().verdict().name(),
+                        write.decision().ruleId(), write.decision().reason(),
+                        JsonColumnText.render(write.decision().evaluatedFields()),
+                        write.decision().referencedAssetUuid(), write.referenceBasis(),
+                        transition.lastDecidedVerdict() == null ? null : transition.lastDecidedVerdict().name());
+        if (written == 1 && transition.shouldPublish()) {
+            applicationEventPublisher
+                    .publishEvent(CryptoAssetPqcNotReadyEventHandler
+                            .constructEventMessage(transition
+                                    .eventData(write.row(), write.decision().ruleId(), write.decision().reason()),
+                                    null));
+        }
+        return written;
+    }
+}

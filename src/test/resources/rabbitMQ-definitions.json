@@ -89,11 +89,58 @@
       "arguments": {
         "x-queue-type": "classic"
       }
+    },
+    {
+      "name": "provider.status-poll",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "provider.discovery-work",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
+    },
+    {
+      "name": "proxy-expiry-test",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic",
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "proxy-expiry-test.expired"
+      }
+    },
+    {
+      "name": "proxy-expiry-test.expired",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "classic"
+      }
     }
   ],
   "exchanges": [
     {
-      "name": "czertainly",
+      "name": "ilm",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "ilm-proxy",
       "vhost": "/",
       "type": "topic",
       "durable": true,
@@ -102,7 +149,7 @@
       "arguments": {}
     },
     {
-      "name": "czertainly-proxy",
+      "name": "ilm-proxy-expiry-test",
       "vhost": "/",
       "type": "topic",
       "durable": true,
@@ -113,7 +160,7 @@
   ],
   "bindings": [
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "core.events",
       "destination_type": "queue",
@@ -121,7 +168,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "core.actions",
       "destination_type": "queue",
@@ -129,7 +176,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "core.notifications",
       "destination_type": "queue",
@@ -137,7 +184,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "core.scheduler",
       "destination_type": "queue",
@@ -145,7 +192,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "core.audit-logs",
       "destination_type": "queue",
@@ -153,7 +200,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "core.validation",
       "destination_type": "queue",
@@ -161,7 +208,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly-proxy",
+      "source": "ilm-proxy",
       "vhost": "/",
       "destination": "core",
       "destination_type": "queue",
@@ -169,7 +216,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "time-quality.config",
       "destination_type": "queue",
@@ -177,7 +224,7 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "time-quality.config-request",
       "destination_type": "queue",
@@ -185,11 +232,35 @@
       "arguments": {}
     },
     {
-      "source": "czertainly",
+      "source": "ilm",
       "vhost": "/",
       "destination": "time-quality.results",
       "destination_type": "queue",
       "routing_key": "time-quality.results",
+      "arguments": {}
+    },
+    {
+      "source": "ilm",
+      "vhost": "/",
+      "destination": "provider.status-poll",
+      "destination_type": "queue",
+      "routing_key": "provider.status-poll",
+      "arguments": {}
+    },
+    {
+      "source": "ilm",
+      "vhost": "/",
+      "destination": "provider.discovery-work",
+      "destination_type": "queue",
+      "routing_key": "provider.discovery-work",
+      "arguments": {}
+    },
+    {
+      "source": "ilm-proxy-expiry-test",
+      "vhost": "/",
+      "destination": "proxy-expiry-test",
+      "destination_type": "queue",
+      "routing_key": "coremessage.expiry-test",
       "arguments": {}
     }
   ]

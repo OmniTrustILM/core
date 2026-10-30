@@ -1,0 +1,26 @@
+package com.otilm.core.dao.repository.workflows;
+
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.dao.entity.workflows.Condition;
+import com.otilm.core.dao.repository.SecurityFilterRepository;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface ConditionRepository extends SecurityFilterRepository<Condition, UUID> {
+
+    boolean existsByName(String name);
+
+    boolean existsByNameAndUuidNot(String name, UUID uuid);
+
+    @EntityGraph(attributePaths = {"rules"})
+    Optional<Condition> findWithRulesByUuid(UUID uuid);
+
+    @Query("SELECT c FROM Condition c WHERE c.resource = ?1 OR c.resource = ?#{T(com.otilm.api.model.core.auth.Resource).ANY}")
+    List<Condition> findAllByResource(Resource resource);
+
+}

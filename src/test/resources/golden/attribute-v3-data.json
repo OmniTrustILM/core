@@ -1,0 +1,16 @@
+{
+  "uuid" : "2c9e5f11-0000-4000-8000-000000000001",
+  "name" : "dataAttribute",
+  "description" : "A v3 data attribute",
+  "version" : 3,
+  "type" : "data",
+  "content" : [
+    {
+      "reference" : "ref-data",
+      "data" : "a v3 data value",
+      "contentType" : "string"
+    }
+  ],
+  "contentType" : "string",
+  "schemaVersion" : "v3"
+}

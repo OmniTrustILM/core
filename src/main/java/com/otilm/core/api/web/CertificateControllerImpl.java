@@ -1,0 +1,374 @@
+package com.otilm.core.api.web;
+
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.CertificateOperationException;
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.NotSupportedException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.core.web.CertificateController;
+import com.otilm.api.model.client.approval.ApprovalResponseDto;
+import com.otilm.api.model.client.certificate.BulkOperationResponse;
+import com.otilm.api.model.client.certificate.CertificateComplianceCheckDto;
+import com.otilm.api.model.client.certificate.CertificateImportRequestDto;
+import com.otilm.api.model.client.certificate.CertificateImportResponseDto;
+import com.otilm.api.model.client.certificate.CertificateKeystoreRequestDto;
+import com.otilm.api.model.client.certificate.CertificateResponseDto;
+import com.otilm.api.model.client.certificate.CertificateSearchRequestDto;
+import com.otilm.api.model.client.certificate.CertificateUpdateObjectsDto;
+import com.otilm.api.model.client.certificate.MultipleCertificateObjectUpdateDto;
+import com.otilm.api.model.client.certificate.RemoveCertificateDto;
+import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.api.model.common.UuidDto;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.BulkOperationStatus;
+import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
+import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
+import com.otilm.api.model.core.certificate.CertificateContentDto;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
+import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
+import com.otilm.api.model.core.certificate.CertificateFormat;
+import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
+import com.otilm.api.model.core.certificate.CertificateRelationsDto;
+import com.otilm.api.model.core.certificate.CertificateValidationResultDto;
+import com.otilm.api.model.core.certificate.FingerprintDto;
+import com.otilm.api.model.core.location.LocationDto;
+import com.otilm.api.model.core.logging.Sensitive;
+import com.otilm.api.model.core.logging.enums.Module;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
+import com.otilm.core.aop.AuditLogged;
+import com.otilm.core.logging.LogResource;
+import com.otilm.core.model.certificate.DownloadedKeystore;
+import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.ApprovalExternalService;
+import com.otilm.core.service.CertificateEventHistoryExternalService;
+import com.otilm.core.service.CertificateExternalService;
+import com.otilm.core.service.CertificateImportExternalService;
+import com.otilm.core.service.CertificateKeystoreExternalService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
+import com.otilm.core.util.converter.CertificateFormatConverter;
+import com.otilm.core.util.converter.CertificateFormatEncodingConverter;
+import jakarta.validation.Valid;
+import java.io.IOException;
+import java.net.URI;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.WebDataBinder;
+import org.springframework.web.bind.annotation.InitBinder;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+@RestController
+public class CertificateControllerImpl implements CertificateController {
+
+    private CertificateExternalService certificateService;
+
+    private CertificateEventHistoryExternalService certificateEventHistoryService;
+
+    private ClientOperationExternalService clientOperationService;
+
+    private ApprovalExternalService approvalService;
+
+    private CertificateImportExternalService certificateImportService;
+
+    private CertificateKeystoreExternalService certificateKeystoreService;
+
+    @InitBinder
+    public void initBinder(final WebDataBinder webdataBinder) {
+        webdataBinder.registerCustomEditor(CertificateFormat.class, new CertificateFormatConverter());
+        webdataBinder.registerCustomEditor(CertificateFormatEncoding.class, new CertificateFormatEncodingConverter());
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.LIST)
+    public CertificateResponseDto listCertificates(CertificateSearchRequestDto request) {
+        return certificateService.listCertificates(SecurityFilter.create(), request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DETAIL)
+    public CertificateDetailDto getCertificate(@LogResource(uuid = true) @PathVariable UUID uuid)
+            throws NotFoundException, CertificateException, IOException {
+        return certificateService.getCertificate(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DOWNLOAD)
+    public CertificateDownloadResponseDto downloadCertificate(@LogResource(uuid = true) UUID uuid,
+            CertificateFormat certificateFormat, CertificateFormatEncoding encoding)
+            throws CertificateException, NotFoundException, IOException {
+        return certificateService.downloadCertificate(SecuredUUID.fromUUID(uuid), certificateFormat, encoding);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DELETE)
+    public void deleteCertificate(@LogResource(uuid = true) @PathVariable UUID uuid) throws NotFoundException {
+        certificateService.deleteCertificate(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPDATE)
+    public void updateCertificateObjects(@LogResource(uuid = true) UUID uuid, CertificateUpdateObjectsDto request)
+            throws NotFoundException, CertificateOperationException, AttributeException {
+        certificateService.updateCertificateObjects(SecuredUUID.fromUUID(uuid), request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPDATE)
+    public void bulkUpdateCertificateObjects(MultipleCertificateObjectUpdateDto request)
+            throws NotFoundException, NotSupportedException {
+        if (request.getFilters() != null && !request.getFilters().isEmpty()
+                && (request.getCertificateUuids() == null || request.getCertificateUuids().isEmpty())) {
+            throw new NotSupportedException("Bulk updating of certificates by filters is not supported.");
+        }
+        certificateService.bulkUpdateCertificatesObjects(SecurityFilter.create(), request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPLOAD)
+    public FingerprintDto uploadAsync(UploadCertificateRequestDto request)
+            throws AlreadyExistException, CertificateException {
+        return certificateService.uploadAsync(request);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UPLOAD)
+    public ResponseEntity<UuidDto> upload(@RequestBody UploadCertificateRequestDto request)
+            throws AlreadyExistException, CertificateException, NoSuchAlgorithmException, NotFoundException,
+            AttributeException {
+        UuidDto dto = certificateService.uploadSync(request);
+        URI location = ServletUriComponentsBuilder
+                .fromCurrentRequest()
+                .path("/{uuid}")
+                .buildAndExpand(dto.getUuid())
+                .toUri();
+        UuidDto responseDto = new UuidDto();
+        responseDto.setUuid(dto.getUuid());
+        return ResponseEntity.created(location).body(responseDto);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.IMPORT,
+            synchronous = true)
+    public CertificateImportResponseDto importCertificates(@Sensitive @Valid CertificateImportRequestDto request)
+            throws NotFoundException {
+        try {
+            return certificateImportService.importCertificates(request);
+        } finally {
+            request.getFile().clear();
+            if (request.getPassphrase() != null) {
+                request.getPassphrase().clear();
+            }
+        }
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE,
+            affiliatedResource = Resource.CRYPTOGRAPHIC_KEY_ITEM, operation = Operation.EXPORT, synchronous = true)
+    public ResponseEntity<org.springframework.core.io.Resource> downloadKeystore(@LogResource(uuid = true) UUID uuid,
+            @Sensitive @Valid CertificateKeystoreRequestDto request) throws NotFoundException, ValidationException,
+            ConnectorException, AttributeException, CertificateException, IOException {
+        try {
+            DownloadedKeystore keystore = certificateKeystoreService
+                    .downloadKeystore(SecuredUUID.fromUUID(uuid), request);
+            return KeyMaterialDownload.pkcs12(keystore.name(), keystore.content());
+        } finally {
+            request.getPassphrase().clear();
+        }
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DELETE)
+    public BulkOperationResponse bulkDeleteCertificate(@RequestBody RemoveCertificateDto request)
+            throws NotFoundException, NotSupportedException {
+        BulkOperationResponse response = new BulkOperationResponse();
+        if (request.getFilters() != null && !request.getFilters().isEmpty()
+                && (request.getUuids() == null || request.getUuids().isEmpty())) {
+            throw new NotSupportedException("Bulk delete of certificates by filters is not supported.");
+        }
+        certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
+        response.setMessage("Initiated bulk delete Certificates. Please refresh after some time");
+        response.setStatus(BulkOperationStatus.SUCCESS);
+        return response;
+    }
+
+    @Override
+    @AuditLogged(module = Module.CORE, resource = Resource.SEARCH_FILTER, affiliatedResource = Resource.CERTIFICATE,
+            operation = Operation.LIST)
+    public List<SearchFieldDataByGroupDto> getSearchableFieldInformation() {
+        return certificateService.getSearchableFieldInformationByGroup();
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.HISTORY)
+    public List<CertificateEventHistoryDto> getCertificateEventHistory(@LogResource(uuid = true) UUID uuid)
+            throws NotFoundException {
+        return certificateEventHistoryService.getCertificateEventHistory(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.LOCATION,
+            operation = Operation.LIST)
+    public List<LocationDto> listLocations(@LogResource(uuid = true) UUID certificateUuid) throws NotFoundException {
+        return certificateService.listLocations(SecuredUUID.fromUUID(certificateUuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.CHECK_COMPLIANCE)
+    public void checkCompliance(CertificateComplianceCheckDto request) throws NotFoundException {
+        certificateService.checkCompliance(SecuredUUID.fromList(request.getCertificateUuids()));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.CHECK_VALIDATION)
+    public CertificateValidationResultDto getCertificateValidationResult(@LogResource(uuid = true) UUID uuid)
+            throws NotFoundException, CertificateException {
+        return certificateService.getCertificateValidationResult(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.ATTRIBUTE, name = "csr",
+            affiliatedResource = Resource.RA_PROFILE, operation = Operation.LIST_ATTRIBUTES)
+    public List<BaseAttribute> getCsrGenerationAttributes(
+            @LogResource(uuid = true, affiliated = true) UUID raProfileUuid)
+            throws NotFoundException, ConnectorException {
+        if (raProfileUuid == null) {
+            return certificateService.getCsrGenerationAttributes();
+        }
+        return certificateService.getCsrGenerationAttributes(SecuredUUID.fromUUID(raProfileUuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.GET_CONTENT)
+    public List<CertificateContentDto> getCertificateContent(@LogResource(uuid = true) List<UUID> uuids) {
+        return certificateService.getCertificateContent(SecuredUUID.fromUuidList(uuids));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.REQUEST)
+    public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request)
+            throws ValidationException, ConnectorException, CertificateException, NoSuchAlgorithmException,
+            AttributeException, CertificateRequestException, NotFoundException {
+        return clientOperationService.submitCertificateRequest(request, null);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.GET_CHAIN)
+    public CertificateChainResponseDto getCertificateChain(@LogResource(uuid = true) UUID uuid,
+            boolean withEndCertificate) throws NotFoundException {
+        return certificateService.getCertificateChain(SecuredUUID.fromUUID(uuid), withEndCertificate);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DOWNLOAD_CHAIN)
+    public CertificateChainDownloadResponseDto downloadCertificateChain(@LogResource(uuid = true) UUID uuid,
+            CertificateFormat certificateFormat, boolean withEndCertificate, CertificateFormatEncoding encoding)
+            throws NotFoundException, CertificateException {
+        return certificateService
+                .downloadCertificateChain(SecuredUUID.fromUUID(uuid), certificateFormat, withEndCertificate, encoding);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, affiliatedResource = Resource.APPROVAL,
+            operation = Operation.LIST)
+    public ApprovalResponseDto listCertificateApprovals(@LogResource(uuid = true) final UUID uuid,
+            final PaginationRequestDto paginationRequestDto) {
+        return approvalService
+                .listApprovalsByObject(SecurityFilter.create(), Resource.CERTIFICATE, uuid, paginationRequestDto);
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.ARCHIVE)
+    public void archiveCertificate(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
+        certificateService.archiveCertificate(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UNARCHIVE)
+    public void unarchiveCertificate(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
+        certificateService.unarchiveCertificate(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.ARCHIVE)
+    public void bulkArchiveCertificate(List<UUID> uuids) {
+        certificateService.bulkArchiveCertificates(SecuredUUID.fromUuidList(uuids));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.UNARCHIVE)
+    public void bulkUnarchiveCertificate(List<UUID> uuids) {
+        certificateService.bulkUnarchiveCertificates(SecuredUUID.fromUuidList(uuids));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.GET_ASSOCIATIONS)
+    public CertificateRelationsDto getCertificateRelations(@LogResource(uuid = true) UUID uuid)
+            throws NotFoundException {
+        return certificateService.getCertificateRelations(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.ASSOCIATE,
+            affiliatedResource = Resource.CERTIFICATE)
+    public void associateCertificates(@LogResource(uuid = true) UUID uuid,
+            @LogResource(uuid = true, affiliated = true) UUID certificateUuid) throws NotFoundException {
+        certificateService.associateCertificates(SecuredUUID.fromUUID(uuid), SecuredUUID.fromUUID(certificateUuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DISASSOCIATE,
+            affiliatedResource = Resource.CERTIFICATE)
+    public void removeCertificateAssociation(@LogResource(uuid = true) UUID uuid,
+            @LogResource(uuid = true, affiliated = true) UUID certificateUuid) throws NotFoundException {
+        certificateService
+                .removeCertificateAssociation(SecuredUUID.fromUUID(uuid), SecuredUUID.fromUUID(certificateUuid));
+    }
+
+    // SETTERs
+
+    @Autowired
+    public void setCertificateService(CertificateExternalService certificateService) {
+        this.certificateService = certificateService;
+    }
+
+    @Autowired
+    public void setCertificateEventHistoryService(
+            CertificateEventHistoryExternalService certificateEventHistoryService) {
+        this.certificateEventHistoryService = certificateEventHistoryService;
+    }
+
+    @Autowired
+    public void setClientOperationService(ClientOperationExternalService clientOperationService) {
+        this.clientOperationService = clientOperationService;
+    }
+
+    @Autowired
+    public void setApprovalService(ApprovalExternalService approvalService) {
+        this.approvalService = approvalService;
+    }
+
+    @Autowired
+    public void setCertificateImportService(CertificateImportExternalService certificateImportService) {
+        this.certificateImportService = certificateImportService;
+    }
+
+    @Autowired
+    public void setCertificateKeystoreService(CertificateKeystoreExternalService certificateKeystoreService) {
+        this.certificateKeystoreService = certificateKeystoreService;
+    }
+}

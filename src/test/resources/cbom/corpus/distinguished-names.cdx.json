@@ -1,0 +1,162 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:5b1c2d3e-0000-4000-8000-000000000004",
+  "version": 1,
+  "components": [
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-canonical",
+      "name": "dn-canonical",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=Example Corp,O=Example,C=XX",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-case-and-space-variant",
+      "name": "dn-case-and-space-variant",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "cn = example corp , o = Example , c = xx",
+          "issuerName": "CN = Fence Corpus Root CA, O = Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00+00:00",
+          "notValidAfter": "2027-01-01T00:00:00.000Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-oid-attribute-types",
+      "name": "dn-oid-attribute-types",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "2.5.4.3=Example Corp,2.5.4.10=Example,2.5.4.6=XX",
+          "issuerName": "2.5.4.3=Fence Corpus Root CA,2.5.4.10=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-escaped-comma",
+      "name": "dn-escaped-comma",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=Example Corp\\, Ltd,O=Example,C=XX",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-multi-valued-rdn",
+      "name": "dn-multi-valued-rdn",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=Example Corp+O=Example,C=XX",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-hex-der-value",
+      "name": "dn-hex-der-value",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=#0C0C4578616D706C6520436F7270,O=Example,C=XX",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-hex-der-malformed-utf8",
+      "name": "dn-hex-der-malformed-utf8",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=#1401E9,O=Example,C=XX",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-hex-der-malformed-utf8-sibling",
+      "name": "dn-hex-der-malformed-utf8-sibling",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=#1401EA,O=Example,C=XX",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-reverse-order",
+      "name": "dn-reverse-order",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "C=XX,O=Example,CN=Example Corp",
+          "issuerName": "O=Fence Corpus,CN=Fence Corpus Root CA",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-unicode-value",
+      "name": "dn-unicode-value",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=Zkušební Společnost,O=Příklad,C=XX",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "2026-01-01T00:00:00Z",
+          "notValidAfter": "2027-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "dn-pipe-and-percent",
+      "name": "dn-pipe-and-percent",
+      "cryptoProperties": {
+        "assetType": "certificate",
+        "certificateProperties": {
+          "subjectName": "CN=a|b%7Cc,O=Example,C=XX",
+          "issuerName": "CN=Fence Corpus Root CA,O=Fence Corpus",
+          "notValidBefore": "a|b",
+          "notValidAfter": "c"
+        }
+      }
+    }
+  ]
+}

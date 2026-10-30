@@ -1,0 +1,114 @@
+package com.otilm.core.tasks;
+
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.scheduler.SchedulerJobExecutionStatus;
+import com.otilm.core.api.ScheduledJobSkippedException;
+import com.otilm.core.cbom.pqc.PqcVerdictSweeper;
+import com.otilm.core.model.ScheduledTaskResult;
+import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+/**
+ * The sweep's schedule, and nothing else.
+ *
+ * <p>
+ * A system {@code ScheduledJobTask} rather than {@code @Scheduled}, which reaches nobody: under SaaS an operator cannot
+ * touch yml. Registered here, enable and disable work through the Scheduler API while the cron stays fixed -- pause
+ * yes, re-tune no. It needs the external scheduler, which {@code CbomSyncTask} already needs.
+ *
+ * <p>
+ * Not {@code @Transactional}: {@code SchedulerListener} runs a job with no transaction, and
+ * {@code PqcVerdictSweeper.sweep()} opens its own ({@code REQUIRES_NEW}).
+ */
+@Slf4j
+@Component
+@NoArgsConstructor
+public class CryptoAssetPqcSweepTask implements ScheduledJobTask {
+
+    public static final String NAME = "CryptoAssetPqcSweepTask";
+
+    /** Hourly at :30, offset from {@code CbomSyncTask} so the two do not contend. */
+    private static final String CRON_EXPRESSION = "0 30 * ? * *";
+
+    private PqcVerdictSweeper sweeper;
+
+    @Autowired
+    public void setSweeper(PqcVerdictSweeper sweeper) {
+        this.sweeper = sweeper;
+    }
+
+    @Override
+    public String getDefaultJobName() {
+        return NAME;
+    }
+
+    @Override
+    public String getDefaultCronExpression() {
+        return CRON_EXPRESSION;
+    }
+
+    @Override
+    public boolean isDefaultOneTimeJob() {
+        return false;
+    }
+
+    @Override
+    public boolean isSystemJob() {
+        return true;
+    }
+
+    /**
+     * A run that read nothing is a skip: until ingest gains a caller this fires hourly and finds nothing, and a SUCCESS
+     * row an hour would bury the runs that did something. So is a sweep that is turned off, or that another node is
+     * running; the reason says which, since only the first calls for a look at the setting.
+     *
+     * <p>
+     * The history row is the only place an operator learns what happened, so it distinguishes the three ways a row can
+     * leave the work list unwritten. A refused row is ordinary -- another writer reached it first -- and the next sweep
+     * retries it, so it is reported and does not fail the run. A row whose own write transaction failed, or a sweep
+     * that stopped early, is not ordinary. Only rows whose {@code EVALUATION-FAILED} stamp actually landed are reported
+     * as recorded: the sweep counts the stamps that committed, not the ones it built.
+     *
+     * <p>
+     * The catch names the failure. Without it the scheduler would still record a generic FAILED row -- its writer runs
+     * in a transaction of its own, so a failure of the sweep's connection (a failover, a pooler restart, an
+     * {@code idle_in_transaction_session_timeout}) cannot take the row with it -- but this way the row carries the
+     * sweep's own message and its resource tag. The text is fixed: an exception message here reaches the scheduler API.
+     */
+    @Override
+    public ScheduledTaskResult performJob(final ScheduledJobInfo scheduledJobInfo, final Object taskData) {
+        PqcVerdictSweeper.SweepOutcome outcome;
+        try {
+            outcome = sweeper.sweep();
+        } catch (RuntimeException e) {
+            log.error("PQC verdict sweep failed before it could report its outcome", e);
+            return new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED,
+                    "The sweep failed before it could report its outcome; see the application log",
+                    Resource.CRYPTO_ASSET, null);
+        }
+        if (outcome.status() == PqcVerdictSweeper.SweepOutcome.Status.DISABLED) {
+            throw new ScheduledJobSkippedException("The sweep is turned off");
+        }
+        if (!outcome.ran()) {
+            throw new ScheduledJobSkippedException("Another sweep is already running");
+        }
+        if (outcome.read() == 0 && !outcome.aborted()) {
+            throw new ScheduledJobSkippedException("No stale cryptographic asset to re-evaluate");
+        }
+        String message = ("Read %d stale cryptographic asset(s) in %d batch(es); %d verdict(s) written, of which %d "
+                + "recorded as UNKNOWN because the rule set could not be evaluated; %d refused and left for the next "
+                + "sweep; %d could not be written")
+                .formatted(outcome.read(), outcome.batches(), outcome.written(), outcome.unevaluated(),
+                        outcome.refused(), outcome.writeFailures());
+        if (outcome.aborted()) {
+            return new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED,
+                    "The sweep stopped before completing. " + message, Resource.CRYPTO_ASSET, null);
+        }
+        if (outcome.unevaluated() > 0 || outcome.writeFailures() > 0) {
+            return new ScheduledTaskResult(SchedulerJobExecutionStatus.FAILED, message, Resource.CRYPTO_ASSET, null);
+        }
+        return new ScheduledTaskResult(SchedulerJobExecutionStatus.SUCCESS, message, Resource.CRYPTO_ASSET, null);
+    }
+}

@@ -1,32 +1,32 @@
-# CZERTAINLY Core
+# ILM Core
 
-> This repository is part of the open source project CZERTAINLY. You can find more information about the project at [CZERTAINLY](https://github.com/CZERTAINLY/CZERTAINLY) repository, including the contribution guide.
+> This repository is part of the open source project ILM. You can find more information about the project at the [ILM](https://github.com/OmniTrustILM/ilm) repository, including the contribution guide.
 
-`Core` provides the basic functionality for the CZERTAINLY platform. It implements the logic for the certificate lifecycle management and handles all related tasks. You can think about it as a brain of the CZERTAINLY platform.
+`Core` provides the basic functionality for the ILM platform. It implements the logic for the certificate lifecycle management and handles all related tasks. You can think about it as a brain of the ILM platform.
 
-There are 2 types of communication that the `Core` is responsible for:
+There are two types of communication that the `Core` is responsible for:
 - client requesting management operations on top of certificates and related objects
-- `Connector` that provides with the functionality for specific technologies
+- `Connector` that provides the functionality for specific technologies
 
-The management of certificates and cryptographic keys is abstracted through CZERTAINLY objects called `Profiles`, such as:
+The management of certificates and cryptographic keys is abstracted through ILM objects called `Profiles`, such as:
 - `RA Profile` - configuration of the service for certificate lifecycle management
 - `Token Profile` - configuration of the cryptographic service and management of the keys
 - `Compliance Profile` - compliance requirements for the certificates and related objects
 
-For more information, refer to the [CZERTAINLY documentation](https://docs.czertainly.com).
+For more information, refer to the [ILM documentation](https://docs.otilm.com).
 
 ## Access Control
 
 `Core` access control requires the following to run:
-- [CZERTAINLY-Auth](https://github.com/CZERTAINLY/CZERTAINLY-Auth) service to manage users, roles, permission. The URL of the `Auth` service can be configured using `AUTH_SERVICE_BASE_URL` environment variable.
+- [auth](https://github.com/OmniTrustILM/auth) service to manage users, roles, permission. The URL of the `Auth` service can be configured using `AUTH_SERVICE_BASE_URL` environment variable.
 - OPA (Open Policy Agent) evaluating policies and providing decisions about authorization. The OPA service URL can be confgiured using `OPA_BASE_URL` environment variable.
-- OPA policies bundles that are loaded into OPA service and define the rules to be evaluated. The policies are defined in [CZERTAINLY-Auth-OPA-Policies](https://github.com/CZERTAINLY/CZERTAINLY-Auth-OPA-Policies)
+- OPA policies bundles that are loaded into OPA service and define the rules to be evaluated. The policies are defined in [auth-opa-policies](https://github.com/OmniTrustILM/auth-opa-policies)
 
 > **Warning**
 > The `Core` will fail to run when `Auth` or OPA is missing.
 
 > **Note**
-> OPA can run on the same system with the `Core` or it can be hosted externally. To improve the performance of the permissions evaluation it is typically running on the same host as `Core` (e.g. as a sidecar).
+> OPA can run on the same system with the `Core` or it can be hosted externally. To improve the performance of the permissions evaluation, it is typically running on the same host as `Core` (e.g., as a sidecar).
 
 ## Certificate inventory
 
@@ -47,9 +47,25 @@ Operations can be automated by the `Core`, but also can be performed manually by
 
 `Key` inventory contains all `Keys` that are available for usage. Each `Key` provides comprehensive and consistent information which can be managed through the `Token Profile`.
 
-## Experimental support for PQC algorithms
+## Support for PQC algorithms
 
-`Core` supports the following PQC algorithms: `FALCON`, `CRYSTALS-Dilithium`, `SPHINCS+`. The support is experimental and it is not recommended to use it in production as the PQC algorithms are still in the development and not fully standardized.
+`Core` supports the following PQC algorithms: `ML-DSA`, `SLH-DSA`, `ML-KEM` and `FALCON (FN-DSA)`.
+
+## CBOM inventory events
+
+CBOM uploads validate custom attributes before sending the document to the repository. After repository acceptance, Core commits the CBOM record before applying attributes in a separate transaction. A late attribute failure preserves the record and returns an explicit partial-failure error containing its UUID: 422 for permission or validation failures, 500 for unexpected failures. Update attributes on that record to retry.
+
+`CBOM_SYNCED` is raised after the first successful asset ingest of each CBOM UUID. A new document version has its own UUID and event. Skipped or superseded documents emit no sync event; retries and recovery of an already completed CBOM do not emit it again.
+
+`CRYPTO_ASSET_PQC_NOT_READY` is raised when an asset is first decided NOT_READY or changes from READY or NOT_APPLICABLE to NOT_READY. UNKNOWN preserves the last decided verdict, so NOT_READY → UNKNOWN → NOT_READY emits no second event. The payload carries the asset's properties, rule, reason and previous decided verdict at the write. An asset deleted before consumption is skipped.
+
+A committed verdict batch can emit asset events even if later CBOM ingest fails or is superseded. There is no guaranteed delivery order between asset verdict and CBOM sync events. A deleted asset that later re-enters inventory has a new UUID and verdict history.
+
+Inventory attribute actions verify and lock their parent in a short, independent transaction after permissions are loaded. Deletion before the write prevents new attribute content. A successful attribute action remains committed if saving event history later fails.
+
+Configure document-summary notifications on `CBOM_SYNCED`: the first ingest of a mostly classical inventory can emit one not-ready event per asset. Use the asset event for selective rules and actions. Neither event sends a notification without a configured action.
+
+The nullable verdict-history column requires no backfill and emits nothing during migration. Normal sweeps after upgrade apply the same transition rule. Both events use the existing after-commit sender and its best-effort delivery behavior.
 
 ## Protocol support
 
@@ -61,7 +77,7 @@ Operations can be automated by the `Core`, but also can be performed manually by
 ## Message brokers support
 
 Application supports two types of message brokers:
-- **RabbitMQ** - uses JmsPoolConnectionFactory with configurable connection pool settings
+- **RabbitMQ** – uses JmsPoolConnectionFactory with configurable connection pool settings
 - **Azure Service Bus** - uses JmsConnectionFactory with two authentication options:
   - **SAS (Shared Access Signature)** - uses connection string with policy name and key
   - **AAD (Azure Active Directory / Entra ID)** - uses OAuth2 with Service Principal credentials
@@ -76,50 +92,54 @@ Application supports two types of message brokers:
 
 ## Docker container
 
-`Core` is provided as a Docker container. Use the `czertainly/czertainly-core:tagname` to pull the required image from the repository. It can be configured using the following environment variables:
+`Core` is provided as a Docker container. Use the `hub.omnitrustregistry.com/ilm/core:tagname` to pull the required image from the repository. It can be configured using the following environment variables:
 
-| Variable                              | Description                                                                                                                                      | Required                                      | Default value       |
-|---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------|---------------------|
-| `JDBC_URL`                            | JDBC URL for database access                                                                                                                     | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `JDBC_USERNAME`                       | Username to access the database                                                                                                                  | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `JDBC_PASSWORD`                       | Password to access the database                                                                                                                  | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `DB_SCHEMA`                           | Database schema to use                                                                                                                           | ![](https://img.shields.io/badge/-NO-red.svg) | `core`              |
-| `PORT`                                | Port where the service is exposed                                                                                                                | ![](https://img.shields.io/badge/-NO-red.svg) | `8080`              |
-| `HEADER_NAME`                         | Name of the header where the certificate of the client can be found                                                                              | ![](https://img.shields.io/badge/-NO-red.svg) | `ssl-client-cert`   |
-| `HEADER_ENABLED`                      | True if the certificate should be get from the header                                                                                            | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `TS_PASSWORD`                         | Password for the trusted certificate store                                                                                                       | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `OPA_BASE_URL`                        | Base URL of the Open Policy Agent                                                                                                                | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `AUTH_SERVICE_BASE_URL`               | Base URL of the authentication service                                                                                                           | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `AUTH_TOKEN_HEADER_NAME`              | Name of the header for the JSON ID content                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg) | `X-USERINFO`        |
-| `SCHEDULED_TASKS_ENABLED`             | Scheduled certificate status update enable / disable                                                                                             | ![](https://img.shields.io/badge/-NO-red.svg) | `true`              |
-| `JAVA_OPTS`                           | Customize Java system properties for running application                                                                                         | ![](https://img.shields.io/badge/-NO-red.svg) | `N/A`               |
-| `TRUSTED_CERTIFICATES`                | List of PEM encoded additional trusted certificates                                                                                              | ![](https://img.shields.io/badge/-NO-red.svg) | `N/A`               |
-| `SCHEDULER_BASE_URL`                  | Base URL of the scheduler service                                                                                                                | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
-| `BROKER_TYPE`                         | Message broker type - supported values are `SERVICEBUS` or `RABBITMQ`                                                                            | ![](https://img.shields.io/badge/-NO-red.svg) | `RABBITMQ`          |
-| `BROKER_URL`                          | Message broker url (include protocol, e.g. `amqp://localhost:5672` for RabbitMQ, `amqps://namespace.servicebus.windows.net:5671` for ServiceBus) | ![](https://img.shields.io/badge/-YES-success.svg) | `N/A`               |
+| Variable                              | Description                                                                                                                                      | Required                                                  | Default value       |
+|---------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|---------------------|
+| `JDBC_URL`                            | JDBC URL for database access                                                                                                                     | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
+| `JDBC_USERNAME`                       | Username to access the database                                                                                                                  | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
+| `JDBC_PASSWORD`                       | Password to access the database                                                                                                                  | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
+| `DB_SCHEMA`                           | Database schema to use                                                                                                                           | ![](https://img.shields.io/badge/-NO-red.svg)             | `core`              |
+| `PORT`                                | Port where the service is exposed                                                                                                                | ![](https://img.shields.io/badge/-NO-red.svg)             | `8080`              |
+| `HEADER_NAME`                         | Name of the header where the certificate of the client can be found                                                                              | ![](https://img.shields.io/badge/-NO-red.svg)             | `ssl-client-cert`   |
+| `HEADER_ENABLED`                      | True if the certificate should be get from the header                                                                                            | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
+| `TS_PASSWORD`                         | Password for the trusted certificate store                                                                                                       | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
+| `OPA_BASE_URL`                        | Base URL of the Open Policy Agent                                                                                                                | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
+| `AUTH_SERVICE_BASE_URL`               | Base URL of the authentication service                                                                                                           | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
+| `AUTH_TOKEN_HEADER_NAME`              | Name of the header for the JSON ID content                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg)             | `X-USERINFO`        |
+| `SCHEDULED_TASKS_ENABLED`             | Scheduled certificate status update enable / disable                                                                                             | ![](https://img.shields.io/badge/-NO-red.svg)             | `true`              |
+| `JAVA_OPTS`                           | Customize Java system properties for running application                                                                                         | ![](https://img.shields.io/badge/-NO-red.svg)             | `N/A`               |
+| `TRUSTED_CERTIFICATES`                | List of PEM encoded additional trusted certificates                                                                                              | ![](https://img.shields.io/badge/-NO-red.svg)             | `N/A`               |
+| `SCHEDULER_BASE_URL`                  | Base URL of the scheduler service                                                                                                                | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
+| `BROKER_TYPE`                         | Message broker type - supported values are `SERVICEBUS` or `RABBITMQ`                                                                            | ![](https://img.shields.io/badge/-NO-red.svg)             | `RABBITMQ`          |
+| `BROKER_URL`                          | Message broker url (include protocol, e.g. `amqp://localhost:5672` for RabbitMQ, `amqps://namespace.servicebus.windows.net:5671` for ServiceBus) | ![](https://img.shields.io/badge/-YES-success.svg)        | `N/A`               |
 | `BROKER_USERNAME`                     | Message broker username (required for RabbitMQ and ServiceBus+SAS)                                                                               | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
 | `BROKER_PASSWORD`                     | Message broker password (required for RabbitMQ and ServiceBus+SAS)                                                                               | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
 | `BROKER_AZURE_TENANT_ID`              | Azure AD tenant ID (required for ServiceBus+AAD authentication)                                                                                  | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
 | `BROKER_AZURE_CLIENT_ID`              | Azure AD application (client) ID (required for ServiceBus+AAD)                                                                                   | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
 | `BROKER_AZURE_CLIENT_SECRET`          | Azure AD client secret (required for ServiceBus+AAD authentication)                                                                              | ![](https://img.shields.io/badge/-CONDITIONAL-yellow.svg) | `N/A`               |
-| `BROKER_AZURE_TOKEN_REFRESH_INTERVAL` | Azure AD token refresh interval in seconds (required for ServiceBus+AAD authentication)                                                          | ![](https://img.shields.io/badge/-NO-red.svg) | `300`               |
-| `BROKER_AZURE_TOKEN_GETTING_TIMEOUT`  | Azure AD token getting timeout in seconds (required for ServiceBus+AAD authentication)                                                           | ![](https://img.shields.io/badge/-NO-red.svg) | `30`                 |
-| `BROKER_EXCHANGE`                     | Message broker exchange/topic name                                                                                                               | ![](https://img.shields.io/badge/-NO-red.svg) | `czertainly`        |
-| `BROKER_VHOST`                        | Message broker vhost (for RabbitMQ only)                                                                                                         | ![](https://img.shields.io/badge/-NO-red.svg) | `N/A`               |
-| `BROKER_SESSION_CACHE_SIZE`           | ConnectionCachingFactory session cache size (only for RabbitMQ)                                                                                  | ![](https://img.shields.io/badge/-NO-red.svg) | `25`                |
-| `BROKER_QUEUE_AUDIT_LOGS`             | Queue name for audit logs (for RabbitMQ only)                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg) | `core.audit-logs`   |
-| `BROKER_QUEUE_EVENT`                  | Queue name for events (for RabbitMQ only)                                                                                                        | ![](https://img.shields.io/badge/-NO-red.svg) | `core.event`        |
-| `BROKER_QUEUE_NOTIFICATION`           | Queue name for notifications (for RabbitMQ only)                                                                                                 | ![](https://img.shields.io/badge/-NO-red.svg) | `core.notification` |
-| `BROKER_QUEUE_SCHEDULER`              | Queue name for scheduler (for RabbitMQ only)                                                                                                     | ![](https://img.shields.io/badge/-NO-red.svg) | `core.scheduler`    |
-| `BROKER_QUEUE_VALIDATION`             | Queue name for validation (for RabbitMQ only)                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg) | `core.validation`   |
-| `BROKER_ROUTINGKEY_ACTIONS`           | Routing key for actions                                                                                                                          | ![](https://img.shields.io/badge/-NO-red.svg) | `actions`           |
-| `BROKER_ROUTINGKEY_AUDIT_LOGS`        | Routing key for audit logs                                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg) | `auditlogs`         |
-| `BROKER_ROUTINGKEY_EVENT`             | Routing key for events                                                                                                                           | ![](https://img.shields.io/badge/-NO-red.svg) | `event`             |
-| `BROKER_ROUTINGKEY_NOTIFICATION`      | Routing key for notifications                                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg) | `notification`      |
-| `BROKER_ROUTINGKEY_SCHEDULER`         | Routing key for scheduler                                                                                                                        | ![](https://img.shields.io/badge/-NO-red.svg) | `scheduler`         |
-| `BROKER_ROUTINGKEY_VALIDATION`        | Routing key for validation                                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg) | `validation`        |
-| `SETTINGS_CACHE_REFRESH_INTERVAL`     | Interval of scheduled settings cache refresh from DB (in seconds)                                                                                | ![](https://img.shields.io/badge/-NO-red.svg) | `30`                |)
+| `BROKER_AZURE_TOKEN_REFRESH_INTERVAL` | Azure AD token refresh interval in seconds (required for ServiceBus+AAD authentication)                                                          | ![](https://img.shields.io/badge/-NO-red.svg)             | `300`               |
+| `BROKER_AZURE_TOKEN_GETTING_TIMEOUT`  | Azure AD token getting timeout in seconds (required for ServiceBus+AAD authentication)                                                           | ![](https://img.shields.io/badge/-NO-red.svg)             | `30`                |
+| `BROKER_EXCHANGE`                     | Message broker exchange/topic name                                                                                                               | ![](https://img.shields.io/badge/-NO-red.svg)             | `ilm`               |
+| `BROKER_VHOST`                        | Message broker vhost (for RabbitMQ only)                                                                                                         | ![](https://img.shields.io/badge/-NO-red.svg)             | `N/A`               |
+| `BROKER_SESSION_CACHE_SIZE`           | ConnectionCachingFactory session cache size (only for RabbitMQ)                                                                                  | ![](https://img.shields.io/badge/-NO-red.svg)             | `25`                |
+| `BROKER_QUEUE_AUDIT_LOGS`             | Queue name for audit logs (for RabbitMQ only)                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg)             | `core.audit-logs`   |
+| `BROKER_QUEUE_EVENT`                  | Queue name for events (for RabbitMQ only)                                                                                                        | ![](https://img.shields.io/badge/-NO-red.svg)             | `core.event`        |
+| `BROKER_QUEUE_NOTIFICATION`           | Queue name for notifications (for RabbitMQ only)                                                                                                 | ![](https://img.shields.io/badge/-NO-red.svg)             | `core.notification` |
+| `BROKER_QUEUE_SCHEDULER`              | Queue name for scheduler (for RabbitMQ only)                                                                                                     | ![](https://img.shields.io/badge/-NO-red.svg)             | `core.scheduler`    |
+| `BROKER_QUEUE_VALIDATION`             | Queue name for validation (for RabbitMQ only)                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg)             | `core.validation`   |
+| `BROKER_ROUTINGKEY_ACTIONS`           | Routing key for actions                                                                                                                          | ![](https://img.shields.io/badge/-NO-red.svg)             | `actions`           |
+| `BROKER_ROUTINGKEY_AUDIT_LOGS`        | Routing key for audit logs                                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg)             | `auditlogs`         |
+| `BROKER_ROUTINGKEY_EVENT`             | Routing key for events                                                                                                                           | ![](https://img.shields.io/badge/-NO-red.svg)             | `event`             |
+| `BROKER_ROUTINGKEY_NOTIFICATION`      | Routing key for notifications                                                                                                                    | ![](https://img.shields.io/badge/-NO-red.svg)             | `notification`      |
+| `BROKER_ROUTINGKEY_SCHEDULER`         | Routing key for scheduler                                                                                                                        | ![](https://img.shields.io/badge/-NO-red.svg)             | `scheduler`         |
+| `BROKER_ROUTINGKEY_VALIDATION`        | Routing key for validation                                                                                                                       | ![](https://img.shields.io/badge/-NO-red.svg)             | `validation`        |
+| `SETTINGS_CACHE_REFRESH_INTERVAL`     | Interval of scheduled settings cache refresh from DB (in seconds)                                                                                | ![](https://img.shields.io/badge/-NO-red.svg)             | `30`                |
+| `PLATFORM_LOG_FORMAT`                 | Console log format: `text` for the pattern, `ecs` or `logstash` for one JSON object per line                                                     | ![](https://img.shields.io/badge/-NO-red.svg)             | `text`              |
 
+### Client certificate authentication
+
+See [Client certificate authentication](https://docs.otilm.com/docs/certificate-key/installation-guide/deployment/client-certificate-authentication) for setup with a gateway or reverse proxy.
 
 ### OpenTelemetry settings
 
@@ -153,3 +173,40 @@ Example values:
 - `HTTP_PROXY=http://user:password@proxy.example.com:3128`
 - `HTTPS_PROXY=http://user:password@proxy.example.com:3128`
 - `NO_PROXY=localhost,127.0.0.1,0.0.0.0,10.0.0.0/8,cattle-system.svc,.svc,.cluster.local,my-domain.local`
+
+## Building against an unmerged `interfaces` change
+
+A change that needs a not-yet-merged `interfaces` API cannot compile against the
+mainline snapshot. Put one marker in the pull request **body** to redirect the
+build; the pom is never edited.
+
+```
+Depends-On: OmniTrustILM/interfaces#940
+```
+
+CI then builds against that pull request's own snapshot, which it publishes only
+while it carries the `publish-snapshot` label, and never from a fork.
+
+Use `Interfaces-Version` instead to pin one already-published build — useful when
+somebody else's merge reddens an unrelated pull request:
+
+```
+Interfaces-Version: 2.20.0-M907-1299756b
+```
+
+Three rules decide whether a marker is read at all. **It must start at column 0**
+— no bullet, no indent, no `>`, no bold — **nothing may follow the value**, and
+**the repository must be spelled in full** as `OmniTrustILM/interfaces`. Break
+either of the first two and the build fails with a message naming the accepted
+form; a shortened repository name is not recognised as a marker at all, so it is
+ignored in silence. Markers inside fenced code blocks or HTML comments are
+skipped too, so quoting the syntax is safe.
+
+`Interfaces pin` stays red for as long as a marker is active, and it feeds the
+required `Build` check, so neither form can reach `main`. `Depends-On` clears
+itself once the `interfaces` pull request merges and **all** jobs are re-run —
+re-running only the failed job replays the cached resolution. `Interfaces-Version`
+clears only when you delete the line.
+
+The rest of the flow — merge order, which workflows to re-run and why, building
+locally — is in [docs/coupled-interfaces-changes.md](docs/coupled-interfaces-changes.md).

@@ -1,0 +1,56 @@
+package com.otilm.core.integration.messaging.jms.listeners;
+
+import com.otilm.api.model.client.certificate.UploadCertificateRequestDto;
+import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.helpers.CertificateGeneratorHelper;
+import com.otilm.core.service.CertificateExternalService;
+import com.otilm.core.util.BaseMessagingIntTest;
+import java.security.cert.X509Certificate;
+import java.util.Base64;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.ActiveProfiles;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+
+/**
+ * End-to-end integration test for the certificate upload async flow using a real RabbitMQ container.
+ *
+ * <p>
+ * Flow: {@link CertificateExternalService#uploadAsync} → EventProducer → RabbitMQ exchange/queue → EventListener →
+ * CertificateUploadedEventHandler → certificate persisted in DB.
+ * </p>
+ *
+ * <p>
+ * Kept separate from {@link JmsListenerITest} because that class mocks {@code EventListener} at the bean level, which
+ * prevents the real handler chain from running.
+ * </p>
+ */
+@ActiveProfiles(value = {"messaging-int-test"}, inheritProfiles = false)
+class CertificateUploadMessagingITest extends BaseMessagingIntTest {
+
+    @Autowired
+    private CertificateExternalService certificateService;
+
+    @Autowired
+    private CertificateRepository certificateRepository;
+
+    @Test
+    void testCertificateUploadedEvent() throws Exception {
+        X509Certificate certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=TestCA");
+        String content = Base64.getEncoder().encodeToString(certificate.getEncoded());
+        UploadCertificateRequestDto request = new UploadCertificateRequestDto();
+        request.setCertificate(content);
+
+        String fingerprint = certificateService.uploadAsync(request).getFingerprint();
+
+        assertThat(fingerprint).isNotNull();
+        await()
+                .atMost(10, TimeUnit.SECONDS)
+                .until(() -> certificateRepository.findByFingerprint(fingerprint).isPresent());
+        Assertions.assertTrue(certificateRepository.findByFingerprint(fingerprint).isPresent());
+    }
+}

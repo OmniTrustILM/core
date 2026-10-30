@@ -1,0 +1,28 @@
+package com.otilm.core.dao.repository.signing;
+
+import com.otilm.core.dao.entity.signing.TspProfile;
+import com.otilm.core.dao.repository.SecurityFilterRepository;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface TspProfileRepository extends SecurityFilterRepository<TspProfile, UUID> {
+    @Modifying
+    @Query("UPDATE TspProfile tsp SET tsp.defaultSigningProfileUuid = NULL WHERE tsp.defaultSigningProfileUuid = :signingProfileUuid")
+    void clearDefaultSigningProfileUuid(UUID signingProfileUuid);
+
+    Optional<TspProfile> findByName(String name);
+
+    @EntityGraph(attributePaths = {"defaultSigningProfile"})
+    Optional<TspProfile> findWithAssociationsByName(String name);
+
+    List<TspProfile> findAllByDefaultSigningProfileUuid(UUID signingProfileUuid);
+
+    @Query("SELECT t.name FROM TspProfile t ORDER BY t.name")
+    List<String> findAllNames();
+}

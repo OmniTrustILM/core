@@ -1,0 +1,12 @@
+{
+  "type" : "Secret",
+  "algorithm" : "RSA",
+  "format" : "Custom",
+  "value" : {
+    "values" : {
+      "handler" : "pkcs11",
+      "externalId" : "hsm-slot-3"
+    }
+  },
+  "length" : 2048
+}

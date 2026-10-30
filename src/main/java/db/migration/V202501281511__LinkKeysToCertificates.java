@@ -1,10 +1,10 @@
 package db.migration;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.czertainly.core.util.CertificateUtil;
-import com.czertainly.core.util.CryptographyUtil;
-import com.czertainly.core.util.DatabaseMigration;
-import com.czertainly.core.util.KeySizeUtil;
+import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.CryptographyUtil;
+import com.otilm.core.util.DatabaseMigration;
+import com.otilm.core.util.KeySizeUtil;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
 

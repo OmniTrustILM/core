@@ -1,0 +1,252 @@
+package com.otilm.core.messaging.proxy;
+
+import com.otilm.api.clients.mq.AttributeApiClient;
+import com.otilm.api.clients.mq.AuthorityInstanceApiClient;
+import com.otilm.api.clients.mq.CertificateApiClient;
+import com.otilm.api.clients.mq.ConnectorApiClient;
+import com.otilm.api.clients.mq.CryptographicOperationsApiClient;
+import com.otilm.api.clients.mq.DiscoveryApiClient;
+import com.otilm.api.clients.mq.EndEntityApiClient;
+import com.otilm.api.clients.mq.EndEntityProfileApiClient;
+import com.otilm.api.clients.mq.EntityInstanceApiClient;
+import com.otilm.api.clients.mq.HealthApiClient;
+import com.otilm.api.clients.mq.KeyManagementApiClient;
+import com.otilm.api.clients.mq.LocationApiClient;
+import com.otilm.api.clients.mq.NotificationInstanceApiClient;
+import com.otilm.api.clients.mq.ProxyClient;
+import com.otilm.api.clients.mq.TokenInstanceApiClient;
+import com.otilm.api.clients.mq.discovery.v2.DiscoveryMqTimeouts;
+import com.otilm.api.clients.mq.signing.SignatureFormattingApiClient;
+import com.otilm.api.clients.mq.signing.contentsigning.ContentSigningFormattingApiClient;
+import com.otilm.api.clients.mq.v2.KeyApiClient;
+import com.otilm.api.clients.mq.v2.TokenApiClient;
+import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * Configuration class that enables proxy client functionality. Automatically registers ProxyProperties configuration.
+ */
+@Configuration
+@ConditionalOnProperty(name = "proxy.enabled", havingValue = "true")
+@EnableConfigurationProperties({ProxyProperties.class, DiscoveryMqTimeoutsProperties.class})
+public class ProxyClientConfig {
+
+    /**
+     * Create MQ-based HealthApiClient bean. This bean is used by ConnectorServiceImpl when connector has proxyId set.
+     */
+    @Bean
+    public HealthApiClient mqHealthApiClient(ProxyClient proxyClient) {
+        return new HealthApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based ConnectorApiClient bean. This bean is used when connector has proxyId set to list supported
+     * functions.
+     */
+    @Bean
+    public ConnectorApiClient mqConnectorApiClient(ProxyClient proxyClient) {
+        return new ConnectorApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based AttributeApiClient bean. This bean is used when connector has proxyId set to manage attributes.
+     */
+    @Bean
+    public AttributeApiClient mqAttributeApiClient(ProxyClient proxyClient) {
+        return new AttributeApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based DiscoveryApiClient bean. This bean is used when connector has proxyId set to run discoveries.
+     */
+    @Bean
+    public DiscoveryApiClient mqDiscoveryApiClient(ProxyClient proxyClient) {
+        return new DiscoveryApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based EndEntityProfileApiClient bean. This bean is used when connector has proxyId set to manage end
+     * entity profiles.
+     */
+    @Bean
+    public EndEntityProfileApiClient mqEndEntityProfileApiClient(ProxyClient proxyClient) {
+        return new EndEntityProfileApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based CertificateApiClient bean. This bean is used when connector has proxyId set for certificate
+     * operations.
+     */
+    @Bean
+    public CertificateApiClient mqCertificateApiClient(ProxyClient proxyClient) {
+        return new CertificateApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based AuthorityInstanceApiClient bean. This bean is used when connector has proxyId set for authority
+     * instance operations.
+     */
+    @Bean
+    public AuthorityInstanceApiClient mqAuthorityInstanceApiClient(ProxyClient proxyClient) {
+        return new AuthorityInstanceApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based EntityInstanceApiClient bean. This bean is used when connector has proxyId set for entity
+     * instance operations.
+     */
+    @Bean
+    public EntityInstanceApiClient mqEntityInstanceApiClient(ProxyClient proxyClient) {
+        return new EntityInstanceApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based LocationApiClient bean. This bean is used when connector has proxyId set for location operations.
+     */
+    @Bean
+    public LocationApiClient mqLocationApiClient(ProxyClient proxyClient) {
+        return new LocationApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based TokenInstanceApiClient bean. This bean is used when connector has proxyId set for token instance
+     * operations.
+     */
+    @Bean
+    public TokenInstanceApiClient mqTokenInstanceApiClient(ProxyClient proxyClient) {
+        return new TokenInstanceApiClient(proxyClient);
+    }
+
+    /** Creates the MQ client for stateless cryptography-provider v2 token operations. */
+    @Bean
+    public TokenApiClient mqTokenApiClientV2(ProxyClient proxyClient, OperationResponseValidator responseValidator) {
+        return new TokenApiClient(proxyClient, responseValidator);
+    }
+
+    /**
+     * Create MQ-based KeyManagementApiClient bean. This bean is used when connector has proxyId set for key management
+     * operations.
+     */
+    @Bean
+    public KeyManagementApiClient mqKeyManagementApiClient(ProxyClient proxyClient) {
+        return new KeyManagementApiClient(proxyClient);
+    }
+
+    @Bean
+    public KeyApiClient mqKeyManagementApiClientV2(ProxyClient proxyClient,
+            OperationResponseValidator responseValidator) {
+        return new KeyApiClient(proxyClient, responseValidator);
+    }
+
+    /**
+     * Create MQ-based CryptographicOperationsApiClient bean. This bean is used when connector has proxyId set for
+     * cryptographic operations.
+     */
+    @Bean
+    public CryptographicOperationsApiClient mqCryptographicOperationsApiClient(ProxyClient proxyClient) {
+        return new CryptographicOperationsApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based v2 CertificateApiClient bean. This bean is used when connector has proxyId set for v2 certificate
+     * operations.
+     */
+    @Bean
+    public com.otilm.api.clients.mq.v2.CertificateApiClient mqCertificateApiClientV2(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.v2.CertificateApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based v2 AttributesApiClient bean. This bean is used when connector has proxyId set for v2 attribute
+     * operations (definitions + callback).
+     */
+    @Bean
+    public com.otilm.api.clients.mq.v2.AttributesApiClient mqAttributesApiClientV2(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.v2.AttributesApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based ComplianceApiClient bean. This bean is used when connector has proxyId set for compliance
+     * operations.
+     */
+    @Bean
+    public com.otilm.api.clients.mq.ComplianceApiClient mqComplianceApiClient(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.ComplianceApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based v2 ComplianceApiClient bean. This bean is used when connector has proxyId set for v2 compliance
+     * operations.
+     */
+    @Bean
+    public com.otilm.api.clients.mq.v2.ComplianceApiClient mqComplianceApiClientV2(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.v2.ComplianceApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based EndEntityApiClient bean. This bean is used when connector has proxyId set for end entity
+     * operations.
+     */
+    @Bean
+    public EndEntityApiClient mqEndEntityApiClient(ProxyClient proxyClient) {
+        return new EndEntityApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based NotificationInstanceApiClient bean. This bean is used when connector has proxyId set for
+     * notification instance operations.
+     */
+    @Bean
+    public NotificationInstanceApiClient mqNotificationInstanceApiClient(ProxyClient proxyClient) {
+        return new NotificationInstanceApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based v3 CertificateApiClient bean. This bean is used when connector has proxyId set for v3 certificate
+     * operations.
+     */
+    @Bean
+    public com.otilm.api.clients.mq.v3.CertificateApiClient mqCertificateApiClientV3(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.v3.CertificateApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based v3 AuthorityApiClient bean. This bean is used when connector has proxyId set for v3 authority
+     * operations.
+     */
+    @Bean
+    public com.otilm.api.clients.mq.v3.AuthorityApiClient mqAuthorityApiClientV3(ProxyClient proxyClient) {
+        return new com.otilm.api.clients.mq.v3.AuthorityApiClient(proxyClient);
+    }
+
+    /**
+     * Unlike its sibling beans this one carries per-operation timeout budgets, because a drain response can
+     * legitimately take far longer than a status probe.
+     */
+    @Bean
+    public com.otilm.api.clients.mq.discovery.v2.DiscoveryApiClient mqDiscoveryApiClientV2(ProxyClient proxyClient,
+            DiscoveryMqTimeoutsProperties timeouts) {
+        return new com.otilm.api.clients.mq.discovery.v2.DiscoveryApiClient(proxyClient,
+                new DiscoveryMqTimeouts(timeouts.status(), timeouts.drain(), timeouts.control()));
+    }
+
+    /**
+     * Create MQ-based SignatureFormattingApiClient bean. Used when a signature-formatting connector has a proxy set.
+     */
+    @Bean
+    public SignatureFormattingApiClient mqSignatureFormattingApiClient(ProxyClient proxyClient) {
+        return new SignatureFormattingApiClient(proxyClient);
+    }
+
+    /**
+     * Create MQ-based ContentSigningFormattingApiClient bean. Used when a content-signing formatting connector has a
+     * proxy set.
+     */
+    @Bean
+    public ContentSigningFormattingApiClient mqContentSigningFormattingApiClient(ProxyClient proxyClient) {
+        return new ContentSigningFormattingApiClient(proxyClient);
+    }
+}

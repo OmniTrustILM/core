@@ -1,0 +1,18 @@
+{
+  "identifier" : {
+    "type" : "dns",
+    "value" : "host.example.com"
+  },
+  "status" : "pending",
+  "expires" : "2026-01-15T09:30:00Z",
+  "challenges" : [
+    {
+      "type" : "http-01",
+      "url" : "https://acme.example/acme/challenge/1",
+      "status" : "pending",
+      "validated" : "2026-01-15T09:30:00Z",
+      "token" : "evaGxfADs6pSRb2LAv9IZf17Dt3juxGJ-PCt92wr-oA"
+    }
+  ],
+  "wildcard" : false
+}

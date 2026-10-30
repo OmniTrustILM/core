@@ -1,0 +1,11 @@
+-- RFC 5280 4.2.1.8 Subject Directory Attributes. An AttributeValue is an open type, so its
+-- content is written as DER.
+SubjectDirectoryAttributesModule DEFINITIONS IMPLICIT TAGS ::= BEGIN
+
+SubjectDirectoryAttributes ::= SEQUENCE SIZE (1..MAX) OF Attribute
+
+Attribute ::= SEQUENCE {
+     type                    OBJECT IDENTIFIER,
+     values                  SET SIZE (1..MAX) OF ANY }
+
+END

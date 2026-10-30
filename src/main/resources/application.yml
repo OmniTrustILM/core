@@ -7,6 +7,12 @@ caching:
   authentication:
     ttl-minutes: ${AUTH_CACHE_TTL_MINUTES:5}   # How long a cached identity is considered valid
     max-size: ${AUTH_CACHE_MAX_SIZE:500}       # Maximum number of cached identities
+  # Authorization cache caches OPA decisions, keyed by the caller's effective permissions rather than their identity
+  authorization:
+    enabled: ${AUTHZ_CACHE_ENABLED:true}                             # Kill switch; when false every check goes to OPA
+    ttl-minutes: ${AUTHZ_CACHE_TTL_MINUTES:5}                        # Must not exceed the authentication cache TTL
+    resource-max-size: ${AUTHZ_RESOURCE_CACHE_MAX_SIZE:10000}        # Verdicts; keys include requested object UUIDs
+    object-max-size: ${AUTHZ_OBJECT_CACHE_MAX_SIZE:1000}             # Object filters; few keys, large values
   # Connector API-client cache caches ApiClientConnectorInfo per connector UUID to avoid repeated database accesses.
   connectors:
     ttl-minutes: ${CONNECTORS_CACHE_TTL_MINUTES:5}
@@ -23,10 +29,10 @@ caching:
   crypto-keys:
     ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
     max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
-  # TSP Profile cache caches TSP Profile by profile name for the timestamping hot path
+  # TSP Profile cache caches TSP Profile for the timestamping hot path, keyed by both name (protocol path) and UUID (signing-profile path)
   tsp-profiles:
     ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid
-    max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Maximum number of cached TSP profiles
+    max-size: ${TSP_PROFILES_CACHE_MAX_SIZE:100}       # Max cache entries; a profile uses up to 2 (name + UUID), so effective profile capacity is up to half this
   # Signing Profile cache caches SigningProfileModel by profile name for the signing/timestamping hot path
   signing-profiles:
     ttl-minutes: ${SIGNING_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached signing profile model is considered valid
@@ -35,6 +41,10 @@ caching:
   time-quality-configs:
     ttl-minutes: ${TQC_CACHE_TTL_MINUTES:5}   # How long a cached TQC model is considered valid
     max-size: ${TQC_CACHE_MAX_SIZE:50}        # Maximum number of cached TQC models
+  # Attribute search-field cache holds the attribute rows of each resource's field catalogue for /search, saved views and sort checks
+  attribute-search-fields:
+    ttl-minutes: ${ATTRIBUTE_SEARCH_FIELDS_CACHE_TTL_MINUTES:5}   # How long a catalogue may miss a change made on another replica or written by a connector
+    max-size: ${ATTRIBUTE_SEARCH_FIELDS_CACHE_MAX_SIZE:200}       # One entry per resource and settable flag
 
 certificate:
   chain:
@@ -63,11 +73,113 @@ discovery:
     max-parallelism: ${DISCOVERY_PROVIDER_MAX_PARALLELISM:5}
     sleep-time-ms: ${DISCOVERY_PROVIDER_SLEEP_TIME_MS:5000}
     max-wait-time-seconds: ${DISCOVERY_PROVIDER_MAX_WAIT_TIME_SECONDS:21600}
+  # Per-operation timeout budgets for the discovery v2 MQ client (proxy.enabled deployments only)
+  mq-timeouts:
+    status: ${DISCOVERY_MQ_TIMEOUT_STATUS:30s}
+    drain: ${DISCOVERY_MQ_TIMEOUT_DRAIN:30s}
+    control: ${DISCOVERY_MQ_TIMEOUT_CONTROL:30s}
+  # Discovery v2 run work (provider.discovery-work queue): sweep cadence and backoff ladders per tick type.
+  work:
+    # How often each node scans the discovery_work due-time agenda (one node sweeps at a time).
+    sweep-interval-ms: ${DISCOVERY_WORK_SWEEP_INTERVAL_MS:10000}
+    sweep-batch-size: ${DISCOVERY_WORK_SWEEP_BATCH_SIZE:200}
+    sweep-max-batches-per-run: ${DISCOVERY_WORK_SWEEP_MAX_BATCHES_PER_RUN:10}
+    # How long a non-terminal run may hold no pending work row before the reaper fails it. Covers the initiate
+    # window, where the run row exists before its first agenda rows.
+    reap-grace: ${DISCOVERY_WORK_REAP_GRACE:PT5M}
+    # How far out a worker parks the agenda row when it direct-publishes the next tick itself, so a due-now row
+    # cannot let the sweep publish a competing one. Must exceed one tick's duration.
+    continuation-backstop: ${DISCOVERY_WORK_CONTINUATION_BACKSTOP:PT1M}
+    # Least time a claimed row waits before the sweep may publish it again, so a tick slower than its own rung is
+    # not published twice while it runs. Above the slowest connector call -- the connection-acquisition, connect
+    # and response timeouts under connector.api-client, taken together -- and above every ladder's last rung, so an
+    # idle tick of any type settles here. Only idle ticks wait on it: a drain with more to fetch direct-publishes
+    # its continuation.
+    claim-floor: ${DISCOVERY_WORK_CLAIM_FLOOR:PT50S}
+    # How long a stopped run waits between status polls. It reports nothing new while paused, but it is still
+    # watched: its connector can still fail or cancel it.
+    stopped-poll-interval: ${DISCOVERY_WORK_STOPPED_POLL_INTERVAL:PT5M}
+    defaults:
+      delays:
+        - PT1S
+        - PT5S
+        - PT15S
+        - PT1M
+        - PT5M
+      # Budget of consecutive unanswered ticks. The tick workers enforce it and reset the counter on every clear
+      # connector answer, so a scan the connector keeps reporting on never times out.
+      max-attempts: 720
+    by-type:
+      # Ladders start at PT1S, not PT0S: a zero first rung leaves a just-claimed row still due, so one sweep could
+      # claim and publish it twice.
+      #
+      # STATUS has its own ladder: it is the tick that brings back the connector's counters and its view of the run,
+      # so its last rung is how stale a run's progress can be and how late Core learns a scan finished. DRAIN already
+      # calls the same connector every claim-floor, so a slower rung buys nothing. max-attempts rises with the shorter
+      # rungs to keep the same wall-clock allowance for a connector that stops answering.
+      STATUS:
+        delays:
+          - PT1S
+          - PT5S
+          - PT15S
+          - PT30S
+        max-attempts: 6000
+      DRAIN:
+        delays:
+          - PT1S
+          - PT5S
+          - PT30S
+        max-attempts: 100
+      PROCESS:
+        delays:
+          - PT1S
+          - PT5S
+          - PT30S
+        max-attempts: 100
+  run:
+    # How long a stopped run waits for resume before the reaper cancels it: past this the connector's checkpoint
+    # cannot be assumed to exist.
+    stopped-max-duration: ${DISCOVERY_RUN_STOPPED_MAX_DURATION:P7D}
+  # Bounds on a single DRAIN tick's page. max-bytes is sized for the proxy envelope rather than the contract's
+  # 10 MiB transport cap, so a tunneled page has headroom.
+  drain:
+    max-items: ${DISCOVERY_DRAIN_MAX_ITEMS:500}
+    max-bytes: ${DISCOVERY_DRAIN_MAX_BYTES:5242880}
+  # How many staged rows one PROCESS tick imports before handing the run back to the queue.
+  processing:
+    batch-size: ${DISCOVERY_PROCESSING_BATCH_SIZE:200}
 
-hibernate:
-  types:
-    print:
-      banner: false
+# Authority-provider async (HTTP 202) operation status polling
+provider:
+  status-poll:
+    # How often each node scans the certificate_status_poll due-time table (one node sweeps at a time).
+    sweep-interval-ms: ${PROVIDER_STATUS_POLL_SWEEP_INTERVAL_MS:10000}
+    sweep-batch-size: ${PROVIDER_STATUS_POLL_SWEEP_BATCH_SIZE:200}
+    sweep-max-batches-per-run: ${PROVIDER_STATUS_POLL_SWEEP_MAX_BATCHES_PER_RUN:10}
+    # How long a certificate may sit in PENDING_ISSUE with no poll row (a crashed synchronous issue)
+    # before the reaper fails it. Must exceed any legitimate synchronous issue duration.
+    reap-stale-after: ${PROVIDER_STATUS_POLL_REAP_STALE_AFTER:PT30M}
+    defaults:
+      delays:
+        - PT1S
+        - PT3S
+        - PT10S
+        - PT30S
+        - PT1M30S
+        - PT5M
+      # Limits two things: how many polls in a row get no clear answer from the CA (connector
+      # errors), and how many retries a locally failing terminal transition gets. Reaching the
+      # limit times the operation out. A fresh "in progress" answer refreshes the count, so an
+      # operation the CA still reports as running never times out.
+      max-attempts: 100
+    by-kind:
+      REGISTER:
+        delays:
+          - PT5S
+          - PT30S
+          - PT2M
+          - PT5M
+        max-attempts: 50
 
 info:
   app:
@@ -77,10 +189,16 @@ info:
 logging:
   level:
     com:
-      czertainly: ${CZERTAINLY_LOG_LEVEL:INFO}
+      otilm: ${PLATFORM_LOG_LEVEL:INFO}
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
     file: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
+  console-format: ${PLATFORM_LOG_FORMAT:text}   # text keeps the pattern above; ecs or logstash writes one JSON object per line
+  structured:
+    ecs:
+      service:
+        name: core
+        node-name: ${HOSTNAME:}          # The pod name under Kubernetes, so ECS lines tell replicas apart
   schema-version: '@log-schema.version@'
 
 # Configuration of actuator
@@ -134,6 +252,7 @@ secrets:
 
 ## Section server.* is related to the embedded Tomcat server only
 server:
+  max-http-request-header-size: 64KB
   port: ${PORT:8080}
   servlet:
     context-path: /api
@@ -156,6 +275,16 @@ spring:
   datasource:
     driver-class-name: org.postgresql.Driver
     hikari:
+      # PostgreSQL answers a constraint violation with a DETAIL line quoting the whole failing row, and pgjdbc copies
+      # it into the exception message. Hibernate's SqlExceptionHelper logs that message at ERROR the moment the
+      # statement fails, upstream of every catch, so no handler downstream can keep it out of the log. Some rows hold
+      # values that must not be logged -- crypto_asset.identity_key is 64 hex characters, exactly pgjdbc's per-value
+      # truncation point, so it would print whole. Off here rather than per feature: a value reaching the log this way
+      # is a property of the driver, not of the table. The constraint NAME survives, which is all
+      # CryptoAssetConstraintTranslator reads, so operator-facing messages are unaffected. A failing row can still be
+      # identified from the statement and its parameters at DEBUG.
+      data-source-properties:
+        logServerErrorDetail: false
       connectionTimeout: ${CONNECTION_POOL_CONNECTION_TIMEOUT:30000}
       idleTimeout: ${CONNECTION_POOL_IDLE_TIMEOUT:600000}
       maxLifetime: ${CONNECTION_POOL_MAX_LIFETIME:1800000}
@@ -184,7 +313,7 @@ spring:
     # Legacy RabbitMQ connection properties (used if broker-url is not set)
     host: ${BROKER_HOST:}
     port: ${BROKER_PORT:5672}
-    exchange: ${BROKER_EXCHANGE:czertainly}
+    exchange: ${BROKER_EXCHANGE:ilm}
     # --- Authentication ---
     # For RabbitMQ: username/password required
     # For ServiceBus: either username/password (SAS) OR aad-auth (AAD) required
@@ -229,6 +358,8 @@ spring:
       time-quality-config: ${BROKER_QUEUE_TIME_QUALITY_CONFIG:time-quality.config}
       time-quality-config-request: ${BROKER_QUEUE_TIME_QUALITY_CONFIG_REQUEST:time-quality.config-request}
       time-quality-results: ${BROKER_QUEUE_TIME_QUALITY_RESULTS:time-quality.results}
+      provider-status-poll: ${BROKER_QUEUE_PROVIDER_STATUS_POLL:provider.status-poll}
+      provider-discovery-work: ${BROKER_QUEUE_PROVIDER_DISCOVERY_WORK:provider.discovery-work}
     routing-key:
       actions: ${BROKER_ROUTINGKEY_ACTIONS:action}
       audit-logs: ${BROKER_ROUTINGKEY_AUDIT_LOGS:audit-logs}
@@ -239,6 +370,8 @@ spring:
       time-quality-config: ${BROKER_ROUTINGKEY_TIME_QUALITY_CONFIG:time-quality.config}
       time-quality-config-request: ${BROKER_ROUTINGKEY_TIME_QUALITY_CONFIG_REQUEST:time-quality.config-request}
       time-quality-results: ${BROKER_ROUTINGKEY_TIME_QUALITY_RESULTS:time-quality.results}
+      provider-status-poll: ${BROKER_ROUTINGKEY_PROVIDER_STATUS_POLL:provider.status-poll}
+      provider-discovery-work: ${BROKER_ROUTINGKEY_PROVIDER_DISCOVERY_WORK:provider.discovery-work}
   threads:
     virtual:
       enabled: true
@@ -258,18 +391,20 @@ messaging:
     audit-logs: 5
     time-quality-config-request: 5
     time-quality-results: 5
+    provider-status-poll: 1-5
+    provider-discovery-work: 1-3
 
 # Proxy configuration for connector communication via message queue
 proxy:
   # Feature flag to enable/disable proxy messaging support
   enabled: ${PROXY_ENABLED:false}
   # Azure Service Bus topic / RabbitMQ exchange name for proxy messages
-  exchange: ${BROKER_PROXY_EXCHANGE:czertainly-proxy}
+  exchange: ${BROKER_PROXY_EXCHANGE:ilm-proxy}
   # Azure Service Bus subscription / RabbitMQ queue name for receiving responses
   response-queue: ${BROKER_PROXY_RESPONSE_QUEUE:core}
   # Unique identifier for this Core instance (defaults to hostname/pod name)
   instance-id: ${PROXY_INSTANCE_ID:}
-  # Maximum time to wait for a response from the proxy
+  # Maximum time to wait for a response from the proxy; a request expires on the broker when Core stops waiting
   request-timeout: ${PROXY_REQUEST_TIMEOUT:30s}
   # Maximum number of concurrent pending requests (prevents memory exhaustion)
   max-pending-requests: ${PROXY_MAX_PENDING_REQUESTS:1000}
@@ -296,9 +431,45 @@ validation:
     read-timeout: 1000
     connect-timeout: 1000
 
+# Shared WebClient tuning applied to every outbound API-client call (any provider implementation)
+connector:
+  api-client:
+    # Fail fast on unresponsive endpoints; keep connect + response timeouts below the 120s transaction timeout.
+    response-timeout: ${CONNECTOR_API_CLIENT_RESPONSE_TIMEOUT:35s}
+    connect-timeout: ${CONNECTOR_API_CLIENT_CONNECT_TIMEOUT:3s}
+    # Connection-pool limit per remote host; size to the expected concurrent load
+    max-connections: ${CONNECTOR_API_CLIENT_MAX_CONNECTIONS:20}
+    # Shed load quickly under pool saturation rather than queueing behind the response timeout
+    pending-acquire-timeout: ${CONNECTOR_API_CLIENT_PENDING_ACQUIRE_TIMEOUT:10s}
+    max-in-memory-size: ${CONNECTOR_API_CLIENT_MAX_IN_MEMORY_SIZE:16MB}
+
+key-import:
+  # How long an import request waits for a connector that imports asynchronously, before it cancels the import.
+  request-timeout: 60s
+  # How long it waits between two questions about such an import.
+  poll-interval: 2s
+  # How long the outcome of an import can still be learned from its connector, which keeps a record of it for at
+  # least 24 hours, so it has to be shorter. An older import the connector does not know is not sent again, and the
+  # reconciliation gives an import its last look this long after it was last sent. With retry-window and
+  # sweep-interval it stays shorter than 24 hours, so that last look comes while the connector keeps the record.
+  unresolved-after: 20h
+  # How long an import is left to its requester's retries after each send before the reconciliation looks at it, and
+  # how long the reconciliation waits between two looks at one import. It outlasts request-timeout and three connector
+  # calls at the connector timeouts configured (checked at startup), and with sweep-interval stays shorter than
+  # unresolved-after.
+  retry-window: 15m
+  # How often the reconciliation runs.
+  sweep-interval: 60s
+  # How long an import that completed, failed or was compensated is kept after it finished, before the reconciliation
+  # deletes it. It is longer than an import can stay open, unresolved-after, retry-window and sweep-interval together
+  # (checked at startup).
+  retention: 7d
+
 cbom:
   client:
     max-buffer-size: ${CBOM_CLIENT_MAX_BUFFER_SIZE:20971520}
+  # Every CBOM sync tunable is a platform setting (Settings UI, the utils section beside the repository URL), read at
+  # the start of each run; see CbomSyncPolicy. Nothing of the sync is configured here.
 
 signing-record:
   outbox:
@@ -319,3 +490,8 @@ signing-record:
     fallback-cron: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_CRON:0 0 3 * * *}
     batch-size: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_BATCH_SIZE:1000}
     max-batches-per-sweep: ${SIGNING_RECORD_DELETE_AFTER_RETRIEVAL_MAX_BATCHES_PER_SWEEP:10}
+
+crypto-asset:
+  pqc-sweep:
+    batch-size: ${CRYPTO_ASSET_PQC_SWEEP_BATCH_SIZE:500}
+    max-batches-per-sweep: ${CRYPTO_ASSET_PQC_SWEEP_MAX_BATCHES_PER_SWEEP:20}

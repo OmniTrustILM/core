@@ -1,0 +1,476 @@
+package com.otilm.core.dao.repository;
+
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentDetail;
+import com.otilm.core.attribute.engine.records.ObjectAttributeDefinitionContent;
+import com.otilm.core.attribute.engine.records.ProjectedAttributeContent;
+import com.otilm.core.dao.entity.AttributeContent2Object;
+import com.otilm.core.dao.entity.AttributeContentItem;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface AttributeContent2ObjectRepository extends SecurityFilterRepository<AttributeContent2Object, String> {
+
+    /**
+     * Per-attribute footprint of an object's stored attribute content, for the notification enrichment load guard: how
+     * many content rows each attribute definition contributes and the largest serialized row. Grouped by the
+     * definition's stable attribute UUID so oversized attributes can be excluded before their values are put on the
+     * wire.
+     */
+    @Query(value = """
+            SELECT ad.attribute_uuid AS attributeUuid, ad.type AS attributeType,
+                   count(*) AS rowCount, max(octet_length(aci.json::text)) AS maxBytes
+            FROM {h-schema}attribute_content_2_object aco
+            JOIN {h-schema}attribute_content_item aci ON aci.uuid = aco.attribute_content_item_uuid
+            JOIN {h-schema}attribute_definition ad ON ad.uuid = aci.attribute_definition_uuid
+            WHERE aco.object_type = :objectType AND aco.object_uuid = :objectUuid
+            GROUP BY ad.attribute_uuid, ad.type
+            """, nativeQuery = true)
+    List<AttributeContentFootprint> summarizeContentFootprint(@Param("objectType") String objectType,
+            @Param("objectUuid") UUID objectUuid);
+
+    interface AttributeContentFootprint {
+        UUID getAttributeUuid();
+
+        String getAttributeType();
+
+        long getRowCount();
+
+        long getMaxBytes();
+    }
+
+    @Query(value = """
+            SELECT DISTINCT aco.object_type AS objectType, aco.object_uuid AS objectUuid,
+                   aco.object_version AS objectVersion,
+                   ad.label AS attributeLabel
+            FROM {h-schema}attribute_content_2_object aco
+            JOIN {h-schema}attribute_content_item aci ON aci.uuid = aco.attribute_content_item_uuid
+            JOIN {h-schema}attribute_definition ad ON ad.uuid = aci.attribute_definition_uuid
+            WHERE ad.content_type = 'RESOURCE'
+              AND ad.definition -> 'properties' ->> 'resource' = :resourceCode
+              AND lower(aci.json -> 'data' ->> 'uuid') = lower(:referencedUuid)
+            """, nativeQuery = true)
+    List<ResourceAttributeReferrer> findResourceAttributeReferrers(@Param("resourceCode") String resourceCode,
+            @Param("referencedUuid") String referencedUuid);
+
+    interface ResourceAttributeReferrer {
+        String getObjectType();
+
+        UUID getObjectUuid();
+
+        /** Null for an unversioned object. */
+        Integer getObjectVersion();
+
+        String getAttributeLabel();
+    }
+
+    // ── Deduplication check — version-aware and purpose-aware ───────────────
+    /**
+     * Locates the content mapping that would collide with a new (content item, object, version, purpose, source,
+     * connector) tuple, so callers can skip re-inserting an equivalent row. All nullable parameters use null-safe
+     * matching: a {@code null} argument matches rows where the corresponding column {@code IS NULL}, not "any value".
+     */
+    @Query("""
+            SELECT aco FROM AttributeContent2Object aco
+                WHERE ((:connectorUuid IS NULL AND aco.connectorUuid IS NULL) OR aco.connectorUuid = :connectorUuid)
+                    AND aco.attributeContentItemUuid = :contentItemUuid
+                    AND aco.objectType = :objectType
+                    AND aco.objectUuid = :objectUuid
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                    AND ((:sourceObjectType IS NULL AND aco.sourceObjectType IS NULL) OR aco.sourceObjectType = :sourceObjectType)
+                    AND ((:sourceObjectUuid IS NULL AND aco.sourceObjectUuid IS NULL) OR aco.sourceObjectUuid = :sourceObjectUuid)
+                    AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+            """)
+    List<AttributeContent2Object> findExistingContentMapping(@Param("connectorUuid") UUID connectorUuid,
+            @Param("contentItemUuid") UUID contentItemUuid, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion,
+            @Param("sourceObjectType") Resource sourceObjectType, @Param("sourceObjectUuid") UUID sourceObjectUuid,
+            @Param("purpose") String purpose);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND ad.enabled = true AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND (:allowedDefinitionUuids IS NULL OR aci.attributeDefinitionUuid IN (:allowedDefinitionUuids))
+                    AND (:forbiddenDefinitionUuids IS NULL OR aci.attributeDefinitionUuid NOT IN (:forbiddenDefinitionUuids))
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectCustomAttributesContent(@Param("attributeType") AttributeType attributeType,
+            @Param("objectType") Resource objectType, @Param("objectUuid") UUID objectUuid,
+            @Param("allowedDefinitionUuids") List<UUID> allowedDefinitionUuids,
+            @Param("forbiddenDefinitionUuids") List<UUID> forbiddenDefinitionUuids);
+
+    /**
+     * The stored content of the named attributes for a whole page of objects, for a listing that requested them as
+     * columns. One query for the page rather than one per row: a page of twenty-five objects would otherwise issue
+     * twenty-five round trips before it could be serialized.
+     *
+     * <p>
+     * Ordered by object, then definition, then {@code aco.order}, so a multi-valued attribute keeps the sequence it was
+     * stored in and the caller can group the rows in one pass.
+     *
+     * <p>
+     * Narrowed by attribute name as well as by type, because a resource may carry far more attributes than the handful
+     * a view puts on screen. Name is not unique on its own - the same name may exist under two content types - so the
+     * caller still matches the exact field identifier.
+     *
+     * <p>
+     * The two predicates guarded by {@code customType} match what the per-object custom read above applies, so a
+     * listing column cannot read what a detail page would refuse. {@code enabled} is one of them because only custom
+     * definitions are created with it set; data and metadata definitions leave the nullable column alone, and applying
+     * it to them would return nothing for either source. The allowed and forbidden definition uuids are the caller's
+     * attribute permissions: without them, resource LIST access alone would be enough to read the plaintext of a
+     * restricted custom attribute by naming it as a column.
+     *
+     * <p>
+     * Excludes a definition marked not visible, so an attribute the catalogue withholds is never loaded only to be
+     * dropped afterwards.
+     */
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ProjectedAttributeContent(
+                aco.objectUuid, ad.type, ad.name, ad.contentType, aci.json, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type IN (:attributeTypes) AND ad.name IN (:attributeNames) AND ad.visible = true
+                    AND aco.objectType = :objectType AND aco.objectUuid IN (:objectUuids)
+                    AND (ad.type <> :customType
+                        OR (ad.enabled = true
+                            AND (:allowedDefinitionUuids IS NULL OR aci.attributeDefinitionUuid IN (:allowedDefinitionUuids))
+                            AND (:forbiddenDefinitionUuids IS NULL OR aci.attributeDefinitionUuid NOT IN (:forbiddenDefinitionUuids))))
+                ORDER BY aco.objectUuid, aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ProjectedAttributeContent> getProjectedAttributesContent(@Param("objectType") Resource objectType,
+            @Param("objectUuids") List<UUID> objectUuids, @Param("attributeTypes") List<AttributeType> attributeTypes,
+            @Param("attributeNames") List<String> attributeNames, @Param("customType") AttributeType customType,
+            @Param("allowedDefinitionUuids") List<UUID> allowedDefinitionUuids,
+            @Param("forbiddenDefinitionUuids") List<UUID> forbiddenDefinitionUuids);
+
+    // ── Data attribute read queries — all version-aware ──────────────────────
+    // objectVersion uses the same null-matching idiom as purpose:
+    // null → matches rows WHERE object_version IS NULL (unversioned, backward-compatible)
+    // N → matches rows WHERE object_version = N (specific version)
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND ad.operation = :operation AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                    AND aco.connectorUuid = :connectorUuid AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectDataAttributesContent(@Param("attributeType") AttributeType attributeType,
+            @Param("connectorUuid") UUID connectorUuid, @Param("operation") String operation,
+            @Param("purpose") String purpose, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND ad.operation IS NULL
+                    AND aco.connectorUuid = :connectorUuid AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectDataAttributesContentNoOperation(
+            @Param("attributeType") AttributeType attributeType, @Param("connectorUuid") UUID connectorUuid,
+            @Param("objectType") Resource objectType, @Param("objectUuid") UUID objectUuid,
+            @Param("objectVersion") Integer objectVersion);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND ad.operation = :operation AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                    AND aco.connectorUuid IS NULL AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectDataAttributesContentNoConnector(
+            @Param("attributeType") AttributeType attributeType, @Param("operation") String operation,
+            @Param("purpose") String purpose, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND ad.operation = :operation AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                    AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectDataAttributesContentAnyConnector(
+            @Param("attributeType") AttributeType attributeType, @Param("operation") String operation,
+            @Param("purpose") String purpose, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND ad.operation IS NULL
+                    AND aco.connectorUuid IS NULL AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectDataAttributesContentNoConnectorNoOperation(
+            @Param("attributeType") AttributeType attributeType, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion);
+
+    /**
+     * Returns DATA attribute content only for rows where {@code object_version IS NULL} (content is not versioned)..
+     * Use when the caller explicitly wants the unversioned slice and never the per-version rows.
+     */
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = com.otilm.api.model.common.attribute.common.AttributeType.DATA
+                    AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND aco.objectVersion IS NULL
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getObjectDataAttributesContentUnversioned(@Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid);
+
+    /**
+     * Returns DATA attribute content for the given object across <em>every</em> version, including unversioned rows.
+     */
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContent(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = com.otilm.api.model.common.attribute.common.AttributeType.DATA
+                    AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContent> getAllObjectDataAttributesContent(@Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid);
+
+    /**
+     * Returns the content items of one attribute definition that are already mapped to the given object, regardless of
+     * the mapping's connector/version/source/purpose — callers that need the exact tuple still guard with
+     * {@link #findExistingContentMapping} before skipping an insert. Used to deduplicate encrypted content, whose
+     * salted ciphertext cannot be compared by value — the caller decrypts this (small, object-scoped) set and compares
+     * plaintext.
+     */
+    @Query("""
+            SELECT DISTINCT aci FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                WHERE aci.attributeDefinitionUuid = :definitionUuid
+                    AND aco.objectType = :objectType
+                    AND aco.objectUuid = :objectUuid
+            """)
+    List<AttributeContentItem> findMappedContentItems(@Param("definitionUuid") UUID definitionUuid,
+            @Param("objectType") Resource objectType, @Param("objectUuid") UUID objectUuid);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeContentDetail(
+                ad.attributeUuid, ad.name, ad.label, ad.type, ad.contentType, aci.json, aco.connectorUuid, c.name, aco.sourceObjectType, aco.sourceObjectUuid, aco.sourceObjectName, ad.version, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                LEFT JOIN Connector c ON c.uuid = aco.connectorUuid
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND (CAST(:connectorUuid AS java.util.UUID) IS NULL OR aco.connectorUuid = :connectorUuid) AND (:operation IS NULL OR ad.operation = :operation)
+                    AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND (:sourceObjectType IS NULL OR aco.sourceObjectType = :sourceObjectType) AND (CAST(:sourceObjectUuid AS java.util.UUID) IS NULL OR aco.sourceObjectUuid = :sourceObjectUuid)
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeContentDetail> getObjectAttributeContentDetail(
+            @Param("attributeType") AttributeType attributeType, @Param("connectorUuid") UUID connectorUuid,
+            @Param("operation") String operation, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("sourceObjectType") Resource sourceObjectType,
+            @Param("sourceObjectUuid") UUID sourceObjectUuid, @Param("objectVersion") Integer objectVersion);
+
+    @Query("""
+            SELECT new com.otilm.core.attribute.engine.records.ObjectAttributeDefinitionContent(
+                ad.attributeUuid, ad.definition, aci.json, aci.encryptedData)
+                FROM AttributeContent2Object aco
+                JOIN AttributeContentItem aci ON aci.uuid = aco.attributeContentItemUuid
+                JOIN AttributeDefinition ad ON ad.uuid = aci.attributeDefinitionUuid
+                WHERE ad.type = :attributeType AND (CAST(:connectorUuid AS java.util.UUID) IS NULL OR aco.connectorUuid = :connectorUuid) AND (:operation IS NULL OR ad.operation = :operation)
+                    AND aco.objectType = :objectType AND aco.objectUuid = :objectUuid
+                    AND (:sourceObjectType IS NULL OR aco.sourceObjectType = :sourceObjectType) AND (CAST(:sourceObjectUuid AS java.util.UUID) IS NULL OR aco.sourceObjectUuid = :sourceObjectUuid)
+                    AND ((:objectVersion IS NULL AND aco.objectVersion IS NULL) OR aco.objectVersion = :objectVersion)
+                ORDER BY aci.attributeDefinitionUuid, aco.order
+            """)
+    List<ObjectAttributeDefinitionContent> getObjectAttributeDefinitionContent(
+            @Param("attributeType") AttributeType attributeType, @Param("connectorUuid") UUID connectorUuid,
+            @Param("operation") String operation, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("sourceObjectType") Resource sourceObjectType,
+            @Param("sourceObjectUuid") UUID sourceObjectUuid, @Param("objectVersion") Integer objectVersion);
+
+    @Modifying
+    @Query("UPDATE AttributeContent2Object aco SET aco.connectorUuid = NULL WHERE aco.connectorUuid = :connectorUuid")
+    void removeConnectorByConnectorUuid(@Param("connectorUuid") UUID connectorUuid);
+
+    // ── Versioned delete — used only when objectVersion is non-null ──────────
+    /**
+     * Narrow, version-scoped delete of operation attribute mappings. All nullable filter parameters ({@code operation},
+     * {@code purpose}, {@code connectorUuid}, {@code sourceObjectType}, {@code sourceObjectUuid}) use null-safe
+     * matching — a {@code null} argument deletes only rows where the corresponding column {@code IS NULL}.
+     * {@code objectVersion} must be non-null; use {@link #deleteOperationObjectAttributesUnversioned} for the
+     * {@code object_version IS NULL} slice.
+     */
+    @Modifying
+    @Query("""
+            DELETE FROM AttributeContent2Object aco
+                WHERE aco.attributeContentItem.attributeDefinition.type = :type
+                    AND ((:operation IS NULL AND aco.attributeContentItem.attributeDefinition.operation IS NULL) OR aco.attributeContentItem.attributeDefinition.operation = :operation)
+                    AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                    AND ((:connectorUuid IS NULL AND aco.connectorUuid IS NULL) OR aco.connectorUuid = :connectorUuid)
+                    AND aco.objectType = :objectType
+                    AND aco.objectUuid = :objectUuid
+                    AND aco.objectVersion = :objectVersion
+                    AND ((:sourceObjectType IS NULL AND aco.sourceObjectType IS NULL) OR aco.sourceObjectType = :sourceObjectType)
+                    AND ((:sourceObjectUuid IS NULL AND aco.sourceObjectUuid IS NULL) OR aco.sourceObjectUuid = :sourceObjectUuid)
+            """)
+    Long deleteOperationObjectAttributesByVersion(@Param("type") AttributeType type,
+            @Param("operation") String operation, @Param("purpose") String purpose,
+            @Param("connectorUuid") UUID connectorUuid, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion,
+            @Param("sourceObjectType") Resource sourceObjectType, @Param("sourceObjectUuid") UUID sourceObjectUuid);
+
+    // ── Wide versioned delete — removes ALL rows for a version+operation+purpose, ignoring connectorUuid.
+    /**
+     * Wide version-scoped delete: removes every mapping for the given (type, operation, purpose, object, version) tuple
+     * <em>regardless of {@code connectorUuid} or source object</em>. The "All" prefix refers to this wide scope
+     * (ignoring connector/source), <strong>not</strong> to "all versions" — {@code objectVersion} is still a required
+     * filter and must be non-null.
+     * <p>
+     * Unlike the other delete queries in this interface, {@code :operation} uses direct equality rather than the
+     * null-safe {@code (:x IS NULL AND col IS NULL) OR col = :x} idiom; passing {@code null} therefore matches no rows.
+     * Use {@link #deleteOperationObjectAttributesByVersion} when operation may be null.
+     *
+     * @param operation must be non-null; direct equality, no null-safe matching
+     */
+    @Modifying
+    @Query("""
+            DELETE FROM AttributeContent2Object aco
+                WHERE aco.attributeContentItem.attributeDefinition.type = :type
+                    AND aco.attributeContentItem.attributeDefinition.operation = :operation
+                    AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                    AND aco.objectType = :objectType
+                    AND aco.objectUuid = :objectUuid
+                    AND aco.objectVersion = :objectVersion
+            """)
+    Long deleteAllOperationAttributesByVersion(@Param("type") AttributeType type, @Param("operation") String operation,
+            @Param("purpose") String purpose, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("objectVersion") Integer objectVersion);
+
+    // ── Unversioned delete — null-safe operation/purpose matching, scoped to objectVersion IS NULL ──
+    /**
+     * Symmetric counterpart to {@link #deleteOperationObjectAttributesByVersion} for the unversioned slice: deletes
+     * operation attribute mappings pinned to {@code object_version IS NULL}. All nullable filter parameters use the
+     * same null-safe matching idiom as the versioned variant.
+     */
+    @Modifying
+    @Query("""
+            DELETE FROM AttributeContent2Object aco
+                WHERE aco.attributeContentItem.attributeDefinition.type = :type
+                    AND ((:operation IS NULL AND aco.attributeContentItem.attributeDefinition.operation IS NULL) OR aco.attributeContentItem.attributeDefinition.operation = :operation)
+                    AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                    AND ((:connectorUuid IS NULL AND aco.connectorUuid IS NULL) OR aco.connectorUuid = :connectorUuid)
+                    AND aco.objectType = :objectType
+                    AND aco.objectUuid = :objectUuid
+                    AND aco.objectVersion IS NULL
+                    AND ((:sourceObjectType IS NULL AND aco.sourceObjectType IS NULL) OR aco.sourceObjectType = :sourceObjectType)
+                    AND ((:sourceObjectUuid IS NULL AND aco.sourceObjectUuid IS NULL) OR aco.sourceObjectUuid = :sourceObjectUuid)
+            """)
+    Long deleteOperationObjectAttributesUnversioned(@Param("type") AttributeType type,
+            @Param("operation") String operation, @Param("purpose") String purpose,
+            @Param("connectorUuid") UUID connectorUuid, @Param("objectType") Resource objectType,
+            @Param("objectUuid") UUID objectUuid, @Param("sourceObjectType") Resource sourceObjectType,
+            @Param("sourceObjectUuid") UUID sourceObjectUuid);
+
+    Long deleteByObjectTypeAndObjectUuid(Resource objectType, UUID objectUuid);
+
+    // Version-scoped bulk delete — removes all attribute rows for one specific version of a resource.
+    Long deleteByObjectTypeAndObjectUuidAndObjectVersion(Resource objectType, UUID objectUuid, Integer objectVersion);
+
+    Long deleteByObjectTypeAndObjectUuidIn(Resource objectType, List<UUID> objectUuids);
+
+    void deleteByAttributeContentItemAttributeDefinitionTypeAndConnectorUuid(AttributeType attributeType,
+            UUID connectorUuid);
+
+    Long deleteByAttributeContentItemAttributeDefinitionTypeAndObjectTypeAndObjectUuid(AttributeType attributeType,
+            Resource objectType, UUID objectUuid);
+
+    Long deleteByAttributeContentItemAttributeDefinitionTypeAndAttributeContentItemAttributeDefinitionUuidInAndObjectTypeAndObjectUuid(
+            AttributeType attributeType, List<UUID> allowedDefinitionUuids, Resource objectType, UUID objectUuid);
+
+    Long deleteByAttributeContentItemAttributeDefinitionTypeAndAttributeContentItemAttributeDefinitionUuidNotInAndObjectTypeAndObjectUuid(
+            AttributeType attributeType, List<UUID> forbiddenDefinitionUuids, Resource objectType, UUID objectUuid);
+
+    Long deleteByAttributeContentItemAttributeDefinitionUuid(UUID definitionUuid);
+
+    Long deleteByObjectTypeAndObjectUuidAndAttributeContentItemAttributeDefinitionUuid(Resource objectType,
+            UUID objectUuid, UUID definitionUuid);
+
+    Long deleteByObjectTypeAndObjectUuidAndObjectVersionAndAttributeContentItemAttributeDefinitionUuid(
+            Resource objectType, UUID objectUuid, Integer objectVersion, UUID definitionUuid);
+
+    Long deleteByAttributeContentItemAttributeDefinitionTypeAndConnectorUuidAndObjectTypeAndObjectUuidAndSourceObjectTypeAndSourceObjectUuid(
+            AttributeType attributeType, UUID connectorUuid, Resource objectType, UUID objectUuid,
+            Resource sourceObjectType, UUID sourceObjectUuid);
+
+    Long deleteByAttributeContentItemAttributeDefinitionTypeAndConnectorUuidAndObjectTypeAndSourceObjectTypeAndSourceObjectUuid(
+            AttributeType attributeType, UUID connectorUuid, Resource objectType, Resource sourceObjectType,
+            UUID sourceObjectUuid);
+
+    /** Points every mapping of one content item at another. */
+    @Modifying
+    @Query(value = """
+            UPDATE {h-schema}attribute_content_2_object
+               SET attribute_content_item_uuid = :toItemUuid
+             WHERE attribute_content_item_uuid = :fromItemUuid
+            """, nativeQuery = true)
+    int moveMappings(@Param("fromItemUuid") UUID fromItemUuid, @Param("toItemUuid") UUID toItemUuid);
+
+    /** Drops mappings of a content item that repeat another of its mappings for the same object, keeping one. */
+    @Modifying
+    @Query(value = """
+            DELETE FROM {h-schema}attribute_content_2_object mapping
+             USING {h-schema}attribute_content_2_object kept
+             WHERE mapping.attribute_content_item_uuid = :itemUuid
+               AND kept.attribute_content_item_uuid = mapping.attribute_content_item_uuid
+               AND kept.uuid < mapping.uuid
+               AND kept.object_type = mapping.object_type
+               AND kept.object_uuid = mapping.object_uuid
+               AND kept.connector_uuid IS NOT DISTINCT FROM mapping.connector_uuid
+               AND kept.source_object_type IS NOT DISTINCT FROM mapping.source_object_type
+               AND kept.source_object_uuid IS NOT DISTINCT FROM mapping.source_object_uuid
+               AND kept.purpose IS NOT DISTINCT FROM mapping.purpose
+               AND kept.object_version IS NOT DISTINCT FROM mapping.object_version
+            """, nativeQuery = true)
+    int deleteRepeatedMappings(@Param("itemUuid") UUID itemUuid);
+
+}

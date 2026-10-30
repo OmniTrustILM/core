@@ -1,0 +1,16 @@
+{
+  "newNonce" : "https://acme.example/acme/new-nonce",
+  "newAccount" : "https://acme.example/acme/new-account",
+  "newOrder" : "https://acme.example/acme/new-order",
+  "newAuthz" : "https://acme.example/acme/new-authz",
+  "revokeCert" : "https://acme.example/acme/revoke-cert",
+  "keyChange" : "https://acme.example/acme/key-change",
+  "meta" : {
+    "termsOfService" : "https://acme.example/terms",
+    "website" : "https://acme.example",
+    "externalAccountRequired" : false,
+    "caaIdentities" : [
+      "acme.example"
+    ]
+  }
+}

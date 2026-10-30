@@ -1,0 +1,16 @@
+{
+  "uuid" : "2c9e5f11-0000-4000-8000-000000000004",
+  "name" : "metadataAttribute",
+  "description" : "A v3 metadata attribute",
+  "version" : 3,
+  "type" : "meta",
+  "content" : [
+    {
+      "reference" : "ref-meta",
+      "data" : "a v3 metadata value",
+      "contentType" : "string"
+    }
+  ],
+  "contentType" : "string",
+  "schemaVersion" : "v3"
+}

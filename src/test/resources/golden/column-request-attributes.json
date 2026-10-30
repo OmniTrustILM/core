@@ -1,0 +1,15 @@
+[
+  {
+    "content" : [
+      {
+        "contentType" : "string",
+        "data" : "keyCompromise",
+        "reference" : "ref-reason"
+      }
+    ],
+    "contentType" : "string",
+    "name" : "revokeReason",
+    "uuid" : "3a8f61d2-0000-4000-8000-000000000001",
+    "version" : "v3"
+  }
+]

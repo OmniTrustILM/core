@@ -1,0 +1,5 @@
+{
+  "reference" : "ref-string",
+  "data" : "a string value",
+  "contentType" : "string"
+}

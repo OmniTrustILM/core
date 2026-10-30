@@ -1,0 +1,104 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:5b1c2d3e-0000-4000-8000-000000000001",
+  "version": 1,
+  "metadata": {
+    "component": {"type": "application", "name": "fence-corpus-suites", "version": "1.0.0"}
+  },
+  "components": [
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "tls-endpoint-a",
+      "name": "tls-endpoint-a",
+      "cryptoProperties": {
+        "assetType": "protocol",
+        "protocolProperties": {
+          "type": "tls",
+          "version": "1.3",
+          "cipherSuites": [
+            {"name": "TLS_AES_128_GCM_SHA256", "identifiers": ["0x13", "0x01"]},
+            {"name": "TLS_AES_256_GCM_SHA384", "identifiers": ["0x13", "0x02"]},
+            {"name": "TLS_CHACHA20_POLY1305_SHA256", "identifiers": ["0x13", "0x03"]},
+            {"name": "TLS_AES_128_CCM_SHA256", "identifiers": ["0x13", "0x04"]}
+          ]
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "tls-endpoint-b",
+      "name": "tls-endpoint-b",
+      "cryptoProperties": {
+        "assetType": "protocol",
+        "protocolProperties": {
+          "type": "tls",
+          "version": "1.3",
+          "cipherSuites": [
+            {"name": "TLS_CHACHA20_POLY1305_SHA256", "identifiers": ["0x13", "0x01"]}
+          ]
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "tls-endpoint-c",
+      "name": "tls-endpoint-c",
+      "cryptoProperties": {
+        "assetType": "protocol",
+        "protocolProperties": {
+          "type": "tls",
+          "version": "1.3",
+          "cipherSuites": [
+            {"name": "TLS_AKE_WITH_CHACHA20_POLY1305_SHA256", "identifiers": ["0x13", "0x03"]}
+          ]
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "legacy-cipher-block",
+      "name": "AES-256-GCM",
+      "cryptoProperties": {
+        "assetType": "algorithm",
+        "algorithmProperties": {"primitive": "ae", "mode": "gcm", "parameterSetIdentifier": "256"},
+        "protocolProperties": {
+          "type": "tls",
+          "cipherSuites": [
+            {"name": "STALE_SUITE_NAME_FROM_A_PREVIOUS_SCAN", "identifiers": ["0x13", "0x02"]}
+          ]
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "untyped-cipher-block",
+      "name": "untyped-cipher-block",
+      "cryptoProperties": {
+        "protocolProperties": {
+          "type": "tls",
+          "version": "1.3",
+          "cipherSuites": [
+            {"name": "TLS_AES_128_CCM_8_SHA256", "identifiers": ["0x13", "0x04"]}
+          ]
+        }
+      }
+    },
+    {
+      "type": "cryptographic-asset",
+      "bom-ref": "ssh-endpoint",
+      "name": "ssh-endpoint",
+      "cryptoProperties": {
+        "assetType": "protocol",
+        "protocolProperties": {
+          "type": "ssh",
+          "version": "2.0",
+          "cipherSuites": [
+            {"name": "chacha20-poly1305@openssh.com"},
+            {"name": "aes256-gcm@openssh.com"}
+          ]
+        }
+      }
+    }
+  ]
+}

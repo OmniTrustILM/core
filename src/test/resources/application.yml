@@ -5,6 +5,11 @@ caching:
   authentication:
     ttl-minutes: 5
     max-size: 500
+  authorization:
+    enabled: true
+    ttl-minutes: 5
+    resource-max-size: 10000
+    object-max-size: 1000
   connectors:
     ttl-minutes: 5
     max-size: 100
@@ -26,9 +31,49 @@ caching:
   time-quality-configs:
     ttl-minutes: 5
     max-size: 100
+  attribute-search-fields:
+    ttl-minutes: 5
+    max-size: 200
 
+connector:
+  api-client:
+    response-timeout: 35s
+    connect-timeout: 3s
+    max-connections: 20
+    pending-acquire-timeout: 10s
+    max-in-memory-size: 16MB
+
+key-import:
+  request-timeout: 1s
+  poll-interval: 50ms
+
+discovery:
+  mq-timeouts:
+    status: 30s
+    drain: 30s
+    control: 30s
+  work:
+    defaults:
+      delays:
+        - PT1S
+        - PT5S
+        - PT15S
+      max-attempts: 720
+    by-type:
+      DRAIN:
+        delays:
+          - PT1S
+          - PT5S
+        max-attempts: 100
+      PROCESS:
+        delays:
+          - PT1S
+          - PT5S
+        max-attempts: 100
+
+# Points at the port com.otilm.core.util.WireMockPorts.AUTH_SERVICE names.
 auth-service:
-  base-url: http://authservice.dev
+  base-url: http://localhost:10001
 opa:
   base-url: http://opa.dev
 
@@ -39,16 +84,11 @@ cmp:
         timeout: 10
   verbose: true
 
-hibernate:
-  types:
-    print:
-      banner: false
-
 logging:
   level:
     org:
       hibernate: warn
-    com.czertainly: debug
+    com.otilm: debug
   pattern:
     console: '[%d{yyyy-MM-dd HH:mm:ss.SSS}] %-5level [%t] [%logger - %line]: %m%n'
   schema-version: '@log-schema.version@'
@@ -56,8 +96,9 @@ logging:
 scheduled-tasks:
   enabled: false
 
+# Points at the port com.otilm.core.util.WireMockPorts.SCHEDULER names.
 scheduler:
-  base-url: http://localhost:8080
+  base-url: http://localhost:10011
 
 signing-record:
   outbox:
@@ -100,7 +141,7 @@ spring:
       connection-timeout: 10000
       idle-timeout: 30000
       max-lifetime: 60000
-    url: jdbc:tc:postgresql:17-alpine://localhost:55432/czertainly-test?currentSchema=core&TC_TMPFS=/testtmpfs:rw&TC_DAEMON=true
+    url: jdbc:tc:postgresql:15-alpine://localhost:55432/test?currentSchema=core&TC_TMPFS=/testtmpfs:rw&TC_DAEMON=true
     password: test
     username: test
   flyway:
@@ -113,9 +154,13 @@ spring:
       hibernate:
         jdbc:
           batch_size: 50
+        order_inserts: true
+        order_updates: true
         type:
           preferred_duration_jdbc_type: INTERVAL_SECOND
         default_schema: core
+        session_factory:
+          statement_inspector: com.otilm.core.util.SqlCapture
   profiles:
     active: test
   session:
@@ -150,11 +195,13 @@ spring:
       time-quality-config-request: time-quality.config-request
       time-quality-config: time-quality.config
       time-quality-results: time-quality.results
+      provider-status-poll: provider.status-poll
+      provider-discovery-work: provider.discovery-work
     listener:
       initial-interval: 1000
       multiplier: 1.5
       max-interval: 5000
-    exchange: czertainly
+    exchange: ilm
     routing-key:
       actions: action
       audit-logs: audit-logs
@@ -165,6 +212,8 @@ spring:
       time-quality-config-request: time-quality.config-request
       time-quality-config: time-quality.config
       time-quality-results: time-quality.results
+      provider-status-poll: provider.status-poll
+      provider-discovery-work: provider.discovery-work
     producer:
       retry:
         enabled: true
@@ -184,6 +233,8 @@ messaging:
     audit-logs: 5
     time-quality-config-request: 1
     time-quality-results: 1
+    provider-status-poll: 1-5
+    provider-discovery-work: 1-3
 
 otel:
   instrumentation:
@@ -199,7 +250,7 @@ settings:
 
 validation:
   ocsp:
-    # Must be longer than the WireMock fixed delay used in RevokeDuringComplianceCheckTest
+    # Must be longer than the WireMock fixed delay used in RevokeDuringComplianceCheckITest
     # (3 s) so the OCSP HTTP call waits for WireMock's response instead of timing out at the
     # 1 s default. The held OCSP call is what keeps validate()'s would-be row lock observable.
     read-timeout: 5000
@@ -211,7 +262,8 @@ proxy:
 
 provisioning:
   api:
-    url: http://localhost:8080
+    # Points at the port com.otilm.core.util.WireMockPorts.PROVISIONING_API names.
+    url: http://localhost:10010
     api-key: test-api-key
     connect-timeout: 500
     read-timeout: 1s
@@ -221,3 +273,9 @@ provisioning:
       delay: 500
       max-delay: 1000
       multiplier: 2
+
+crypto-asset:
+  pqc-sweep:
+    # Small on purpose: a batch size the integration test can cross without seeding 500 rows.
+    batch-size: 5
+    max-batches-per-sweep: 20

@@ -1,0 +1,242 @@
+package com.otilm.core.service.impl;
+
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.NotSupportedException;
+import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.auth.RoleRequestDto;
+import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.ObjectPermissionsDto;
+import com.otilm.api.model.core.auth.ObjectPermissionsRequestDto;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.ResourcePermissionsDto;
+import com.otilm.api.model.core.auth.RoleDetailDto;
+import com.otilm.api.model.core.auth.RoleDto;
+import com.otilm.api.model.core.auth.RolePermissionsRequestDto;
+import com.otilm.api.model.core.auth.SubjectPermissionsDto;
+import com.otilm.api.model.core.auth.UserDto;
+import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authn.client.AuthenticationCache;
+import com.otilm.core.security.authn.client.RoleManagementApiClient;
+import com.otilm.core.security.authz.ExternalAuthorization;
+import com.otilm.core.security.authz.RoleAssignmentGuard;
+import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.security.authz.opa.AuthorizationCache;
+import com.otilm.core.service.RoleManagementExternalService;
+import com.otilm.core.service.RoleManagementInternalService;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service(Resource.Codes.ROLE)
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+public class RoleManagementServiceImpl implements RoleManagementExternalService, RoleManagementInternalService {
+
+    private RoleManagementApiClient roleManagementApiClient;
+    private AttributeEngine attributeEngine;
+    private AuthenticationCache authenticationCache;
+    private AuthorizationCache authorizationCache;
+    private RoleAssignmentGuard roleAssignmentGuard;
+
+    @Autowired
+    public void setRoleManagementApiClient(RoleManagementApiClient roleManagementApiClient) {
+        this.roleManagementApiClient = roleManagementApiClient;
+    }
+
+    @Autowired
+    public void setRoleAssignmentGuard(RoleAssignmentGuard roleAssignmentGuard) {
+        this.roleAssignmentGuard = roleAssignmentGuard;
+    }
+
+    @Autowired
+    public void setAttributeEngine(AttributeEngine attributeEngine) {
+        this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setAuthenticationCache(AuthenticationCache authenticationCache) {
+        this.authenticationCache = authenticationCache;
+    }
+
+    @Autowired
+    public void setAuthorizationCache(AuthorizationCache authorizationCache) {
+        this.authorizationCache = authorizationCache;
+    }
+
+    private void evictPermissionCaches() {
+        authenticationCache.evictAll();
+        authorizationCache.evictAll();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.LIST)
+    public List<RoleDto> listRoles() {
+        return roleManagementApiClient.getRoles().getData();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.DETAIL)
+    public RoleDetailDto getRole(String roleUuid) {
+        RoleDetailDto dto = roleManagementApiClient.getRoleDetail(roleUuid);
+        dto
+                .setCustomAttributes(
+                        attributeEngine.getObjectCustomAttributesContent(Resource.ROLE, UUID.fromString(roleUuid)));
+        return dto;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.CREATE)
+    public RoleDetailDto createRole(RoleRequestDto request) throws NotFoundException, AttributeException {
+        attributeEngine.validateCustomAttributesContent(Resource.ROLE, request.getCustomAttributes());
+        com.otilm.api.model.core.auth.RoleRequestDto requestDto = new com.otilm.api.model.core.auth.RoleRequestDto();
+        requestDto.setName(request.getName());
+        requestDto.setDescription(request.getDescription());
+        requestDto.setEmail(request.getEmail());
+        requestDto.setSystemRole(false);
+        RoleDetailDto dto = roleManagementApiClient.createRole(requestDto);
+        dto
+                .setCustomAttributes(attributeEngine
+                        .updateObjectCustomAttributesContent(Resource.ROLE, UUID.fromString(dto.getUuid()),
+                                request.getCustomAttributes()));
+        return dto;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
+    public RoleDetailDto updateRole(String roleUuid, RoleRequestDto request)
+            throws NotFoundException, AttributeException {
+        attributeEngine.validateCustomAttributesContent(Resource.ROLE, request.getCustomAttributes());
+        com.otilm.api.model.core.auth.RoleRequestDto requestDto = new com.otilm.api.model.core.auth.RoleRequestDto();
+        requestDto.setName(request.getName());
+        requestDto.setDescription(request.getDescription());
+        requestDto.setEmail(request.getEmail());
+        requestDto.setSystemRole(false);
+        RoleDetailDto dto = roleManagementApiClient.updateRole(roleUuid, requestDto);
+        try {
+            dto
+                    .setCustomAttributes(attributeEngine
+                            .updateObjectCustomAttributesContent(Resource.ROLE, UUID.fromString(dto.getUuid()),
+                                    request.getCustomAttributes()));
+        } finally {
+            evictPermissionCaches();
+        }
+        return dto;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.DELETE)
+    public void deleteRole(String roleUuid) {
+        roleManagementApiClient.deleteRole(roleUuid);
+        try {
+            attributeEngine.deleteObjectAttributeContent(Resource.ROLE, UUID.fromString(roleUuid));
+        } finally {
+            evictPermissionCaches();
+        }
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.DETAIL)
+    public SubjectPermissionsDto getRolePermissions(String roleUuid) {
+        return roleManagementApiClient.getPermissions(roleUuid);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
+    public SubjectPermissionsDto addPermissions(String roleUuid, RolePermissionsRequestDto request) {
+        checkSystemRole(roleUuid);
+        SubjectPermissionsDto result = roleManagementApiClient.savePermissions(roleUuid, request);
+        evictPermissionCaches();
+        return result;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.DETAIL)
+    public ResourcePermissionsDto getRoleResourcePermission(String roleUuid, String resourceUuid) {
+        return roleManagementApiClient.getPermissionResource(roleUuid, resourceUuid);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.DETAIL)
+    public List<ObjectPermissionsDto> getResourcePermissionObjects(String roleUuid, String resourceUuid) {
+        return roleManagementApiClient.getResourcePermissionObjects(roleUuid, resourceUuid);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
+    public void addResourcePermissionObjects(String roleUuid, String resourceUuid,
+            List<ObjectPermissionsRequestDto> request) {
+        checkSystemRole(roleUuid);
+        roleManagementApiClient.addResourcePermissionObjects(roleUuid, resourceUuid, request);
+        evictPermissionCaches();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
+    public void updateResourcePermissionObjects(String roleUuid, String resourceUuid, String objectUuid,
+            ObjectPermissionsRequestDto request) {
+        checkSystemRole(roleUuid);
+        roleManagementApiClient.updateResourcePermissionObjects(roleUuid, resourceUuid, objectUuid, request);
+        evictPermissionCaches();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
+    public void removeResourcePermissionObjects(String roleUuid, String resourceUuid, String objectUuid) {
+        checkSystemRole(roleUuid);
+        roleManagementApiClient.removeResourcePermissionObjects(roleUuid, resourceUuid, objectUuid);
+        evictPermissionCaches();
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.DETAIL)
+    public List<UserDto> getRoleUsers(String roleUuid) {
+        return roleManagementApiClient.getRoleUsers(roleUuid);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
+    public RoleDetailDto updateUsers(String roleUuid, List<String> userUuids) {
+        roleAssignmentGuard.checkUsersAssignableToRole(roleUuid, userUuids);
+        RoleDetailDto result = roleManagementApiClient.updateUsers(roleUuid, userUuids);
+        evictPermissionCaches();
+        return result;
+    }
+
+    @Override
+    public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
+        RoleDetailDto roleDetailDto = roleManagementApiClient.getRoleDetail(objectUuid.toString());
+        return new NameAndUuidDto(roleDetailDto.getUuid(), roleDetailDto.getName());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.DETAIL)
+    public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {
+        return getResourceObjectInternal(objectUuid.getValue());
+    }
+
+    @Override
+    public List<NameAndUuidDto> listResourceObjects(SecurityFilter filter, List<SearchFilterRequestDto> filters,
+            PaginationRequestDto pagination) {
+        throw new NotSupportedException("Listing of resource objects is not supported for resource roles.");
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.ROLE, action = ResourceAction.UPDATE)
+    public void evaluatePermissionChain(SecuredUUID uuid) throws NotFoundException {
+        getRole(uuid.toString());
+    }
+
+    private void checkSystemRole(String roleUuid) {
+        RoleDetailDto roleDetailDto = roleManagementApiClient.getRoleDetail(roleUuid);
+        if (Boolean.TRUE.equals(roleDetailDto.getSystemRole())) {
+            throw new ValidationException("Cannot edit permissions of system role: " + roleDetailDto.getName());
+        }
+    }
+}

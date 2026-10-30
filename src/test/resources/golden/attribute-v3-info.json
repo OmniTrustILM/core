@@ -1,0 +1,16 @@
+{
+  "schemaVersion" : "v3",
+  "uuid" : "2c9e5f11-0000-4000-8000-000000000003",
+  "name" : "infoAttribute",
+  "description" : "A v3 info attribute",
+  "content" : [
+    {
+      "reference" : "ref-info",
+      "data" : "a v3 info value",
+      "contentType" : "string"
+    }
+  ],
+  "version" : 3,
+  "type" : "info",
+  "contentType" : "string"
+}

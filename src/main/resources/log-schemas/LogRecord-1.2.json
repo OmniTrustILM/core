@@ -1,0 +1,189 @@
+{
+  "$schema" : "https://json-schema.org/draft/2020-12/schema",
+  "$defs" : {
+    "ActorRecord" : {
+      "type" : "object",
+      "properties" : {
+        "authMethod" : {
+          "$ref" : "#/$defs/AuthMethod"
+        },
+        "delegate" : {
+          "anyOf" : [ {
+            "type" : "null"
+          }, {
+            "$ref" : "#/$defs/DelegateRecord"
+          } ]
+        },
+        "name" : {
+          "type" : [ "string", "null" ]
+        },
+        "type" : {
+          "$ref" : "#/$defs/ActorType"
+        },
+        "uuid" : {
+          "type" : [ "string", "null" ],
+          "format" : "uuid"
+        }
+      },
+      "required" : [ "authMethod", "type" ],
+      "additionalProperties" : false
+    },
+    "ActorType" : {
+      "type" : "string",
+      "enum" : [ "anonymous", "core", "user", "connector", "protocol" ]
+    },
+    "AuthMethod" : {
+      "type" : "string",
+      "enum" : [ "none", "certificate", "token", "session", "apiKey", "userProxy" ]
+    },
+    "DelegateRecord" : {
+      "type" : "object",
+      "properties" : {
+        "identifier" : {
+          "type" : "string"
+        },
+        "subject" : {
+          "type" : [ "string", "null" ]
+        }
+      },
+      "required" : [ "identifier" ],
+      "additionalProperties" : false
+    },
+    "Map(String,Object)" : {
+      "type" : "object",
+      "additionalProperties" : false
+    },
+    "Module" : {
+      "type" : "string",
+      "enum" : [ "approvals", "auth", "certificates", "keys", "compliance", "core", "discovery", "entities", "protocols", "scheduler", "secrets", "signing", "workflows" ]
+    },
+    "Operation" : {
+      "type" : "string",
+      "enum" : [ "unknown", "list", "detail", "create", "update", "delete", "forceDelete", "add", "remove", "resolve", "unresolve", "request", "register", "enable", "disable", "activate", "deactivate", "listAssociations", "associate", "disassociate", "history", "summary", "listRules", "getComplianceResult", "checkCompliance", "checkValidation", "issue", "renew", "rekey", "revoke", "export", "import", "onboard", "inspect", "getStatus", "getContent", "getChain", "download", "downloadChain", "getProtocolInfo", "listProtocolCertificates", "updateProtocolIssueProfile", "activateProtocol", "deactivateProtocol", "acmeDirectory", "acmeNonce", "acmeKeyRollover", "acmeValidate", "acmeFinalize", "scepCaCapabilities", "scepCertificatePoll", "scepTransactionCheck", "cmpConfirm", "upload", "sync", "retry", "compromise", "destroy", "updateKeyUsage", "listKeyRequestTypes", "encrypt", "decrypt", "sign", "verify", "randomData", "pushToLocation", "removeFromLocation", "issueInLocation", "renewInLocation", "connect", "reconnect", "checkHealth", "getConnectorInfo", "statistics", "approve", "approveOverride", "reject", "rejectOverride", "login", "logout", "authentication", "getUserProfile", "updateUserProfile", "identify", "markAsRead", "getPermissions", "getObjectPermissions", "updatePermissions", "updateObjectPermissions", "schedule", "listAttributes", "listResources", "validateAttributes", "attributeCallback", "updateAttributeResources", "updateAttributeContent", "deleteAttributeContent", "promoteMetadata", "archive", "unarchive", "finalizeIssue", "confirmRevoke", "stop", "resume", "cancel", "getAssociations", "listVersions", "getProxyInstallation", "listCertificateProfiles", "listCas" ]
+    },
+    "OperationResult" : {
+      "type" : "string",
+      "enum" : [ "success", "failure" ]
+    },
+    "Resource" : {
+      "type" : "string",
+      "enum" : [ "NONE", "ANY", "dashboard", "settings", "auditLogs", "credentials", "connectors", "attributes", "jobs", "proxies", "users", "roles", "acmeAccounts", "acmeProfiles", "cboms", "cryptoAssets", "scepProfiles", "cmpProfiles", "authorities", "raProfiles", "certificates", "certificateRequests", "groups", "complianceProfiles", "discoveries", "oids", "entities", "locations", "tokenProfiles", "tokens", "keys", "approvalProfiles", "approvals", "comments", "notificationProfiles", "notificationInstances", "rules", "actions", "triggers", "resources", "resourceEvents", "searchFilters", "listViews", "keyItems", "platformEnums", "notifications", "conditions", "executions", "complianceRules", "complianceGroups", "customAttributes", "globalMetadata", "acmeOrders", "acmeAuthorizations", "acmeChallenges", "cmpTransactions", "endEntityProfiles", "authenticationProviders", "trustedCertificates", "vaults", "vaultProfiles", "secrets", "signingProfiles", "signingRecords", "timeQualityConfigurations", "tspProfiles", "tspProfileBasicCredentials" ]
+    },
+    "ResourceObjectIdentity" : {
+      "type" : "object",
+      "properties" : {
+        "name" : {
+          "type" : [ "string", "null" ]
+        },
+        "uuid" : {
+          "type" : [ "string", "null" ],
+          "format" : "uuid"
+        }
+      },
+      "additionalProperties" : false
+    },
+    "ResourceRecord" : {
+      "type" : "object",
+      "properties" : {
+        "objects" : {
+          "type" : [ "array", "null" ],
+          "items" : {
+            "$ref" : "#/$defs/ResourceObjectIdentity"
+          }
+        },
+        "type" : {
+          "$ref" : "#/$defs/Resource"
+        }
+      },
+      "required" : [ "type" ],
+      "additionalProperties" : false
+    },
+    "Serializable" : {
+      "type" : "object",
+      "additionalProperties" : false
+    },
+    "SourceRecord" : {
+      "type" : "object",
+      "properties" : {
+        "contentType" : {
+          "type" : [ "string", "null" ]
+        },
+        "ipAddress" : {
+          "type" : [ "string", "null" ]
+        },
+        "method" : {
+          "type" : "string"
+        },
+        "path" : {
+          "type" : "string"
+        },
+        "userAgent" : {
+          "type" : [ "string", "null" ]
+        }
+      },
+      "required" : [ "method", "path" ],
+      "additionalProperties" : false
+    }
+  },
+  "type" : "object",
+  "properties" : {
+    "actor" : {
+      "$ref" : "#/$defs/ActorRecord"
+    },
+    "additionalData" : {
+      "anyOf" : [ {
+        "type" : "null"
+      }, {
+        "$ref" : "#/$defs/Map(String,Object)"
+      } ]
+    },
+    "affiliatedResource" : {
+      "anyOf" : [ {
+        "type" : "null"
+      }, {
+        "$ref" : "#/$defs/ResourceRecord"
+      } ]
+    },
+    "audited" : {
+      "type" : "boolean"
+    },
+    "message" : {
+      "type" : [ "string", "null" ]
+    },
+    "module" : {
+      "$ref" : "#/$defs/Module"
+    },
+    "operation" : {
+      "$ref" : "#/$defs/Operation"
+    },
+    "operationData" : {
+      "anyOf" : [ {
+        "type" : "null"
+      }, {
+        "$ref" : "#/$defs/Serializable"
+      } ]
+    },
+    "operationResult" : {
+      "$ref" : "#/$defs/OperationResult"
+    },
+    "resource" : {
+      "$ref" : "#/$defs/ResourceRecord"
+    },
+    "source" : {
+      "anyOf" : [ {
+        "type" : "null"
+      }, {
+        "$ref" : "#/$defs/SourceRecord"
+      } ]
+    },
+    "timestamp" : {
+      "type" : "string",
+      "format" : "date-time"
+    },
+    "version" : {
+      "type" : "string"
+    }
+  },
+  "required" : [ "actor", "audited", "module", "operation", "operationResult", "resource", "timestamp", "version" ],
+  "additionalProperties" : false
+}

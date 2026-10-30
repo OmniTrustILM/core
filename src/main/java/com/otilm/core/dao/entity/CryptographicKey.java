@@ -1,0 +1,174 @@
+package com.otilm.core.dao.entity;
+
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.core.model.NamedModel;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.ConstraintMode;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.Table;
+import java.io.Serializable;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.SQLJoinTableRestriction;
+import org.hibernate.proxy.HibernateProxy;
+
+@Getter
+@Setter
+@ToString
+@RequiredArgsConstructor
+@Entity
+@Table(name = "cryptographic_key")
+// A request may hold a copy read before an import adopted the key; writing only what it changed keeps the token
+// the adoption gave the key.
+@DynamicUpdate
+public class CryptographicKey extends UniquelyIdentifiedAndAudited implements Serializable, NamedModel {
+
+    private static final Set<KeyState> ACTIVE_STATES = EnumSet.of(KeyState.PRE_ACTIVE, KeyState.ACTIVE);
+
+    @Override
+    public UUID uuid() {
+        return getUuid();
+    }
+
+    @Override
+    public String name() {
+        return getName();
+    }
+
+    @Column(name = "name")
+    private String name;
+
+    @Column(name = "description")
+    private String description;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "token_profile_uuid", insertable = false, updatable = false)
+    @ToString.Exclude
+    private TokenProfile tokenProfile;
+
+    @Column(name = "token_profile_uuid")
+    private UUID tokenProfileUuid;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "token_instance_uuid", insertable = false, updatable = false)
+    @ToString.Exclude
+    private TokenInstanceReference tokenInstanceReference;
+
+    @Column(name = "token_instance_uuid")
+    private UUID tokenInstanceReferenceUuid;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(name = "group_association",
+            joinColumns = @JoinColumn(name = "object_uuid", referencedColumnName = "uuid", insertable = false,
+                    updatable = false, foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT)),
+            inverseJoinColumns = @JoinColumn(name = "group_uuid", insertable = false, updatable = false))
+    @SQLJoinTableRestriction("resource = 'CRYPTOGRAPHIC_KEY'")
+    @ToString.Exclude
+    private Set<Group> groups = new HashSet<>();
+
+    @OneToOne(fetch = FetchType.LAZY, mappedBy = "key")
+    @ToString.Exclude
+    private OwnerAssociation owner;
+
+    @JsonBackReference
+    @OneToMany(mappedBy = "key", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @ToString.Exclude
+    private Set<CryptographicKeyItem> items = new HashSet<>();
+
+    @JsonBackReference
+    @OneToMany(mappedBy = "key", fetch = FetchType.LAZY)
+    @ToString.Exclude
+    private Set<Certificate> certificates = new HashSet<>();
+
+    @JsonBackReference
+    @OneToMany(mappedBy = "altKey", fetch = FetchType.LAZY)
+    @ToString.Exclude
+    private Set<Certificate> altCertificates = new HashSet<>();
+
+    /** Whether the key is a public key and nothing else: no token holds it, and it has no item but its public key. */
+    public boolean isPublicKeyOnly() {
+        return tokenInstanceReferenceUuid == null && tokenProfileUuid == null && items.size() == 1
+                && items.iterator().next().getType() == KeyType.PUBLIC_KEY;
+    }
+
+    /** The public key of a public-key-only key, which is its sole item. */
+    public CryptographicKeyItem solePublicKeyItem() {
+        if (!isPublicKeyOnly()) {
+            throw new IllegalStateException("Key %s is not public-key-only.".formatted(getUuid()));
+        }
+        return items.iterator().next();
+    }
+
+    /** Whether every item of the key is active, or yet to become so. */
+    public boolean isActive() {
+        return items.stream().allMatch(item -> ACTIVE_STATES.contains(item.getState()));
+    }
+
+    /** Whether the key holds its private key: an item of it is one. */
+    public boolean holdsPrivateKey() {
+        return items.stream().anyMatch(item -> item.getType() == KeyType.PRIVATE_KEY);
+    }
+
+    public void setTokenProfile(TokenProfile tokenProfile) {
+        this.tokenProfile = tokenProfile;
+        if (tokenProfile != null) {
+            this.tokenProfileUuid = tokenProfile.getUuid();
+        }
+    }
+
+    public void setTokenInstanceReference(TokenInstanceReference tokenInstanceReference) {
+        this.tokenInstanceReference = tokenInstanceReference;
+        if (tokenInstanceReference != null) {
+            this.tokenInstanceReferenceUuid = tokenInstanceReference.getUuid();
+        }
+    }
+
+    @Override
+    public final boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null) {
+            return false;
+        }
+        Class<?> oEffectiveClass = o instanceof HibernateProxy proxy
+                ? proxy.getHibernateLazyInitializer().getPersistentClass()
+                : o.getClass();
+        Class<?> thisEffectiveClass = this instanceof HibernateProxy proxy
+                ? proxy.getHibernateLazyInitializer().getPersistentClass()
+                : this.getClass();
+        if (thisEffectiveClass != oEffectiveClass) {
+            return false;
+        }
+        if (!(o instanceof CryptographicKey that)) {
+            return false;
+        }
+        return getUuid() != null && Objects.equals(getUuid(), that.getUuid());
+    }
+
+    @Override
+    public final int hashCode() {
+        return this instanceof HibernateProxy proxy
+                ? proxy.getHibernateLazyInitializer().getPersistentClass().hashCode()
+                : getClass().hashCode();
+    }
+}

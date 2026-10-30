@@ -1,0 +1,34 @@
+{
+  "actor" : {
+    "authMethod" : "certificate",
+    "name" : "operator",
+    "type" : "user",
+    "uuid" : "5e2d8b41-0000-4000-8000-000000000001"
+  },
+  "additionalData" : null,
+  "affiliatedResource" : null,
+  "audited" : true,
+  "message" : "Certificate issued",
+  "module" : "certificates",
+  "operation" : "issue",
+  "operationData" : null,
+  "operationResult" : "success",
+  "resource" : {
+    "objects" : [
+      {
+        "name" : "issued certificate",
+        "uuid" : "5e2d8b41-0000-4000-8000-000000000002"
+      }
+    ],
+    "type" : "certificates"
+  },
+  "source" : {
+    "contentType" : "application/json",
+    "ipAddress" : "192.0.2.10",
+    "method" : "POST",
+    "path" : "/v1/certificates",
+    "userAgent" : "platform-test"
+  },
+  "timestamp" : "2026-01-15T09:30:00.123Z",
+  "version" : "1.0"
+}

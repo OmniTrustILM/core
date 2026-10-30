@@ -1,0 +1,2116 @@
+package com.otilm.core.integration.evaluator;
+
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.otilm.api.exception.AlreadyExistException;
+import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.RuleException;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
+import com.otilm.api.model.client.attribute.custom.CustomAttributeDefinitionDetailDto;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.notification.NotificationProfileDetailDto;
+import com.otilm.api.model.client.notification.NotificationProfileRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
+import com.otilm.api.model.common.enums.BitMaskEnum;
+import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.core.enums.CertificateProtocol;
+import com.otilm.api.model.core.notification.RecipientType;
+import com.otilm.api.model.core.search.FilterConditionOperator;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.ExecutionType;
+import com.otilm.api.model.core.workflows.TriggerType;
+import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.dao.entity.Approval;
+import com.otilm.core.dao.entity.AuthorityInstanceReference;
+import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CertificateLocation;
+import com.otilm.core.dao.entity.CertificateProtocolAssociation;
+import com.otilm.core.dao.entity.Comment;
+import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.entity.Group;
+import com.otilm.core.dao.entity.Location;
+import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.acme.AcmeProfile;
+import com.otilm.core.dao.entity.workflows.Action;
+import com.otilm.core.dao.entity.workflows.ConditionItem;
+import com.otilm.core.dao.entity.workflows.Execution;
+import com.otilm.core.dao.entity.workflows.ExecutionItem;
+import com.otilm.core.dao.entity.workflows.Rule;
+import com.otilm.core.dao.entity.workflows.Trigger;
+import com.otilm.core.dao.entity.workflows.TriggerHistory;
+import com.otilm.core.dao.repository.ApprovalRepository;
+import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.CertificateContentRepository;
+import com.otilm.core.dao.repository.CertificateLocationRepository;
+import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.dao.repository.GroupRepository;
+import com.otilm.core.dao.repository.LocationRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.workflows.ActionRepository;
+import com.otilm.core.dao.repository.workflows.ExecutionItemRepository;
+import com.otilm.core.dao.repository.workflows.ExecutionRepository;
+import com.otilm.core.dao.repository.workflows.TriggerRepository;
+import com.otilm.core.enums.FilterField;
+import com.otilm.core.evaluator.CertificateTriggerEvaluator;
+import com.otilm.core.evaluator.TriggerEvaluator;
+import com.otilm.core.service.AttributeExternalService;
+import com.otilm.core.service.CertificateExternalService;
+import com.otilm.core.service.NotificationProfileExternalService;
+import com.otilm.core.service.ResourceObjectAssociationService;
+import com.otilm.core.service.TriggerInternalService;
+import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.WireMockPorts;
+import java.io.IOException;
+import java.security.cert.CertificateException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+class TriggerEvaluatorITest extends BaseSpringBootTest {
+
+    @Autowired
+    private TriggerEvaluator<CryptographicKeyItem> cryptographicKeyTriggerEvaluator;
+
+    @Autowired
+    private GroupRepository groupRepository;
+
+    @Autowired
+    private TriggerEvaluator<Discovery> discoveryTriggerEvaluator;
+
+    @Autowired
+    private DiscoveryRepository discoveryRepository;
+
+    @Autowired
+    private TriggerEvaluator<Comment> commentTriggerEvaluator;
+
+    @Autowired
+    private CertificateRepository certificateRepository;
+
+    @Autowired
+    private CertificateExternalService certificateService;
+
+    @Autowired
+    private AttributeExternalService attributeService;
+
+    @Autowired
+    private TriggerInternalService triggerService;
+
+    @Autowired
+    private TriggerRepository triggerRepository;
+
+    @Autowired
+    private ActionRepository actionRepository;
+
+    @Autowired
+    private ExecutionRepository executionRepository;
+
+    @Autowired
+    private ExecutionItemRepository executionItemRepository;
+
+    @Autowired
+    private ConnectorRepository connectorRepository;
+
+    @Autowired
+    private RaProfileRepository raProfileRepository;
+
+    @Autowired
+    private CertificateContentRepository certificateContentRepository;
+
+    @Autowired
+    private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
+    @Autowired
+    private AttributeEngine attributeEngine;
+
+    @Autowired
+    private CertificateTriggerEvaluator certificateTriggerEvaluator;
+
+    @Autowired
+    private NotificationProfileExternalService notificationProfileService;
+
+    @Autowired
+    private ResourceObjectAssociationService associationService;
+
+    @Autowired
+    private LocationRepository locationRepository;
+
+    @Autowired
+    private CertificateLocationRepository certificateLocationRepository;
+    @Autowired
+    private ApprovalRepository approvalRepository;
+    @Autowired
+    private TriggerEvaluator<Approval> approvalTriggerEvaluator;
+
+    private Certificate certificate;
+
+    private ConditionItem condition;
+
+    private Trigger trigger;
+    private Action action;
+    private Execution execution;
+    private ExecutionItem executionItem;
+
+    private WireMockServer mockServer;
+
+    @AfterEach
+    void stopMockServer() {
+        if (mockServer != null) {
+            mockServer.stop();
+            mockServer = null;
+        }
+    }
+
+    @BeforeEach
+    void setUp() {
+        certificate = new Certificate();
+        certificateRepository.save(certificate);
+
+        condition = new ConditionItem();
+
+        trigger = new Trigger();
+        trigger.setName("TestTrigger");
+        trigger.setResource(Resource.CERTIFICATE);
+
+        execution = new Execution();
+        execution.setName("TestExecution");
+        execution.setResource(Resource.CERTIFICATE);
+        execution.setType(ExecutionType.SET_FIELD);
+        executionRepository.save(execution);
+
+        executionItem = new ExecutionItem();
+        executionItem.setFieldSource(FilterFieldSource.PROPERTY);
+        executionItem.setFieldIdentifier(FilterField.RA_PROFILE_NAME.toString());
+        executionItem.setExecution(execution);
+        execution.setItems(Set.of(executionItem));
+        executionItemRepository.save(executionItem);
+
+        action = new Action();
+        action.setName("TestAction");
+        action.setResource(Resource.CERTIFICATE);
+        action.setExecutions(Set.of(execution));
+        actionRepository.save(action);
+        trigger.setActions(Set.of(action));
+        trigger.setType(TriggerType.EVENT);
+        trigger.setResource(Resource.CERTIFICATE);
+        trigger = triggerRepository.save(trigger);
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorOnStringProperty() throws RuleException {
+        certificate.setCommonName("Common Name");
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.COMMON_NAME.toString());
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue("Common Name");
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        certificate.setCommonName("Common NameE");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("Name");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        condition.setValue("abc");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.STARTS_WITH);
+        condition.setValue("Comm");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.ENDS_WITH);
+        condition.setValue("eE");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.MATCHES);
+        condition.setValue("^\\\\d"); // starts with a number
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue("^(?:[^m]*m){3}[^m]*$"); // contains exactly 3 'm'
+        condition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        condition.setValue("^\\\\d"); // starts with a number
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue("^(?:[^m]*m){3}[^m]*$"); // contains exactly 3 'm'
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        certificate.setCommonName(null);
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorOnKeyAlgorithmProperty() throws RuleException {
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        certificate.setPublicKeyAlgorithm("RSA");
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setFieldIdentifier(FilterField.PUBLIC_KEY_ALGORITHM.name());
+        condition.setValue(List.of("RSA", "ML-DSA"));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        // Not null String
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        // Null String empty
+        certificate.setPublicKeyAlgorithm(null);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorOnEnumProperty() throws RuleException {
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        certificate.setValidationStatus(CertificateValidationStatus.VALID);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setFieldIdentifier(FilterField.CERTIFICATE_VALIDATION_STATUS.name());
+        condition.setValue(List.of(CertificateValidationStatus.VALID.getCode()));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        // Not null validation status
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        // Null validation status
+        certificate.setValidationStatus(null);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testApprovalRuleEvaluatorOnStatusProperty() throws RuleException {
+        Approval approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(List.of(ApprovalStatusEnum.PENDING.name()));
+
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        approval.setStatus(ApprovalStatusEnum.APPROVED);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        approval.setStatus(null);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+    }
+
+    @Test
+    void testCommentRuleEvaluatorOnProperties() throws RuleException {
+        Comment comment = new Comment();
+        comment.setResource(Resource.RA_PROFILE);
+        comment.setObjectUuid(UUID.randomUUID());
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("tst-author");
+        comment.setBody("please review the profile");
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+
+        condition.setFieldIdentifier(FilterField.COMMENT_HOST_RESOURCE.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(Resource.RA_PROFILE.getCode()));
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setValue(List.of(Resource.CERTIFICATE.getCode()));
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        condition.setFieldIdentifier(FilterField.COMMENT_AUTHOR.name());
+        condition.setValue(List.of("tst-author", "another-user"));
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        condition.setFieldIdentifier(FilterField.COMMENT_BODY.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("review");
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        // The presence-only parent field separates roots from replies
+        condition.setFieldIdentifier(FilterField.COMMENT_PARENT.name());
+        condition.setValue(null);
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        comment.setParentUuid(UUID.randomUUID());
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        // Resolution timestamp presence separates open threads from resolved ones
+        condition.setFieldIdentifier(FilterField.COMMENT_RESOLVED_AT.name());
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        comment.setResolvedAt(OffsetDateTime.now());
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+    }
+
+    @Test
+    void absentValueIsNotMetByComparisonsAndNeverFails() throws RuleException {
+        Comment comment = new Comment();
+        comment.setResource(Resource.RA_PROFILE);
+        comment.setObjectUuid(UUID.randomUUID());
+        comment.setAuthorUuid(UUID.randomUUID());
+        comment.setAuthorUsername("tst-author");
+        comment.setBody("open thread");
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.COMMENT_RESOLVED_AT.name());
+
+        // A thread not yet resolved has no timestamp to compare
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue("2019-12-01T22:10:00.274+00:00");
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.IN_NEXT);
+        condition.setValue("P7D");
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue("2019-12-01T22:10:00.274+00:00");
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertFalse(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        comment.setResolvedAt(OffsetDateTime.now());
+        condition.setOperator(FilterConditionOperator.GREATER);
+        Assertions.assertTrue(commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+
+        // A value the operator cannot use is reported in the operator's terms, without the Java error text
+        condition.setValue("not-a-date");
+        RuleException reason = Assertions
+                .assertThrows(RuleException.class,
+                        () -> commentTriggerEvaluator.evaluateConditionItem(condition, comment, Resource.COMMENT));
+        Assertions.assertTrue(reason.getMessage().contains("Resolved At"), reason.getMessage());
+        Assertions.assertTrue(reason.getMessage().contains("not-a-date"), reason.getMessage());
+        Assertions.assertFalse(reason.getMessage().contains("java."), reason.getMessage());
+        Assertions.assertFalse(reason.getMessage().contains("Cannot invoke"), reason.getMessage());
+        condition.setValue("2019-12-01T22:10:00.274+00:00");
+
+        // An item without the property inside a joined collection is skipped the same way, and the other items decide
+        Group named = new Group();
+        named.setName("tst-group");
+        Group unnamed = new Group();
+        certificate.setGroups(new HashSet<>(List.of(named, unnamed)));
+        condition.setFieldIdentifier(FilterField.GROUP_NAME.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of("tst-group"));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(List.of("other-group"));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(List.of("tst-group"));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        // A field that names no property of its own has nothing to read, and says so
+        condition.setFieldIdentifier(FilterField.CBOM_ASSET_FREE_TEXT.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("anything");
+        RuleException noProperty = Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        Assertions.assertTrue(noProperty.getMessage().contains("Text Search"), noProperty.getMessage());
+
+        // An association the object does not hold leaves the property absent too
+        certificate.setRaProfile(null);
+        condition.setFieldIdentifier(FilterField.RA_PROFILE_NAME.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of("tst-ra-profile"));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        // The same holds for any other field type without a value
+        certificate.setSerialNumber(null);
+        condition.setFieldIdentifier(FilterField.SERIAL_NUMBER.name());
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue("1");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorOnBooleanProperty() throws RuleException {
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        certificate.setTrustedCa(true);
+        condition.setFieldIdentifier(FilterField.TRUSTED_CA.toString());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(true);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorOnListProperty() throws RuleException {
+        Group group = new Group();
+        group.setName("group");
+        group = groupRepository.save(group);
+
+        Group group2 = new Group();
+        group2.setName("group2");
+        group2 = groupRepository.save(group2);
+
+        certificate.setGroups(new HashSet<>(List.of(group, group2)));
+        certificate = certificateRepository.save(certificate);
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setFieldIdentifier(FilterField.GROUP_NAME.toString());
+        condition.setValue(List.of(group.getName(), group2.getName()));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(List.of("group3"));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        condition.setOperator(FilterConditionOperator.COUNT_EQUAL);
+        condition.setValue(2);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(1);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.COUNT_NOT_EQUAL);
+        condition.setValue(1);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(2);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.COUNT_GREATER_THAN);
+        condition.setValue(1);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.COUNT_LESS_THAN);
+        condition.setValue(5);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        certificate.setGroups(Set.of());
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        Location location = new Location();
+        location.setName("loc");
+        locationRepository.save(location);
+        CertificateLocation certificateLocation = new CertificateLocation();
+        certificateLocation.setLocation(location);
+        certificateLocation.setCertificate(certificate);
+        certificateLocationRepository.save(certificateLocation);
+        certificate.setLocations(new HashSet<>(List.of(certificateLocation)));
+        condition.setFieldIdentifier(FilterField.CERT_LOCATION_NAME.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of("loc"));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.COUNT_EQUAL);
+        condition.setValue(1);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateEvaluatorOnEnumListBitmask() throws RuleException {
+        certificate
+                .setKeyUsage(BitMaskEnum
+                        .convertSetToBitMask(EnumSet
+                                .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
+                                        CertificateKeyUsage.KEY_AGREEMENT)));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.KEY_USAGE.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition
+                .setValue(List
+                        .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
+                                CertificateKeyUsage.KEY_AGREEMENT));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition
+                .setValue(List
+                        .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
+                                CertificateKeyUsage.KEY_CERT_SIGN));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(List.of(CertificateKeyUsage.KEY_CERT_SIGN));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        condition.setValue(List.of(CertificateKeyUsage.KEY_CERT_SIGN));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setValue(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorProtocols() throws RuleException {
+        AcmeProfile acmeProfile = new AcmeProfile();
+        acmeProfile.setName("profile");
+        CertificateProtocolAssociation protocolAssociation = new CertificateProtocolAssociation();
+        protocolAssociation.setProtocol(CertificateProtocol.ACME);
+        protocolAssociation.setAcmeProfile(acmeProfile);
+        certificate.setProtocolAssociation(protocolAssociation);
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(acmeProfile.getName()));
+        condition.setFieldIdentifier(FilterField.ACME_PROFILE.name());
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertRuleEvaluatorRaProfile() throws RuleException {
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("profile");
+        certificate.setRaProfile(raProfile);
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(raProfile.getName()));
+        condition.setFieldIdentifier(FilterField.RA_PROFILE_NAME.name());
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testExceptions() throws RuleException, ParseException {
+        Rule rule = new Rule();
+        rule.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        TriggerHistory triggerHistory = new TriggerHistory();
+        Assertions.assertFalse(certificateTriggerEvaluator.evaluateRules(triggerHistory, Set.of(rule), certificate));
+
+        condition.setFieldIdentifier("invalid");
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        condition.setFieldIdentifier(FilterField.COMMON_NAME.toString());
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.GREATER);
+        RuleException inapplicable = Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        Assertions.assertTrue(inapplicable.getMessage().contains("Common Name"), inapplicable.getMessage());
+        Assertions.assertTrue(inapplicable.getMessage().contains("greater than"), inapplicable.getMessage());
+
+        condition.setValue(123);
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        condition.setFieldIdentifier("expiryInDays");
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue(1);
+        certificate.setNotAfter(new SimpleDateFormat(("dd.MM.yyyy")).parse("01.01.5000"));
+        Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testEvaluatorDateTime() throws RuleException, ParseException {
+        certificate.setNotBefore(new SimpleDateFormat(("yyyy-MM-dd HH:mm:ss")).parse("2019-12-01 22:10:15"));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.NOT_BEFORE.toString());
+        condition.setValue("2019-12-01T22:10:00.274+00:00");
+        condition.setOperator(FilterConditionOperator.GREATER);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        Discovery discovery = new Discovery();
+        discovery
+                .setStartTime(
+                        LocalDateTime.parse("2019-12-01T22:10:15").atZone(ZoneId.systemDefault()).toOffsetDateTime());
+        condition.setFieldIdentifier(FilterField.DISCOVERY_START_TIME.toString());
+        condition.setValue("2019-12-01T22:10:00.274+00:00");
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    /**
+     * The item total is derived by the database, so a condition reads it off a run as loaded, which is how the
+     * discovery-finished handler hands its run to the evaluator. The run received 52 items, 48 of them certificates.
+     */
+    @Test
+    void aConditionOnTheItemTotalReadsTheTotalTheRunWasLoadedWith() throws RuleException {
+        Discovery stored = new Discovery();
+        stored.setName("item-total-condition");
+        stored.setConnectorUuid(UUID.randomUUID());
+        stored.setStatus(DiscoveryStatus.COMPLETED);
+        stored.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        stored.setLastAppliedSequence(52);
+        stored.setTotalCertificatesDiscovered(48);
+        stored = discoveryRepository.saveAndFlush(stored);
+        Discovery discovery = discoveryRepository.findByUuid(stored.getUuid()).orElseThrow();
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED.toString());
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue(50);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(52);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    /** A float holds integers exactly only up to 2^24, and an item total can outgrow that. */
+    @Test
+    void aConditionOnTheItemTotalComparesExactlyPastTheFloatRange() throws RuleException {
+        Discovery stored = new Discovery();
+        stored.setName("item-total-condition-large");
+        stored.setConnectorUuid(UUID.randomUUID());
+        stored.setStatus(DiscoveryStatus.COMPLETED);
+        stored.setConnectorStatus(DiscoveryStatus.COMPLETED);
+        stored.setLastAppliedSequence(3_000_000_001L);
+        stored = discoveryRepository.saveAndFlush(stored);
+        Discovery discovery = discoveryRepository.findByUuid(stored.getUuid()).orElseThrow();
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_TOTAL_ITEMS_DISCOVERED.toString());
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue(3_000_000_000L);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    @Test
+    void aConditionOnResourcesMatchesTheRunsTargetsByCode() throws RuleException {
+        Discovery discovery = new Discovery();
+        discovery.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_RESOURCES.toString());
+
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(Resource.CRYPTOGRAPHIC_KEY.getCode()));
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(List.of(Resource.SECRET.getCode()));
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(List.of(Resource.SECRET.getCode(), Resource.CRYPTOGRAPHIC_KEY.getCode()));
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.CONTAINS);
+        condition.setValue(Resource.CRYPTOGRAPHIC_KEY.getCode());
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(Resource.SECRET.getCode());
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        condition.setValue(null);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    @Test
+    void aConditionOnResourcesFindsAV1RunByTheCertificatesItTargets() throws RuleException {
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_RESOURCES.toString());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(Resource.CERTIFICATE.getCode()));
+
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator
+                        .evaluateConditionItem(condition, new Discovery(), Resource.DISCOVERY));
+    }
+
+    /**
+     * Every datetime comparison operator, both outcomes, on an {@code OffsetDateTime} attribute — the branch matrix the
+     * evaluator's operator lambdas carry since the timestamptz columns arrived. The certificate variant of the same
+     * operators runs on {@code java.util.Date}, so both temporal types cover both branches of the normalizing helper.
+     */
+    @Test
+    void testEvaluatorDateTimeOperatorMatrix() throws RuleException, ParseException {
+        Discovery discovery = new Discovery();
+        discovery
+                .setStartTime(
+                        LocalDateTime.parse("2019-12-01T22:10:15").atZone(ZoneId.systemDefault()).toOffsetDateTime());
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_START_TIME.toString());
+
+        String before = "2019-12-01T22:10:00.274+00:00";
+        String after = "2019-12-01T22:10:30.274+00:00";
+
+        condition.setOperator(FilterConditionOperator.GREATER);
+        condition.setValue(before);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(after);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.GREATER_OR_EQUAL);
+        condition.setValue(before);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(after);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.LESSER);
+        condition.setValue(after);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(before);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        condition.setOperator(FilterConditionOperator.LESSER_OR_EQUAL);
+        condition.setValue(after);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue(before);
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        // Date variant of the same four comparisons, driving the helper's java.util.Date branch
+        certificate.setNotBefore(new SimpleDateFormat(("yyyy-MM-dd HH:mm:ss")).parse("2019-12-01 22:10:15"));
+        condition.setFieldIdentifier(FilterField.NOT_BEFORE.toString());
+        condition.setOperator(FilterConditionOperator.GREATER_OR_EQUAL);
+        condition.setValue(before);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.LESSER);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.LESSER_OR_EQUAL);
+        condition.setValue(after);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    /**
+     * The half-open interval operators on an {@code OffsetDateTime} attribute: each of IN_PAST and IN_NEXT carries two
+     * conditions (inside the window, on the correct side of now), so each needs a case per condition outcome —
+     * wrong-side-of-now, inside, and outside the window.
+     */
+    @Test
+    void testEvaluatorDateTimeIntervalMatrix() throws RuleException {
+        Discovery discovery = new Discovery();
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_START_TIME.toString());
+
+        discovery.setStartTime(OffsetDateTime.now().minusDays(5));
+        condition.setOperator(FilterConditionOperator.IN_PAST);
+        condition.setValue("P6D");
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue("P2D");
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.IN_NEXT);
+        condition.setValue("P6D");
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+        discovery.setStartTime(OffsetDateTime.now().plusDays(5));
+        condition.setValue("P6D");
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setValue("P2D");
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        condition.setOperator(FilterConditionOperator.IN_PAST);
+        condition.setValue("P6D");
+        Assertions
+                .assertFalse(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+    }
+
+    @Test
+    void testEvaluatorDateInterval() throws RuleException {
+        certificate.setNotAfter(convertToDateViaInstant(LocalDateTime.now().plusDays(10)));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.NOT_AFTER.toString());
+        condition.setValue("P11D");
+        condition.setOperator(FilterConditionOperator.IN_NEXT);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        condition.setValue("P5D");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        certificate.setNotAfter(convertToDateViaInstant(LocalDateTime.now().minusDays(10)));
+        condition.setOperator(FilterConditionOperator.IN_PAST);
+        condition.setValue("P11D");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        condition.setValue("P5D");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        condition.setValue("invalid");
+        Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        condition.setValue("P1D");
+        condition.setOperator(FilterConditionOperator.IN_PAST);
+        certificate.setNotAfter(convertToDateViaInstant(LocalDateTime.now().plusHours(1)));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(FilterConditionOperator.IN_NEXT);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+
+        Discovery discovery = new Discovery();
+        discovery.setStartTime(OffsetDateTime.now().minusDays(5).minusHours(3));
+        condition.setOperator(FilterConditionOperator.IN_PAST);
+        condition.setFieldIdentifier(FilterField.DISCOVERY_START_TIME.toString());
+        condition.setValue("P5DT4H");
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+        discovery.setStartTime(OffsetDateTime.now().plusDays(5).plusHours(3));
+        condition.setValue("P5DT4H");
+        condition.setOperator(FilterConditionOperator.IN_NEXT);
+        Assertions
+                .assertTrue(discoveryTriggerEvaluator.evaluateConditionItem(condition, discovery, Resource.DISCOVERY));
+
+    }
+
+    private Date convertToDateViaInstant(LocalDateTime dateToConvert) {
+        return java.util.Date.from(dateToConvert.atZone(ZoneId.systemDefault()).toInstant());
+    }
+
+    @Test
+    void testsCryptographicKeyRuleEvaluator() throws RuleException {
+        CryptographicKeyItem cryptographicKey = new CryptographicKeyItem();
+        cryptographicKey.setName("Key");
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.PROPERTY);
+        newCondition.setFieldIdentifier(FilterField.CKI_NAME.toString());
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        cryptographicKey.setLength(256);
+        newCondition.setFieldIdentifier(FilterField.CKI_LENGTH.toString());
+        newCondition.setOperator(FilterConditionOperator.GREATER);
+        newCondition.setValue(255);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue(255.4);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("255");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("255.4");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue(256);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue(256.4);
+        Assertions
+                .assertFalse(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("256");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("256.4");
+        Assertions
+                .assertFalse(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue(255);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue(255.4);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("255");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("255.4");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setOperator(FilterConditionOperator.GREATER_OR_EQUAL);
+        newCondition.setValue(256);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue(255.4);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("256");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("255.4");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setOperator(FilterConditionOperator.LESSER_OR_EQUAL);
+        newCondition.setValue(256);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue(257.4);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("256");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("257.4");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setOperator(FilterConditionOperator.LESSER);
+        newCondition.setValue(256);
+        Assertions
+                .assertFalse(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue(257.4);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("257");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+        newCondition.setValue("257.4");
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+
+    }
+
+    @Test
+    void testKeyCountCondition() throws RuleException {
+        Group group = new Group();
+        group.setName("group");
+        group = groupRepository.save(group);
+
+        Group group2 = new Group();
+        group2.setName("group2");
+        group2 = groupRepository.save(group2);
+
+        CryptographicKey parentKey = new CryptographicKey();
+        parentKey.setGroups(Set.of(group, group2));
+        CryptographicKeyItem cryptographicKey = new CryptographicKeyItem();
+        cryptographicKey.setName("Key");
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.PROPERTY);
+        cryptographicKey.setKey(parentKey);
+        newCondition.setFieldIdentifier(FilterField.CK_GROUP.name());
+        newCondition.setOperator(FilterConditionOperator.COUNT_EQUAL);
+        newCondition.setValue(2);
+        Assertions
+                .assertTrue(cryptographicKeyTriggerEvaluator
+                        .evaluateConditionItem(newCondition, cryptographicKey, Resource.CRYPTOGRAPHIC_KEY));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeList()
+            throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        CustomAttributeCreateRequestDto listAttributeRequest = new CustomAttributeCreateRequestDto();
+        listAttributeRequest.setName("customList");
+        listAttributeRequest.setLabel("customList");
+        listAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
+        listAttributeRequest.setContentType(AttributeContentType.STRING);
+        listAttributeRequest.setList(true);
+
+        CustomAttributeDefinitionDetailDto listAttribute = attributeService.createCustomAttribute(listAttributeRequest);
+        attributeEngine
+                .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null,
+                        listAttribute.getName(),
+                        List
+                                .of(new StringAttributeContentV3("ref", "data1"),
+                                        new StringAttributeContentV3("ref", "data")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("customList|STRING");
+
+        // EQUALS: true if any item equals the value
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("other");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // EQUALS with a multi-value condition (multi-select list attribute — the FE sends the selected values as a
+        // JSON array): true if any attribute item equals any of the condition values
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue(List.of("data", "other"));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue(List.of("other", "another"));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_EQUALS with a multi-value condition: true only if no attribute item equals any of the condition values
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue(List.of("other", "another"));
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue(List.of("data", "other"));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // Multi-value conditions are restricted to EQUALS/NOT_EQUALS — any other operator is a configuration error
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue(List.of("data", "other"));
+        Assertions
+                .assertThrows(RuleException.class, () -> certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_EQUALS: true only if no item equals the value — "data" is present so NOT_EQUALS "data" is false
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("other");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("data");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // CONTAINS: true if any item contains the substring
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("at");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_CONTAINS: true only if no item contains the substring — both "data1" and "data" contain "at", so
+        // NOT_CONTAINS "at" is false
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("xyz");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("at");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // NOT_MATCHES: true only if no item matches the pattern — "data" matches "^dat.$", so NOT_MATCHES "^dat.$" is
+        // false
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^\\d+$"); // one or more digits only — neither "data1" nor "data" matches
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character — matches "data"
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeSingleString()
+            throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        CustomAttributeCreateRequestDto singleAttributeRequest = new CustomAttributeCreateRequestDto();
+        singleAttributeRequest.setName("customSingle");
+        singleAttributeRequest.setLabel("customSingle");
+        singleAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
+        singleAttributeRequest.setContentType(AttributeContentType.STRING);
+        singleAttributeRequest.setList(false);
+
+        CustomAttributeDefinitionDetailDto singleAttribute = attributeService
+                .createCustomAttribute(singleAttributeRequest);
+        attributeEngine
+                .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null,
+                        singleAttribute.getName(), List.of(new StringAttributeContentV3("ref", "data")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("customSingle|STRING");
+
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("other");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("other");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("data");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("at");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("xyz");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("at");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.STARTS_WITH);
+        newCondition.setValue("da");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.ENDS_WITH);
+        newCondition.setValue("ta");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("xyz");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string — matches
+                                         // "data"
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^\\d+$"); // one or more digits only — does not match "data"
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^\\d+$"); // one or more digits only — does not match "data", so NOT_MATCHES is true
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string — matches
+                                         // "data", so NOT_MATCHES is false
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeAbsent()
+            throws AlreadyExistException, RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        // Create the attribute definition but do not assign any content to the certificate —
+        // mirrors the NOT EXISTS semantics of FilterPredicatesBuilder for objects missing the attribute entirely.
+        CustomAttributeCreateRequestDto request = new CustomAttributeCreateRequestDto();
+        request.setName("customAbsent");
+        request.setLabel("customAbsent");
+        request.setResources(List.of(Resource.CERTIFICATE));
+        request.setContentType(AttributeContentType.STRING);
+        attributeService.createCustomAttribute(request);
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("customAbsent");
+
+        // Absent attribute has no content — EMPTY is satisfied
+        newCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // Absent attribute has no content — NOT_EMPTY is not satisfied
+        newCondition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // No row exists that equals/contains/matches the value — negated operators are satisfied
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        newCondition.setValue("data");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_CONTAINS);
+        newCondition.setValue("dat");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        // No row exists — positive operators are not satisfied
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.CONTAINS);
+        newCondition.setValue("dat");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+
+        newCondition.setOperator(FilterConditionOperator.MATCHES);
+        newCondition.setValue("^dat.$"); // starts with "dat", then exactly one character, end of string
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeFromPendingRequest() throws RuleException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("criticality|STRING");
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("Low");
+
+        RequestAttributeV3 pendingAttribute = new RequestAttributeV3();
+        pendingAttribute.setUuid(UUID.randomUUID());
+        pendingAttribute.setName("criticality");
+        pendingAttribute.setContentType(AttributeContentType.STRING);
+        pendingAttribute.setContent(List.of(new StringAttributeContentV3("Low")));
+        List<RequestAttribute> pendingCustomAttributes = List.of(pendingAttribute);
+
+        // No DB content exists for this attribute at all yet — only the pending request value should be evaluated
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE,
+                                pendingCustomAttributes));
+
+        newCondition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE,
+                                pendingCustomAttributes));
+
+        // Without the pending list, the same certificate has no DB content either — falls back to absent-attribute
+        // semantics
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE, null));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeFallsBackToDbWhenNotInPendingRequest()
+            throws RuleException, AlreadyExistException, NotFoundException, AttributeException {
+        // Simulates a certificate upload where the request supplied "criticality", but a DIFFERENT custom attribute
+        // ("category") was written directly to the DB by an earlier trigger's SET_FIELD action within the same
+        // evaluation pass. A condition checking "category" must fall back to the DB rather than treat it as absent,
+        // since pendingCustomAttributes only reflects the original request payload, not attributes set by other
+        // triggers.
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+
+        CustomAttributeCreateRequestDto categoryAttributeRequest = new CustomAttributeCreateRequestDto();
+        categoryAttributeRequest.setName("category");
+        categoryAttributeRequest.setLabel("category");
+        categoryAttributeRequest.setResources(List.of(Resource.CERTIFICATE));
+        categoryAttributeRequest.setContentType(AttributeContentType.STRING);
+        categoryAttributeRequest.setList(false);
+        CustomAttributeDefinitionDetailDto categoryAttribute = attributeService
+                .createCustomAttribute(categoryAttributeRequest);
+        attributeEngine
+                .updateObjectCustomAttributeContent(Resource.CERTIFICATE, newCertificate.getUuid(), null,
+                        categoryAttribute.getName(), List.of(new StringAttributeContentV3("ref", "Approved")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
+
+        RequestAttributeV3 pendingAttribute = new RequestAttributeV3();
+        pendingAttribute.setUuid(UUID.randomUUID());
+        pendingAttribute.setName("criticality");
+        pendingAttribute.setContentType(AttributeContentType.STRING);
+        pendingAttribute.setContent(List.of(new StringAttributeContentV3("Low")));
+        List<RequestAttribute> pendingCustomAttributes = List.of(pendingAttribute);
+
+        ConditionItem categoryCondition = new ConditionItem();
+        categoryCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        categoryCondition.setFieldIdentifier("category|STRING");
+        categoryCondition.setOperator(FilterConditionOperator.EQUALS);
+        categoryCondition.setValue("Approved");
+
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(categoryCondition, newCertificate, Resource.CERTIFICATE,
+                                pendingCustomAttributes));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorCustomAttributeFromPendingRequestOnUnpersistedCertificate() throws RuleException {
+        // Not saved to the repository: uuid is null, exactly like a certificate mid-upload before saveCertificate()
+        // runs
+        // (the scenario for CERTIFICATE_UPLOADED ignore-triggers, which run before the certificate exists in the DB at
+        // all)
+        Certificate unpersistedCertificate = new Certificate();
+        Assertions.assertNull(unpersistedCertificate.getUuid());
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        newCondition.setFieldIdentifier("criticality|STRING");
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("Low");
+
+        RequestAttributeV3 pendingAttribute = new RequestAttributeV3();
+        pendingAttribute.setUuid(UUID.randomUUID());
+        pendingAttribute.setName("criticality");
+        pendingAttribute.setContentType(AttributeContentType.STRING);
+        pendingAttribute.setContent(List.of(new StringAttributeContentV3("Low")));
+        List<RequestAttribute> pendingCustomAttributes = List.of(pendingAttribute);
+
+        // objectUuid is null, but the pending request content still lets the condition evaluate
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, unpersistedCertificate, Resource.CERTIFICATE,
+                                pendingCustomAttributes));
+
+        newCondition.setValue("High");
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, unpersistedCertificate, Resource.CERTIFICATE,
+                                pendingCustomAttributes));
+
+        // objectUuid is null AND the pending list doesn't contain this attribute name — no DB to fall back to, so it's
+        // absent
+        ConditionItem emptyCondition = new ConditionItem();
+        emptyCondition.setFieldSource(FilterFieldSource.CUSTOM);
+        emptyCondition.setFieldIdentifier("otherAttribute|STRING");
+        emptyCondition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(emptyCondition, unpersistedCertificate, Resource.CERTIFICATE,
+                                pendingCustomAttributes));
+
+        // A non-null but EMPTY pending list (the request explicitly supplied zero custom attributes) means the same
+        // thing:
+        // no content is possible, so EMPTY is satisfied. This is the case CertificateUploadedEventHandler must produce
+        // when eventMessageData.customAttributes() is null, by normalizing to List.of() rather than passing null
+        // through.
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(emptyCondition, unpersistedCertificate, Resource.CERTIFICATE,
+                                List.of()));
+
+        // Without any pending list at all (a true Java null, meaning "this caller does not support pending-attribute
+        // evaluation") and no UUID, CUSTOM conditions still can't be evaluated (original behavior preserved) — even for
+        // EMPTY.
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(emptyCondition, unpersistedCertificate, Resource.CERTIFICATE, null));
+        Assertions
+                .assertFalse(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, unpersistedCertificate, Resource.CERTIFICATE, null));
+    }
+
+    @Test
+    void testCertificateRuleEvaluatorMeta() throws RuleException, AttributeException {
+        Certificate newCertificate = new Certificate();
+        certificateRepository.save(newCertificate);
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+        UUID connectorUuid = connector.getUuid();
+        MetadataAttributeV2 metadataAttribute = new MetadataAttributeV2();
+        metadataAttribute.setContentType(AttributeContentType.STRING);
+        metadataAttribute.setName("meta");
+        metadataAttribute.setUuid(UUID.randomUUID().toString());
+        metadataAttribute.setContent(List.of(new StringAttributeContentV2("ref", "data")));
+        metadataAttribute.setType(AttributeType.META);
+
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("Test meta");
+        metadataAttribute.setProperties(props);
+
+        List<MetadataAttribute> content = new ArrayList<>();
+        content.add(metadataAttribute);
+        attributeEngine
+                .updateMetadataAttributes(content,
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE, newCertificate.getUuid())
+                                .connector(connectorUuid)
+                                .build());
+
+        ConditionItem newCondition = new ConditionItem();
+        newCondition.setFieldSource(FilterFieldSource.META);
+        newCondition.setFieldIdentifier("meta|STRING");
+        newCondition.setOperator(FilterConditionOperator.EQUALS);
+        newCondition.setValue("data");
+        Assertions
+                .assertTrue(certificateTriggerEvaluator
+                        .evaluateConditionItem(newCondition, newCertificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testSetCertificateGroup() throws RuleException {
+        executionItem.setFieldSource(FilterFieldSource.PROPERTY);
+        executionItem.setFieldIdentifier(FilterField.GROUP_NAME.toString());
+        Group group = new Group();
+        group.setName("groupName");
+        group = groupRepository.save(group);
+
+        Group group2 = new Group();
+        group2.setName("groupName2");
+        group2 = groupRepository.save(group2);
+        executionItem.setData(List.of(group.getUuid().toString(), group2.getUuid().toString()));
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<UUID> groupUuids = associationService.getGroupUuids(Resource.CERTIFICATE, certificate.getUuid());
+        Assertions.assertEquals(2, groupUuids.size());
+        Assertions.assertTrue(groupUuids.contains(group.getUuid()));
+        Assertions.assertTrue(groupUuids.contains(group2.getUuid()));
+    }
+
+    @Test
+    void testSetCertificateOwner() throws RuleException {
+        executionItem.setFieldSource(FilterFieldSource.PROPERTY);
+        executionItem.setFieldIdentifier(FilterField.OWNER.toString());
+        executionItem.setData(UUID.randomUUID());
+
+        mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
+        mockServer.start();
+        WireMock.configureFor("localhost", mockServer.port());
+
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/auth/users/[^/]+"))
+                        .willReturn(WireMock.okJson("{ \"username\": \"ownerName\"}")));
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        NameAndUuidDto owner = associationService.getOwner(Resource.CERTIFICATE, certificate.getUuid());
+        Assertions.assertNotNull(owner);
+        Assertions.assertEquals("ownerName", owner.getName());
+    }
+
+    @Test
+    void testSetRaProfile() throws RuleException, NotFoundException, CertificateException, IOException {
+        mockServer = new WireMockServer(LoopbackWireMock.options());
+        mockServer.start();
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
+
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                        .willReturn(WireMock
+                                .okJson("{\"meta\":[{\"version\": 2,\"uuid\":\"b42ab690-60fd-11ed-9b6a-0242ac120002\",\"name\":\"ejbcaUsername\",\"description\":\"EJBCA Username\",\"content\":[{\"version\": 2, \"reference\":\"ShO0lp7qbnE=\",\"data\":\"ShO0lp7qbnE=\"}],\"type\":\"meta\",\"contentType\":\"string\",\"properties\":{\"label\":\"EJBCA Username\",\"visible\":true,\"group\":null,\"global\":false}}]}")));
+
+        Connector connector = new Connector();
+        connector.setName("authorityInstanceConnector");
+        connector.setUrl(LoopbackWireMock.url(mockServer));
+        connector.setVersion(ConnectorVersion.V1);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        connectorRepository.save(connector);
+
+        AuthorityInstanceReference authorityInstanceReference = new AuthorityInstanceReference();
+        authorityInstanceReference.setAuthorityInstanceUuid("1l");
+        authorityInstanceReference.setConnector(connector);
+        authorityInstanceReferenceRepository.save(authorityInstanceReference);
+
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("Test RA profile");
+        raProfile.setAuthorityInstanceReference(authorityInstanceReference);
+        raProfile = raProfileRepository.save(raProfile);
+
+        CertificateContent certificateContent = new CertificateContent();
+        certificateContent.setContent("content");
+        certificateContentRepository.save(certificateContent);
+        certificate.setCertificateContent(certificateContent);
+        certificateRepository.save(certificate);
+
+        executionItem.setFieldSource(FilterFieldSource.PROPERTY);
+        executionItem.setFieldIdentifier(FilterField.RA_PROFILE_NAME.toString());
+        executionItem.setData(raProfile.getUuid());
+
+        TriggerHistory triggerHistory = triggerService
+                .createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
+        certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
+
+        CertificateDetailDto certificateDetailDto = certificateService.getCertificate(certificate.getSecuredUuid());
+        Assertions.assertNotNull(certificate);
+        Assertions.assertEquals(raProfile.getName(), certificateDetailDto.getRaProfile().getName());
+    }
+
+    @Test
+    void testSetCustomAttribute() throws AlreadyExistException, AttributeException, RuleException {
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("custom");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("custom");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
+        attributeService.createCustomAttribute(createRequestDto);
+        LinkedHashMap<String, String> linkedHashSet = new LinkedHashMap<>();
+        linkedHashSet.put("data", "data");
+        linkedHashSet.put("reference", "ref");
+        linkedHashSet.put("contentType", "string");
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("custom|STRING");
+        executionItem.setData(List.of(linkedHashSet));
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+        List<ResponseAttribute> responseAttributes = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        Assertions.assertEquals(1, ((ResponseAttributeV3) responseAttributes.getFirst()).getContent().size());
+
+        executionItem.setData(null);
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+        responseAttributes = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        Assertions.assertTrue(responseAttributes.isEmpty());
+
+        executionItem.setData(List.of());
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+        responseAttributes = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        Assertions.assertTrue(responseAttributes.isEmpty());
+    }
+
+    @Test
+    void testSendNotificationExecution() throws RuleException, NotFoundException, AlreadyExistException {
+        NotificationProfileRequestDto requestDto = new NotificationProfileRequestDto();
+        requestDto.setName("TestProfile");
+        requestDto.setRecipientType(RecipientType.NONE);
+        requestDto.setRepetitions(1);
+        requestDto.setInternalNotification(true);
+        NotificationProfileDetailDto notificationProfileDetailDto = notificationProfileService
+                .createNotificationProfile(requestDto);
+
+        execution.setType(ExecutionType.SEND_NOTIFICATION);
+        executionRepository.save(execution);
+
+        executionItem.setNotificationProfileUuid(UUID.fromString(notificationProfileDetailDto.getUuid()));
+        executionItemRepository.save(executionItem);
+
+        TriggerHistory triggerHistory = triggerService
+                .createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
+        certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
+        Assertions.assertEquals(0, triggerHistory.getRecords().size());
+    }
+
+    @Test
+    void testSetCustomAttributeFromMetadata() throws AlreadyExistException, AttributeException, RuleException {
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+
+        MetadataAttributeV2 metaAttr = new MetadataAttributeV2();
+        metaAttr.setContentType(AttributeContentType.STRING);
+        metaAttr.setName("metaSource");
+        metaAttr.setUuid(UUID.randomUUID().toString());
+        metaAttr.setContent(List.of(new StringAttributeContentV2("ref", "copiedValue")));
+        metaAttr.setType(AttributeType.META);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("metaSource");
+        metaAttr.setProperties(props);
+        attributeEngine
+                .updateMetadataAttributes(List.of(metaAttr),
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE, certificate.getUuid())
+                                .connector(connector.getUuid())
+                                .build());
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("metaSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result
+                .stream()
+                .filter(a -> a.getName().equals("customTarget"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals("copiedValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testMappingRejectedByThePredefinedListKeepsTheStoredValue()
+            throws AttributeException, NotFoundException, RuleException {
+        CustomAttributeV3 pillar = new CustomAttributeV3();
+        pillar.setUuid(UUID.randomUUID().toString());
+        pillar.setName("pillarTarget");
+        pillar.setType(AttributeType.CUSTOM);
+        pillar.setContentType(AttributeContentType.STRING);
+        CustomAttributeProperties properties = new CustomAttributeProperties();
+        properties.setLabel("pillarTarget");
+        properties.setList(true);
+        properties.setExtensibleList(false);
+        pillar.setProperties(properties);
+        pillar.setContent(List.of(new StringAttributeContentV3("Retail"), new StringAttributeContentV3("Corporate")));
+        attributeEngine.updateCustomAttributeDefinition(pillar, List.of(Resource.CERTIFICATE));
+        attributeEngine
+                .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null, "pillarTarget",
+                        List.of(new StringAttributeContentV3("Retail")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
+
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+        MetadataAttributeV2 metaAttr = new MetadataAttributeV2();
+        metaAttr.setContentType(AttributeContentType.STRING);
+        metaAttr.setName("pillarSource");
+        metaAttr.setUuid(UUID.randomUUID().toString());
+        metaAttr.setContent(List.of(new StringAttributeContentV2(null, "Unknown")));
+        metaAttr.setType(AttributeType.META);
+        MetadataAttributeProperties props = new MetadataAttributeProperties();
+        props.setLabel("pillarSource");
+        metaAttr.setProperties(props);
+        attributeEngine
+                .updateMetadataAttributes(List.of(metaAttr),
+                        ObjectAttributeContentInfo
+                                .builder(Resource.CERTIFICATE, certificate.getUuid())
+                                .connector(connector.getUuid())
+                                .build());
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("pillarTarget|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("pillarSource|STRING");
+        executionItem.setData(null);
+
+        TriggerHistory triggerHistory = triggerService
+                .createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
+        certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
+
+        Assertions.assertEquals(1, triggerHistory.getRecords().size(), "the rejected mapping is recorded");
+        ResponseAttributeV3 stored = (ResponseAttributeV3) attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid())
+                .stream()
+                .filter(a -> a.getName().equals("pillarTarget"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals("Retail", stored.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromCustomAttribute()
+            throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        CustomAttributeCreateRequestDto sourceDto = new CustomAttributeCreateRequestDto();
+        sourceDto.setName("customSource");
+        sourceDto.setContentType(AttributeContentType.STRING);
+        sourceDto.setLabel("customSource");
+        sourceDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(sourceDto);
+        attributeEngine
+                .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificate.getUuid(), null, "customSource",
+                        List.of(new StringAttributeContentV3("ref", "sourceValue")),
+                        attributeEngine.loadCustomAttributesSecurityResourceFilter());
+
+        CustomAttributeCreateRequestDto targetDto = new CustomAttributeCreateRequestDto();
+        targetDto.setName("customTarget2");
+        targetDto.setContentType(AttributeContentType.STRING);
+        targetDto.setLabel("customTarget2");
+        targetDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(targetDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget2|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setSourceFieldIdentifier("customSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result
+                .stream()
+                .filter(a -> a.getName().equals("customTarget2"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals("sourceValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromMissingSourceDoesNotSetAttribute()
+            throws AlreadyExistException, AttributeException, RuleException {
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget3");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget3");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget3|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.META);
+        executionItem.setSourceFieldIdentifier("nonExistentMeta|STRING");
+        executionItem.setData(null);
+
+        TriggerHistory triggerHistory = triggerService
+                .createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
+        certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        Assertions.assertTrue(result.stream().noneMatch(a -> a.getName().equals("customTarget3")));
+        Assertions.assertEquals(1, triggerHistory.getRecords().size());
+    }
+
+    @Test
+    void testSetCustomAttributeFromDataAttribute()
+            throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        Connector connector = new Connector();
+        connector.setVersion(ConnectorVersion.V1);
+        connectorRepository.save(connector);
+
+        DataAttributeV3 dataAttribute = new DataAttributeV3();
+        dataAttribute.setUuid(UUID.randomUUID().toString());
+        dataAttribute.setName("dataSource");
+        dataAttribute.setType(AttributeType.DATA);
+        dataAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties dataProps = new DataAttributeProperties();
+        dataProps.setLabel("dataSource");
+        dataAttribute.setProperties(dataProps);
+        attributeEngine.updateDataAttributeDefinitions(connector.getUuid(), null, List.of(dataAttribute));
+
+        RequestAttributeV3 requestAttribute = new RequestAttributeV3();
+        requestAttribute.setUuid(UUID.fromString(dataAttribute.getUuid()));
+        requestAttribute.setName(dataAttribute.getName());
+        requestAttribute.setContent(List.of(new StringAttributeContentV3("ref", "dataValue")));
+        attributeEngine
+                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE, certificate.getUuid())
+                        .connector(connector.getUuid())
+                        .build(), List.of(requestAttribute));
+
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget4");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget4");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget4|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.DATA);
+        executionItem.setSourceFieldIdentifier("dataSource|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result
+                .stream()
+                .filter(a -> a.getName().equals("customTarget4"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals("dataValue", attr.getContent().getFirst().getData().toString());
+    }
+
+    @Test
+    void testSetCustomAttributeFromDataAttributeV2()
+            throws AlreadyExistException, AttributeException, RuleException, NotFoundException {
+        DataAttributeV2 dataAttribute = new DataAttributeV2();
+        dataAttribute.setUuid(UUID.randomUUID().toString());
+        dataAttribute.setName("dataSourceV2");
+        dataAttribute.setContentType(AttributeContentType.STRING);
+        DataAttributeProperties dataProps = new DataAttributeProperties();
+        dataProps.setLabel("dataSourceV2");
+        dataAttribute.setProperties(dataProps);
+        attributeEngine.updateDataAttributeDefinitions(null, null, List.of(dataAttribute));
+
+        // RequestAttributeV2 content must use BaseAttributeContentV2, not StringAttributeContentV2,
+        // because the V2 format has no type discriminator and won't round-trip through JSON as the
+        // concrete subtype.
+        BaseAttributeContentV2<String> content = new BaseAttributeContentV2<>();
+        content.setReference("ref");
+        content.setData("dataValueV2");
+        RequestAttributeV2 requestAttribute = new RequestAttributeV2();
+        requestAttribute.setUuid(UUID.fromString(dataAttribute.getUuid()));
+        requestAttribute.setName(dataAttribute.getName());
+        requestAttribute.setContent(List.of(content));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build(),
+                        List.of(requestAttribute));
+
+        CustomAttributeCreateRequestDto createRequestDto = new CustomAttributeCreateRequestDto();
+        createRequestDto.setName("customTarget5");
+        createRequestDto.setContentType(AttributeContentType.STRING);
+        createRequestDto.setLabel("customTarget5");
+        createRequestDto.setResources(List.of(Resource.CERTIFICATE));
+        attributeService.createCustomAttribute(createRequestDto);
+
+        executionItem.setFieldSource(FilterFieldSource.CUSTOM);
+        executionItem.setFieldIdentifier("customTarget5|STRING");
+        executionItem.setSourceFieldSource(FilterFieldSource.DATA);
+        executionItem.setSourceFieldIdentifier("dataSourceV2|STRING");
+        executionItem.setData(null);
+
+        certificateTriggerEvaluator.performActions(trigger, new TriggerHistory(), certificate, null);
+
+        List<ResponseAttribute> result = attributeEngine
+                .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificate.getUuid());
+        ResponseAttributeV3 attr = (ResponseAttributeV3) result
+                .stream()
+                .filter(a -> a.getName().equals("customTarget5"))
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals("dataValueV2", attr.getContent().getFirst().getData().toString());
+    }
+
+}

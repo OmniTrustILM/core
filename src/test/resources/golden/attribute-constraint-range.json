@@ -1,0 +1,9 @@
+{
+  "description" : "Key length bounds",
+  "errorMessage" : "Value must be between 1 and 64",
+  "type" : "range",
+  "data" : {
+    "from" : 1,
+    "to" : 64
+  }
+}

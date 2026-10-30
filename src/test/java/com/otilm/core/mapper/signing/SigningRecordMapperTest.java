@@ -1,0 +1,174 @@
+package com.otilm.core.mapper.signing;
+
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordDto;
+import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
+import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.dao.entity.signing.SigningRecord;
+import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+class SigningRecordMapperTest {
+
+    @Test
+    void toRecordFromOutbox_copiesEveryFieldVerbatimUnderTheSameUuid() {
+        // given a staged outbox row with every field populated
+        var outbox = new SigningRecordOutbox();
+        outbox.setUuid(UUID.fromString("22222222-2222-2222-2222-222222222222"));
+        outbox.setName("staged-record");
+        outbox.setSigningProfileUuid(UUID.fromString("11111111-1111-1111-1111-111111111111"));
+        outbox.setSigningProfileVersion(7);
+        outbox.setSigningTime(Instant.parse("2026-03-01T12:00:00Z"));
+        outbox.setRequestedByUuid(UUID.fromString("99999999-9999-9999-9999-999999999999"));
+        outbox.setRequestedByUsername("alice");
+        outbox.setRequestMetadataJson("{ \"alg\": \"ES256\" }");
+        outbox.setSignatureValue("the-signature".getBytes());
+        outbox.setSignedDocument("the-signed-document".getBytes());
+        outbox.setDtbs("the-data-to-be-signed".getBytes());
+        outbox.setTimestampTokenSerialNumbers(List.of("2a"));
+        outbox.setProtocol(SigningProtocol.CSC_API);
+
+        // when
+        SigningRecord signingRecord = SigningRecordMapper.toRecord(outbox);
+
+        // then the record mirrors the row, keeping the row's own UUID (no new one is generated)
+        assertEquals(outbox.getUuid(), signingRecord.getUuid());
+        assertEquals(outbox.getName(), signingRecord.getName());
+        assertEquals(outbox.getSigningProfileUuid(), signingRecord.getSigningProfileUuid());
+        assertEquals(outbox.getSigningProfileVersion(), signingRecord.getSigningProfileVersion());
+        assertEquals(outbox.getSigningTime(), signingRecord.getSigningTime());
+        assertEquals(outbox.getRequestedByUuid(), signingRecord.getRequestedByUuid());
+        assertEquals(outbox.getRequestedByUsername(), signingRecord.getRequestedByUsername());
+        assertEquals(outbox.getRequestMetadataJson(), signingRecord.getRequestMetadataJson());
+        assertArrayEquals(outbox.getSignatureValue(), signingRecord.getSignatureValue());
+        assertArrayEquals(outbox.getSignedDocument(), signingRecord.getSignedDocument());
+        assertArrayEquals(outbox.getDtbs(), signingRecord.getDtbs());
+        assertEquals(outbox.getTimestampTokenSerialNumbers(), signingRecord.getTimestampTokenSerialNumbers());
+        assertEquals(outbox.getProtocol(), signingRecord.getProtocol());
+    }
+
+    @Test
+    void toDto_exposesProtocol() {
+        // given
+        SigningRecord signingRecord = aPersistedRecord();
+        signingRecord.setProtocol(SigningProtocol.CSC_API);
+
+        // when
+        SigningRecordDto dto = SigningRecordMapper.toDto(signingRecord);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, dto.getProtocol());
+    }
+
+    @Test
+    void toListDto_exposesProtocol() {
+        // given
+        SigningRecord signingRecord = aPersistedRecord();
+        signingRecord.setProtocol(SigningProtocol.CSC_API);
+
+        // when
+        SigningRecordListDto dto = SigningRecordMapper.toListDto(signingRecord);
+
+        // then
+        assertEquals(SigningProtocol.CSC_API, dto.getProtocol());
+    }
+
+    @Test
+    void toDto_exposesTheTimestampTokenSerialNumbers() {
+        // given
+        SigningRecord signingRecord = aPersistedRecord();
+        signingRecord.setTimestampTokenSerialNumbers(List.of("2a", "2b"));
+
+        // when
+        SigningRecordDto dto = SigningRecordMapper.toDto(signingRecord);
+
+        // then
+        assertEquals(List.of("2a", "2b"), dto.getTimestampTokenSerialNumbers());
+    }
+
+    @Test
+    void toDto_rendersARecordWithoutSerialNumbersAsAnEmptyList() {
+        // given a record that embedded no timestamp token, so the column is null
+        SigningRecord signingRecord = aPersistedRecord();
+
+        // when
+        SigningRecordDto dto = SigningRecordMapper.toDto(signingRecord);
+
+        // then
+        assertEquals(List.of(), dto.getTimestampTokenSerialNumbers());
+    }
+
+    @Test
+    void toListDto_exposesTheTimestampTokenSerialNumbers() {
+        // given
+        SigningRecord signingRecord = aPersistedRecord();
+        signingRecord.setTimestampTokenSerialNumbers(List.of("2a"));
+
+        // when
+        SigningRecordListDto dto = SigningRecordMapper.toListDto(signingRecord);
+
+        // then
+        assertEquals(List.of("2a"), dto.getTimestampTokenSerialNumbers());
+    }
+
+    @Test
+    void toListDto_rendersARecordWithoutSerialNumbersAsAnEmptyList() {
+        // given a record that embedded no timestamp token, so the column is null
+        SigningRecord signingRecord = aPersistedRecord();
+
+        // when
+        SigningRecordListDto dto = SigningRecordMapper.toListDto(signingRecord);
+
+        // then
+        assertEquals(List.of(), dto.getTimestampTokenSerialNumbers());
+    }
+
+    /**
+     * A {@link SigningRecord} with the minimum the DTO mappers dereference: a non-null profile association (via the
+     * composite key) and a {@code created} audit timestamp.
+     */
+    private static SigningRecord aPersistedRecord() {
+        SigningProfile profile = new SigningProfile();
+        profile.setUuid(UUID.fromString("11111111-1111-1111-1111-111111111111"));
+        profile.setName("profile-x");
+        profile.setLatestVersion(1);
+        profile.setWorkflowType(SigningWorkflowType.TIMESTAMPING);
+        profile.setSigningScheme(SigningScheme.MANAGED);
+
+        SigningRecord signingRecord = new SigningRecord();
+        signingRecord.setUuid(UUID.fromString("22222222-2222-2222-2222-222222222222"));
+        signingRecord.setSigningProfile(profile);
+        signingRecord.setSigningProfileVersion(1);
+        signingRecord.setSigningTime(Instant.parse("2026-03-01T12:00:00Z"));
+        signingRecord.setCreated(OffsetDateTime.parse("2026-03-01T12:00:01Z"));
+        return signingRecord;
+    }
+
+    @Test
+    void toRecordFromOutbox_appliesNoPolicyGating_copyingNullContentAsIs() {
+        // given a row staged with no recordable content (the policy gating already happened at staging time)
+        var outbox = new SigningRecordOutbox();
+        outbox.setUuid(UUID.fromString("33333333-3333-3333-3333-333333333333"));
+        outbox.setSigningProfileVersion(1);
+
+        // when
+        SigningRecord signingRecord = SigningRecordMapper.toRecord(outbox);
+
+        // then the absent content is carried over untouched, not re-evaluated against any policy
+        assertEquals(outbox.getUuid(), signingRecord.getUuid());
+        assertNull(signingRecord.getRequestMetadataJson());
+        assertNull(signingRecord.getSignatureValue());
+        assertNull(signingRecord.getSignedDocument());
+        assertNull(signingRecord.getDtbs());
+    }
+}

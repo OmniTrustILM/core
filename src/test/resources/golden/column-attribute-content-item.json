@@ -1,0 +1,5 @@
+{
+  "contentType" : "string",
+  "data" : "stored content value",
+  "reference" : "ref-item"
+}

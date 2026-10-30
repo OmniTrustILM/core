@@ -1,7 +1,7 @@
-echo Build of CZERTAINLY CORE
+echo Build of ILM CORE
 
 echo Cleaning containers
-docker rm czertainlycont
+docker rm ilmcont
 docker rmi prebuild
 
 echo Refreshing directory for data from container
@@ -31,15 +31,15 @@ if "%SKIP_TESTS%"=="true" (
 
 docker run -v //var/run/docker.sock:/var/run/docker.sock ^
   %MAVEN_VOLUME_ARG% ^
-  --name czertainlycont -i prebuild ^
+  --name ilmcont -i prebuild ^
   mvn -f /home/app/pom.xml clean package %SKIP_TESTS_ARG%
 
-echo Starting czertainlycont
-docker start czertainlycont
+echo Starting ilmcont
+docker start ilmcont
 
 echo Copy jar back to Tmp
-docker cp czertainlycont:/home/app/target data\target
-docker cp czertainlycont:/home/app/docker data\docker
+docker cp ilmcont:/home/app/target data\target
+docker cp ilmcont:/home/app/docker data\docker
 
 echo Removing previous image
 docker rmi %IMAGE_NAME%

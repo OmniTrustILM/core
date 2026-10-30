@@ -1,0 +1,16 @@
+{
+  "uuid" : "2c9e5f11-0000-4000-8000-000000000005",
+  "name" : "customAttribute",
+  "description" : "A v3 custom attribute",
+  "version" : 3,
+  "type" : "custom",
+  "content" : [
+    {
+      "reference" : "ref-custom",
+      "data" : "a v3 custom value",
+      "contentType" : "string"
+    }
+  ],
+  "contentType" : "string",
+  "schemaVersion" : "v3"
+}

@@ -1,10 +1,10 @@
 #!/bin/bash
 
-echo "Pre-build CZERTAINLY CORE docker image"
+echo "Pre-build ILM CORE docker image"
 
 echo "Cleaning containers if exists"
-docker rm czertainlycont
-docker rmi prebuild
+docker rm -f ilmcont 2>/dev/null || true
+docker rmi -f prebuild 2>/dev/null || true
 
 echo "Refreshing directory for data from container"
 rm -r data
@@ -22,14 +22,14 @@ fi
 echo "MVN Build"
 if [[ "$OSTYPE" == "darwin"* ]]; then
   echo "MacOS detected, using TESTCONTAINERS_HOST_OVERRIDE"
-  docker run -e TESTCONTAINERS_HOST_OVERRIDE=docker.for.mac.host.internal -v /var/run/docker.sock:/var/run/docker.sock --name czertainlycont -i prebuild mvn -f /home/app/pom.xml -U clean package $MVN_OPTS
+  docker run -e TESTCONTAINERS_HOST_OVERRIDE=docker.for.mac.host.internal -v /var/run/docker.sock:/var/run/docker.sock --name ilmcont -i prebuild mvn -f /home/app/pom.xml -U clean package $MVN_OPTS
 else
-  docker run -v /var/run/docker.sock:/var/run/docker.sock --name czertainlycont -i prebuild mvn -f /home/app/pom.xml -U clean package $MVN_OPTS
+  docker run -v /var/run/docker.sock:/var/run/docker.sock --name ilmcont -i prebuild mvn -f /home/app/pom.xml -U clean package $MVN_OPTS
 fi
 
-echo "Starting czertainlycont"
-docker start czertainlycont
+echo "Starting ilmcont"
+docker start ilmcont
 
 echo "Copy jar back to Tmp"
-docker cp czertainlycont:/home/app/target data/target
-docker cp czertainlycont:/home/app/docker data/docker
+docker cp ilmcont:/home/app/target data/target
+docker cp ilmcont:/home/app/docker data/docker

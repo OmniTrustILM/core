@@ -1,0 +1,208 @@
+package com.otilm.core.integration.service.scep;
+
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.cryptography.key.KeyState;
+import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
+import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.provider.PlatformProvider;
+import com.otilm.core.provider.key.PlatformPrivateKey;
+import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.CryptographicKeyInternalService;
+import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
+import com.otilm.core.util.LoopbackWireMock;
+import java.util.Base64;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.cms.CMSEnvelopedData;
+import org.bouncycastle.cms.RecipientInformation;
+import org.bouncycastle.cms.RecipientInformationStore;
+import org.bouncycastle.cms.jcajce.JceKeyTransEnvelopedRecipient;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.Rollback;
+import org.springframework.test.context.transaction.AfterTransaction;
+import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.shaded.org.bouncycastle.jce.provider.BouncyCastleProvider;
+
+/**
+ * Verifies platform-key integration with CMS recipient configuration.
+ */
+@SpringBootTest
+@Transactional
+@Rollback
+class CryptographicProviderITest {
+
+    @Autowired
+    private CryptographicKeyExternalService cryptographicKeyService;
+    @Autowired
+    private CryptographicKeyRepository cryptographicKeyRepository;
+    @Autowired
+    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
+    @Autowired
+    private ConnectorRepository connectorRepository;
+    @Autowired
+    private TokenProfileRepository tokenProfileRepository;
+    @Autowired
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+
+    private TokenInstanceReference tokenInstanceReference;
+    private CryptographicKeyItem content;
+    private CryptographicKeyItem content1;
+    private TokenProfile tokenProfile;
+    private Connector connector;
+    private CryptographicKey key;
+    private WireMockServer mockServer;
+    @Autowired
+    private KeyProviderAdapterFactory adapterFactory;
+    @Autowired
+    private CryptographicKeyInternalService keyInternalService;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @BeforeEach
+    void setUp() {
+        mockServer = new WireMockServer(LoopbackWireMock.options());
+        mockServer.start();
+
+        WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
+
+        connector = new Connector();
+        connector.setUrl(LoopbackWireMock.url(mockServer));
+        connector.setVersion(ConnectorVersion.V1);
+        connector.setStatus(ConnectorStatus.CONNECTED);
+        connector = connectorRepository.save(connector);
+
+        tokenInstanceReference = new TokenInstanceReference();
+        tokenInstanceReference.setStatus(TokenInstanceStatus.CONNECTED);
+        tokenInstanceReference.setTokenInstanceUuid(UUID.randomUUID().toString());
+        tokenInstanceReference.setConnector(connector);
+        tokenInstanceReferenceRepository.save(tokenInstanceReference);
+
+        tokenProfile = new TokenProfile();
+        tokenProfile.setName("profile1");
+        tokenProfile.setTokenInstanceReference(tokenInstanceReference);
+        tokenProfile.setDescription("sample description");
+        tokenProfile.setEnabled(true);
+        tokenProfile.setTokenInstanceName("testInstance");
+        tokenProfileRepository.save(tokenProfile);
+
+        key = new CryptographicKey();
+        key.setName("testKey");
+        key.setTokenProfile(tokenProfile);
+        key.setTokenInstanceReference(tokenInstanceReference);
+        key.setDescription("initial description");
+        cryptographicKeyRepository.save(key);
+
+        content = new CryptographicKeyItem();
+        content.setLength(1024);
+        content.setKey(key);
+        content.setKeyUuid(key.getUuid());
+        content.setType(KeyType.PRIVATE_KEY);
+        content.setKeyData("some/encrypted/data");
+        content.setFormat(KeyFormat.PRKI);
+        content.setState(KeyState.ACTIVE);
+        content.setEnabled(true);
+        content.setUsage(List.of(KeyUsage.DECRYPT));
+        content.setKeyAlgorithm(KeyAlgorithm.RSA);
+        cryptographicKeyItemRepository.save(content);
+
+        content1 = new CryptographicKeyItem();
+        content1.setLength(1024);
+        content1.setKey(key);
+        content1.setKeyUuid(key.getUuid());
+        content1.setType(KeyType.PUBLIC_KEY);
+        content1.setKeyData("some/encrypted/data");
+        content1.setFormat(KeyFormat.SPKI);
+        content1.setState(KeyState.ACTIVE);
+        content1.setEnabled(true);
+        content1.setKeyAlgorithm(KeyAlgorithm.RSA);
+        cryptographicKeyItemRepository.save(content1);
+
+        content.setKeyReferenceUuid(content.getUuid());
+        content1.setKeyReferenceUuid(content1.getUuid());
+        cryptographicKeyItemRepository.save(content);
+        cryptographicKeyItemRepository.save(content1);
+
+        Set<CryptographicKeyItem> items = new HashSet<>();
+        items.add(content1);
+        items.add(content);
+        key.setItems(items);
+        cryptographicKeyRepository.save(key);
+
+        // The key snapshot is read with the test transaction suspended.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+        TestTransaction.start();
+    }
+
+    @AfterEach
+    void tearDown() {
+        mockServer.stop();
+    }
+
+    @AfterTransaction
+    void removeCommittedFixtures() {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            cryptographicKeyItemRepository.deleteById(content.getUuid());
+            cryptographicKeyItemRepository.deleteById(content1.getUuid());
+            cryptographicKeyRepository.deleteById(key.getUuid());
+            tokenProfileRepository.deleteById(tokenProfile.getUuid());
+            tokenInstanceReferenceRepository.deleteById(tokenInstanceReference.getUuid());
+            connectorRepository.delete(connector);
+        });
+    }
+
+    @Test
+    void testCmsDecrypt() throws Exception {
+        String encapsulatedString = "MIIDwwYJKoZIhvcNAQcDoIIDtDCCA7ACAQAxgcgwgcUCAQAwLjAWMRQwEgYDVQQDDAtuZXdweXRoc3ViMQIUORJlivM+pu04Au0ztZaINDDKIPUwDQYJKoZIhvcNAQEBBQAEgYA/tWdX8NQMMkXosoIcvhToSGiyrSYKc+9inIQY0ByjpfJK2DH1V0Z6aJ5uwMMVePlAKU/DN++lilS9m79k75HQx8XOOjX8f+513fFAxJJN5c4PTeK/riT9r2pNBAlLnTicF7uEGIQmcQSW9SS7abf8Zfhi0/MQUNSZ+nWskGhCwDCCAt4GCSqGSIb3DQEHATAdBglghkgBZQMEAQIEENbWHLEpTF3gz1TSCMrD7PKAggKwgJTHwfQ9izDLz5j7Ao8ddQD7Hc1N28wGXj4Yf6MJSN533Pf9Yo4BMLCT3UiYkf5ocXeYkMyBsiAc5CSU5I09UkuCrBu8lC9HyLvcOtbiNwtnvMAnvIJgwtPOmQklmU9bmxWCmyiHn3V7ooA0I1ki5zF4NKNAZMOX8PgXvHpxEURsP1QTknA6cUk03NN94Ah9x7OZZZGJ1kFPmZDK3odhSrZqTA45gUd/p8R6MYa2VGVG6zzb7CUUbSuLhvPRK7aLD/PiHTJGDTmgHgWjcwg4RAYEwD7MMmXVrdAC2/b+XCVjJJBSWuD7yRJGksVdKboap9Px5WaywPjFJtdJ6SKlpSay8/qW8BXbogR+r8WFqKQLp9sktZ85bRzOuPpotNgB+4YHKU2u776qVLGF1pnwzT9WL0VfMFmlpWMTDPPMarxcobHc0y1shhBlankvu7CXoapvSCpJqvGnEmhRaz8vU+ciulKpnqGDG+b/GSkDeoPE64DZj+AnRzb193XElNJ38Q9hEzOt0896MrIT6lGrz/iIK28+GyId1TvkMDSHq1UCatuZDx7Cc0THz9FBCzkUajq1ZXHpCUwn/HL7wBg19MYvE0YfPlLbKA+dQBipCm8/pDQMYVYKB8Z9y+5pNyQhZCtUVyaIKvZ2//R1LvYJ+Fnn/T2r51m1eOhO8IObuPcTMVG6ykOCFQNBHOOTQAOMYx3EcIlfeS7JrhrWWKCRMXrI01btbhY+BmCr7wXtClFEM178Xzn0ZzokPqTexmPIe2fqqbNwVxYV9reGLM1+3R6ZaE+z3xjvNZTkQOAXVKFUtAenctD90N78ONm6lQrVXmTPZ+OmNVbM6nT6GCH2dSBgeuM8lX7PsnHW6ASbaS93yGnqvEKxj/UcRZR7vLNeLP4XceJxnlTTGHxpfTkJJQ==";
+
+        byte[] cmsDataStream = Base64.getDecoder().decode(encapsulatedString);
+
+        PlatformPrivateKey privateKey = new PlatformPrivateKey(keyInternalService.getKeyItemModel(content.getUuid()));
+        PlatformProvider provider = PlatformProvider.getInstance("Test", false, adapterFactory);
+
+        CMSEnvelopedData envelopedData = new CMSEnvelopedData(cmsDataStream);
+        RecipientInformationStore recipientInfos = envelopedData.getRecipientInfos();
+        Collection<RecipientInformation> recipients = recipientInfos.getRecipients();
+        Iterator<RecipientInformation> recipientInformationIterator = recipients.iterator();
+
+        if (recipientInformationIterator.hasNext()) {
+            recipientInformationIterator.next();
+            Assertions
+                    .assertDoesNotThrow(() -> new JceKeyTransEnvelopedRecipient(privateKey)
+                            .setProvider(provider)
+                            .setContentProvider(BouncyCastleProvider.PROVIDER_NAME)
+                            .setMustProduceEncodableUnwrappedKey(true)
+                            .setAlgorithmMapping(new ASN1ObjectIdentifier("1.2.840.113549.1.1.1"), "RSA"));
+        }
+    }
+
+}

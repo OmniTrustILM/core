@@ -1,0 +1,17 @@
+{
+  "version" : "v2",
+  "connectorUuid" : "9d3b7c58-0000-4000-8000-000000000002",
+  "connector" : {
+    "id" : "authority-connector",
+    "name" : "Authority Connector",
+    "version" : "2.0.0",
+    "description" : "A v2 connector"
+  },
+  "interfaces" : [
+    {
+      "code" : "authority",
+      "version" : "2.0.0",
+      "features" : [ ]
+    }
+  ]
+}

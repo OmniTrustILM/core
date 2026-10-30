@@ -1,0 +1,513 @@
+package com.otilm.core.integration.config;
+
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.nimbusds.jose.JOSEException;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsDto;
+import com.otilm.core.auth.oauth2.PlatformJwtDecoder;
+import com.otilm.core.security.authn.client.AuthenticationCache;
+import com.otilm.core.security.oauth2.OAuth2TestUtil;
+import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.util.BaseSpringBootTestNoAuth;
+import com.otilm.core.util.OAuth2Constants;
+import com.otilm.core.util.WireMockPorts;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import java.io.IOException;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.core.convert.support.GenericConversionService;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2RefreshToken;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
+import org.springframework.session.web.http.SessionRepositoryFilter;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@AutoConfigureMockMvc
+@SpringBootTest
+@TestPropertySource(properties = "server.servlet.context-path=")
+class SecurityConfigITest extends BaseSpringBootTestNoAuth {
+
+    @Autowired
+    MockMvc mvc;
+
+    @MockitoBean
+    PlatformJwtDecoder jwtDecoder;
+
+    @Autowired
+    SettingsCache settingsCache;
+
+    @Autowired
+    AuthenticationCache authenticationCache;
+
+    @Autowired
+    org.springframework.cache.CacheManager cacheManager;
+
+    @MockitoBean
+    private JdbcIndexedSessionRepository sessionRepository;
+
+    @MockitoBean
+    private GenericConversionService springSessionConversionService;
+
+    @MockitoBean
+    public SessionRepositoryFilter springSessionRepositoryFilter;
+
+    static final String CERTIFICATE_USER_USERNAME = "certificate-user";
+    static final String CERTIFICATE_HEADER_VALUE = com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_DER;
+    static final String TOKEN_USER_USERNAME = "token-user";
+
+    Jwt mockJwt;
+    String tokenValue;
+    String tokenHeaderValue;
+    WireMockServer mockServer;
+    PrivateKey privateKey;
+
+    @BeforeEach
+    void setUp() throws NoSuchAlgorithmException, JOSEException, ServletException, IOException {
+        authenticationCache.evictAll();
+
+        Mockito.doAnswer(invocation -> {
+            ServletRequest request = invocation.getArgument(0);
+            ServletResponse response = invocation.getArgument(1);
+            FilterChain filterChain = invocation.getArgument(2);
+            filterChain.doFilter(request, response);
+            return null;
+        }).when(springSessionRepositoryFilter).doFilter(Mockito.any(), Mockito.any(), Mockito.any());
+
+        mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
+        mockServer.start();
+        WireMock.configureFor("localhost", mockServer.port());
+
+        String certificateUserUuid = UUID.randomUUID().toString();
+        addAuthPostStub(CERTIFICATE_HEADER_VALUE, certificateUserUuid, CERTIFICATE_USER_USERNAME);
+        addAuthPostStub("localhost", "", "");
+        addAuthGetSub(certificateUserUuid, CERTIFICATE_USER_USERNAME);
+
+        String tokenUserUuid = UUID.randomUUID().toString();
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair keyPair = generator.generateKeyPair();
+        privateKey = keyPair.getPrivate();
+        tokenValue = OAuth2TestUtil.createJwtTokenValue(privateKey, null, "http://issuer", null, TOKEN_USER_USERNAME);
+        tokenHeaderValue = "Bearer " + tokenValue;
+        mockJwt = Jwt
+                .withTokenValue(tokenValue)
+                .header("alg", "RS256")
+                .claim("username", TOKEN_USER_USERNAME)
+                .issuer("http://issuer")
+                .build();
+        addAuthPostStub(
+                "{\"iss\":\"http://issuer\",\"" + OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME + "\":\"token-user\"}",
+                tokenUserUuid, TOKEN_USER_USERNAME);
+        addAuthGetSub(tokenUserUuid, TOKEN_USER_USERNAME);
+
+    }
+
+    @AfterEach
+    void afterEach() {
+        mockServer.stop();
+    }
+
+    @Test
+    void authorizeUsingCertificate() throws Exception {
+        MvcResult result = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .header("X-APP-CERTIFICATE", CERTIFICATE_HEADER_VALUE))
+                .andReturn();
+        Assertions.assertTrue(result.getResponse().getContentAsString().contains(CERTIFICATE_USER_USERNAME));
+    }
+
+    @Test
+    void rfcCompanionReachesAuthAndProtectedResponseDisablesHttpCaching() throws Exception {
+        mvc
+                .perform(get("/v1/auth/profile")
+                        .header("X-APP-CERTIFICATE", ":" + CERTIFICATE_HEADER_VALUE + ":")
+                        .header("Client-Cert-Chain",
+                                ":" + com.otilm.core.security.authn.ForwardedCertificateFixtures.ISSUER_DER + ":"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        mockServer
+                .verify(WireMock
+                        .postRequestedFor(WireMock.urlEqualTo("/auth"))
+                        .withRequestBody(WireMock
+                                .matchingJsonPath("$.certificateChain[0]", WireMock
+                                        .equalTo(
+                                                com.otilm.core.security.authn.ForwardedCertificateFixtures.ISSUER_DER))));
+    }
+
+    @Test
+    void malformedCompanionRejectsAWarmedLeafWithoutAnotherAuthCall() throws Exception {
+        enableValidBearer();
+        mvc
+                .perform(get("/v1/auth/profile").header("X-APP-CERTIFICATE", CERTIFICATE_HEADER_VALUE))
+                .andExpect(status().isOk());
+        mvc
+                .perform(get("/v1/auth/profile")
+                        .header("X-APP-CERTIFICATE", ":" + CERTIFICATE_HEADER_VALUE + ":")
+                        .header("Client-Cert-Chain", ":dGVzdA==:")
+                        .header("Authorization", tokenHeaderValue))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo("/auth")));
+        verify(jwtDecoder, never()).decode(Mockito.anyString());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {":dGVzdA==:", "Cert=\"invalid\""})
+    void malformedSelectedCertificateCannotFallBackToValidBearer(String certificate) throws Exception {
+        enableValidBearer();
+        mvc
+                .perform(get("/v1/auth/profile")
+                        .header("X-APP-CERTIFICATE", certificate)
+                        .header("Authorization", tokenHeaderValue))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        verify(jwtDecoder, never()).decode(Mockito.anyString());
+        mockServer.verify(0, WireMock.postRequestedFor(WireMock.urlEqualTo("/auth")));
+        assertCertificateNotCached();
+    }
+
+    @Test
+    void unrecognizedOrDisabledCertificateUserCannotFallBackToValidBearer() throws Exception {
+        enableValidBearer();
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/auth"))
+                        .withRequestBody(WireMock
+                                .matchingJsonPath("$.certificateContent", WireMock.equalTo(CERTIFICATE_HEADER_VALUE)))
+                        .atPriority(1)
+                        .willReturn(WireMock.okJson("{\"authenticated\":false}")));
+        mvc
+                .perform(get("/v1/auth/profile")
+                        .header("X-APP-CERTIFICATE", CERTIFICATE_HEADER_VALUE)
+                        .header("Authorization", tokenHeaderValue))
+                .andExpect(status().isUnauthorized())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")));
+        verify(jwtDecoder, never()).decode(Mockito.anyString());
+        mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo("/auth")));
+        assertCertificateNotCached();
+    }
+
+    private void enableValidBearer() {
+        cacheProviderSettings(null, "http://issuer");
+        when(jwtDecoder.decode(tokenValue)).thenReturn(mockJwt);
+    }
+
+    private void assertCertificateNotCached() {
+        Assertions
+                .assertNull(cacheManager
+                        .getCache(com.otilm.core.config.cache.CacheConfig.CERTIFICATE_AUTH_CACHE)
+                        .get(com.otilm.core.security.authn.ForwardedCertificateFixtures.THUMBPRINT));
+    }
+
+    @Test
+    void authorizeProtocolEndpoint() throws Exception {
+        addAuthPostStub("\"systemUsername\":\"acme\"", UUID.randomUUID().toString(), "acme");
+        mvc
+                .perform(get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath()
+                        + "/v1/protocols/acme/raProfile/RA Profile/directory"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void authorizeUsingJwtToken() throws Exception {
+        cacheProviderSettings(null, "http://issuer");
+        when(jwtDecoder.decode(tokenValue)).thenReturn(mockJwt);
+        MvcResult result = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .header("Authorization", tokenHeaderValue))
+                .andReturn();
+        Assertions.assertTrue(result.getResponse().getContentAsString().contains(TOKEN_USER_USERNAME));
+
+    }
+
+    @Test
+    void authorizeWithCertificateAndToken() throws Exception {
+        when(jwtDecoder.decode(tokenValue)).thenReturn(null);
+        MvcResult result = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .header("X-APP-CERTIFICATE", CERTIFICATE_HEADER_VALUE)
+                                .header("Authorization", tokenHeaderValue))
+                .andReturn();
+        Assertions.assertTrue(result.getResponse().getContentAsString().contains(CERTIFICATE_USER_USERNAME));
+    }
+
+    @Test
+    void testPermitAllEndpoint() throws Exception {
+        mvc
+                .perform(post(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath()
+                        + "/v1/connector/register").content("""
+                                {
+                                    "name": "name",
+                                    "url": "http://network-discovery-provicer:8080",
+                                    "authType": "none"
+                                }""").contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().is5xxServerError());
+    }
+
+    @Test
+    void testOauth2Login() throws Exception {
+        String userUuid = UUID.randomUUID().toString();
+        String username = "login-user";
+        addAuthPostStub("{\"sub\":\"user\",\"username\":\"%s\"}".formatted(username), userUuid, username);
+        addAuthGetSub(userUuid, username);
+
+        String oauth2Token = OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, username);
+        cacheProviderSettings(null);
+        MockHttpSession mockHttpSession = new MockHttpSession();
+        OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, oauth2Token,
+                Instant.now(), Instant.MAX);
+        mockHttpSession.setAttribute(OAuth2Constants.ACCESS_TOKEN_SESSION_ATTRIBUTE, oauth2AccessToken);
+        MvcResult result = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .with(oidcLogin())
+                                .session(mockHttpSession))
+                .andReturn();
+        Assertions.assertTrue(result.getResponse().getContentAsString().contains(username));
+
+        String idTokenUsername = "id-token-username";
+        String idTokenUuid = UUID.randomUUID().toString();
+        addAuthPostStub("{\"sub\":\"user\",\"username\":\"%s\"}".formatted(idTokenUsername), idTokenUuid,
+                idTokenUsername);
+        addAuthGetSub(idTokenUuid, idTokenUsername);
+        result = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .with(oidcLogin()
+                                        .idToken(token -> token
+                                                .claim(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME, idTokenUsername)))
+                                .session(mockHttpSession))
+                .andReturn();
+        Assertions.assertTrue(result.getResponse().getContentAsString().contains(idTokenUsername));
+
+        cacheProviderSettings("http://localhost:" + mockServer.port() + "/userinfo");
+        String userInfoUsername = "user-info-username";
+        String userInfoUuid = UUID.randomUUID().toString();
+        addUserInfoStub(userInfoUsername);
+        addAuthPostStub("{\"sub\":\"user\",\"username\":\"%s\"}".formatted(userInfoUsername), userInfoUuid,
+                userInfoUsername);
+        addAuthGetSub(userInfoUuid, userInfoUsername);
+        result = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .with(oidcLogin())
+                                .session(mockHttpSession))
+                .andReturn();
+        Assertions.assertTrue(result.getResponse().getContentAsString().contains(userInfoUsername));
+    }
+
+    @Test
+    void testOAuth2LoginRefreshingToken() throws Exception {
+        cacheProviderSettings(null);
+        String oauth2Token = OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "oldUsername");
+        OAuth2AccessToken oauth2AccessTokenToRefresh = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER,
+                oauth2Token, Instant.now(), Instant.now().plusMillis(1));
+        MockHttpSession mockHttpSession = new MockHttpSession();
+        mockHttpSession.setAttribute(OAuth2Constants.ACCESS_TOKEN_SESSION_ATTRIBUTE, oauth2AccessTokenToRefresh);
+        OAuth2RefreshToken oAuth2RefreshToken = new OAuth2RefreshToken("random", Instant.now());
+        mockHttpSession.setAttribute(OAuth2Constants.REFRESH_TOKEN_SESSION_ATTRIBUTE, oAuth2RefreshToken);
+        String refreshedUserName = "refreshed-user";
+        String refreshedUserUuid = UUID.randomUUID().toString();
+        addAuthPostStub("{\"iss\":\"newInfo\",\"sub\":\"user\",\"username\":\"%s\"}".formatted(refreshedUserName),
+                refreshedUserUuid, refreshedUserName);
+        addAuthGetSub(refreshedUserUuid, refreshedUserName);
+        addTokenEndpointStub(OAuth2TestUtil.createJwtTokenValue(privateKey, null, "newInfo", null, refreshedUserName));
+        MvcResult resultRefresh = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .with(oidcLogin()
+                                        .idToken(token -> token
+                                                .claim(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME, refreshedUserName)))
+                                .session(mockHttpSession))
+                .andReturn();
+        Assertions.assertTrue(resultRefresh.getResponse().getContentAsString().contains(refreshedUserName));
+    }
+
+    @Test
+    void testOAuth2LoginRefreshingTokenWithoutUsernameInPrincipalAttributes() throws Exception {
+        cacheProviderSettings(null);
+        String oauth2Token = OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, "oldUsername");
+        OAuth2AccessToken oauth2AccessTokenToRefresh = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER,
+                oauth2Token, Instant.now(), Instant.now().plusMillis(1));
+        MockHttpSession mockHttpSession = new MockHttpSession();
+        mockHttpSession.setAttribute(OAuth2Constants.ACCESS_TOKEN_SESSION_ATTRIBUTE, oauth2AccessTokenToRefresh);
+        OAuth2RefreshToken oAuth2RefreshToken = new OAuth2RefreshToken("random", Instant.now());
+        mockHttpSession.setAttribute(OAuth2Constants.REFRESH_TOKEN_SESSION_ATTRIBUTE, oAuth2RefreshToken);
+        String refreshedUserName = "refreshed-user-no-principal-claim";
+        String refreshedUserUuid = UUID.randomUUID().toString();
+        addAuthPostStub("{\"iss\":\"newInfo\",\"sub\":\"user\",\"username\":\"%s\"}".formatted(refreshedUserName),
+                refreshedUserUuid, refreshedUserName);
+        addAuthGetSub(refreshedUserUuid, refreshedUserName);
+        addTokenEndpointStub(OAuth2TestUtil.createJwtTokenValue(privateKey, null, "newInfo", null, refreshedUserName));
+        // Deliberately no idToken claim customization: the OIDC principal attributes established at
+        // login time lack the effective username claim, while the refreshed access token carries it.
+        MvcResult resultRefresh = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .with(oidcLogin())
+                                .session(mockHttpSession))
+                .andReturn();
+        Assertions.assertTrue(resultRefresh.getResponse().getContentAsString().contains(refreshedUserName));
+    }
+
+    @Test
+    void testOauth2LoginNormalizesConfiguredUsernameClaimIntoTokenUserClaims() throws Exception {
+        String usernameClaim = "preferred_username";
+        String username = "preferred-username-login-user";
+        cacheProviderSettingsWithUsernameClaim(usernameClaim);
+
+        String userUuid = UUID.randomUUID().toString();
+        addAuthPostStub("\"%s\":\"%s\"".formatted(OAuth2Constants.TOKEN_USERNAME_CLAIM_NAME, username), userUuid,
+                username);
+        addAuthGetSub(userUuid, username);
+
+        String oauth2Token = OAuth2TestUtil.createJwtTokenValue(privateKey, null, null, null, usernameClaim, username);
+        MockHttpSession mockHttpSession = new MockHttpSession();
+        OAuth2AccessToken oauth2AccessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, oauth2Token,
+                Instant.now(), Instant.MAX);
+        mockHttpSession.setAttribute(OAuth2Constants.ACCESS_TOKEN_SESSION_ATTRIBUTE, oauth2AccessToken);
+
+        MvcResult result = mvc
+                .perform(
+                        get(ServletUriComponentsBuilder.fromCurrentContextPath().build().getPath() + "/v1/auth/profile")
+                                .with(oidcLogin())
+                                .session(mockHttpSession))
+                .andReturn();
+        Assertions.assertTrue(result.getResponse().getContentAsString().contains(username));
+    }
+
+    void cacheProviderSettings(String userInfoUrl) {
+        cacheProviderSettings(userInfoUrl, null);
+    }
+
+    void cacheProviderSettings(String userInfoUrl, String issuerUrl) {
+        AuthenticationSettingsDto authenticationSettingsDto = OAuth2TestUtil
+                .getAuthenticationSettings(userInfoUrl, mockServer.port(), new ArrayList<>(), issuerUrl);
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, authenticationSettingsDto);
+    }
+
+    void cacheProviderSettingsWithUsernameClaim(String usernameClaim) {
+        AuthenticationSettingsDto authenticationSettingsDto = OAuth2TestUtil
+                .getAuthenticationSettings(null, mockServer.port(), new ArrayList<>(), null);
+        authenticationSettingsDto.getOAuth2Providers().get("test").setUsernameClaim(usernameClaim);
+        settingsCache.cacheSettings(SettingsSection.AUTHENTICATION, authenticationSettingsDto);
+    }
+
+    void addAuthPostStub(String requestBody, String userUuid, String username) {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/auth"))
+                        .withRequestBody(WireMock.containing(requestBody))
+                        .willReturn(WireMock.okJson(String.format("""
+                                {
+                                  "authenticated": true,
+                                  "data": {
+                                    "user": {
+                                      "uuid": "%s",
+                                      "username": "%s"
+                                    },
+                                    "roles": [
+                                      {
+                                        "name": "superadmin"
+                                      }
+                                    ],
+                                    "permissions": {
+                                      "allowAllResources": true,
+                                      "resources": []
+                                    }
+                                  }
+                                }
+                                """, userUuid, username))));
+    }
+
+    void addAuthGetSub(String userUuid, String username) {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/auth/users/" + userUuid))
+                        .willReturn(WireMock
+                                .okJson(String
+                                        .format("{ \"username\": \"%s\", \"roles\": [{\"name\": \"superadmin\"}]}",
+                                                username))));
+    }
+
+    void addTokenEndpointStub(String tokenValue) {
+        String responseJson = """
+                {
+                  "access_token":"%s",
+                  "token_type":"Bearer",
+                  "expires_in":3600,
+                  "refresh_token":"IwOGYzYTlmM2YxOTQ5MGE3YmNmMDFkNTVk",
+                  "scope":"create"
+                }
+                """.formatted(tokenValue);
+        // "Connection: close" tells the pooled HTTP client used for the token refresh call not to keep
+        // this connection alive; otherwise a later test's fresh WireMockServer instance on the same
+        // port can be handed a stale pooled connection from an earlier test's now-stopped server.
+        mockServer
+                .stubFor(WireMock
+                        .post("/token")
+                        .willReturn(WireMock
+                                .okJson(responseJson)
+                                .withHeader("contentType", "application/json")
+                                .withHeader("Connection", "close")));
+    }
+
+    void addUserInfoStub(String userInfoUsername) {
+        mockServer
+                .stubFor(WireMock
+                        .get("/userinfo")
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("""
+                                        {
+                                        "username": "%s"
+                                        }
+                                        """.formatted(userInfoUsername))));
+    }
+
+}

@@ -1,0 +1,13 @@
+{
+  "type" : "urn:ietf:params:acme:error:malformed",
+  "title" : "Message Malformed",
+  "detail" : "the request message was malformed",
+  "instance" : "https://acme.example/acme/order/1",
+  "subproblems" : [
+    {
+      "type" : "urn:ietf:params:acme:error:rejectedIdentifier",
+      "title" : "Rejected Identifier",
+      "detail" : "The identifier is not accepted by this ACME profile"
+    }
+  ]
+}

@@ -1,0 +1,1933 @@
+{
+ "$comment": "Reconstructed source strand for OID-derived identity table rows. The original strandD-oid.json was lost; this file preserves the ratified OID decisions from identity-tables.json so the full artifact is reproducible.",
+ "oidToFamily": {
+  "1.2.840.113549.1.1": {
+   "family": "RSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "pkcs-1 (container arc)",
+   "note": "Container arc deliberately mapped: every child is RSA-family, so the pseudo-family RSA is never wrong. The padding scheme is NOT derivable here."
+  },
+  "1.2.840.113549.1.1.1": {
+   "family": "RSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "rsaEncryption",
+   "note": "PSEUDO-FAMILY. rsaEncryption does not determine the padding scheme, so it cannot yield RSAES-OAEP / RSAES-PKCS1 / RSASSA-PKCS1 / RSASSA-PSS. cbom-lens cdx17map.go makes the same call (bare \"RSA\" absent from familyExact)."
+  },
+  "1.2.840.113549.1.1.2": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "md2WithRSAEncryption",
+   "impliedDigest": "MD2"
+  },
+  "1.2.840.113549.1.1.3": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "md4WithRSAEncryption",
+   "impliedDigest": "MD4"
+  },
+  "1.2.840.113549.1.1.4": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "md5WithRSAEncryption",
+   "impliedDigest": "MD5"
+  },
+  "1.2.840.113549.1.1.5": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "sha1WithRSAEncryption",
+   "impliedDigest": "SHA-1"
+  },
+  "1.2.840.113549.1.1.7": {
+   "family": "RSAES-OAEP",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "pke",
+   "source": "verified",
+   "name": "id-RSAES-OAEP"
+  },
+  "1.2.840.113549.1.1.8": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "other",
+   "source": "verified",
+   "name": "id-mgf1",
+   "note": "CORRECT OID WITH NO LEGAL FAMILY TOKEN. MGF1 is not in algorithmFamiliesEnum. cbomkit emits this asset (keycloak-cbom.json, name 'MGF1', primitive 'other'). Derivation must yield no family rather than an illegal token."
+  },
+  "1.2.840.113549.1.1.9": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "id-pSpecified",
+   "note": "OAEP label parameter; not an algorithm family."
+  },
+  "1.2.840.113549.1.1.10": {
+   "family": "RSASSA-PSS",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-RSASSA-PSS"
+  },
+  "1.2.840.113549.1.1.11": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "sha256WithRSAEncryption",
+   "impliedDigest": "SHA-2/256"
+  },
+  "1.2.840.113549.1.1.12": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "sha384WithRSAEncryption",
+   "impliedDigest": "SHA-2/384"
+  },
+  "1.2.840.113549.1.1.13": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "sha512WithRSAEncryption",
+   "impliedDigest": "SHA-2/512"
+  },
+  "1.2.840.113549.1.1.14": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "sha224WithRSAEncryption",
+   "impliedDigest": "SHA-2/224"
+  },
+  "1.2.840.113549.1.1.15": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "sha512-224WithRSAEncryption",
+   "impliedDigest": "SHA-2/512-224"
+  },
+  "1.2.840.113549.1.1.16": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "sha512-256WithRSAEncryption",
+   "impliedDigest": "SHA-2/512-256"
+  },
+  "1.2.840.10045": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "ansi-X9-62 (container arc)",
+   "note": "Homogeneous container: every child is EC-family."
+  },
+  "1.2.840.10045.2.1": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "id-ecPublicKey",
+   "note": "PSEUDO-FAMILY. Determines EC but not ECDSA-vs-ECDH; primitive / keyUsage decides. Emitted by cbomkit for EC-secp256r1 / EC-secp384r1 / EC-secp521r1."
+  },
+  "1.2.840.10045.3.1": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "primeCurve (container arc)",
+   "note": "Homogeneous container: named prime curves."
+  },
+  "1.2.840.10045.3.1.1": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "secg/secp192r1",
+   "primitive": null,
+   "source": "verified",
+   "name": "secp192r1 / prime192v1"
+  },
+  "1.2.840.10045.3.1.7": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "secg/secp256r1",
+   "primitive": null,
+   "source": "verified",
+   "name": "secp256r1 / prime256v1 / P-256"
+  },
+  "1.2.840.10045.4.1": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "ecdsa-with-SHA1",
+   "impliedDigest": "SHA-1"
+  },
+  "1.2.840.10045.4.3.1": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "ecdsa-with-SHA224",
+   "impliedDigest": "SHA-2/224"
+  },
+  "1.2.840.10045.4.3.2": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "ecdsa-with-SHA256",
+   "impliedDigest": "SHA-2/256"
+  },
+  "1.2.840.10045.4.3.3": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "ecdsa-with-SHA384",
+   "impliedDigest": "SHA-2/384"
+  },
+  "1.2.840.10045.4.3.4": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "ecdsa-with-SHA512",
+   "impliedDigest": "SHA-2/512"
+  },
+  "1.3.132.0.10": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "secg/secp256k1",
+   "primitive": null,
+   "source": "verified",
+   "name": "secp256k1"
+  },
+  "1.3.132.0.31": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "secg/secp192k1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "secp192k1"
+  },
+  "1.3.132.0.32": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "secg/secp224k1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "secp224k1"
+  },
+  "1.3.132.0.33": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "secg/secp224r1",
+   "primitive": null,
+   "source": "verified",
+   "name": "secp224r1 / P-224"
+  },
+  "1.3.132.0.34": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "secg/secp384r1",
+   "primitive": null,
+   "source": "verified",
+   "name": "secp384r1 / P-384"
+  },
+  "1.3.132.0.35": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "secg/secp521r1",
+   "primitive": null,
+   "source": "verified",
+   "name": "secp521r1 / P-521"
+  },
+  "1.3.132.1.11.0": {
+   "family": "ECDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "inferred",
+   "name": "dhSinglePass-stdDH-sha224kdf-scheme"
+  },
+  "1.3.132.1.11.1": {
+   "family": "ECDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "inferred",
+   "name": "dhSinglePass-stdDH-sha256kdf-scheme"
+  },
+  "1.3.132.1.11.2": {
+   "family": "ECDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "inferred",
+   "name": "dhSinglePass-stdDH-sha384kdf-scheme"
+  },
+  "1.3.132.1.11.3": {
+   "family": "ECDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "inferred",
+   "name": "dhSinglePass-stdDH-sha512kdf-scheme"
+  },
+  "1.3.132.1.12": {
+   "family": "ECDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "inferred",
+   "name": "dhSinglePass-cofactorDH-sha1kdf-scheme",
+   "note": "Arc identity INFERRED. Empirically this is the arc three independent producers put on ECDH assets: cbom-lens parse_tls.go (ECDHE-*), cbomkit keycloak-cbom.json (name 'ECDH'), and cyclonedx-bom-examples/CBOM/Protocol/bom.json (name 'X25519' -- itself a mis-stamp; X25519 is 1.3.101.110). Family ECDH is right either way."
+  },
+  "1.3.132.1.14.0": {
+   "family": "MQV",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "inferred",
+   "name": "mqvSinglePass-sha224kdf-scheme"
+  },
+  "1.3.132.1.14.1": {
+   "family": "MQV",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "inferred",
+   "name": "mqvSinglePass-sha256kdf-scheme"
+  },
+  "1.3.36.3.3.2.8.1.1.1": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP160r1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP160r1"
+  },
+  "1.3.36.3.3.2.8.1.1.2": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP160t1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP160t1"
+  },
+  "1.3.36.3.3.2.8.1.1.3": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP192r1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP192r1"
+  },
+  "1.3.36.3.3.2.8.1.1.4": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP192t1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP192t1"
+  },
+  "1.3.36.3.3.2.8.1.1.5": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP224r1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP224r1"
+  },
+  "1.3.36.3.3.2.8.1.1.6": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP224t1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP224t1"
+  },
+  "1.3.36.3.3.2.8.1.1.7": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP256r1",
+   "primitive": null,
+   "source": "verified",
+   "name": "brainpoolP256r1"
+  },
+  "1.3.36.3.3.2.8.1.1.8": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP256t1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP256t1"
+  },
+  "1.3.36.3.3.2.8.1.1.9": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP320r1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP320r1"
+  },
+  "1.3.36.3.3.2.8.1.1.10": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP320t1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP320t1"
+  },
+  "1.3.36.3.3.2.8.1.1.11": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP384r1",
+   "primitive": null,
+   "source": "verified",
+   "name": "brainpoolP384r1"
+  },
+  "1.3.36.3.3.2.8.1.1.12": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP384t1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP384t1"
+  },
+  "1.3.36.3.3.2.8.1.1.13": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP512r1",
+   "primitive": null,
+   "source": "verified",
+   "name": "brainpoolP512r1"
+  },
+  "1.3.36.3.3.2.8.1.1.14": {
+   "family": "EC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "brainpool/brainpoolP512t1",
+   "primitive": null,
+   "source": "inferred",
+   "name": "brainpoolP512t1"
+  },
+  "1.3.101.110": {
+   "family": "ECDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "other/Curve25519",
+   "primitive": "key-agree",
+   "source": "verified",
+   "name": "id-X25519",
+   "note": "MODELLING CHOICE: algorithmFamiliesEnum has no X25519 token, so X25519 folds to ECDH + curve other/Curve25519. That fold is ours, not an OID fact."
+  },
+  "1.3.101.111": {
+   "family": "ECDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "other/Curve448",
+   "primitive": "key-agree",
+   "source": "verified",
+   "name": "id-X448"
+  },
+  "1.3.101.112": {
+   "family": "EdDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "other/Ed25519",
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-Ed25519"
+  },
+  "1.3.101.113": {
+   "family": "EdDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "other/Ed448",
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-Ed448"
+  },
+  "1.3.14.3.2.7": {
+   "family": "DES",
+   "parameterSet": 56,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "desCBC"
+  },
+  "1.3.14.3.2.26": {
+   "family": "SHA-1",
+   "parameterSet": 160,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha1"
+  },
+  "1.3.14.3.2.27": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "dsaWithSHA1 (OIW)",
+   "impliedDigest": "SHA-1"
+  },
+  "1.3.14.3.2.29": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "sha1WithRSASignature (OIW)",
+   "impliedDigest": "SHA-1"
+  },
+  "2.16.840.1.101.3.4.2.1": {
+   "family": "SHA-2",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha256"
+  },
+  "2.16.840.1.101.3.4.2.2": {
+   "family": "SHA-2",
+   "parameterSet": 384,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha384"
+  },
+  "2.16.840.1.101.3.4.2.3": {
+   "family": "SHA-2",
+   "parameterSet": 512,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha512"
+  },
+  "2.16.840.1.101.3.4.2.4": {
+   "family": "SHA-2",
+   "parameterSet": 224,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha224"
+  },
+  "2.16.840.1.101.3.4.2.5": {
+   "family": "SHA-2",
+   "parameterSet": 224,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha512-224",
+   "parameterSetIdentifier": "512/224"
+  },
+  "2.16.840.1.101.3.4.2.6": {
+   "family": "SHA-2",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha512-256",
+   "parameterSetIdentifier": "512/256"
+  },
+  "2.16.840.1.101.3.4.2.7": {
+   "family": "SHA-3",
+   "parameterSet": 224,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha3-224"
+  },
+  "2.16.840.1.101.3.4.2.8": {
+   "family": "SHA-3",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha3-256"
+  },
+  "2.16.840.1.101.3.4.2.9": {
+   "family": "SHA-3",
+   "parameterSet": 384,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha3-384",
+   "note": "THE CORROBORATION TEST CASE. cyclonedx-bom-examples/CBOM/Protocol/bom.json stamps this arc on an asset named 'SHA-384' with parameterSetIdentifier 384. The arc is genuinely id-sha3-384; the producer is wrong. Name must win; conflict must be flagged."
+  },
+  "2.16.840.1.101.3.4.2.10": {
+   "family": "SHA-3",
+   "parameterSet": 512,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-sha3-512"
+  },
+  "2.16.840.1.101.3.4.2.11": {
+   "family": "SHA-3",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "xof",
+   "source": "verified",
+   "name": "id-shake128"
+  },
+  "2.16.840.1.101.3.4.2.12": {
+   "family": "SHA-3",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "xof",
+   "source": "verified",
+   "name": "id-shake256"
+  },
+  "2.16.840.1.101.3.4.2.13": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "inferred",
+   "name": "id-hmacWithSHA3-224",
+   "impliedDigest": "SHA-3/224"
+  },
+  "2.16.840.1.101.3.4.2.14": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "inferred",
+   "name": "id-hmacWithSHA3-256",
+   "impliedDigest": "SHA-3/256"
+  },
+  "2.16.840.1.101.3.4.2.15": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "inferred",
+   "name": "id-hmacWithSHA3-384",
+   "impliedDigest": "SHA-3/384"
+  },
+  "2.16.840.1.101.3.4.2.16": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "inferred",
+   "name": "id-hmacWithSHA3-512",
+   "impliedDigest": "SHA-3/512"
+  },
+  "2.16.840.1.101.3.4.2.17": {
+   "family": "SHA-3",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "xof",
+   "source": "inferred",
+   "name": "id-shake128-len"
+  },
+  "2.16.840.1.101.3.4.2.18": {
+   "family": "SHA-3",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "xof",
+   "source": "inferred",
+   "name": "id-shake256-len"
+  },
+  "2.16.840.1.101.3.4.1": {
+   "family": "AES",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "aes (container arc)",
+   "note": "BARE-ARC TOLERANCE, REQUIRED BY REAL DATA. cbomkit emits exactly this arc for 'AES', 'AES128', 'AES128-CBC-PKCS5' and 'AES128-GCM'. Homogeneous subtree, so the family is safe, but neither key size nor mode is derivable -- both stay null."
+  },
+  "2.16.840.1.101.3.4.1.1": {
+   "family": "AES",
+   "parameterSet": 128,
+   "mode": "ECB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes128-ECB",
+   "parameterSetIdentifier": "128"
+  },
+  "2.16.840.1.101.3.4.1.2": {
+   "family": "AES",
+   "parameterSet": 128,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "id-aes128-CBC",
+   "parameterSetIdentifier": "128"
+  },
+  "2.16.840.1.101.3.4.1.3": {
+   "family": "AES",
+   "parameterSet": 128,
+   "mode": "OFB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes128-OFB",
+   "parameterSetIdentifier": "128"
+  },
+  "2.16.840.1.101.3.4.1.4": {
+   "family": "AES",
+   "parameterSet": 128,
+   "mode": "CFB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes128-CFB",
+   "parameterSetIdentifier": "128"
+  },
+  "2.16.840.1.101.3.4.1.5": {
+   "family": "AES",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes128-wrap",
+   "parameterSetIdentifier": "128",
+   "note": "Key-wrap arc: mode is not a CycloneDX cipher mode, so mode stays null."
+  },
+  "2.16.840.1.101.3.4.1.6": {
+   "family": "AES",
+   "parameterSet": 128,
+   "mode": "GCM",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "id-aes128-GCM",
+   "parameterSetIdentifier": "128"
+  },
+  "2.16.840.1.101.3.4.1.7": {
+   "family": "AES",
+   "parameterSet": 128,
+   "mode": "CCM",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes128-CCM",
+   "parameterSetIdentifier": "128"
+  },
+  "2.16.840.1.101.3.4.1.8": {
+   "family": "AES",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes128-wrap-pad",
+   "parameterSetIdentifier": "128",
+   "note": "Key-wrap arc: mode is not a CycloneDX cipher mode, so mode stays null."
+  },
+  "2.16.840.1.101.3.4.1.21": {
+   "family": "AES",
+   "parameterSet": 192,
+   "mode": "ECB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes192-ECB",
+   "parameterSetIdentifier": "192"
+  },
+  "2.16.840.1.101.3.4.1.22": {
+   "family": "AES",
+   "parameterSet": 192,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "id-aes192-CBC",
+   "parameterSetIdentifier": "192"
+  },
+  "2.16.840.1.101.3.4.1.23": {
+   "family": "AES",
+   "parameterSet": 192,
+   "mode": "OFB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes192-OFB",
+   "parameterSetIdentifier": "192"
+  },
+  "2.16.840.1.101.3.4.1.24": {
+   "family": "AES",
+   "parameterSet": 192,
+   "mode": "CFB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes192-CFB",
+   "parameterSetIdentifier": "192"
+  },
+  "2.16.840.1.101.3.4.1.25": {
+   "family": "AES",
+   "parameterSet": 192,
+   "mode": null,
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes192-wrap",
+   "parameterSetIdentifier": "192",
+   "note": "Key-wrap arc: mode is not a CycloneDX cipher mode, so mode stays null."
+  },
+  "2.16.840.1.101.3.4.1.26": {
+   "family": "AES",
+   "parameterSet": 192,
+   "mode": "GCM",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "id-aes192-GCM",
+   "parameterSetIdentifier": "192"
+  },
+  "2.16.840.1.101.3.4.1.27": {
+   "family": "AES",
+   "parameterSet": 192,
+   "mode": "CCM",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes192-CCM",
+   "parameterSetIdentifier": "192"
+  },
+  "2.16.840.1.101.3.4.1.28": {
+   "family": "AES",
+   "parameterSet": 192,
+   "mode": null,
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes192-wrap-pad",
+   "parameterSetIdentifier": "192",
+   "note": "Key-wrap arc: mode is not a CycloneDX cipher mode, so mode stays null."
+  },
+  "2.16.840.1.101.3.4.1.41": {
+   "family": "AES",
+   "parameterSet": 256,
+   "mode": "ECB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes256-ECB",
+   "parameterSetIdentifier": "256"
+  },
+  "2.16.840.1.101.3.4.1.42": {
+   "family": "AES",
+   "parameterSet": 256,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "id-aes256-CBC",
+   "parameterSetIdentifier": "256"
+  },
+  "2.16.840.1.101.3.4.1.43": {
+   "family": "AES",
+   "parameterSet": 256,
+   "mode": "OFB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes256-OFB",
+   "parameterSetIdentifier": "256"
+  },
+  "2.16.840.1.101.3.4.1.44": {
+   "family": "AES",
+   "parameterSet": 256,
+   "mode": "CFB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes256-CFB",
+   "parameterSetIdentifier": "256"
+  },
+  "2.16.840.1.101.3.4.1.45": {
+   "family": "AES",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes256-wrap",
+   "parameterSetIdentifier": "256",
+   "note": "Key-wrap arc: mode is not a CycloneDX cipher mode, so mode stays null."
+  },
+  "2.16.840.1.101.3.4.1.46": {
+   "family": "AES",
+   "parameterSet": 256,
+   "mode": "GCM",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "id-aes256-GCM",
+   "parameterSetIdentifier": "256"
+  },
+  "2.16.840.1.101.3.4.1.47": {
+   "family": "AES",
+   "parameterSet": 256,
+   "mode": "CCM",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes256-CCM",
+   "parameterSetIdentifier": "256"
+  },
+  "2.16.840.1.101.3.4.1.48": {
+   "family": "AES",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "id-aes256-wrap-pad",
+   "parameterSetIdentifier": "256",
+   "note": "id-aes256-wrap-pad. SECOND REAL MIS-STAMP: cyclonedx-bom-examples/CBOM/Algorithm/bom.json puts this arc on an asset named 'ML-KEM-1024' (correct arc 2.16.840.1.101.3.4.4.3). Under an OID-wins policy that PQC KEM would be inventoried as AES-256."
+  },
+  "2.16.840.1.101.3.4.3.1": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-dsa-with-sha224",
+   "impliedDigest": "SHA-2/224"
+  },
+  "2.16.840.1.101.3.4.3.2": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-dsa-with-sha256",
+   "impliedDigest": "SHA-2/256"
+  },
+  "2.16.840.1.101.3.4.3.3": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-dsa-with-sha384",
+   "impliedDigest": "SHA-2/384"
+  },
+  "2.16.840.1.101.3.4.3.4": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-dsa-with-sha512",
+   "impliedDigest": "SHA-2/512"
+  },
+  "2.16.840.1.101.3.4.3.5": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-dsa-with-sha3-224",
+   "impliedDigest": "SHA-3/224"
+  },
+  "2.16.840.1.101.3.4.3.6": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-dsa-with-sha3-256",
+   "impliedDigest": "SHA-3/256"
+  },
+  "2.16.840.1.101.3.4.3.7": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-dsa-with-sha3-384",
+   "impliedDigest": "SHA-3/384"
+  },
+  "2.16.840.1.101.3.4.3.8": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-dsa-with-sha3-512",
+   "impliedDigest": "SHA-3/512"
+  },
+  "2.16.840.1.101.3.4.3.9": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-ecdsa-with-sha3-224",
+   "impliedDigest": "SHA-3/224"
+  },
+  "2.16.840.1.101.3.4.3.10": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-ecdsa-with-sha3-256",
+   "impliedDigest": "SHA-3/256"
+  },
+  "2.16.840.1.101.3.4.3.11": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-ecdsa-with-sha3-384",
+   "impliedDigest": "SHA-3/384"
+  },
+  "2.16.840.1.101.3.4.3.12": {
+   "family": "ECDSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-ecdsa-with-sha3-512",
+   "impliedDigest": "SHA-3/512"
+  },
+  "2.16.840.1.101.3.4.3.13": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-rsassa-pkcs1-v1_5-with-sha3-224",
+   "impliedDigest": "SHA-3/224"
+  },
+  "2.16.840.1.101.3.4.3.14": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-rsassa-pkcs1-v1_5-with-sha3-256",
+   "impliedDigest": "SHA-3/256"
+  },
+  "2.16.840.1.101.3.4.3.15": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-rsassa-pkcs1-v1_5-with-sha3-384",
+   "impliedDigest": "SHA-3/384"
+  },
+  "2.16.840.1.101.3.4.3.16": {
+   "family": "RSASSA-PKCS1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "id-rsassa-pkcs1-v1_5-with-sha3-512",
+   "impliedDigest": "SHA-3/512"
+  },
+  "2.16.840.1.101.3.4.3.17": {
+   "family": "ML-DSA",
+   "parameterSet": 44,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-ml-dsa-44",
+   "parameterSetIdentifier": "44",
+   "note": "Cross-checked against cbom-lens internal/cdxprops/algorithm.go unsupportedAlgorithms."
+  },
+  "2.16.840.1.101.3.4.3.18": {
+   "family": "ML-DSA",
+   "parameterSet": 65,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-ml-dsa-65",
+   "parameterSetIdentifier": "65",
+   "note": "Cross-checked against cbom-lens internal/cdxprops/algorithm.go unsupportedAlgorithms."
+  },
+  "2.16.840.1.101.3.4.3.19": {
+   "family": "ML-DSA",
+   "parameterSet": 87,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-ml-dsa-87",
+   "parameterSetIdentifier": "87",
+   "note": "Cross-checked against cbom-lens internal/cdxprops/algorithm.go unsupportedAlgorithms."
+  },
+  "2.16.840.1.101.3.4.3.20": {
+   "family": "SLH-DSA",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-sha2-128s",
+   "parameterSetIdentifier": "128S",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 128S)."
+  },
+  "2.16.840.1.101.3.4.3.21": {
+   "family": "SLH-DSA",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-sha2-128f",
+   "parameterSetIdentifier": "128F",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 128F)."
+  },
+  "2.16.840.1.101.3.4.3.22": {
+   "family": "SLH-DSA",
+   "parameterSet": 192,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-sha2-192s",
+   "parameterSetIdentifier": "192S",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 192S)."
+  },
+  "2.16.840.1.101.3.4.3.23": {
+   "family": "SLH-DSA",
+   "parameterSet": 192,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-sha2-192f",
+   "parameterSetIdentifier": "192F",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 192F)."
+  },
+  "2.16.840.1.101.3.4.3.24": {
+   "family": "SLH-DSA",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-sha2-256s",
+   "parameterSetIdentifier": "256S",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 256S)."
+  },
+  "2.16.840.1.101.3.4.3.25": {
+   "family": "SLH-DSA",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-sha2-256f",
+   "parameterSetIdentifier": "256F",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 256F)."
+  },
+  "2.16.840.1.101.3.4.3.26": {
+   "family": "SLH-DSA",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-shake-128s",
+   "parameterSetIdentifier": "128S",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 128S)."
+  },
+  "2.16.840.1.101.3.4.3.27": {
+   "family": "SLH-DSA",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-shake-128f",
+   "parameterSetIdentifier": "128F",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 128F)."
+  },
+  "2.16.840.1.101.3.4.3.28": {
+   "family": "SLH-DSA",
+   "parameterSet": 192,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-shake-192s",
+   "parameterSetIdentifier": "192S",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 192S)."
+  },
+  "2.16.840.1.101.3.4.3.29": {
+   "family": "SLH-DSA",
+   "parameterSet": 192,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-shake-192f",
+   "parameterSetIdentifier": "192F",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 192F)."
+  },
+  "2.16.840.1.101.3.4.3.30": {
+   "family": "SLH-DSA",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-shake-256s",
+   "parameterSetIdentifier": "256S",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 256S)."
+  },
+  "2.16.840.1.101.3.4.3.31": {
+   "family": "SLH-DSA",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-slh-dsa-shake-256f",
+   "parameterSetIdentifier": "256F",
+   "note": "Cross-checked against cbom-lens unsupportedAlgorithms (paramSetID 256F)."
+  },
+  "2.16.840.1.101.3.4.4": {
+   "family": "ML-KEM",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "kem",
+   "source": "verified",
+   "name": "kems (container arc)",
+   "note": "Homogeneous container: every child is ML-KEM."
+  },
+  "2.16.840.1.101.3.4.4.1": {
+   "family": "ML-KEM",
+   "parameterSet": 512,
+   "mode": null,
+   "curve": null,
+   "primitive": "kem",
+   "source": "verified",
+   "name": "id-alg-ml-kem-512",
+   "parameterSetIdentifier": "512"
+  },
+  "2.16.840.1.101.3.4.4.2": {
+   "family": "ML-KEM",
+   "parameterSet": 768,
+   "mode": null,
+   "curve": null,
+   "primitive": "kem",
+   "source": "verified",
+   "name": "id-alg-ml-kem-768",
+   "parameterSetIdentifier": "768"
+  },
+  "2.16.840.1.101.3.4.4.3": {
+   "family": "ML-KEM",
+   "parameterSet": 1024,
+   "mode": null,
+   "curve": null,
+   "primitive": "kem",
+   "source": "verified",
+   "name": "id-alg-ml-kem-1024",
+   "parameterSetIdentifier": "1024"
+  },
+  "1.3.6.1.5.5.7.6.34": {
+   "family": "XMSS",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-alg-xmss-hashsig"
+  },
+  "1.3.6.1.5.5.7.6.35": {
+   "family": "XMSS",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-alg-xmssmt-hashsig",
+   "note": "XMSS^MT folds to the XMSS family token (cbom-lens cdx17map.go does the same)."
+  },
+  "1.2.840.113549.1.9.16.3.17": {
+   "family": "LMS",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-alg-hss-lms-hashsig"
+  },
+  "1.2.840.113549.3.2": {
+   "family": "RC2",
+   "parameterSet": null,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "rc2CBC"
+  },
+  "1.2.840.113549.3.4": {
+   "family": "RC4",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "stream-cipher",
+   "source": "verified",
+   "name": "rc4"
+  },
+  "1.2.840.113549.3.7": {
+   "family": "3DES",
+   "parameterSet": 168,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "verified",
+   "name": "des-EDE3-CBC"
+  },
+  "1.2.840.113549.3.9": {
+   "family": "RC5",
+   "parameterSet": null,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "rc5-CBC-Pad"
+  },
+  "1.2.840.113549.2.2": {
+   "family": "MD2",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-md2"
+  },
+  "1.2.840.113549.2.4": {
+   "family": "MD4",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-md4"
+  },
+  "1.2.840.113549.2.5": {
+   "family": "MD5",
+   "parameterSet": 128,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "id-md5"
+  },
+  "1.2.840.113549.2.7": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "verified",
+   "name": "hmacWithSHA1",
+   "impliedDigest": "SHA-1"
+  },
+  "1.2.840.113549.2.8": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "verified",
+   "name": "hmacWithSHA224",
+   "impliedDigest": "SHA-2/224"
+  },
+  "1.2.840.113549.2.9": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "verified",
+   "name": "hmacWithSHA256",
+   "impliedDigest": "SHA-2/256"
+  },
+  "1.2.840.113549.2.10": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "verified",
+   "name": "hmacWithSHA384",
+   "impliedDigest": "SHA-2/384"
+  },
+  "1.2.840.113549.2.11": {
+   "family": "HMAC",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "verified",
+   "name": "hmacWithSHA512",
+   "impliedDigest": "SHA-2/512"
+  },
+  "1.2.840.113549.1.3.1": {
+   "family": "FFDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "verified",
+   "name": "dhKeyAgreement (PKCS#3)"
+  },
+  "1.2.840.10046.2.1": {
+   "family": "FFDH",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "key-agree",
+   "source": "verified",
+   "name": "dhpublicnumber (X9.42)"
+  },
+  "1.2.840.10040.4.1": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-dsa"
+  },
+  "1.2.840.10040.4.3": {
+   "family": "DSA",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "signature",
+   "source": "verified",
+   "name": "id-dsa-with-sha1",
+   "impliedDigest": "SHA-1"
+  },
+  "1.2.840.113549.1.5.1": {
+   "family": "PBES1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "pbeWithMD2AndDES-CBC"
+  },
+  "1.2.840.113549.1.5.3": {
+   "family": "PBES1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "pbeWithMD5AndDES-CBC"
+  },
+  "1.2.840.113549.1.5.10": {
+   "family": "PBES1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "pbeWithSHA1AndDES-CBC"
+  },
+  "1.2.840.113549.1.5.11": {
+   "family": "PBES1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "pbeWithSHA1AndRC2-CBC"
+  },
+  "1.2.840.113549.1.5.12": {
+   "family": "PBKDF2",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "id-PBKDF2"
+  },
+  "1.2.840.113549.1.5.13": {
+   "family": "PBES2",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "id-PBES2"
+  },
+  "1.2.840.113549.1.5.14": {
+   "family": "PBMAC1",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "mac",
+   "source": "verified",
+   "name": "id-PBMAC1"
+  },
+  "1.2.840.113549.1.9.16.3.18": {
+   "family": "ChaCha20",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "ae",
+   "source": "verified",
+   "name": "id-alg-AEADChaCha20Poly1305",
+   "note": "RFC 8103. Only exists in the CMS arc. cbom-lens instead emits the NON-OID literal 'ietf-rfc8439' in cryptoProperties.oid for this algorithm -- see residual risk. The mode was POLY1305 until 2026-09-04: Poly1305 is the AEAD tag, not a CycloneDX mode value, and the name's poly1305 secondary marker already carries it, so the arc contributed a mode the name never could and split the asset from its OID-less spelling."
+  },
+  "1.2.840.113549.1.9.16.3.28": {
+   "family": "HKDF",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "id-alg-hkdf-with-sha256"
+  },
+  "1.2.840.113549.1.9.16.3.29": {
+   "family": "HKDF",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "id-alg-hkdf-with-sha384"
+  },
+  "1.2.840.113549.1.9.16.3.30": {
+   "family": "HKDF",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "inferred",
+   "name": "id-alg-hkdf-with-sha512"
+  },
+  "1.3.36.3.2.1": {
+   "family": "RIPEMD",
+   "parameterSet": 160,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "ripemd160"
+  },
+  "1.3.6.1.4.1.1722.12.2.1.8": {
+   "family": "BLAKE2",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "blake2b-256"
+  },
+  "1.3.6.1.4.1.1722.12.2.1.12": {
+   "family": "BLAKE2",
+   "parameterSet": 384,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "blake2b-384"
+  },
+  "1.3.6.1.4.1.1722.12.2.1.16": {
+   "family": "BLAKE2",
+   "parameterSet": 512,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "blake2b-512"
+  },
+  "1.3.6.1.4.1.1722.12.2.2.8": {
+   "family": "BLAKE2",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "verified",
+   "name": "blake2s-256"
+  },
+  "1.0.10118.3.0.55": {
+   "family": "Whirlpool",
+   "parameterSet": 512,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "inferred",
+   "name": "whirlpool"
+  },
+  "1.2.156.10197.1.104": {
+   "family": "SM4",
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "sm4"
+  },
+  "1.2.156.10197.1.301": {
+   "family": "SM2",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "oscaa/SM2",
+   "primitive": null,
+   "source": "inferred",
+   "name": "sm2 curve"
+  },
+  "1.2.156.10197.1.401": {
+   "family": "SM3",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "inferred",
+   "name": "sm3"
+  },
+  "1.2.643.7.1.1.1.1": {
+   "family": "GOST",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "gost/gost256",
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "gostR3410-2012-256"
+  },
+  "1.2.643.7.1.1.1.2": {
+   "family": "GOST",
+   "parameterSet": null,
+   "mode": null,
+   "curve": "gost/gost512",
+   "primitive": "signature",
+   "source": "inferred",
+   "name": "gostR3410-2012-512"
+  },
+  "1.2.643.7.1.1.2.2": {
+   "family": "GOST",
+   "parameterSet": 256,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "inferred",
+   "name": "gostR3411-2012-256 (Streebog)"
+  },
+  "1.2.643.7.1.1.2.3": {
+   "family": "GOST",
+   "parameterSet": 512,
+   "mode": null,
+   "curve": null,
+   "primitive": "hash",
+   "source": "inferred",
+   "name": "gostR3411-2012-512 (Streebog)"
+  },
+  "1.2.410.200004.1.4": {
+   "family": "SEED",
+   "parameterSet": null,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "seedCBC"
+  },
+  "1.2.410.200046.1.1.1": {
+   "family": "ARIA",
+   "parameterSet": 128,
+   "mode": "ECB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "aria128-ecb"
+  },
+  "1.2.410.200046.1.1.6": {
+   "family": "ARIA",
+   "parameterSet": 192,
+   "mode": "ECB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "aria192-ecb"
+  },
+  "1.2.410.200046.1.1.11": {
+   "family": "ARIA",
+   "parameterSet": 256,
+   "mode": "ECB",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "aria256-ecb"
+  },
+  "1.2.392.200011.61.1.1.1.2": {
+   "family": "CAMELLIA",
+   "parameterSet": 128,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "camellia128-cbc"
+  },
+  "1.2.392.200011.61.1.1.1.3": {
+   "family": "CAMELLIA",
+   "parameterSet": 192,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "camellia192-cbc"
+  },
+  "1.2.392.200011.61.1.1.1.4": {
+   "family": "CAMELLIA",
+   "parameterSet": 256,
+   "mode": "CBC",
+   "curve": null,
+   "primitive": "block-cipher",
+   "source": "inferred",
+   "name": "camellia256-cbc"
+  },
+  "1.3.6.1.5.5.7.6.0": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "id-alg-TLS1.1 (protocol)",
+   "note": "PROTOCOL identifier, not an algorithm. Present in cryptoProperties.oid of protocol assets in the corpora. Must resolve to NO family; family derivation runs only on assetType == algorithm."
+  },
+  "1.3.6.1.5.5.7.6.1": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "TLS 1.2 (protocol)",
+   "note": "PROTOCOL identifier, not an algorithm. Present in cryptoProperties.oid of protocol assets in the corpora. Must resolve to NO family; family derivation runs only on assetType == algorithm."
+  },
+  "1.3.6.1.5.5.7.6.2": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "TLS 1.3 (protocol)",
+   "note": "PROTOCOL identifier, not an algorithm. Present in cryptoProperties.oid of protocol assets in the corpora. Must resolve to NO family; family derivation runs only on assetType == algorithm."
+  },
+  "1.3.6.1.4.1.311.10.3.1": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "Microsoft SSL 2.0 (protocol)",
+   "note": "PROTOCOL identifier, not an algorithm. Present in cryptoProperties.oid of protocol assets in the corpora. Must resolve to NO family; family derivation runs only on assetType == algorithm."
+  },
+  "1.3.6.1.4.1.311.10.3.2": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "Microsoft SSL 3.0 (protocol)",
+   "note": "PROTOCOL identifier, not an algorithm. Present in cryptoProperties.oid of protocol assets in the corpora. Must resolve to NO family; family derivation runs only on assetType == algorithm."
+  },
+  "1.3.6.1.4.1.311.10.3.3": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "Microsoft TLS 1.0 / server-gated crypto",
+   "note": "PROTOCOL identifier, not an algorithm. Present in cryptoProperties.oid of protocol assets in the corpora. Must resolve to NO family; family derivation runs only on assetType == algorithm."
+  },
+  "1.3.18.0.2.32.104": {
+   "family": null,
+   "parameterSet": null,
+   "mode": null,
+   "curve": null,
+   "primitive": null,
+   "source": "verified",
+   "name": "IBM arc, emitted for TLSv1.2 by cyclonedx-bom-examples",
+   "note": "PROTOCOL identifier, not an algorithm. Present in cryptoProperties.oid of protocol assets in the corpora. Must resolve to NO family; family derivation runs only on assetType == algorithm."
+  }
+ },
+ "blockedPrefixes": [
+  {
+   "prefix": "2.16.840.1.101.3.4"
+  },
+  {
+   "prefix": "2.16.840.1.101.3.4.2"
+  },
+  {
+   "prefix": "2.16.840.1.101.3.4.3"
+  },
+  {
+   "prefix": "1.2.840.113549.2"
+  },
+  {
+   "prefix": "1.2.840.113549.1.9.16.3"
+  },
+  {
+   "prefix": "1.2.840.113549.1.5"
+  },
+  {
+   "prefix": "1.2.840.113549.3"
+  },
+  {
+   "prefix": "1.3.14.3.2"
+  },
+  {
+   "prefix": "1.3.132.0"
+  },
+  {
+   "prefix": "1.3.6.1.5.5.7.6"
+  },
+  {
+   "prefix": "1.3.6.1.4.1"
+  }
+ ]
+}

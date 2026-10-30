@@ -1,0 +1,9 @@
+{
+  "type" : "Public",
+  "algorithm" : "RSA",
+  "format" : "SubjectPublicKeyInfo",
+  "value" : {
+    "value" : "c3BraS1rZXktYnl0ZXM="
+  },
+  "length" : 2048
+}
