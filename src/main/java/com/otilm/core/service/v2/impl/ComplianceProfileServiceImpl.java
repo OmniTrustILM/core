@@ -57,6 +57,7 @@ import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ComplianceProfileInternalService;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.NullUtil;
+import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -98,6 +99,7 @@ public class ComplianceProfileServiceImpl
     private CertificateRequestRepository certificateRequestRepository;
     private CertificateRepository certificateRepository;
     private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private EntityManager entityManager;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -174,6 +176,11 @@ public class ComplianceProfileServiceImpl
     public void setComplianceProfileAssociationWriter(
             ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
         this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
+    }
+
+    @Autowired
+    public void setEntityManager(EntityManager entityManager) {
+        this.entityManager = entityManager;
     }
 
     @Override
@@ -752,6 +759,8 @@ public class ComplianceProfileServiceImpl
         }
 
         complianceProfileAssociationWriter.deleteAllOfProfile(complianceProfile.getUuid());
+        // The bulk delete leaves the loaded associations managed, still referring to the profile removed below
+        complianceProfile.getAssociations().forEach(entityManager::detach);
         attributeEngine.deleteObjectAttributeContent(Resource.COMPLIANCE_PROFILE, complianceProfile.getUuid());
 
         commentService.removeObjectComments(Resource.COMPLIANCE_PROFILE, complianceProfile.getUuid());
