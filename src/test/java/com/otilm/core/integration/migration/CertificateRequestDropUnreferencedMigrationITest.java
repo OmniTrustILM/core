@@ -15,9 +15,9 @@ import org.springframework.core.io.ClassPathResource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Runs {@code V202610301100__certificate_request_drop_unreferenced.sql} in a scratch schema and asserts it drops the
- * requests no certificate refers to, with their attribute values and compliance profile associations, and keeps the
- * referenced ones and what belongs to other objects.
+ * Runs {@code V202610301100__certificate_request_drop_unreferenced.sql} in a scratch schema and asserts it indexes
+ * certificates by their request and drops the requests no certificate refers to, with their attribute values and
+ * compliance profile associations, keeping the referenced ones and what belongs to other objects.
  */
 class CertificateRequestDropUnreferencedMigrationITest extends BaseSpringBootTest {
 
@@ -89,6 +89,10 @@ class CertificateRequestDropUnreferencedMigrationITest extends BaseSpringBootTes
                             .containsExactlyInAnyOrder(REFERENCED_REQUEST, OTHER_OBJECT);
                     assertThat(column(statement, "SELECT object_uuid::text FROM compliance_profile_association"))
                             .containsExactlyInAnyOrder(REFERENCED_REQUEST, OTHER_OBJECT);
+                    assertThat(column(statement,
+                            "SELECT indexname FROM pg_indexes WHERE schemaname = '" + SCRATCH_SCHEMA
+                                    + "' AND tablename = 'certificate' AND indexname <> 'certificate_pkey'"))
+                            .containsExactly("idx_certificate_certificate_request_uuid");
                 }
             } finally {
                 try (Statement statement = connection.createStatement()) {
