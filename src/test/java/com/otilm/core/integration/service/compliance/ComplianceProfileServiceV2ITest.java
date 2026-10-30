@@ -740,6 +740,13 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
         Assertions
                 .assertThrows(NotFoundException.class, () -> complianceProfileService
                         .associateComplianceProfile(profileUuid, Resource.CRYPTOGRAPHIC_KEY_ITEM, UUID.randomUUID()));
+
+        UUID requestWithoutCertificateUuid = newCertificateRequest("CN=requestWithoutCertificate").getUuid();
+        Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> complianceProfileService
+                                .associateComplianceProfile(profileUuid, Resource.CERTIFICATE_REQUEST,
+                                        requestWithoutCertificateUuid));
     }
 
     private CryptographicKeyItem newKeyItem(String name) {
@@ -752,12 +759,7 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
     }
 
     private CertificateRequestEntity newCertificateRequestOfACertificate(String subjectDn) {
-        CertificateRequestEntity certificateRequest = certificateRequestRepository
-                .saveAndFlush(CertificateRequestEntityBuilder
-                        .aCertificateRequest()
-                        .withContent(Base64.getEncoder().encodeToString(subjectDn.getBytes(StandardCharsets.UTF_8)))
-                        .withSubjectDn(subjectDn)
-                        .build());
+        CertificateRequestEntity certificateRequest = newCertificateRequest(subjectDn);
         certificateRepository
                 .saveAndFlush(CertificateBuilder
                         .aCertificate()
@@ -767,6 +769,15 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
                         .withCertificateRequestUuid(certificateRequest.getUuid())
                         .build());
         return certificateRequest;
+    }
+
+    private CertificateRequestEntity newCertificateRequest(String subjectDn) {
+        return certificateRequestRepository
+                .saveAndFlush(CertificateRequestEntityBuilder
+                        .aCertificateRequest()
+                        .withContent(Base64.getEncoder().encodeToString(subjectDn.getBytes(StandardCharsets.UTF_8)))
+                        .withSubjectDn(subjectDn)
+                        .build());
     }
 
     private void associateWithMissingRaProfile(ComplianceProfile profile) {

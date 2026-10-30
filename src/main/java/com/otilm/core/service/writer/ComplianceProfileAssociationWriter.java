@@ -7,7 +7,7 @@ import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
-import com.otilm.core.dao.repository.CertificateRequestRepository;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.service.ResourceInternalService;
@@ -25,18 +25,17 @@ public class ComplianceProfileAssociationWriter {
 
     private final ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
     private final CryptographicKeyItemRepository cryptographicKeyItemRepository;
-    private final CertificateRequestRepository certificateRequestRepository;
+    private final CertificateRepository certificateRepository;
     private final ResourceInternalService resourceService;
     private final ClusterOperationSynchronizer synchronizer;
 
     public ComplianceProfileAssociationWriter(
             ComplianceProfileAssociationRepository complianceProfileAssociationRepository,
-            CryptographicKeyItemRepository cryptographicKeyItemRepository,
-            CertificateRequestRepository certificateRequestRepository, ResourceInternalService resourceService,
-            ClusterOperationSynchronizer synchronizer) {
+            CryptographicKeyItemRepository cryptographicKeyItemRepository, CertificateRepository certificateRepository,
+            ResourceInternalService resourceService, ClusterOperationSynchronizer synchronizer) {
         this.complianceProfileAssociationRepository = complianceProfileAssociationRepository;
         this.cryptographicKeyItemRepository = cryptographicKeyItemRepository;
-        this.certificateRequestRepository = certificateRequestRepository;
+        this.certificateRepository = certificateRepository;
         this.resourceService = resourceService;
         this.synchronizer = synchronizer;
     }
@@ -78,11 +77,15 @@ public class ComplianceProfileAssociationWriter {
         return complianceProfileAssociationRepository.deleteByResourceAndObjectUuidIn(resource, objectUuids);
     }
 
+    /**
+     * A certificate request counts as existing while a certificate refers to it, the same rule the association list
+     * applies.
+     */
     private void requireExistingObject(Resource resource, UUID objectUuid) throws NotFoundException {
         switch (resource) {
             case CRYPTOGRAPHIC_KEY_ITEM -> requireFound(cryptographicKeyItemRepository.existsById(objectUuid),
                     CryptographicKeyItem.class, objectUuid);
-            case CERTIFICATE_REQUEST -> requireFound(certificateRequestRepository.existsById(objectUuid),
+            case CERTIFICATE_REQUEST -> requireFound(certificateRepository.existsByCertificateRequestUuid(objectUuid),
                     CertificateRequestEntity.class, objectUuid);
             default -> resourceService.getResourceObjectInternal(resource, objectUuid);
         }

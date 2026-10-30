@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Runs {@code V202610291200__compliance_profile_association_drop_orphaned.sql} in a scratch schema and asserts it
- * removes the associations whose object no longer exists, keeps those whose object does, and leaves the associations of
- * other resources alone.
+ * removes the associations whose object no longer exists, and those of certificate requests no certificate refers to,
+ * keeps those whose object does, and leaves the associations of other resources alone.
  */
 class ComplianceProfileAssociationDropOrphanedMigrationITest extends BaseSpringBootTest {
 
@@ -27,8 +27,8 @@ class ComplianceProfileAssociationDropOrphanedMigrationITest extends BaseSpringB
     private static final String SCRATCH_SCHEMA = "compliance_profile_association_drop_orphaned_migration_check";
     private static final Map<String, String> TABLES_BY_RESOURCE = Map
             .of("RA_PROFILE", "ra_profile", "TOKEN_PROFILE", "token_profile", "VAULT_PROFILE", "vault_profile",
-                    "CERTIFICATE", "certificate", "CERTIFICATE_REQUEST", "certificate_request", "CRYPTOGRAPHIC_KEY",
-                    "cryptographic_key", "CRYPTOGRAPHIC_KEY_ITEM", "cryptographic_key_item", "SECRET", "secret");
+                    "CERTIFICATE", "certificate", "CRYPTOGRAPHIC_KEY", "cryptographic_key", "CRYPTOGRAPHIC_KEY_ITEM",
+                    "cryptographic_key_item", "SECRET", "secret");
     private static final String COMPLIANCE_PROFILE = "10000000-0000-0000-0000-000000000001";
     private static final String OTHER_RESOURCE_ASSOCIATION = "20000000-0000-0000-0000-000000000001";
 
@@ -61,6 +61,11 @@ class ComplianceProfileAssociationDropOrphanedMigrationITest extends BaseSpringB
                     liveAssociations.add(insertAssociation(statement, resourceTable.getKey(), existingObject));
                     insertAssociation(statement, resourceTable.getKey(), UUID.randomUUID().toString());
                 }
+                statement.execute("ALTER TABLE \"certificate\" ADD COLUMN \"certificate_request_uuid\" UUID");
+                String issuedRequest = UUID.randomUUID().toString();
+                statement.execute("INSERT INTO \"certificate\" VALUES (gen_random_uuid(), '" + issuedRequest + "')");
+                liveAssociations.add(insertAssociation(statement, "CERTIFICATE_REQUEST", issuedRequest));
+                insertAssociation(statement, "CERTIFICATE_REQUEST", UUID.randomUUID().toString());
                 statement
                         .execute("INSERT INTO compliance_profile_association VALUES ('" + OTHER_RESOURCE_ASSOCIATION
                                 + "', '" + COMPLIANCE_PROFILE + "', 'AUTHORITY', gen_random_uuid())");

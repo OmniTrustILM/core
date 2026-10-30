@@ -16,11 +16,12 @@ DELETE FROM "compliance_profile_association" AS "association"
  WHERE "association"."resource" = 'CERTIFICATE'
    AND NOT EXISTS (SELECT 1 FROM "certificate" AS "object" WHERE "object"."uuid" = "association"."object_uuid");
 
+-- A certificate request counts as existing while a certificate refers to it.
 DELETE FROM "compliance_profile_association" AS "association"
  WHERE "association"."resource" = 'CERTIFICATE_REQUEST'
    AND NOT EXISTS (SELECT 1
-                     FROM "certificate_request" AS "object"
-                    WHERE "object"."uuid" = "association"."object_uuid");
+                     FROM "certificate" AS "object"
+                    WHERE "object"."certificate_request_uuid" = "association"."object_uuid");
 
 DELETE FROM "compliance_profile_association" AS "association"
  WHERE "association"."resource" = 'CRYPTOGRAPHIC_KEY'
