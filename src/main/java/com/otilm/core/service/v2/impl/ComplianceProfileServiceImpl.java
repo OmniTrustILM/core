@@ -649,9 +649,7 @@ public class ComplianceProfileServiceImpl
                     .formatted(resource.getLabel(), associationObjectUuid));
         }
 
-        complianceProfileAssociationRepository
-                .deleteByComplianceProfileUuidAndResourceAndObjectUuid(uuid.getValue(), resource,
-                        associationObjectUuid);
+        complianceProfileAssociationWriter.delete(uuid.getValue(), resource, associationObjectUuid);
     }
 
     @Override
@@ -681,8 +679,8 @@ public class ComplianceProfileServiceImpl
     }
 
     /**
-     * An association names its object without a foreign key, so it can outlive the object. Such an association is left
-     * out instead of failing the whole list.
+     * An association can outlive its object (see {@link ComplianceProfileAssociationWriter}); such an association is
+     * left out instead of failing the whole list.
      */
     private List<ResourceObjectDto> getExistingAssociatedObjects(ComplianceProfile complianceProfile) {
         List<ResourceObjectDto> associatedObjects = new ArrayList<>();
@@ -753,7 +751,7 @@ public class ComplianceProfileServiceImpl
             }
         }
 
-        complianceProfileAssociationRepository.deleteByComplianceProfileUuid(complianceProfile.getUuid());
+        complianceProfileAssociationWriter.deleteAllOfProfile(complianceProfile.getUuid());
         attributeEngine.deleteObjectAttributeContent(Resource.COMPLIANCE_PROFILE, complianceProfile.getUuid());
 
         commentService.removeObjectComments(Resource.COMPLIANCE_PROFILE, complianceProfile.getUuid());

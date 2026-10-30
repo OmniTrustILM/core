@@ -27,17 +27,24 @@ public interface ComplianceProfileAssociationRepository
 
     boolean existsByResourceAndObjectUuidIn(Resource resource, List<UUID> associationObjectUuids);
 
-    void deleteByComplianceProfileUuid(UUID complianceProfileUuid);
-
     boolean existsByComplianceProfileUuidAndResourceAndObjectUuid(UUID complianceProfileUuid, Resource resource,
             UUID associationObjectUuid);
 
-    void deleteByComplianceProfileUuidAndResourceAndObjectUuid(UUID complianceProfileUuid, Resource resource,
-            UUID associationObjectUuid);
-
     /**
-     * One bulk statement, so a row another transaction already removed does not fail the delete.
+     * The deletes below are bulk statements: an object delete removes associations concurrently with them, and a row
+     * another transaction already removed must not fail the delete.
      */
+    @Modifying
+    @Query("DELETE FROM ComplianceProfileAssociation a WHERE a.complianceProfileUuid = :complianceProfileUuid")
+    int deleteByComplianceProfileUuid(@Param("complianceProfileUuid") UUID complianceProfileUuid);
+
+    @Modifying
+    @Query("DELETE FROM ComplianceProfileAssociation a WHERE a.complianceProfileUuid = :complianceProfileUuid"
+            + " AND a.resource = :resource AND a.objectUuid = :objectUuid")
+    int deleteByComplianceProfileUuidAndResourceAndObjectUuid(
+            @Param("complianceProfileUuid") UUID complianceProfileUuid, @Param("resource") Resource resource,
+            @Param("objectUuid") UUID objectUuid);
+
     @Modifying
     @Query("DELETE FROM ComplianceProfileAssociation a WHERE a.resource = :resource AND a.objectUuid = :objectUuid")
     int deleteByResourceAndObjectUuid(@Param("resource") Resource resource, @Param("objectUuid") UUID objectUuid);

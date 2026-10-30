@@ -63,6 +63,17 @@ public class ComplianceProfileAssociationWriter {
     }
 
     @Transactional
+    public int delete(UUID complianceProfileUuid, Resource resource, UUID objectUuid) {
+        return complianceProfileAssociationRepository
+                .deleteByComplianceProfileUuidAndResourceAndObjectUuid(complianceProfileUuid, resource, objectUuid);
+    }
+
+    @Transactional
+    public int deleteAllOfProfile(UUID complianceProfileUuid) {
+        return complianceProfileAssociationRepository.deleteByComplianceProfileUuid(complianceProfileUuid);
+    }
+
+    @Transactional
     public int deleteAllForObject(Resource resource, UUID objectUuid) {
         synchronizer.lock(objectLockKey(resource, objectUuid));
         return complianceProfileAssociationRepository.deleteByResourceAndObjectUuid(resource, objectUuid);
