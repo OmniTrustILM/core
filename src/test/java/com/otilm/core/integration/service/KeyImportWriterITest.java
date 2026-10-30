@@ -37,6 +37,7 @@ import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.config.cache.CacheConfig;
+import com.otilm.core.config.cache.ReadThroughCache;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
@@ -116,7 +117,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -1601,8 +1601,8 @@ class KeyImportWriterITest extends BaseSpringBootTest {
         KeyPair pair = rsa();
         UUID recordUuid = certificatePublicKey(pair);
         UUID publicKeyUuid = item(recordUuid, KeyType.PUBLIC_KEY).getUuid();
-        Cache cache = cacheManager.getCache(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
-        cache.put(publicKeyUuid, "cached before the quarantine");
+        ReadThroughCache cache = ReadThroughCache.from(cacheManager, CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE);
+        cache.getOrLoad(publicKeyUuid, () -> "cached before the quarantine");
         KeyImportAttempt attempt = keyImportWriter
                 .open(terms(profile, pair), "retry-quarantine-cache", "imported key", SENT);
         keyImportWriter.compensating(attempt);

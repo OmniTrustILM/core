@@ -4,35 +4,25 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.otilm.api.model.connector.secrets.content.BasicAuthSecretContent;
 import com.otilm.api.model.core.signing.TspAuthenticationMethod;
 import com.otilm.core.model.signing.TspProfileModel;
-import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.util.SecretsUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
-import java.util.Optional;
-import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 
-/**
- * Authenticates a TSP request presenting HTTP Basic credentials. Verifies the presented password against the stored
- * credential fingerprint (positive results cached), then proxies as the mapped user. Never touches secret values beyond
- * computing the verification fingerprint.
- */
+/** Authenticates a TSP request presenting HTTP Basic credentials as the credential's mapped user. */
 public class BasicPasswordAuthenticator implements TspAuthenticator {
 
     private static final Logger log = LoggerFactory.getLogger(BasicPasswordAuthenticator.class);
     private static final String BASIC_PREFIX = "Basic ";
 
-    private final CredentialVerificationCache credentialVerificationCache;
     private final TspSecurityContextWriter contextWriter;
 
-    public BasicPasswordAuthenticator(CredentialVerificationCache credentialVerificationCache,
-            TspSecurityContextWriter contextWriter) {
-        this.credentialVerificationCache = credentialVerificationCache;
+    public BasicPasswordAuthenticator(TspSecurityContextWriter contextWriter) {
         this.contextWriter = contextWriter;
     }
 
@@ -75,13 +65,6 @@ public class BasicPasswordAuthenticator implements TspAuthenticator {
             return false;
         }
 
-        UUID secretUuid = credential.secretUuid();
-
-        Optional<UUID> cached = credentialVerificationCache.getMappedUser(secretUuid, password);
-        if (cached.isPresent()) {
-            return contextWriter.authenticateAsUser(cached.get());
-        }
-
         String candidate = computeFingerprint(username, password, profile);
         if (candidate == null) {
             return false;
@@ -94,7 +77,6 @@ public class BasicPasswordAuthenticator implements TspAuthenticator {
             return false;
         }
 
-        credentialVerificationCache.putSuccess(secretUuid, password, credential.mappedUserUuid());
         return contextWriter.authenticateAsUser(credential.mappedUserUuid());
     }
 

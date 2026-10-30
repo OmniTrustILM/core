@@ -12,7 +12,6 @@ import com.otilm.core.auth.oauth2.PlatformJwtDecoder;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
-import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
@@ -79,8 +78,6 @@ class TspAuthenticationFilterTest {
     @Mock
     private PlatformJwtDecoder jwtDecoder;
     @Mock
-    private CredentialVerificationCache credentialCache;
-    @Mock
     private AuthHelper authHelper;
 
     private TspAuthenticationFilter filter;
@@ -95,7 +92,7 @@ class TspAuthenticationFilterTest {
                 List
                         .of(new ClientCertificateAuthenticator(authClient, CERT_HEADER_NAME, contextWriter),
                                 new BearerTokenAuthenticator(jwtDecoder, authClient, contextWriter),
-                                new BasicPasswordAuthenticator(credentialCache, contextWriter)),
+                                new BasicPasswordAuthenticator(contextWriter)),
                 new TspChallengeWriter());
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
@@ -546,22 +543,19 @@ class TspAuthenticationFilterTest {
         @Test
         void authenticatesAsMappedUser_whenFingerprintMatches() throws Exception {
             // given
-            UUID secretUuid = UUID.randomUUID();
             UUID mappedUser = UUID.randomUUID();
             setPath("/v1/protocols/tsp/p1");
             when(tspProfileService.resolveTspProfileForAuthentication("p1"))
                     .thenReturn(modelWith(List.of(TspAuthenticationMethod.BASIC_PASSWORD), UUID.randomUUID(),
                             List
-                                    .of(new TspProfileModel.BasicCredentialRef("alice", secretUuid, mappedUser,
+                                    .of(new TspProfileModel.BasicCredentialRef("alice", mappedUser,
                                             fingerprintOf("alice", "s3cret")))));
             request.addHeader("Authorization", basicHeader("alice", "s3cret"));
-            when(credentialCache.getMappedUser(secretUuid, "s3cret")).thenReturn(Optional.empty());
 
             // when
             filter.doFilter(request, response, chain);
 
             // then
-            verify(credentialCache).putSuccess(secretUuid, "s3cret", mappedUser);
             verify(authHelper).authenticateAsUser(mappedUser);
             assertThat(chain.getRequest()).isNotNull();
         }
@@ -569,46 +563,22 @@ class TspAuthenticationFilterTest {
         @Test
         void returns401_whenFingerprintMismatch() throws Exception {
             // given
-            UUID secretUuid = UUID.randomUUID();
             UUID mappedUser = UUID.randomUUID();
             setPath("/v1/protocols/tsp/p1");
             when(tspProfileService.resolveTspProfileForAuthentication("p1"))
                     .thenReturn(modelWith(List.of(TspAuthenticationMethod.BASIC_PASSWORD), UUID.randomUUID(),
                             List
-                                    .of(new TspProfileModel.BasicCredentialRef("alice", secretUuid, mappedUser,
+                                    .of(new TspProfileModel.BasicCredentialRef("alice", mappedUser,
                                             fingerprintOf("alice", "right")))));
             request.addHeader("Authorization", basicHeader("alice", "wrong"));
-            when(credentialCache.getMappedUser(secretUuid, "wrong")).thenReturn(Optional.empty());
 
             // when
             filter.doFilter(request, response, chain);
 
             // then
             assertThat(response.getStatus()).isEqualTo(401);
-            verify(credentialCache, never()).putSuccess(any(), any(), any());
             verify(authHelper, never()).authenticateAsUser(any());
             assertThat(chain.getRequest()).isNull();
-        }
-
-        @Test
-        void skipsFingerprintCheck_onCacheHit() throws Exception {
-            // given
-            UUID secretUuid = UUID.randomUUID();
-            UUID mappedUser = UUID.randomUUID();
-            setPath("/v1/protocols/tsp/p1");
-            when(tspProfileService.resolveTspProfileForAuthentication("p1"))
-                    .thenReturn(modelWith(List.of(TspAuthenticationMethod.BASIC_PASSWORD), UUID.randomUUID(),
-                            List.of(new TspProfileModel.BasicCredentialRef("alice", secretUuid, mappedUser, "x"))));
-            request.addHeader("Authorization", basicHeader("alice", "s3cret"));
-            when(credentialCache.getMappedUser(secretUuid, "s3cret")).thenReturn(Optional.of(mappedUser));
-
-            // when
-            filter.doFilter(request, response, chain);
-
-            // then
-            verify(credentialCache, never()).putSuccess(any(), any(), any());
-            verify(authHelper).authenticateAsUser(mappedUser);
-            assertThat(chain.getRequest()).isNotNull();
         }
 
         @Test
@@ -631,11 +601,10 @@ class TspAuthenticationFilterTest {
         @Test
         void returns401_whenUsernameUnknown() throws Exception {
             // given
-            UUID secretUuid = UUID.randomUUID();
             setPath("/v1/protocols/tsp/p1");
             when(tspProfileService.resolveTspProfileForAuthentication("p1"))
-                    .thenReturn(modelWith(List.of(TspAuthenticationMethod.BASIC_PASSWORD), UUID.randomUUID(), List
-                            .of(new TspProfileModel.BasicCredentialRef("alice", secretUuid, UUID.randomUUID(), "x"))));
+                    .thenReturn(modelWith(List.of(TspAuthenticationMethod.BASIC_PASSWORD), UUID.randomUUID(),
+                            List.of(new TspProfileModel.BasicCredentialRef("alice", UUID.randomUUID(), "x"))));
             request.addHeader("Authorization", basicHeader("mallory", "s3cret"));
 
             // when
@@ -755,9 +724,7 @@ class TspAuthenticationFilterTest {
             setPath("/v1/protocols/tsp/p1");
             when(tspProfileService.resolveTspProfileForAuthentication("p1"))
                     .thenReturn(modelWith(List.of(TspAuthenticationMethod.BASIC_PASSWORD), UUID.randomUUID(),
-                            List
-                                    .of(new TspProfileModel.BasicCredentialRef("alice", UUID.randomUUID(),
-                                            UUID.randomUUID(), "x"))));
+                            List.of(new TspProfileModel.BasicCredentialRef("alice", UUID.randomUUID(), "x"))));
             String noColon = Base64.getEncoder().encodeToString("nocredentials".getBytes());
             request.addHeader("Authorization", "Basic " + noColon);
 
@@ -778,9 +745,7 @@ class TspAuthenticationFilterTest {
             setPath("/v1/protocols/tsp/p1");
             when(tspProfileService.resolveTspProfileForAuthentication("p1"))
                     .thenReturn(modelWith(List.of(TspAuthenticationMethod.BASIC_PASSWORD), UUID.randomUUID(),
-                            List
-                                    .of(new TspProfileModel.BasicCredentialRef("alice", UUID.randomUUID(),
-                                            UUID.randomUUID(), "x"))));
+                            List.of(new TspProfileModel.BasicCredentialRef("alice", UUID.randomUUID(), "x"))));
             request.addHeader("Authorization", "Basic !!!not-base64!!!");
 
             // when

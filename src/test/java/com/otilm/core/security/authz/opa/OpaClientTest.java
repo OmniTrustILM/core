@@ -2,14 +2,13 @@ package com.otilm.core.security.authz.opa;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.otilm.core.config.cache.AuthorizationCacheProperties;
-import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.security.authz.OpaPolicy;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.util.PrincipalFixtures;
+import com.otilm.core.util.cache.CacheManagerFixtures;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -23,7 +22,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
-import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
@@ -53,10 +51,8 @@ class OpaClientTest {
     }
 
     private static PlatformAuthorizationCache newAuthorizationCache(ObjectMapper om) {
-        CaffeineCacheManager mgr = new CaffeineCacheManager();
-        mgr.registerCustomCache(CacheConfig.RESOURCE_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
-        mgr.registerCustomCache(CacheConfig.OBJECT_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
-        return new PlatformAuthorizationCache(mgr, om, new AuthorizationCacheProperties(true, 5, 100, 100));
+        return new PlatformAuthorizationCache(CacheManagerFixtures.configured(), om,
+                new AuthorizationCacheProperties(true, 5, 100, 100));
     }
 
     @AfterEach

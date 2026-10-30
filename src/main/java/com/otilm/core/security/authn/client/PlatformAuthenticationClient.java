@@ -55,26 +55,28 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
     }
 
     public AuthenticationInfo authenticateSystemUser(String username) {
-        return restoreActorMdc(authenticationCache
+        return restoreActorMdc(AuthMethod.USER_PROXY, authenticationCache
                 .getOrAuthenticateSystemUser(username, () -> authenticate(AuthMethod.USER_PROXY, username, false)));
     }
 
     public AuthenticationInfo authenticateByUserUuid(UUID userUuid) {
-        return restoreActorMdc(authenticationCache
+        return restoreActorMdc(AuthMethod.USER_PROXY, authenticationCache
                 .getOrAuthenticateByUserUuid(userUuid, () -> authenticate(AuthMethod.USER_PROXY, userUuid, false)));
     }
 
     public AuthenticationInfo authenticateByCertificate(ParsedCertificate certificate) {
-        return restoreActorMdc(authenticationCache
-                .getOrAuthenticateByCertificate(certificate.thumbprint(),
-                        () -> authenticate(AuthMethod.CERTIFICATE, certificate, false)));
+        return restoreActorMdc(AuthMethod.CERTIFICATE,
+                authenticationCache
+                        .getOrAuthenticateByCertificate(certificate.thumbprint(),
+                                () -> authenticate(AuthMethod.CERTIFICATE, certificate, false)));
     }
 
     public AuthenticationInfo authenticateByToken(Map<String, Object> claims, long settingsGeneration) {
-        return restoreActorMdc(authenticationCache
-                .getOrAuthenticateByToken(stringClaim(claims, JwtClaimNames.ISS),
-                        stringClaim(claims, JwtClaimNames.JTI), settingsGeneration,
-                        () -> authenticate(AuthMethod.TOKEN, claims, false)));
+        return restoreActorMdc(AuthMethod.TOKEN,
+                authenticationCache
+                        .getOrAuthenticateByToken(stringClaim(claims, JwtClaimNames.ISS),
+                                stringClaim(claims, JwtClaimNames.JTI), settingsGeneration,
+                                () -> authenticate(AuthMethod.TOKEN, claims, false)));
     }
 
     /**
@@ -89,14 +91,16 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
 
     /**
      * Replays the actor MDC side effects of {@link #authenticate} so that a cache hit leaves the MDC in the same state
-     * as a cache miss. Anonymous results are never cached, so the loader's anonymous MDC path is unaffected.
+     * as a cache miss.
      */
-    private static AuthenticationInfo restoreActorMdc(AuthenticationInfo authInfo) {
-        if (authInfo.getAuthMethod() != AuthMethod.TOKEN) {
+    private static AuthenticationInfo restoreActorMdc(AuthMethod authMethod, AuthenticationInfo authInfo) {
+        if (authMethod != AuthMethod.TOKEN) {
             LoggingHelper.putDelegateInfo(null);
         }
-        if (!authInfo.isAnonymous()) {
-            LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getAuthMethod());
+        LoggingHelper.putActorInfoWhenNull(ActorType.USER, authMethod);
+        if (authInfo.isAnonymous()) {
+            LoggingHelper.putActorInfoWhenNull(ActorType.ANONYMOUS, null, authInfo.getUsername());
+        } else {
             LoggingHelper.putActorInfoWhenNull(ActorType.USER, authInfo.getUserUuid(), authInfo.getUsername());
         }
         return authInfo;

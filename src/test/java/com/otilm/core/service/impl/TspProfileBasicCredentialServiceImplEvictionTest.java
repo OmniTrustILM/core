@@ -5,7 +5,6 @@ import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.dao.entity.signing.TspProfileBasicCredential;
 import com.otilm.core.dao.repository.signing.TspProfileBasicCredentialRepository;
-import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,9 +26,6 @@ class TspProfileBasicCredentialServiceImplEvictionTest {
     @Mock
     private CacheEvictor cacheEvictor;
 
-    @Mock
-    private CredentialVerificationCache credentialVerificationCache;
-
     private TspProfileBasicCredentialServiceImpl service;
 
     private UUID secretUuid;
@@ -39,12 +35,11 @@ class TspProfileBasicCredentialServiceImplEvictionTest {
         service = new TspProfileBasicCredentialServiceImpl();
         service.setCredentialRepository(credentialRepository);
         service.setCacheEvictor(cacheEvictor);
-        service.setCredentialVerificationCache(credentialVerificationCache);
         secretUuid = UUID.randomUUID();
     }
 
     @Test
-    void evictsProfileAndVerificationCaches_whenCredentialFound() {
+    void evictsTheProfileModel_whenCredentialFound() {
         // given
         var profileName = "p1";
         var profile = new TspProfile();
@@ -54,23 +49,21 @@ class TspProfileBasicCredentialServiceImplEvictionTest {
         when(credentialRepository.findBySecretUuid(secretUuid)).thenReturn(Optional.of(credential));
 
         // when
-        service.evictCachesForSecret(secretUuid);
+        service.evictProfileModelForSecret(secretUuid);
 
         // then
         verify(cacheEvictor).evict(CacheConfig.TSP_PROFILE_CACHE, profileName);
-        verify(credentialVerificationCache).evictBySecretUuid(secretUuid);
     }
 
     @Test
-    void evictsVerificationCacheOnly_whenSecretIsNotTspBasicCredential() {
+    void evictsNothing_whenSecretIsNotTspBasicCredential() {
         // given — no TSP basic credential references this secret
         when(credentialRepository.findBySecretUuid(secretUuid)).thenReturn(Optional.empty());
 
         // when
-        service.evictCachesForSecret(secretUuid);
+        service.evictProfileModelForSecret(secretUuid);
 
-        // then — verification cache eviction is keyed by secretUuid and stays idempotent even after the row is gone
+        // then
         verifyNoInteractions(cacheEvictor);
-        verify(credentialVerificationCache).evictBySecretUuid(secretUuid);
     }
 }

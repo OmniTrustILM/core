@@ -26,6 +26,6 @@ public record TspProfileModel(UUID uuid, String name, String description, boolea
         UUID defaultSigningProfileUuid, String defaultSigningProfileName, List<ResponseAttribute> customAttributes,
         List<TspAuthenticationMethod> allowedAuthenticationMethods, List<BasicCredentialRef> basicCredentials,
         UUID vaultProfileUuid) {
-    public record BasicCredentialRef(String username, UUID secretUuid, UUID mappedUserUuid, String fingerprint) {
+    public record BasicCredentialRef(String username, UUID mappedUserUuid, String fingerprint) {
     }
 }
