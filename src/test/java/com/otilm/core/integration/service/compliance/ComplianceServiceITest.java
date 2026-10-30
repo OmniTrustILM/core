@@ -23,6 +23,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.workflows.ConditionItemDto;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.ComplianceProfileRule;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -32,6 +33,7 @@ import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
@@ -55,10 +57,14 @@ import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.compliance.BaseComplianceTest;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.builders.CertificateBuilder;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -102,6 +108,9 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Autowired
     private SecretRepository secretRepository;
+
+    @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
 
     @Autowired
     private SecretVersionRepository secretVersionRepository;
@@ -438,11 +447,31 @@ class ComplianceServiceITest extends BaseComplianceTest {
                                 .getValue(),
                         "A certificate is authorized against its own UUID");
 
+        CertificateRequestEntity request = certificateRequestRepository
+                .save(CertificateRequestEntityBuilder
+                        .aCertificateRequest()
+                        .withContent(Base64.getEncoder().encodeToString("CN=owned".getBytes(StandardCharsets.UTF_8)))
+                        .build());
+        Certificate owner = certificateRepository
+                .save(CertificateBuilder
+                        .aCertificate()
+                        .withSerialNumber(UUID.randomUUID().toString())
+                        .withFingerprint(UUID.randomUUID().toString())
+                        .withCertificateRequest(request)
+                        .withCertificateRequestUuid(request.getUuid())
+                        .build());
+        Assertions
+                .assertEquals(owner.getUuid(),
+                        complianceExternalService
+                                .resolveComplianceAuthorizableObject(Resource.CERTIFICATE_REQUEST, request.getUuid())
+                                .getValue(),
+                        "A certificate request is authorized against the certificate it was submitted for");
+
         Assertions
                 .assertNull(
                         complianceExternalService
                                 .resolveComplianceAuthorizableObject(Resource.CERTIFICATE_REQUEST, UUID.randomUUID()),
-                        "A certificate request has no stable owning object; authorization is resource-level (null)");
+                        "An unknown certificate request resolves to null (resource-level)");
 
         Assertions
                 .assertNull(complianceExternalService

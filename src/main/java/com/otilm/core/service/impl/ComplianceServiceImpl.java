@@ -234,7 +234,12 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                     .findByUuid(objectUuid)
                     .map(item -> SecuredUUID.fromUUID(item.getKeyUuid()))
                     .orElse(null);
-            // CERTIFICATE_REQUEST (and any other) carry their own compliance result with no stable owning object,
+            case CERTIFICATE_REQUEST -> certificateRepository
+                    .findUuidsByCertificateRequestUuid(objectUuid)
+                    .stream()
+                    .findFirst()
+                    .map(SecuredUUID::fromUUID)
+                    .orElse(null);
             default -> null;
         };
     }

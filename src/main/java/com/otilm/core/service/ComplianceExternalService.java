@@ -31,10 +31,9 @@ public interface ComplianceExternalService {
      *
      * <p>
      * Returns the object's own UUID for resources authorized directly ({@link Resource#CERTIFICATE},
-     * {@link Resource#SECRET}), the owning key UUID for {@link Resource#CRYPTOGRAPHIC_KEY_ITEM}, and {@code null} when
-     * the resource has no stable owning object to scope against (e.g. {@link Resource#CERTIFICATE_REQUEST}, which
-     * carries its own compliance result and may predate any certificate) or the object cannot be found — in which case
-     * authorization is at resource level only.
+     * {@link Resource#SECRET}), the owning key UUID for {@link Resource#CRYPTOGRAPHIC_KEY_ITEM}, the UUID of the
+     * certificate a {@link Resource#CERTIFICATE_REQUEST} was submitted for, and {@code null} when the object cannot be
+     * found — in which case authorization is at resource level only.
      * </p>
      *
      * <p>
