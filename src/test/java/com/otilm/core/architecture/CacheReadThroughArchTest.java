@@ -10,7 +10,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 
 import static com.tngtech.archunit.base.DescribedPredicate.describe;
-import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
+import static com.tngtech.archunit.core.domain.JavaAccess.Predicates.target;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.assignableTo;
 import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
 import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameMatching;
@@ -32,7 +32,7 @@ public class CacheReadThroughArchTest {
     @ArchTest
     static final ArchRule no_class_writes_a_cache_entry = noClasses()
             .should()
-            .callMethodWhere(target(nameMatching("put|putIfAbsent")).and(target(owner(assignableTo(Cache.class)))))
+            .accessTargetWhere(target(nameMatching("put|putIfAbsent")).and(target(owner(assignableTo(Cache.class)))))
             .because(LOAD_THROUGH);
 
     @ArchTest
@@ -40,36 +40,36 @@ public class CacheReadThroughArchTest {
             .that()
             .resideOutsideOfPackage("com.otilm.core.config.cache")
             .should()
-            .callMethodWhere(target(name("getNativeCache")).and(target(owner(assignableTo(Cache.class)))))
+            .accessTargetWhere(target(name("getNativeCache")).and(target(owner(assignableTo(Cache.class)))))
             .because(LOAD_THROUGH);
 
     @ArchTest
     static final ArchRule no_method_publishes_its_result = noMethods()
             .should()
-            .beAnnotatedWith(CachePut.class)
+            .beMetaAnnotatedWith(CachePut.class)
             .because(LOAD_THROUGH);
 
     @ArchTest
     static final ArchRule no_class_caches_its_methods = noClasses()
             .should()
-            .beAnnotatedWith(Cacheable.class)
+            .beMetaAnnotatedWith(Cacheable.class)
             .orShould()
-            .beAnnotatedWith(CachePut.class)
+            .beMetaAnnotatedWith(CachePut.class)
             .orShould()
-            .beAnnotatedWith(Caching.class)
+            .beMetaAnnotatedWith(Caching.class)
             .because(LOAD_THROUGH);
 
     @ArchTest
     static final ArchRule no_method_combines_cache_operations = noMethods()
             .should()
-            .beAnnotatedWith(Caching.class)
+            .beMetaAnnotatedWith(Caching.class)
             .because(LOAD_THROUGH);
 
     @ArchTest
     static final ArchRule cacheable_methods_load_through_the_cache = methods()
             .that()
-            .areAnnotatedWith(Cacheable.class)
-            .should(have(
-                    describe("@Cacheable(sync = true)", method -> method.getAnnotationOfType(Cacheable.class).sync())))
+            .areMetaAnnotatedWith(Cacheable.class)
+            .should(have(describe("@Cacheable(sync = true)",
+                    method -> method.tryGetAnnotationOfType(Cacheable.class).map(Cacheable::sync).orElse(false))))
             .because(LOAD_THROUGH);
 }

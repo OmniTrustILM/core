@@ -90,8 +90,8 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
     }
 
     /**
-     * Replays the actor MDC side effects of {@link #authenticate} so that a cache hit leaves the MDC in the same state
-     * as a cache miss.
+     * Replays the actor MDC side effects of {@link #authenticate} so that a cache hit, or a result shared from another
+     * caller's load, leaves the MDC in the same state as a cache miss.
      */
     private static AuthenticationInfo restoreActorMdc(AuthMethod authMethod, AuthenticationInfo authInfo) {
         if (authMethod != AuthMethod.TOKEN) {

@@ -55,6 +55,20 @@ public class ReadThroughCache extends AbstractValueAdaptingCache {
     public <T, E extends Exception> T getOrLoad(Object key, Loader<T, E> loader, Predicate<? super T> keep,
             Consumer<? super T> beforeKeeping) throws E {
         CompletableFuture<Object> mine = new Load();
+        boolean completedNormally = false;
+        try {
+            T value = loadOrJoin(key, mine, loader, keep, beforeKeeping);
+            completedNormally = true;
+            return value;
+        } finally {
+            if (!completedNormally) {
+                abandon(key, mine);
+            }
+        }
+    }
+
+    private <T, E extends Exception> T loadOrJoin(Object key, CompletableFuture<Object> mine, Loader<T, E> loader,
+            Predicate<? super T> keep, Consumer<? super T> beforeKeeping) throws E {
         CompletableFuture<Object> current = claim(key, mine);
         if (current != mine && !awaitSuccess(current)) {
             current = claim(key, mine);
@@ -99,22 +113,9 @@ public class ReadThroughCache extends AbstractValueAdaptingCache {
 
     private <T, E extends Exception> T lead(Object key, CompletableFuture<Object> mine, Loader<T, E> loader,
             Predicate<? super T> keep, Consumer<? super T> beforeKeeping) throws E {
-        T value;
-        boolean cacheable;
-        boolean succeeded = false;
-        try {
-            value = loader.load();
-            cacheable = keep.test(value);
-            if (cacheable) {
-                beforeKeeping.accept(value);
-            }
-            succeeded = true;
-        } finally {
-            if (!succeeded) {
-                abandon(key, mine);
-            }
-        }
-        if (cacheable) {
+        T value = loader.load();
+        if (keep.test(value)) {
+            beforeKeeping.accept(value);
             mine.complete(toStoreValue(value));
         } else {
             completeUncached(key, mine, value);

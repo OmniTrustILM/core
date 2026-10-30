@@ -1,15 +1,19 @@
 package com.otilm.core.config.cache;
 
+import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.otilm.core.util.cache.Caller;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -30,6 +34,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Named.named;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 class ReadThroughCacheTest {
 
@@ -272,6 +280,27 @@ class ReadThroughCacheTest {
                 .isSameAs(CALLBACK_FAILURE);
         assertThat(follower.value()).isEqualTo("value-2");
         assertThat(cache.getOrLoad(KEY, this::load)).isEqualTo("value-2");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aFailureAfterTheClaimFreesTheKey() throws Exception {
+        // given — the claim stores the caller's load, then fails before the load runs
+        AsyncCache<Object, Object> stored = Caffeine.newBuilder().buildAsync();
+        AsyncCache<Object, Object> failingOnce = mock(AsyncCache.class, delegatesTo(stored));
+        doAnswer(claim -> {
+            BiFunction<Object, Executor, CompletableFuture<Object>> mappingFunction = claim.getArgument(1);
+            stored.get(claim.getArgument(0), mappingFunction);
+            throw new StackOverflowError();
+        }).doAnswer(delegatesTo(stored)).when(failingOnce).get(any(), any(BiFunction.class));
+        ReadThroughCache failing = new ReadThroughCache("test", failingOnce);
+        assertThatThrownBy(() -> failing.getOrLoad(KEY, this::load)).isInstanceOf(StackOverflowError.class);
+
+        // when
+        Caller<String> next = Caller.start(() -> failing.getOrLoad(KEY, this::load));
+
+        // then
+        assertThat(next.value()).isEqualTo("value-1");
     }
 
     @Test
