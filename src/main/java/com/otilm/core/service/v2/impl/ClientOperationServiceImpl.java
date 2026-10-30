@@ -1018,7 +1018,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * {@code issueExistingCertificate} (NOT_SUPPORTED), so it runs outside the CSR-attach row lock: the resolve — which
      * can reach the connector for a non-STATIC_ONLY profile — and each attribute-engine write execute in their own
      * transaction, so an invalid attribute or an unreachable connector is skipped (WARN) without failing the completed
-     * certificate. Write-if-empty so a fingerprint-shared CSR's attributes are not clobbered.
+     * certificate.
      */
     private void persistCompletionRequestValues(RaProfile raProfile, UUID certificateRequestUuid,
             ClientCertificateIssueRequestDto request) {
@@ -1033,10 +1033,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 .builder(Resource.CERTIFICATE_REQUEST, certificateRequestUuid)
                 .build();
         try {
-            var existing = attributeEngine.getObjectDataAttributesContent(info);
-            if (existing != null && !existing.isEmpty()) {
-                return;
-            }
             attributeEngine
                     .validateUpdateDataAttributes(null, null, issuanceDefinitionResolver.resolve(raProfile),
                             csrAttributes);

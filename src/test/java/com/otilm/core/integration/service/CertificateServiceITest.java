@@ -1477,6 +1477,26 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificateToBeIssued.getUuid()))
                     .isNotNull();
         }
+
+        @Test
+        void storesARequestOfItsOwn_whenSubmittingAnIdenticalCsrAgain() throws Exception {
+            // given
+            CertificateDetailDto first = certificateService
+                    .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+
+            // when
+            CertificateDetailDto second = certificateService
+                    .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+
+            // then
+            assertThat(second.getCertificateRequest().getUuid()).isNotEqualTo(first.getCertificateRequest().getUuid());
+            assertThat(certificateRequestRepository
+                    .findByUuid(second.getCertificateRequest().getUuid())
+                    .orElseThrow()
+                    .getContent()).isEqualTo(SAMPLE_PKCS10);
+        }
     }
 
     // ── Updates ──────────────────────────────────────────────────────────────
@@ -2449,15 +2469,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when
-            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+            UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — content and fingerprint are derived from the normalized DER
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository
-                    .findByFingerprint(expectedFingerprint)
-                    .orElseThrow();
+            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
+            assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
 
         @Test
@@ -2472,17 +2491,16 @@ class CertificateServiceITest extends BaseSpringBootTest {
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when
-            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+            UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — the PEM armor must not leak into the stored content/fingerprint; both are derived
             // from the normalized DER that createCertificateRequest actually parsed, matching what would
             // have been stored for the equivalent plain base64(DER) input
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository
-                    .findByFingerprint(expectedFingerprint)
-                    .orElseThrow();
+            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
+            assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
 
         @Test
@@ -2499,15 +2517,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when
-            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+            UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — the double encoding must not leak into the stored content/fingerprint
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository
-                    .findByFingerprint(expectedFingerprint)
-                    .orElseThrow();
+            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
+            assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
 
         @Test
@@ -2525,13 +2542,10 @@ class CertificateServiceITest extends BaseSpringBootTest {
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when
-            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+            UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — identity and format come from the CSR, not the placeholder
-            String expectedFingerprint = CertificateUtil.getThumbprint(Base64.getDecoder().decode(SAMPLE_PKCS10));
-            CertificateRequestEntity stored = certificateRequestRepository
-                    .findByFingerprint(expectedFingerprint)
-                    .orElseThrow();
+            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
             assertThat(stored.getCommonName()).isEqualTo("new_cert");
             assertThat(stored.getSubjectDn()).isEqualTo("CN=new_cert");
             assertThat(stored.getCertificateRequestFormat()).isEqualTo(CertificateRequestFormat.PKCS10);

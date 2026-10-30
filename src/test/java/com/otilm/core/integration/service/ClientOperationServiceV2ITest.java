@@ -1539,7 +1539,43 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void submitCertificateRequest_readsAResubmittedCsrsAttributesUnderItsRecordedKey() throws Exception {
+    void submitCertificateRequest_takesOverTheAttributesOfThePredecessorRequestItReplays() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        CertificateDetailDto predecessor = clientOperationService
+                .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
+        Certificate issuedPredecessor = certificateRepository
+                .findByUuid(UUID.fromString(predecessor.getUuid()))
+                .orElseThrow();
+        issuedPredecessor.setState(CertificateState.ISSUED);
+        certificateRepository.save(issuedPredecessor);
+        ClientCertificateRequestDto replay = uploadedRequest(key.getUuid(), null);
+        replay.setSourceCertificateUuid(UUID.fromString(predecessor.getUuid()));
+
+        // when
+        CertificateDetailDto renewed = clientOperationService.submitCertificateRequest(replay, null);
+
+        // then
+        Assertions
+                .assertNotEquals(predecessor.getCertificateRequest().getUuid(),
+                        renewed.getCertificateRequest().getUuid());
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(renewed.getCertificateRequest().getSignatureAttributes()));
+        Assertions
+                .assertEquals(SHA256_WITH_RSA_FIELDS,
+                        describe(certificateExternalService
+                                .getCertificate(SecuredUUID.fromString(renewed.getUuid()))
+                                .getCertificateRequest()
+                                .getSignatureAttributes()));
+    }
+
+    @Test
+    void submitCertificateRequest_takesOverNoAttributesForAnIdenticalCsrOfAnUnrelatedCertificate() throws Exception {
         // given
         stubAuthorityProviderAttributesEndpoints();
         TokenInstanceReference token = persistV2Token();
@@ -1553,30 +1589,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .submitCertificateRequest(uploadedRequest(null, null), null);
 
         // then
-        Assertions
-                .assertEquals(SHA256_WITH_RSA_FIELDS,
-                        describe(resubmitted.getCertificateRequest().getSignatureAttributes()));
-    }
-
-    @Test
-    void submitCertificateRequest_claimsTheSchemaOfTheKeyAResubmittedCsrWasStoredWith() throws Exception {
-        // given
-        stubAuthorityProviderAttributesEndpoints();
-        TokenInstanceReference token = persistV2Token();
-        CryptographicKey key = persistV2Key(token);
-        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
-                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), null), null);
-
-        // when
-        CertificateDetailDto resubmitted = clientOperationService
-                .submitCertificateRequest(uploadedRequest(null, sha256WithRsa()), null);
-
-        // then
-        Assertions
-                .assertEquals(SHA256_WITH_RSA_FIELDS,
-                        describe(resubmitted.getCertificateRequest().getSignatureAttributes()));
-        verify(cryptographicOperationService).validateAttributesAndGetSchema(eq(key.getUuid()), anyList());
+        Assertions.assertTrue(resubmitted.getCertificateRequest().getSignatureAttributes().isEmpty());
     }
 
     @Test

@@ -12,6 +12,4 @@ public interface CertificateRequestRepository extends ComplianceSubjectRepositor
     Optional<CertificateRequestEntity> findByUuid(final UUID uuid);
 
     Optional<CertificateRequestEntity> findByUuidIn(final List<UUID> uuids);
-
-    Optional<CertificateRequestEntity> findByFingerprint(final String fingerprint);
 }
