@@ -175,6 +175,37 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
         assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
     }
 
+    @Test
+    void lastCertificatesOfASharedRequestDeletedConcurrentlyLeaveNoRequestBehind() throws Exception {
+        CertificateRequestEntity request = newCertificateRequest();
+        Certificate first = newCertificateOf(request);
+        Certificate second = newCertificateOf(request);
+        CountDownLatch firstLooked = new CountDownLatch(1);
+        CountDownLatch mayCommitFirst = new CountDownLatch(1);
+
+        Future<Integer> firstDeleter = executor.submit(() -> transactionTemplate.execute(status -> {
+            certificateRepository.delete(first);
+            int deleted = certificateRequestWriter.deleteUnreferenced(List.of(request.getUuid()));
+            firstLooked.countDown();
+            await(mayCommitFirst);
+            return deleted;
+        }));
+
+        assertThat(firstLooked.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Integer> secondDeleter = executor.submit(() -> transactionTemplate.execute(status -> {
+            certificateRepository.delete(second);
+            return certificateRequestWriter.deleteUnreferenced(List.of(request.getUuid()));
+        }));
+
+        awaitAdvisoryLockWaiter();
+        mayCommitFirst.countDown();
+
+        assertThat(firstDeleter.get(10, TimeUnit.SECONDS)).isZero();
+        assertThat(secondDeleter.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+        assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
+    }
+
     private ComplianceProfile newComplianceProfile() {
         ComplianceProfile profile = new ComplianceProfile();
         profile.setName("tst-compliance-profile-" + UUID.randomUUID());
