@@ -5,6 +5,7 @@ import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenc
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModel;
@@ -258,7 +259,8 @@ class InternalTimestampSourceTest {
         doReturn(aSigningProfile().build()).when(signingProfileService).loadSigningProfileModel(PROFILE_NAME);
         when(signingProfileResolverFactory.resolve(any()))
                 .thenReturn(new ResolvedManagedContentSigningProfile(UUID.randomUUID(), PROFILE_NAME, null, 1, true,
-                        List.of(), List.of(), null, null, null, null, CertificatePurposeRequirements.NONE, null, null));
+                        List.of(), List.of(), null, null, null, null, CertificatePurposeRequirements.NONE,
+                        SignatureParameterPolicy.DENY_ALL, null, null));
 
         // when / then
         SigningEngineException thrown = catchTimestamp();

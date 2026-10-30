@@ -6,6 +6,8 @@ import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTim
 import com.otilm.api.model.client.signing.profile.workflow.timestamp.TimestampSourceRequestDto;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.SignatureParameterGroup;
+import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -23,6 +25,8 @@ public class ContentSigningWorkflowRequestDtoBuilder {
     private Boolean requireNonRepudiation;
     private Set<String> requiredExtendedKeyUsageOids = new LinkedHashSet<>();
     private Long documentSizeCap = null;
+    private Set<SignatureParameterGroup> allowedRequestParameterGroups = new LinkedHashSet<>();
+    private SignatureParametersDto defaultSignatureParameters = null;
 
     public static ContentSigningWorkflowRequestDtoBuilder aContentSigningWorkflow() {
         return new ContentSigningWorkflowRequestDtoBuilder();
@@ -69,6 +73,18 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         return this;
     }
 
+    public ContentSigningWorkflowRequestDtoBuilder withAllowedRequestParameterGroups(
+            SignatureParameterGroup... groups) {
+        this.allowedRequestParameterGroups = new LinkedHashSet<>(List.of(groups));
+        return this;
+    }
+
+    public ContentSigningWorkflowRequestDtoBuilder withDefaultSignatureParameters(
+            SignatureParametersDto defaultSignatureParameters) {
+        this.defaultSignatureParameters = defaultSignatureParameters;
+        return this;
+    }
+
     public ContentSigningWorkflowRequestDto build() {
         ContentSigningWorkflowRequestDto dto = new ContentSigningWorkflowRequestDto();
         dto.setSignatureFormattingConnectorUuid(signatureFormattingConnectorUuid);
@@ -79,6 +95,8 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         dto.setDocumentSizeCap(documentSizeCap);
         dto.setRequireNonRepudiation(requireNonRepudiation);
         dto.setRequiredExtendedKeyUsageOids(requiredExtendedKeyUsageOids);
+        dto.setAllowedRequestParameterGroups(allowedRequestParameterGroups);
+        dto.setDefaultSignatureParameters(defaultSignatureParameters);
         return dto;
     }
 }

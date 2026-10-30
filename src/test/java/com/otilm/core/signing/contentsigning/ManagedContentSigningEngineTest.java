@@ -8,7 +8,10 @@ import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
+import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.DigestOnlyDocumentTransferDto;
@@ -19,6 +22,7 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.InlineDocu
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
+import com.otilm.api.model.connector.signatures.contentsigning.pades.PadesComputeDtbsRequestDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
@@ -62,6 +66,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
+import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -74,6 +79,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -118,7 +124,7 @@ class ManagedContentSigningEngineTest {
     class SignedPath {
 
         @Test
-        void signsToSignedLevelThroughComputeAndEmbed() throws SigningEngineException {
+        void signsToSignedLevel_throughComputeAndEmbed() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -158,7 +164,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void replaysTheFormattingContextVerbatimWhenEmbeddingTheSignature() throws SigningEngineException {
+        void replaysTheFormattingContextVerbatim_whenEmbeddingTheSignature() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -218,7 +224,7 @@ class ManagedContentSigningEngineTest {
          * stops before the connector is asked to format anything.
          */
         @Test
-        void refusesBeforeComputeDtbsWhenTheSignersAlgorithmCannotBeResolved() throws SigningEngineException {
+        void refusesBeforeComputeDtbs_whenTheSignersAlgorithmCannotBeResolved() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             when(acquisitions.signatureAlgorithm(profile))
@@ -242,7 +248,7 @@ class ManagedContentSigningEngineTest {
          * binding gate from reporting an operator's misconfiguration as a connector fault.
          */
         @Test
-        void refusesBeforeComputeDtbsWhenTheAuthorizedDigestIsNotTheOneTheSignerSigns() throws SigningEngineException {
+        void refusesBeforeComputeDtbs_whenTheAuthorizedDigestIsNotTheOneTheSignerSigns() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             when(acquisitions.signatureAlgorithm(profile)).thenReturn(SignatureAlgorithm.SHA512_WITH_RSA);
@@ -260,7 +266,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesWhenTheConnectorAnswersTheEmbedWithNoSignedDocument() throws SigningEngineException {
+        void refuses_whenTheConnectorAnswersTheEmbedWithNoSignedDocument() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -280,7 +286,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesWhenTheProfilesSigningChainCannotBeEncoded() throws Exception {
+        void refuses_whenTheProfilesSigningChainCannotBeEncoded() throws Exception {
             // given: a certificate whose encoding fails, which no connector request can carry
             X509Certificate unencodable = mock(X509Certificate.class);
             when(unencodable.getBasicConstraints()).thenReturn(-1);
@@ -307,7 +313,7 @@ class ManagedContentSigningEngineTest {
     class TimestampedPath {
 
         @Test
-        void raisesTheSignatureToTimestampedThroughTheInProcessBridge() throws SigningEngineException {
+        void raisesTheSignatureToTimestamped_throughTheInProcessBridge() throws SigningEngineException {
             // given: the ceiling admits TIMESTAMPED, so both gates pass and the leg itself carries the run
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -378,7 +384,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void stopsAtSignedWhenThatIsWhatWasAskedForEvenOnATimestampingProfile() throws SigningEngineException {
+        void stopsAtSigned_whenThatIsWhatWasAskedForOnATimestampingProfile() throws SigningEngineException {
             // given: the ceiling permits TIMESTAMPED but the request asks for SIGNED
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -397,7 +403,7 @@ class ManagedContentSigningEngineTest {
         @Test
         void sendsTheOriginalContentAlongsideADetachedSignature() throws SigningEngineException {
             // given: a detached signature does not envelop what it signs, so the imprint needs the content beside it
-            ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
+            ResolvedManagedContentSigningProfile profile = aTimestampingProfileOf(SignatureFamily.CADES);
             DigestOnlyDocumentTransferDto digestOnly = new DigestOnlyDocumentTransferDto(digestOf(DOCUMENT),
                     DigestAlgorithm.SHA_256);
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -409,7 +415,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             engine
-                    .sign(requestFor(SignatureLevel.TIMESTAMPED, digestOnly), aSigningProfile().build(), profile,
+                    .sign(requestFor(SignatureLevel.TIMESTAMPED, digestOnly, null), aSigningProfile().build(), profile,
                             SigningProtocol.CSC_API);
 
             // then
@@ -441,7 +447,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesWhenTheConnectorAnswersTheImprintWithNothingToStamp() throws SigningEngineException {
+        void refuses_whenTheConnectorAnswersTheImprintWithNothingToStamp() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -463,7 +469,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesWhenTheConnectorNamesNoAlgorithmForTheImprint() throws SigningEngineException {
+        void refuses_whenTheConnectorNamesNoAlgorithmForTheImprint() throws SigningEngineException {
             // given: a digest cannot be stamped without knowing which algorithm produced it
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -484,7 +490,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesWhenTheConnectorAnswersTheTimestampEmbedWithNoSignedDocument() throws SigningEngineException {
+        void refuses_whenTheConnectorAnswersTheTimestampEmbedWithNoSignedDocument() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -508,10 +514,88 @@ class ManagedContentSigningEngineTest {
     }
 
     @Nested
+    class FamilyBinding {
+
+        @Test
+        void carriesTheEffectiveParametersOnTheComputeDtbsRequest() throws SigningEngineException {
+            // given: a run carrying an effective PAdES parameters object
+            PadesSignatureParametersDto effective = aPadesParameters().withReason("Contract approval").build();
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signatureValue(any(), any())).thenReturn("signature".getBytes());
+            stubEmbedSignatureValue("signed document".getBytes());
+
+            // when
+            engine
+                    .sign(requestFor(SignatureLevel.SIGNED, new InlineDocumentTransferDto(DOCUMENT), effective),
+                            aSigningProfile().build(), aSignedOnlyProfile(), SigningProtocol.CSC_API);
+
+            // then: the connector received them on the PAdES request, unchanged
+            ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
+            verify(formattingClient).computeDtbs(any(), captured.capture());
+            assertThat(captured.getValue()).isInstanceOf(PadesComputeDtbsRequestDto.class);
+            assertThat(((PadesComputeDtbsRequestDto) captured.getValue()).getSignatureParameters()).isSameAs(effective);
+        }
+
+        @Test
+        void leavesTheFieldUnset_whenTheRunCarriesNoParameters() throws SigningEngineException {
+            // given
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signatureValue(any(), any())).thenReturn("signature".getBytes());
+            stubEmbedSignatureValue("signed document".getBytes());
+
+            // when
+            engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), aSignedOnlyProfile(),
+                            SigningProtocol.CSC_API);
+
+            // then
+            ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
+            verify(formattingClient).computeDtbs(any(), captured.capture());
+            assertThat(((PadesComputeDtbsRequestDto) captured.getValue()).getSignatureParameters()).isNull();
+        }
+
+        @Test
+        void refusesADigestOnlyDocumentBeforeCallingTheConnector_whenTheFamilyIsPades() {
+            // given
+            DigestOnlyDocumentTransferDto digestOnly = new DigestOnlyDocumentTransferDto(digestOf(DOCUMENT),
+                    DigestAlgorithm.SHA_256);
+
+            // when
+            SigningEngineException thrown = catchThrowableOfType(() -> engine
+                    .sign(requestFor(SignatureLevel.SIGNED, digestOnly, null), aSigningProfile().build(),
+                            aSignedOnlyProfile(), SigningProtocol.CSC_API),
+                    SigningEngineException.class);
+
+            // then
+            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            assertThat(thrown).hasMessageContaining("PAdES signing needs the document itself");
+            verifyNoInteractions(formattingClient);
+        }
+
+        @Test
+        void acceptsADigestOnlyDocument_whenTheFamilyIsDetached() throws SigningEngineException {
+            // given
+            DigestOnlyDocumentTransferDto digestOnly = new DigestOnlyDocumentTransferDto(digestOf(DOCUMENT),
+                    DigestAlgorithm.SHA_256);
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signatureValue(any(), any())).thenReturn("signature".getBytes());
+            stubEmbedSignatureValue("signed document".getBytes());
+
+            // when
+            engine
+                    .sign(requestFor(SignatureLevel.SIGNED, digestOnly, null), aSigningProfile().build(),
+                            aSignedOnlyProfileOf(SignatureFamily.CADES), SigningProtocol.CSC_API);
+
+            // then
+            verify(formattingClient).computeDtbs(any(), any());
+        }
+    }
+
+    @Nested
     class Gates {
 
         @Test
-        void refusesToReleaseTheKeyWhenTheEchoedDigestIsNotTheAuthorizedOne() throws SigningEngineException {
+        void refusesToReleaseTheKey_whenTheEchoedDigestIsNotTheAuthorizedOne() throws SigningEngineException {
             // given: the connector echoes a digest of a different document
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf("another document".getBytes()));
@@ -528,7 +612,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesToReleaseTheKeyWhenTheConnectorReturnsNoFormattingContext() throws SigningEngineException {
+        void refusesToReleaseTheKey_whenTheConnectorReturnsNoFormattingContext() throws SigningEngineException {
             // given: a response whose dtbs and echo are usable but whose formatting context is missing
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             ComputeDtbsResponseDto incomplete = new ComputeDtbsResponseDto();
@@ -550,7 +634,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesToReleaseTheKeyWhenTheConnectorAnswersComputeDtbsWithNothing() throws SigningEngineException {
+        void refusesToReleaseTheKey_whenTheConnectorAnswersComputeDtbsWithNothing() throws SigningEngineException {
             // given: a 200 carrying no body at all
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             when(formattingClient.computeDtbs(any(), any())).thenReturn(null);
@@ -566,7 +650,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesToReleaseTheKeyWhenTheConnectorReturnsNoDtbsToSign() throws SigningEngineException {
+        void refusesToReleaseTheKey_whenTheConnectorReturnsNoDtbsToSign() throws SigningEngineException {
             // given: an echo that binds correctly, but nothing to sign
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             ComputeDtbsResponseDto incomplete = new ComputeDtbsResponseDto();
@@ -586,7 +670,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesATargetAboveTheProfileCeiling() throws SigningEngineException {
+        void refuses_whenTheTargetIsAboveTheProfileCeiling() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
 
@@ -603,7 +687,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesATargetAboveTheRungsTheEngineExecutes() throws SigningEngineException {
+        void refuses_whenTheTargetIsAboveTheRungsTheEngineExecutes() throws SigningEngineException {
             // given: a profile whose ceiling is LONG_TERM, which no step reaches yet
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(SignatureLevel.LONG_TERM)
@@ -622,7 +706,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void acceptsATargetBelowTheProfileCeiling() throws SigningEngineException {
+        void accepts_whenTheTargetIsBelowTheProfileCeiling() throws SigningEngineException {
             // given: a ceiling above the target must not be mistaken for an over-rung request
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(SignatureLevel.TIMESTAMPED)
@@ -664,12 +748,8 @@ class ManagedContentSigningEngineTest {
             verify(acquisitions, never()).signatureValue(any(), any());
         }
 
-        /**
-         * Augmentation exists to raise a signature after the fact, so the profile's own certificate no longer being fit
-         * to sign must not block it: this path releases no key of that certificate's scheme.
-         */
         @Test
-        void augmentsWithASigningCertificateThatIsNoLongerFitToSign() throws SigningEngineException {
+        void augments_whenTheSigningCertificateIsNoLongerFitToSign() throws SigningEngineException {
             // given: a certificate a signing run would refuse, on a path that releases none of the profile's own keys
             ResolvedManagedContentSigningProfile profile = profileWithCertificate(
                     SigningCertificateBuilder.aContentSigningCertificate().state(CertificateState.REVOKED).build());
@@ -689,7 +769,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesAnAugmentationTargetOfSignedBecauseTheDocumentIsAlreadySigned() {
+        void refuses_whenTheAugmentationTargetIsSignedAndTheDocumentAlreadyIs() {
             // given
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
 
@@ -704,7 +784,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesAnAugmentationTargetAboveTheRungsTheEngineExecutes() {
+        void refuses_whenTheAugmentationTargetIsAboveTheRungsTheEngineExecutes() {
             // given
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(SignatureLevel.ARCHIVAL)
@@ -722,11 +802,6 @@ class ManagedContentSigningEngineTest {
         }
     }
 
-    /**
-     * The Signing Profile model a run reads is cached, so these conditions are the ones that can arise after the
-     * profile was saved with an acceptable certificate. The real validator stands in for the mock, so each condition is
-     * a certificate state rather than a canned verdict.
-     */
     @Nested
     class SigningCertificateGate {
 
@@ -739,7 +814,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesToSignWithARevokedCertificate() {
+        void refusesToSign_withARevokedCertificate() {
             // given
             ResolvedManagedContentSigningProfile profile = profileWithCertificate(
                     SigningCertificateBuilder.aContentSigningCertificate().state(CertificateState.REVOKED).build());
@@ -757,7 +832,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesToSignWithAnArchivedCertificate() {
+        void refusesToSign_withAnArchivedCertificate() {
             // given
             ResolvedManagedContentSigningProfile profile = profileWithCertificate(
                     SigningCertificateBuilder.aContentSigningCertificate().archived(true).build());
@@ -775,7 +850,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesToSignWithADeactivatedSigningKey() {
+        void refusesToSign_withADeactivatedSigningKey() {
             // given
             ResolvedManagedContentSigningProfile profile = profileWithKeyItems(
                     SigningCertificateBuilder.aContentSigningCertificate().build(),
@@ -798,7 +873,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesToSignWhenTheCertificateMissesTheProfilesRequiredKeyUsage() {
+        void refusesToSign_whenTheCertificateMissesTheRequiredKeyUsage() {
             // given: a certificate that satisfies the default purpose rule but not the profile's own demand
             ResolvedManagedContentSigningProfile profile = profileWithCertificatePurpose(
                     SigningCertificateBuilder.aContentSigningCertificate().build(),
@@ -815,7 +890,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void refusesToSignWhenTheCertificateMissesTheProfilesRequiredExtendedKeyUsage() {
+        void refusesToSign_whenTheCertificateMissesTheRequiredExtendedKeyUsage() {
             // given
             ResolvedManagedContentSigningProfile profile = profileWithCertificatePurpose(
                     SigningCertificateBuilder.aContentSigningCertificate().build(),
@@ -832,7 +907,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void releasesNoKeyWhenTheCertificateIsUnacceptable() throws SigningEngineException {
+        void releasesNoKey_whenTheCertificateIsUnacceptable() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = profileWithCertificate(
                     SigningCertificateBuilder.aContentSigningCertificate().state(CertificateState.REVOKED).build());
@@ -868,7 +943,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void logsAFailureAfterTheKeySignedWithTheStepTheLevelAndTheSerialAlreadyIssued() throws Exception {
+        void logsTheStepLevelAndSerial_whenAFailureFollowsTheKeySigning() throws Exception {
             // given: the run dies embedding a timestamp that has already been issued
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -913,7 +988,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void logsAnUncheckedFailureAfterTheKeySignedWithTheSerialAlreadyIssued() throws Exception {
+        void logsTheSerialAlreadyIssued_whenAnUncheckedFailureFollowsTheKeySigning() throws Exception {
             // given: the run dies unchecked embedding a timestamp that has already been issued
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -936,7 +1011,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void funnelsAnUncheckedAugmentationFailureIntoAStepFailureWithoutLeakingItsDetail() throws Exception {
+        void funnelsAnUncheckedAugmentationFailureIntoAStepFailure_withoutLeakingItsDetail() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
             when(formattingClient.computeSignatureTimestampImprint(any(), any()))
@@ -991,7 +1066,7 @@ class ManagedContentSigningEngineTest {
     class Recording {
 
         @Test
-        void recordsTheSigningOnceTheDocumentIsSigned() throws SigningEngineException {
+        void recordsTheSigning_onceTheDocumentIsSigned() throws SigningEngineException {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -1024,7 +1099,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void keepsTheSignedDocumentWhenRecordingFails() throws SigningEngineException {
+        void keepsTheSignedDocument_whenRecordingFails() throws SigningEngineException {
             // given: the signature is already made, so a recording failure must not withdraw it
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -1042,13 +1117,22 @@ class ManagedContentSigningEngineTest {
     }
 
     private static ResolvedManagedContentSigningProfile aSignedOnlyProfile() {
-        return aResolvedContentSigningProfile().withMaxLevel(SignatureLevel.SIGNED).build();
+        return aSignedOnlyProfileOf(SignatureFamily.PADES);
+    }
+
+    private static ResolvedManagedContentSigningProfile aSignedOnlyProfileOf(SignatureFamily family) {
+        return aResolvedContentSigningProfile().withMaxLevel(SignatureLevel.SIGNED).withFamily(family).build();
     }
 
     private static ResolvedManagedContentSigningProfile aTimestampingProfile() {
+        return aTimestampingProfileOf(SignatureFamily.PADES);
+    }
+
+    private static ResolvedManagedContentSigningProfile aTimestampingProfileOf(SignatureFamily family) {
         return aResolvedContentSigningProfile()
                 .withMaxLevel(SignatureLevel.TIMESTAMPED)
                 .withTimestampSourceProfileName("internal-tsa")
+                .withFamily(family)
                 .build();
     }
 
@@ -1083,12 +1167,13 @@ class ManagedContentSigningEngineTest {
     }
 
     private static ContentSigningRequest request(SignatureLevel target) {
-        return requestFor(target, new InlineDocumentTransferDto(DOCUMENT));
+        return requestFor(target, new InlineDocumentTransferDto(DOCUMENT), null);
     }
 
-    private static ContentSigningRequest requestFor(SignatureLevel target, DocumentTransferDto document) {
+    private static ContentSigningRequest requestFor(SignatureLevel target, DocumentTransferDto document,
+            SignatureParametersDto signatureParameters) {
         return new ContentSigningRequest(target, document,
-                new DocumentDigest(DigestAlgorithm.SHA_256, digestOf(DOCUMENT)));
+                new DocumentDigest(DigestAlgorithm.SHA_256, digestOf(DOCUMENT)), signatureParameters);
     }
 
     private void stubComputeDtbs(byte[] echoedDigest) throws SigningEngineException {
