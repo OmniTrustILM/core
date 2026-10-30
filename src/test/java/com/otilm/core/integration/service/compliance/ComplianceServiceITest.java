@@ -8,6 +8,7 @@ import com.otilm.api.model.client.compliance.v2.ComplianceInternalRuleRequestDto
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
@@ -18,6 +19,7 @@ import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckRuleDto;
+import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.workflows.ConditionItemDto;
@@ -35,6 +37,7 @@ import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
@@ -77,6 +80,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
+import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographicKey;
+import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
 import static org.mockito.Mockito.when;
 
 class ComplianceServiceITest extends BaseComplianceTest {
@@ -112,6 +117,9 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Autowired
     private CertificateRequestRepository certificateRequestRepository;
+
+    @Autowired
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
 
     @Autowired
     private SecretVersionRepository secretVersionRepository;
@@ -747,6 +755,94 @@ class ComplianceServiceITest extends BaseComplianceTest {
         complianceService.checkResourceObjectCompliance(Resource.SECRET, secret.getUuid());
 
         Secret checked = secretRepository.findByUuid(secret.getUuid()).orElseThrow();
+        Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
+        Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    @Test
+    void checkingAKeyNoComplianceProfileAppliesToClearsTheStoredResultOfItsItems() {
+        CryptographicKeyItem keyItem = seedKeyItemWithStaleResult();
+
+        complianceService.checkResourceObjectCompliance(Resource.CRYPTOGRAPHIC_KEY, keyItem.getKeyUuid());
+
+        assertNotChecked(keyItem);
+
+        markStale(keyItem);
+        complianceService.checkResourceObjectCompliance(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+
+        assertNotChecked(keyItem);
+    }
+
+    @Test
+    void checkingAKeyItemKeepsTheResultOfAComplianceProfileAssociatedWithItsKey() {
+        CryptographicKeyItem keyItem = seedKeyItemWithStaleResult();
+        ComplianceProfileAssociation direct = new ComplianceProfileAssociation();
+        direct.setComplianceProfileUuid(complianceProfile.getUuid());
+        direct.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        direct.setObjectUuid(keyItem.getKeyUuid());
+        complianceProfileAssociationRepository.save(direct);
+
+        complianceService.checkResourceObjectCompliance(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+
+        Assertions
+                .assertEquals(ComplianceStatus.NOK,
+                        cryptographicKeyItemRepository
+                                .findByUuid(keyItem.getUuid())
+                                .orElseThrow()
+                                .getComplianceStatus(),
+                        "Only a check of the profile associated with the key replaces its result");
+    }
+
+    @Test
+    void checkingACertificateNotYetIssuedClearsTheStoredResultOfItsRequest() {
+        CertificateRequestEntity request = CertificateRequestEntityBuilder
+                .aCertificateRequest()
+                .withContent(Base64.getEncoder().encodeToString("CN=pending".getBytes(StandardCharsets.UTF_8)))
+                .build();
+        request.setComplianceStatus(ComplianceStatus.NOK);
+        request.setComplianceResult(staleComplianceResult());
+        request = certificateRequestRepository.save(request);
+        Certificate pending = CertificateBuilder
+                .aCertificate()
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withFingerprint(UUID.randomUUID().toString())
+                .withState(CertificateState.REQUESTED)
+                .withCertificateRequest(request)
+                .withCertificateRequestUuid(request.getUuid())
+                .build();
+        pending.setRaProfileUuid(unassociatedRaProfileUuid);
+        pending = certificateRepository.save(pending);
+
+        complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, pending.getUuid());
+
+        CertificateRequestEntity checked = certificateRequestRepository.findByUuid(request.getUuid()).orElseThrow();
+        Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
+        Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    /** A key with no token profile, so no compliance profile applies to its item through one. */
+    private CryptographicKeyItem seedKeyItemWithStaleResult() {
+        CryptographicKey key = cryptographicKeyRepository.save(aCryptographicKey().withName("ProfilelessKey").build());
+        CryptographicKeyItem keyItem = aKeyItem()
+                .withName("ProfilelessKeyItem")
+                .withType(KeyType.PUBLIC_KEY)
+                .withState(KeyState.ACTIVE)
+                .build();
+        keyItem.setKey(key);
+        keyItem.setComplianceStatus(ComplianceStatus.NOK);
+        keyItem.setComplianceResult(staleComplianceResult());
+        return cryptographicKeyItemRepository.save(keyItem);
+    }
+
+    private void markStale(CryptographicKeyItem keyItem) {
+        CryptographicKeyItem stored = cryptographicKeyItemRepository.findByUuid(keyItem.getUuid()).orElseThrow();
+        stored.setComplianceStatus(ComplianceStatus.NOK);
+        stored.setComplianceResult(staleComplianceResult());
+        cryptographicKeyItemRepository.save(stored);
+    }
+
+    private void assertNotChecked(CryptographicKeyItem keyItem) {
+        CryptographicKeyItem checked = cryptographicKeyItemRepository.findByUuid(keyItem.getUuid()).orElseThrow();
         Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
         Assertions.assertNull(checked.getComplianceResult());
     }
