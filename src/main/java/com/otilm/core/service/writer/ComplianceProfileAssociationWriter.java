@@ -90,10 +90,6 @@ public class ComplianceProfileAssociationWriter {
     }
 
     /**
-     * A certificate request counts as existing while a certificate refers to it, the same rule the association list
-     * applies.
-     */
-    /**
      * A certificate request exists while a certificate refers to it, so removing a certificate, or its reference to a
      * request, can end the request's existence. The lock is the one {@link #create} takes before it looks for such a
      * certificate, so an associate racing the removal either sees no certificate or is purged here. Only requests with
@@ -121,6 +117,10 @@ public class ComplianceProfileAssociationWriter {
                 .deleteByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, requestUuidsWithoutCertificate);
     }
 
+    /**
+     * A certificate request counts as existing while a certificate refers to it, the same rule the association list
+     * applies.
+     */
     private void requireExistingObject(Resource resource, UUID objectUuid) throws NotFoundException {
         switch (resource) {
             case CRYPTOGRAPHIC_KEY_ITEM -> requireFound(cryptographicKeyItemRepository.existsById(objectUuid),
