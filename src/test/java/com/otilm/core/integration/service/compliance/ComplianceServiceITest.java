@@ -24,6 +24,7 @@ import com.otilm.api.model.core.workflows.ConditionItemDto;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.ComplianceProfileRule;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -674,6 +675,107 @@ class ComplianceServiceITest extends BaseComplianceTest {
         requestDto.setResource(Resource.CERTIFICATE_REQUEST);
         requestDto.setConditionItems(List.of(conditionItemRequestDto));
         complianceProfileService.updateComplianceInternalRule(internalCertificateRequestRuleUuid, requestDto);
+    }
+
+    @Test
+    void checkingACertificateNoComplianceProfileAppliesToClearsItsStoredResult() throws Exception {
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-Unassociated", unassociatedRaProfileUuid);
+
+        complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate.getUuid());
+
+        Certificate checked = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
+        Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    @Test
+    void checkingACertificateKeepsTheResultOfAComplianceProfileAssociatedWithItDirectly() throws Exception {
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-Direct", unassociatedRaProfileUuid);
+        ComplianceProfileAssociation direct = new ComplianceProfileAssociation();
+        direct.setComplianceProfileUuid(complianceProfile.getUuid());
+        direct.setResource(Resource.CERTIFICATE);
+        direct.setObjectUuid(certificate.getUuid());
+        complianceProfileAssociationRepository.save(direct);
+
+        complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate.getUuid());
+
+        Assertions
+                .assertEquals(ComplianceStatus.NOK,
+                        certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus(),
+                        "Only a check of the directly associated profile replaces its result");
+    }
+
+    @Test
+    void checkingACertificateOnlyRuleLessComplianceProfilesApplyToMarksItCompliant() throws Exception {
+        ComplianceProfile ruleLess = new ComplianceProfile();
+        ruleLess.setName("RuleLessProfile");
+        complianceProfileRepository.save(ruleLess);
+        ComplianceProfileAssociation association = new ComplianceProfileAssociation();
+        association.setComplianceProfileUuid(ruleLess.getUuid());
+        association.setResource(Resource.RA_PROFILE);
+        association.setObjectUuid(unassociatedRaProfileUuid);
+        complianceProfileAssociationRepository.save(association);
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-RuleLess", unassociatedRaProfileUuid);
+
+        complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate.getUuid());
+
+        Assertions
+                .assertEquals(ComplianceStatus.OK,
+                        certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus());
+    }
+
+    @Test
+    void checkingASecretNoComplianceProfileAppliesToClearsItsStoredResult() {
+        complianceProfileAssociationRepository
+                .findDistinctByResourceAndObjectUuid(Resource.VAULT_PROFILE, vaultProfileUuid)
+                .forEach(complianceProfileAssociationRepository::delete);
+        SecretVersion secretVersion = new SecretVersion();
+        secretVersion.setVaultProfileUuid(vaultProfileUuid);
+        secretVersion.setVersion(1);
+        secretVersion.setFingerprint("fingerprint");
+        secretVersionRepository.save(secretVersion);
+        Secret secret = new Secret();
+        secret.setName("secret");
+        secret.setType(SecretType.BASIC_AUTH);
+        secret.setState(SecretState.ACTIVE);
+        secret.setSourceVaultProfileUuid(vaultProfileUuid);
+        secret.setLatestVersion(secretVersion);
+        secret.setComplianceStatus(ComplianceStatus.NOK);
+        secret.setComplianceResult(staleComplianceResult());
+        secretRepository.save(secret);
+
+        complianceService.checkResourceObjectCompliance(Resource.SECRET, secret.getUuid());
+
+        Secret checked = secretRepository.findByUuid(secret.getUuid()).orElseThrow();
+        Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
+        Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    private Certificate uploadCertificateWithStaleResult(String subjectDn, UUID raProfileUuid) throws Exception {
+        var certificateChainInfo = CertificateGeneratorHelper
+                .generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Test-Ca", subjectDn, null);
+        certificateUploadedEventHandler
+                .handleEvent(CertificateUploadedEventHandler
+                        .constructEventMessage(CertificateUploadEventMessageData
+                                .builder()
+                                .certificateContent(certificateChainInfo.getEndEntityCertificateBase64Encoded())
+                                .build()));
+        Certificate certificate = certificateRepository
+                .findByFingerprint(CertificateUtil
+                        .getThumbprint(CertificateUtil
+                                .parseCertificate(certificateChainInfo.getEndEntityCertificateBase64Encoded())))
+                .orElseThrow();
+        certificate.setRaProfileUuid(raProfileUuid);
+        certificate.setComplianceStatus(ComplianceStatus.NOK);
+        certificate.setComplianceResult(staleComplianceResult());
+        return certificateRepository.save(certificate);
+    }
+
+    private static ComplianceResultDto staleComplianceResult() {
+        ComplianceResultDto result = new ComplianceResultDto();
+        result.setStatus(ComplianceStatus.NOK);
+        result.setTimestamp(OffsetDateTime.now());
+        return result;
     }
 
     @Test
