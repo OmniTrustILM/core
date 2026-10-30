@@ -1314,7 +1314,6 @@ class CertificateServiceITest extends BaseSpringBootTest {
                             .build());
         }
 
-        /** Maps a custom attribute value of the certificate to its request, as the request's own values are mapped. */
         private void mapAttributeValueTo(CertificateRequestEntity request, Certificate owner) throws Exception {
             attributeEngine
                     .updateObjectCustomAttributesContent(Resource.CERTIFICATE, owner.getUuid(),

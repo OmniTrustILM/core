@@ -1,19 +1,13 @@
--- Gives every certificate a certificate request of its own. Earlier releases stored an identical CSR once and pointed
--- every certificate submitted with it at that row, so the compliance result kept on the row was overwritten by
--- whichever RA profile checked it last, and that result gated the issuance of all of them.
+-- Gives every certificate a request of its own. Earlier releases shared one row among all certificates submitted with
+-- an identical CSR, so its compliance result, written by whichever RA profile checked it last, gated all of them.
 --
--- The oldest certificate keeps the row, and every other certificate gets a copy of it. A copy keeps every column of the
--- row, the stored compliance result included: the row does not record which certificate that result was computed for,
--- so each certificate shows what it showed before until it is checked again. The result gates nothing any more: a
--- request is checked for issuance only when it is submitted. The attribute values submitted with the request are mapped
--- to each copy as well. Compliance profile associations name the request itself, so they stay with the row the oldest
--- certificate keeps.
+-- The oldest certificate keeps the row; every other one gets a copy with all its columns (read from the catalog) and
+-- attribute values. Copies keep the stored compliance result, as the row does not record whose it is; it gates
+-- nothing now, since a request is checked only when it is submitted. Compliance profile associations stay on the row.
 --
--- The columns are read from the catalog, so a copy carries every column the table has when this runs.
---
--- The previous release keeps running during a rolling update. A certificate it detaches from the shared request, or
--- points elsewhere, while this runs is left as it is; the copy made for it is then unreferenced, and the sweep that
--- follows drops it. A certificate it points at a stored request after this runs shares that request from then on.
+-- The previous release keeps running during a rolling update. A certificate it repoints while this runs is left as it
+-- is, and the copy made for it is dropped by the sweep that follows. One it points at a stored request afterwards
+-- keeps sharing that request.
 
 CREATE TEMP TABLE "certificate_request_split" ON COMMIT DROP AS
 SELECT "ranked"."uuid" AS "certificate_uuid", "ranked"."certificate_request_uuid" AS "request_uuid",

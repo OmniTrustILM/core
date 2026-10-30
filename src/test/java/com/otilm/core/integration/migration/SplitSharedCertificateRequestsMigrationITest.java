@@ -22,9 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Runs {@code V202610301000__split_shared_certificate_requests.sql} in a scratch schema, in one transaction as Flyway
- * does, and asserts that every certificate but the oldest of those sharing a request gets a copy of it, with the
- * request's columns and attribute values, that the oldest keeps the row and its compliance profile associations, that a
- * second run changes nothing, and that a certificate another transaction changes while the split runs keeps its change.
+ * does.
  */
 class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
 
@@ -95,8 +93,8 @@ class SplitSharedCertificateRequestsMigrationITest extends BaseSpringBootTest {
     }
 
     /**
-     * The previous release keeps running during a rolling update, and a rejected approval detaches a placeholder's
-     * request. A detach that commits while the split runs must not be undone by pointing the certificate at its copy.
+     * A rejected approval on the previous release, still running during a rolling update, detaches a placeholder's
+     * request while the split runs.
      */
     @Test
     void aCertificateDetachedWhileTheSplitRunsStaysDetached() throws Exception {

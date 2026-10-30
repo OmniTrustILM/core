@@ -15,9 +15,7 @@ import org.springframework.core.io.ClassPathResource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Runs {@code V202610301100__certificate_request_drop_unreferenced.sql} in a scratch schema and asserts it indexes
- * certificates by their request and drops the requests no certificate refers to, with their attribute values and
- * compliance profile associations, keeping the referenced ones and what belongs to other objects.
+ * Runs {@code V202610301100__certificate_request_drop_unreferenced.sql} in a scratch schema.
  */
 class CertificateRequestDropUnreferencedMigrationITest extends BaseSpringBootTest {
 

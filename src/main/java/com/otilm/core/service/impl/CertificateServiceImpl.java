@@ -1754,8 +1754,8 @@ public class CertificateServiceImpl
 
         // Attach the operator-supplied CSR to the placeholder; the registration identity already on the row
         // (subject DN / SAN) is intentionally left untouched here — the issued certificate's identity is
-        // written from the CA response at issuance. The request is stored for this certificate alone, as
-        // submitCertificateRequest stores it, even when an identical CSR is already stored.
+        // written from the CA response at issuance. The request belongs to this certificate alone, as in
+        // submitCertificateRequest.
         //
         // Unlike submitCertificateRequest, fingerprint and stored content here are derived from
         // request.getEncoded() — the normalized DER that createCertificateRequest above actually parsed —

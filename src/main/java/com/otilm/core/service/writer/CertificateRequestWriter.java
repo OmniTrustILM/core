@@ -32,11 +32,9 @@ public class CertificateRequestWriter {
     }
 
     /**
-     * Deletes those of the given requests no certificate refers to, with their attribute values and compliance profile
-     * associations. A request a certificate still refers to is kept: an earlier release pointed every certificate
-     * submitted with an identical CSR at one request, and while it runs beside this one in a rolling update it still
-     * may. The lock makes deleters of one request's last certificates look one after another, so the last of them sees
-     * the others' deletes and the request does not outlive them all.
+     * Deletes the given requests no certificate refers to, with their attribute values and compliance profile
+     * associations. A referenced request is kept: the previous release may share one during a rolling update. The lock
+     * makes concurrent deleters of one request's certificates look in turn, so the last one deletes it.
      */
     @Transactional
     public int deleteUnreferenced(Collection<UUID> certificateRequestUuids) {
