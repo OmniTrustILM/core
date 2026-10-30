@@ -2193,7 +2193,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void approvalRejectedRemovesTheAssociationsOfTheRequestItDetaches() throws Exception {
+    void approvalRejectedDeletesTheRequestItDetaches() throws Exception {
         UUID certUuid = UUID.fromString(registerWithSecret(null));
         clientOperationInternalService.approvalCreatedAction(certUuid);
         String subjectDn = "CN=rejectedRequest";
@@ -2213,10 +2213,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
         clientOperationInternalService.issueCertificateRejectedAction(certUuid);
 
+        Assertions.assertFalse(certificateRequestRepository.existsById(request.getUuid()));
         Assertions
                 .assertFalse(complianceProfileAssociationRepository
-                        .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, List.of(request.getUuid())),
-                        "the rejected placeholder no longer refers to the request, and nothing else does");
+                        .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, List.of(request.getUuid())));
     }
 
     @Test

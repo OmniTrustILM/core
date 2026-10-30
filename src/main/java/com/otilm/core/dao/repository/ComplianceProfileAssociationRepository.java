@@ -30,11 +30,6 @@ public interface ComplianceProfileAssociationRepository
     boolean existsByComplianceProfileUuidAndResourceAndObjectUuid(UUID complianceProfileUuid, Resource resource,
             UUID associationObjectUuid);
 
-    @Query("SELECT DISTINCT a.objectUuid FROM ComplianceProfileAssociation a"
-            + " WHERE a.resource = :resource AND a.objectUuid IN :objectUuids")
-    List<UUID> findAssociatedObjectUuids(@Param("resource") Resource resource,
-            @Param("objectUuids") Collection<UUID> objectUuids);
-
     /**
      * The deletes below are bulk statements: an object delete removes associations concurrently with them, and a row
      * another transaction already removed must not fail the delete.

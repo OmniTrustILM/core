@@ -65,6 +65,7 @@ import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.config.cache.CacheConfig;
+import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -89,6 +90,7 @@ import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
+import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
@@ -304,6 +306,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
     private CacheManager cacheManager;
 
     private AttributeEngine attributeEngine;
+
+    @Autowired
+    private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
 
     private Certificate certificate;
 
@@ -1228,8 +1233,28 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void removesCertificateRequestAssociations_onlyOnceItsLastCertificateIsDeleted() throws NotFoundException {
+        void deletesItsRequest_whenDeletingTheCertificate() throws Exception {
             // given
+            CertificateRequestEntity request = newCertificateRequest("CN=deletedRequest");
+            Certificate issued = newCertificateOf(request);
+            mapAttributeValueTo(request, issued);
+            ComplianceProfileFixtures
+                    .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                            Resource.CERTIFICATE_REQUEST, request.getUuid());
+
+            // when
+            certificateService.deleteCertificate(issued.getSecuredUuid());
+
+            // then
+            assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
+            assertThat(hasRequestAssociation(request)).isFalse();
+            assertThat(attributeContent2ObjectRepository
+                    .findByObjectTypeAndObjectUuid(Resource.CERTIFICATE_REQUEST, request.getUuid())).isEmpty();
+        }
+
+        @Test
+        void keepsASharedRequest_untilItsLastCertificateIsDeleted() throws NotFoundException {
+            // given — two certificates an earlier release pointed at one request
             CertificateRequestEntity request = newCertificateRequest("CN=sharedRequest");
             Certificate first = newCertificateOf(request);
             Certificate second = newCertificateOf(request);
@@ -1241,17 +1266,19 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateService.deleteCertificate(first.getSecuredUuid());
 
             // then
+            assertThat(certificateRequestRepository.existsById(request.getUuid())).isTrue();
             assertThat(hasRequestAssociation(request)).isTrue();
 
             // when
             certificateService.deleteCertificate(second.getSecuredUuid());
 
             // then
+            assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
             assertThat(hasRequestAssociation(request)).isFalse();
         }
 
         @Test
-        void removesCertificateRequestAssociations_whenBulkDeletingItsLastCertificate() {
+        void deletesItsRequest_whenBulkDeletingTheCertificate() {
             // given
             CertificateRequestEntity request = newCertificateRequest("CN=bulkDeletedRequest");
             Certificate issued = newCertificateOf(request);
@@ -1265,6 +1292,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateService.bulkDeleteCertificate(SecurityFilter.create(), removal);
 
             // then
+            assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
             assertThat(hasRequestAssociation(request)).isFalse();
         }
 
@@ -1284,6 +1312,22 @@ class CertificateServiceITest extends BaseSpringBootTest {
                             .withCertificateRequest(request)
                             .withCertificateRequestUuid(request.getUuid())
                             .build());
+        }
+
+        /** Maps a custom attribute value of the certificate to its request, as the request's own values are mapped. */
+        private void mapAttributeValueTo(CertificateRequestEntity request, Certificate owner) throws Exception {
+            attributeEngine
+                    .updateObjectCustomAttributesContent(Resource.CERTIFICATE, owner.getUuid(),
+                            List.of(getRequestAttribute()));
+            AttributeContent2Object mapping = new AttributeContent2Object();
+            mapping
+                    .setAttributeContentItemUuid(attributeContent2ObjectRepository
+                            .findByObjectTypeAndObjectUuid(Resource.CERTIFICATE, owner.getUuid())
+                            .getFirst()
+                            .getAttributeContentItemUuid());
+            mapping.setObjectType(Resource.CERTIFICATE_REQUEST);
+            mapping.setObjectUuid(request.getUuid());
+            attributeContent2ObjectRepository.save(mapping);
         }
 
         private boolean hasRequestAssociation(CertificateRequestEntity request) {

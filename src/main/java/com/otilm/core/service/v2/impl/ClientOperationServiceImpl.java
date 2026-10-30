@@ -122,7 +122,7 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
-import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
+import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
@@ -232,7 +232,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
     private ResourceObjectAssociationService objectAssociationService;
-    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private CertificateRequestWriter certificateRequestWriter;
 
     @Autowired
     public void setObjectAssociationService(ResourceObjectAssociationService objectAssociationService) {
@@ -240,9 +240,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
-    public void setComplianceProfileAssociationWriter(
-            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
-        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
+    public void setCertificateRequestWriter(CertificateRequestWriter certificateRequestWriter) {
+        this.certificateRequestWriter = certificateRequestWriter;
     }
 
     @Autowired
@@ -2079,8 +2078,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .transition(certificate, CertificateState.REGISTERED, CertificateEvent.APPROVAL_CLOSE,
                             "Issuance approval was rejected; certificate restored to "
                                     + CertificateState.REGISTERED.getLabel() + ".");
-            complianceProfileAssociationWriter
-                    .deleteAllForCertificateRequestsWithoutCertificate(Stream.ofNullable(detachedRequestUuid).toList());
+            certificateRequestWriter.deleteUnreferenced(Stream.ofNullable(detachedRequestUuid).toList());
             return;
         }
         handleFailedOrRejectedEvent(certificate, null, CertificateState.REJECTED, null, null, null);

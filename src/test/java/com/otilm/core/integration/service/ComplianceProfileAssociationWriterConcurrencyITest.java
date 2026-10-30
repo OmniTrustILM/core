@@ -11,6 +11,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
+import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +46,9 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
 
     @Autowired
     private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+
+    @Autowired
+    private CertificateRequestWriter certificateRequestWriter;
 
     @Autowired
     private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
@@ -159,8 +163,7 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
 
         Future<Integer> purger = executor.submit(() -> transactionTemplate.execute(status -> {
             certificateRepository.delete(certificate);
-            return complianceProfileAssociationWriter
-                    .deleteAllForCertificateRequestsWithoutCertificate(List.of(request.getUuid()));
+            return certificateRequestWriter.deleteUnreferenced(List.of(request.getUuid()));
         }));
 
         awaitAdvisoryLockWaiter();
@@ -169,6 +172,7 @@ class ComplianceProfileAssociationWriterConcurrencyITest extends BaseSpringBootT
         assertThat(creator.get(10, TimeUnit.SECONDS)).isNotNull();
         assertThat(purger.get(10, TimeUnit.SECONDS)).isEqualTo(1);
         assertThat(hasAssociation(Resource.CERTIFICATE_REQUEST, request.getUuid())).isFalse();
+        assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
     }
 
     private ComplianceProfile newComplianceProfile() {

@@ -166,6 +166,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.CertificateValidationWriter;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
@@ -342,6 +343,7 @@ public class CertificateServiceImpl
 
     private CommentInternalService commentService;
     private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private CertificateRequestWriter certificateRequestWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -352,6 +354,11 @@ public class CertificateServiceImpl
     public void setComplianceProfileAssociationWriter(
             ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
         this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
+    }
+
+    @Autowired
+    public void setCertificateRequestWriter(CertificateRequestWriter certificateRequestWriter) {
+        this.certificateRequestWriter = certificateRequestWriter;
     }
 
     @Autowired
@@ -927,8 +934,7 @@ public class CertificateServiceImpl
             certificateContentRepository.delete(content);
             certificate.setCertificateContent(null);
         }
-        complianceProfileAssociationWriter
-                .deleteAllForCertificateRequestsWithoutCertificate(Stream.ofNullable(certificateRequestUuid).toList());
+        certificateRequestWriter.deleteUnreferenced(Stream.ofNullable(certificateRequestUuid).toList());
     }
 
     @Override
@@ -1193,7 +1199,7 @@ public class CertificateServiceImpl
                 .toList();
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
-        complianceProfileAssociationWriter.deleteAllForCertificateRequestsWithoutCertificate(certificateRequestUuids);
+        certificateRequestWriter.deleteUnreferenced(certificateRequestUuids);
         return certificates.size();
     }
 
