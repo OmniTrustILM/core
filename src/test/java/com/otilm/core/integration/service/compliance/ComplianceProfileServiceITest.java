@@ -53,6 +53,7 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -504,6 +505,28 @@ class ComplianceProfileServiceITest extends BaseSpringBootTest {
         ComplianceProfileDto complianceProfileDto = complianceProfileService
                 .getComplianceProfile(SecuredUUID.fromUUID(complianceProfile.getUuid()));
         Assertions.assertEquals(2, complianceProfileDto.getRaProfiles().size());
+    }
+
+    @Test
+    void associateProfile_associatesNoneWhenOneRaProfileIsMissing() {
+        // Sorts after the existing RA profile, so that one is associated before the missing one fails
+        UUID missingRaProfileUuid = Stream
+                .generate(UUID::randomUUID)
+                .filter(candidate -> candidate.compareTo(unassociatedRaProfileUuid) > 0)
+                .findFirst()
+                .orElseThrow();
+        RaProfileAssociationRequestDto request = new RaProfileAssociationRequestDto();
+        request.setRaProfileUuids(List.of(missingRaProfileUuid.toString(), unassociatedRaProfileUuid.toString()));
+        SecuredUUID profileUuid = SecuredUUID.fromUUID(complianceProfile.getUuid());
+
+        Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> complianceProfileService.associateProfile(profileUuid, request));
+
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByComplianceProfileUuidAndResourceAndObjectUuid(complianceProfile.getUuid(),
+                                Resource.RA_PROFILE, unassociatedRaProfileUuid));
     }
 
     @Test

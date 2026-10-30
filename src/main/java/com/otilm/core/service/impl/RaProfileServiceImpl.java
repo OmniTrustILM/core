@@ -75,6 +75,7 @@ import jakarta.transaction.Transactional;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -332,7 +333,9 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DELETE)
     public void bulkDeleteRaProfile(List<SecuredUUID> uuids) {
-        for (SecuredUUID uuid : uuids) {
+        // UUID order, as the compliance profile associate takes them, so their per-object locks cannot deadlock
+        List<SecuredUUID> orderedUuids = uuids.stream().sorted(Comparator.comparing(SecuredUUID::getValue)).toList();
+        for (SecuredUUID uuid : orderedUuids) {
             try {
                 deleteRaProfile(uuid);
             } catch (NotFoundException e) {
