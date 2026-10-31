@@ -237,11 +237,10 @@ class KeyProviderV2AdapterTest {
     }
 
     private CryptographicKeyItemOperationModel v2KeyItem(List<MetadataAttribute> keyMeta, KeyAlgorithm keyAlgorithm) {
-        CryptographicKeyItemOperationModel item = new CryptographicKeyItemOperationModel(UUID.randomUUID(), true,
-                keyAlgorithm, KeyState.ACTIVE, KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null,
+        return new CryptographicKeyItemOperationModel(UUID.randomUUID(), true, keyAlgorithm, KeyState.ACTIVE,
+                KeyType.PRIVATE_KEY, List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT), null,
                 new RemoteKeyReference.MetadataReference(keyMeta), profile.connectorUuid(), null, UUID.randomUUID(),
                 ConnectorInterface.CRYPTOGRAPHY, "v2", profile.tokenInstanceReferenceUuid(), profile.uuid());
-        return item;
     }
 
     private static CipherDataRequestDto standardCipherRequest() {

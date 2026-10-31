@@ -62,14 +62,10 @@ public class AttributeVersionHelper {
     public static List<RequestAttribute> toRequestAttributes(List<ObjectAttributeContent> objectContents) {
         Map<String, RequestAttribute> mapping = new HashMap<>();
         for (ObjectAttributeContent objectContent : objectContents) {
-            String uuid = objectContent.uuid().toString();
-            RequestAttribute requestAttribute;
-
-            if ((requestAttribute = mapping.get(uuid)) == null) {
-                requestAttribute = getRequestAttribute(objectContent.uuid(), objectContent.name(), new ArrayList<>(),
-                        objectContent.contentType(), objectContent.version());
-                mapping.put(uuid, requestAttribute);
-            }
+            RequestAttribute requestAttribute = mapping
+                    .computeIfAbsent(objectContent.uuid().toString(),
+                            uuid -> getRequestAttribute(objectContent.uuid(), objectContent.name(), new ArrayList<>(),
+                                    objectContent.contentType(), objectContent.version()));
             addRequestAttributeContent(requestAttribute, objectContent);
         }
 
@@ -80,15 +76,11 @@ public class AttributeVersionHelper {
     public static List<ResponseAttribute> toResponseAttributes(List<ObjectAttributeContent> objectContents) {
         Map<String, ResponseAttribute> mapping = new HashMap<>();
         for (ObjectAttributeContent objectContent : objectContents) {
-            String uuid = objectContent.uuid().toString();
-            ResponseAttribute responseAttribute;
-
-            if ((responseAttribute = mapping.get(uuid)) == null) {
-                responseAttribute = getResponseAttribute(objectContent.uuid(), objectContent.name(),
-                        objectContent.label(), new ArrayList<>(), objectContent.contentType(), objectContent.type(),
-                        objectContent.version());
-                mapping.put(uuid, responseAttribute);
-            }
+            ResponseAttribute responseAttribute = mapping
+                    .computeIfAbsent(objectContent.uuid().toString(),
+                            uuid -> getResponseAttribute(objectContent.uuid(), objectContent.name(),
+                                    objectContent.label(), new ArrayList<>(), objectContent.contentType(),
+                                    objectContent.type(), objectContent.version()));
             addResponseAttributeContent(responseAttribute, objectContent);
         }
 
