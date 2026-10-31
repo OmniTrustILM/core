@@ -650,6 +650,7 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
             default -> throw new ValidationException(
                     COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE.formatted(resource.getLabel()));
         }
+        keepSubjectsWithoutDirectProfile(subjectsWithoutProfile);
     }
 
     private ComplianceRuleStatus getFailedRuleStatus(ComplianceResultRulesDto complianceResultRules, UUID ruleUuid) {
@@ -687,23 +688,35 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
         return !complianceProfiles.isEmpty();
     }
 
-    /**
-     * A profile associated with the subject itself is applied only by a check of that profile, which this check does
-     * not run, so the result it stored is kept.
-     */
-    private void addSubjectWithoutProfile(Map<Resource, Set<ComplianceSubject>> subjectsWithoutProfile,
+    private static void addSubjectWithoutProfile(Map<Resource, Set<ComplianceSubject>> subjectsWithoutProfile,
             Resource subjectResource, ComplianceSubject subject) {
-        boolean directlyAssociated = subject instanceof CryptographicKeyItem keyItem
-                ? isAssociated(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid())
-                        || isAssociated(Resource.CRYPTOGRAPHIC_KEY, keyItem.getKeyUuid())
-                : isAssociated(subjectResource, subject.getUuid());
-        if (!directlyAssociated) {
-            subjectsWithoutProfile.computeIfAbsent(subjectResource, r -> new HashSet<>()).add(subject);
-        }
+        subjectsWithoutProfile.computeIfAbsent(subjectResource, r -> new HashSet<>()).add(subject);
     }
 
-    private boolean isAssociated(Resource resource, UUID objectUuid) {
-        return complianceProfileAssociationRepository.existsByResourceAndObjectUuidIn(resource, List.of(objectUuid));
+    /**
+     * A profile associated with the subject itself is applied only by a check of that profile, which this check does
+     * not run, so the result it stored is kept. A key item counts as associated through its key too.
+     */
+    private void keepSubjectsWithoutDirectProfile(Map<Resource, Set<ComplianceSubject>> subjectsWithoutProfile) {
+        subjectsWithoutProfile.forEach((subjectResource, subjects) -> {
+            if (subjectResource == Resource.CRYPTOGRAPHIC_KEY) {
+                Set<UUID> associatedItems = findAssociated(Resource.CRYPTOGRAPHIC_KEY_ITEM,
+                        subjects.stream().map(ComplianceSubject::getUuid).toList());
+                Set<UUID> associatedKeys = findAssociated(Resource.CRYPTOGRAPHIC_KEY,
+                        subjects.stream().map(subject -> ((CryptographicKeyItem) subject).getKeyUuid()).toList());
+                subjects
+                        .removeIf(subject -> associatedItems.contains(subject.getUuid())
+                                || associatedKeys.contains(((CryptographicKeyItem) subject).getKeyUuid()));
+            } else {
+                Set<UUID> associated = findAssociated(subjectResource,
+                        subjects.stream().map(ComplianceSubject::getUuid).toList());
+                subjects.removeIf(subject -> associated.contains(subject.getUuid()));
+            }
+        });
+    }
+
+    private Set<UUID> findAssociated(Resource resource, Collection<UUID> objectUuids) {
+        return complianceProfileAssociationRepository.findAssociatedObjectUuids(resource, objectUuids);
     }
 
     private boolean isAssociationResourceCompatible(Resource associationResource, Resource resource) {

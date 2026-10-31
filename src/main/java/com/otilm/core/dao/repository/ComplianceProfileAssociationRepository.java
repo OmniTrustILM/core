@@ -4,6 +4,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Modifying;
@@ -29,6 +30,11 @@ public interface ComplianceProfileAssociationRepository
 
     boolean existsByComplianceProfileUuidAndResourceAndObjectUuid(UUID complianceProfileUuid, Resource resource,
             UUID associationObjectUuid);
+
+    @Query("SELECT DISTINCT a.objectUuid FROM ComplianceProfileAssociation a"
+            + " WHERE a.resource = :resource AND a.objectUuid IN :objectUuids")
+    Set<UUID> findAssociatedObjectUuids(@Param("resource") Resource resource,
+            @Param("objectUuids") Collection<UUID> objectUuids);
 
     /**
      * The deletes below are bulk statements: an object delete removes associations concurrently with them, and a row
