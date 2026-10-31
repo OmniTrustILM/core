@@ -1,57 +1,44 @@
 package com.otilm.core.integration.service;
 
-import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
-import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.oid.SystemOid;
-import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
-import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
-import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
-import com.otilm.core.dao.repository.CryptographicKeyRepository;
-import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
-import com.otilm.core.dao.repository.TokenProfileRepository;
-import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.CryptographyUtil;
-import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.PqcKeyFixtures;
 import com.otilm.core.util.mockbeans.ProducerMocks;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.Security;
-import java.security.cert.X509Certificate;
+import com.otilm.core.util.seeders.CryptographicKeySeeder;
+import com.otilm.core.util.seeders.TokenProfileSeeder;
+import java.security.PublicKey;
 import java.util.Base64;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
 
+import static com.otilm.core.util.PqcKeyFixtures.ML_DSA_PARAMETER_SET;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
+import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.verifyingPublicKey;
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
- * Parity: the cached {@link SigningCertificate} + per-item {@link CryptographicKeyItemOperationModel} assembly
- * reproduces the signer inputs available from the live {@code Certificate} entity graph.
+ * Parity: the cached {@link SigningCertificate} and the per-item {@link CryptographicKeyItemOperationModel} carry the
+ * signer inputs stored on the certificate, its key and the key's items.
  */
 @Import(ProducerMocks.class)
 @TypeExcludeFilters(ProducerMocks.MockedProducersTypeExcludeFilter.class)
@@ -64,147 +51,120 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
     @Autowired
     private CertificateRepository certificateRepository;
     @Autowired
-    private ConnectorRepository connectorRepository;
+    private TokenProfileSeeder tokenProfileSeeder;
     @Autowired
-    private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
-    @Autowired
-    private TokenProfileRepository tokenProfileRepository;
-    @Autowired
-    private CryptographicKeyRepository cryptographicKeyRepository;
-    @Autowired
-    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+    private CryptographicKeySeeder cryptographicKeySeeder;
 
+    private TokenProfile tokenProfile;
     private CryptographicKey key;
-    private CryptographicKeyItem privateItem;
-    private CryptographicKeyItem publicItem;
 
     @BeforeEach
-    void setUp() throws Exception {
-        if (Security.getProvider("BC") == null) {
-            Security.addProvider(new BouncyCastleProvider());
-        }
-
-        Connector connector = new Connector();
-        connector.setUrl("http://localhost:18888");
-        connector.setVersion(ConnectorVersion.V1);
-        connector.setStatus(ConnectorStatus.CONNECTED);
-        connector = connectorRepository.saveAndFlush(connector);
-
-        TokenInstanceReference tokenInstanceRef = new TokenInstanceReference();
-        tokenInstanceRef.setName("testToken");
-        tokenInstanceRef.setTokenInstanceUuid(UUID.randomUUID().toString());
-        tokenInstanceRef.setConnector(connector);
-        tokenInstanceRef.setStatus(TokenInstanceStatus.CONNECTED);
-        tokenInstanceReferenceRepository.saveAndFlush(tokenInstanceRef);
-
-        TokenProfile tokenProfile = new TokenProfile();
-        tokenProfile.setName("testProfile");
-        tokenProfile.setTokenInstanceReference(tokenInstanceRef);
-        tokenProfile.setDescription("test");
-        tokenProfile.setEnabled(true);
-        tokenProfile.setTokenInstanceName("testInstance");
-        tokenProfileRepository.saveAndFlush(tokenProfile);
-
-        key = new CryptographicKey();
-        key.setName("testKey");
-        key.setTokenProfile(tokenProfile);
-        key.setTokenInstanceReference(tokenInstanceRef);
-        key = cryptographicKeyRepository.saveAndFlush(key);
-
-        privateItem = new CryptographicKeyItem();
-        privateItem.setName("priv");
-        privateItem.setKey(key);
-        privateItem.setKeyUuid(key.getUuid());
-        privateItem.setType(KeyType.PRIVATE_KEY);
-        privateItem.setState(KeyState.ACTIVE);
-        privateItem.setEnabled(true);
-        privateItem.setKeyAlgorithm(KeyAlgorithm.MLDSA);
-        privateItem.setFormat(KeyFormat.PRKI);
-        privateItem.setKeyData("privKeyData");
-        privateItem.setUsage(List.of(KeyUsage.SIGN));
-        privateItem = cryptographicKeyItemRepository.saveAndFlush(privateItem);
-        privateItem.setKeyReferenceUuid(privateItem.getUuid());
-        privateItem = cryptographicKeyItemRepository.saveAndFlush(privateItem);
-
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance("ML-DSA", "BC");
-        kpg.initialize(MLDSAParameterSpec.ml_dsa_44);
-        String publicKeyB64 = Base64.getEncoder().encodeToString(kpg.generateKeyPair().getPublic().getEncoded());
-
-        publicItem = new CryptographicKeyItem();
-        publicItem.setName("pub");
-        publicItem.setKey(key);
-        publicItem.setKeyUuid(key.getUuid());
-        publicItem.setType(KeyType.PUBLIC_KEY);
-        publicItem.setState(KeyState.ACTIVE);
-        publicItem.setEnabled(true);
-        publicItem.setKeyAlgorithm(KeyAlgorithm.MLDSA);
-        publicItem.setFormat(KeyFormat.SPKI);
-        publicItem.setKeyData(publicKeyB64);
-        publicItem.setUsage(List.of(KeyUsage.VERIFY));
-        publicItem = cryptographicKeyItemRepository.saveAndFlush(publicItem);
-        publicItem.setKeyReferenceUuid(publicItem.getUuid());
-        publicItem = cryptographicKeyItemRepository.saveAndFlush(publicItem);
-
-        key.setItems(new HashSet<>(Set.of(privateItem, publicItem)));
-        key = cryptographicKeyRepository.saveAndFlush(key);
+    void seedMlDsaSigningKey() throws Exception {
+        tokenProfile = tokenProfileSeeder.seedTokenProfile();
+        String publicKeyBase64 = base64(PqcKeyFixtures.keyPair().getPublic());
+        key = cryptographicKeySeeder
+                .seedKey("signing-key", tokenProfile, tokenProfile.getTokenInstanceReference(),
+                        signingPrivateKey(KeyAlgorithm.MLDSA),
+                        verifyingPublicKey(KeyAlgorithm.MLDSA).withMaterial(KeyFormat.SPKI, publicKeyBase64));
     }
 
-    @Test
-    void recordAndKeyItemModelsMatchLiveEntityGraph() throws Exception {
-        KeyPair kp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
-        X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(kp, "CN=ParityTest");
-        Certificate cert = certificateService.createCertificateEntity(x509);
-        cert.setKey(key);
-        cert.setKeyUuid(key.getUuid());
-        cert.setValidationStatus(CertificateValidationStatus.VALID);
-        cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(SystemOid.TIME_STAMPING.getOid())));
-        cert.setExtendedKeyUsageCritical(Boolean.TRUE);
-        cert.setQcCompliance(Boolean.TRUE);
-        cert = certificateRepository.saveAndFlush(cert);
+    // ── GetSigningCertificate ─────────────────────────────────────────────────
 
-        Certificate live = certificateRepository.findForSigningByUuid(cert.getUuid()).orElseThrow();
-        SigningCertificate sc = certificateService.getSigningCertificate(cert.getUuid());
+    @Nested
+    class GetSigningCertificate {
 
-        // certificate-level parity
-        Assertions.assertEquals(live.getUuid(), sc.uuid());
-        Assertions.assertEquals(live.getCommonName(), sc.commonName());
-        Assertions.assertEquals(live.isArchived(), sc.archived());
-        Assertions.assertEquals(live.getState(), sc.state());
-        Assertions.assertEquals(live.getValidationStatus(), sc.validationStatus());
-        Assertions
-                .assertEquals(MetaDefinitions.deserializeArrayString(live.getExtendedKeyUsage()),
-                        sc.extendedKeyUsageOids());
-        Assertions.assertEquals(live.getExtendedKeyUsageCritical(), sc.extendedKeyUsageCritical());
-        Assertions.assertEquals(live.getQcCompliance(), sc.qcCompliance());
-        Assertions.assertEquals(live.getKey().getUuid(), sc.keyUuid());
-        Assertions.assertEquals(live.getKey().getTokenInstanceReferenceUuid(), sc.tokenInstanceReferenceUuid());
-        Assertions.assertEquals(live.getKey().getTokenProfileUuid(), sc.tokenProfileUuid());
+        @Test
+        void returnsEveryStoredColumn_whenEachHoldsANonDefaultValue() throws Exception {
+            // given
+            String timestampingOid = SystemOid.TIME_STAMPING.getOid();
+            var certificate = certificateRepository
+                    .saveAndFlush(aCertificate()
+                            .withCommonName("parity-test")
+                            .withArchived(true)
+                            .withState(CertificateState.ISSUED)
+                            .withValidationStatus(CertificateValidationStatus.VALID)
+                            .withExtendedKeyUsage(timestampingOid)
+                            .withExtendedKeyUsageCritical(true)
+                            .withQcCompliance(true)
+                            .build());
 
-        // structural references cover exactly the live key's items
-        Set<UUID> liveItemUuids = new HashSet<>();
-        live.getKey().getItems().forEach(i -> liveItemUuids.add(i.getUuid()));
-        Assertions.assertEquals(liveItemUuids, new HashSet<>(sc.keyItemUuids()));
+            // when
+            SigningCertificate signingCertificate = certificateService.getSigningCertificate(certificate.getUuid());
 
-        // per-item key-item-model parity (assembled the way the resolver will assemble it)
-        for (UUID itemUuid : sc.keyItemUuids()) {
-            CryptographicKeyItem liveItem = live
-                    .getKey()
-                    .getItems()
-                    .stream()
-                    .filter(i -> i.getUuid().equals(itemUuid))
-                    .findFirst()
-                    .orElseThrow();
-            CryptographicKeyItemOperationModel model = cryptographicKeyService.getKeyItemModel(itemUuid);
-
-            Assertions.assertEquals(liveItem.getType(), model.keyType());
-            Assertions.assertEquals(liveItem.getState(), model.keyState());
-            Assertions.assertEquals(liveItem.getUsage(), model.keyUsage());
-            Assertions.assertEquals(liveItem.getKeyAlgorithm(), model.keyAlgorithm());
-
-            String expectedPqc = liveItem.getType() == KeyType.PUBLIC_KEY
-                    ? CryptographyUtil.resolvePqcParameterSpecName(liveItem.getKeyAlgorithm(), liveItem.getKeyData())
-                    : null;
-            Assertions.assertEquals(expectedPqc, model.pqcParameterSpecName());
+            // then
+            assertThat(signingCertificate)
+                    .usingRecursiveComparison()
+                    .comparingOnlyFields("uuid", "commonName", "archived", "state", "validationStatus",
+                            "extendedKeyUsageCritical", "qcCompliance")
+                    .isEqualTo(certificate);
+            assertThat(signingCertificate.extendedKeyUsageOids()).containsExactly(timestampingOid);
         }
+
+        @Test
+        void referencesKeyTokenAndItems_whenCertificateHasKey() throws Exception {
+            // given
+            var certificate = certificateRepository.saveAndFlush(aCertificate().withKey(key).build());
+
+            // when
+            SigningCertificate signingCertificate = certificateService.getSigningCertificate(certificate.getUuid());
+
+            // then
+            assertThat(signingCertificate)
+                    .extracting(SigningCertificate::keyUuid, SigningCertificate::tokenInstanceReferenceUuid,
+                            SigningCertificate::tokenProfileUuid)
+                    .containsExactly(key.getUuid(), tokenProfile.getTokenInstanceReference().getUuid(),
+                            tokenProfile.getUuid());
+            assertThat(signingCertificate.keyItemUuids())
+                    .containsExactlyInAnyOrder(itemOfType(KeyType.PRIVATE_KEY).getUuid(),
+                            itemOfType(KeyType.PUBLIC_KEY).getUuid());
+        }
+    }
+
+    // ── GetKeyItemModel ───────────────────────────────────────────────────────
+
+    @Nested
+    class GetKeyItemModel {
+
+        @Test
+        void returnsModelWithoutParameterSpec_whenItemIsPrivateKey() throws Exception {
+            // given
+            CryptographicKeyItem privateItem = itemOfType(KeyType.PRIVATE_KEY);
+
+            // when
+            CryptographicKeyItemOperationModel model = cryptographicKeyService.getKeyItemModel(privateItem.getUuid());
+
+            // then
+            assertThat(model.keyType()).isEqualTo(KeyType.PRIVATE_KEY);
+            assertThat(model.keyAlgorithm()).isEqualTo(KeyAlgorithm.MLDSA);
+            assertThat(model.keyState()).isEqualTo(KeyState.ACTIVE);
+            assertThat(model.keyUsage()).containsExactly(KeyUsage.SIGN);
+            assertThat(model.pqcParameterSpecName()).isNull();
+        }
+
+        @Test
+        void returnsParameterSpecOfTheKeyData_whenItemIsMlDsaPublicKey() throws Exception {
+            // given
+            CryptographicKeyItem publicItem = itemOfType(KeyType.PUBLIC_KEY);
+
+            // when
+            CryptographicKeyItemOperationModel model = cryptographicKeyService.getKeyItemModel(publicItem.getUuid());
+
+            // then
+            assertThat(model.keyType()).isEqualTo(KeyType.PUBLIC_KEY);
+            assertThat(model.keyAlgorithm()).isEqualTo(KeyAlgorithm.MLDSA);
+            assertThat(model.keyState()).isEqualTo(KeyState.ACTIVE);
+            assertThat(model.keyUsage()).containsExactly(KeyUsage.VERIFY);
+            assertThat(model.pqcParameterSpecName()).isEqualTo(ML_DSA_PARAMETER_SET);
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private CryptographicKeyItem itemOfType(KeyType type) {
+        return key.getItems().stream().filter(item -> item.getType() == type).findFirst().orElseThrow();
+    }
+
+    private static String base64(PublicKey publicKey) {
+        return Base64.getEncoder().encodeToString(publicKey.getEncoded());
     }
 }

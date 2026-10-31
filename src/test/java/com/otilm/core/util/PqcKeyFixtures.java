@@ -18,6 +18,9 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
  */
 public final class PqcKeyFixtures {
 
+    /** Parameter set of {@link #keyPair()}, which BouncyCastle also reports as the key's parameter-spec name. */
+    public static final String ML_DSA_PARAMETER_SET = "ML-DSA-65";
+
     private PqcKeyFixtures() {
     }
 
@@ -28,7 +31,7 @@ public final class PqcKeyFixtures {
      * @throws GeneralSecurityException if the algorithm is unavailable
      */
     public static KeyPair keyPair() throws GeneralSecurityException {
-        KeyPairGenerator generator = KeyPairGenerator.getInstance("ML-DSA-65", new BouncyCastleProvider());
+        KeyPairGenerator generator = KeyPairGenerator.getInstance(ML_DSA_PARAMETER_SET, new BouncyCastleProvider());
         return generator.generateKeyPair();
     }
 
