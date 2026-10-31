@@ -1,6 +1,7 @@
 package com.otilm.core.signing.contentsigning;
 
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.DocumentTransferDto;
 import java.util.Objects;
 
@@ -11,9 +12,10 @@ import java.util.Objects;
  * @param document how the document travels to the connector — inline, or as a digest for detached packaging
  * @param authorizedDigest the digest of the document the caller authorized, which the binding gate compares the
  * connector's echo against
+ * @param signatureParameters the effective parameters {@code SignatureParameterResolver} produced
  */
 public record ContentSigningRequest(SignatureLevel targetLevel, DocumentTransferDto document,
-        DocumentDigest authorizedDigest) {
+        DocumentDigest authorizedDigest, SignatureParametersDto signatureParameters) {
 
     public ContentSigningRequest {
         Objects.requireNonNull(targetLevel, "targetLevel");

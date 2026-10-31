@@ -193,9 +193,9 @@ public class ManagedContentSigningEngine {
     private ComputeDtbsResponseDto computeDtbs(ContentSigningRequest request,
             ResolvedManagedContentSigningProfile profile, Instant signingTime, SignatureAlgorithm signatureAlgorithm)
             throws SigningEngineException {
-        ComputeDtbsRequestDto dtbsRequest = ComputeDtbsRequests.forFamily(profile.family());
+        ComputeDtbsRequestDto dtbsRequest = ComputeDtbsRequests
+                .forFamily(profile.family(), request.signatureParameters(), request.document());
         dtbsRequest.setFormattingAttributes(profile.signatureFormattingConnectorAttributes());
-        dtbsRequest.setDocument(request.document());
         dtbsRequest.setSignerCertificateChain(encodedChain(profile));
         dtbsRequest.setSigningTime(signingTime.atOffset(ZoneOffset.UTC));
         dtbsRequest.setSignatureAlgorithm(signatureAlgorithm);

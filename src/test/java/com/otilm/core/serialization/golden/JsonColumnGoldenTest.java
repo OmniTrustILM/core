@@ -16,6 +16,15 @@ import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.DateTimeAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
+import com.otilm.api.model.common.signature.parameters.pades.CommitmentType;
+import com.otilm.api.model.common.signature.parameters.pades.ImageScaling;
+import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
+import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureScope;
+import com.otilm.api.model.common.signature.parameters.pades.TextHorizontalAlignment;
+import com.otilm.api.model.common.signature.parameters.pades.TextPosition;
+import com.otilm.api.model.common.signature.parameters.pades.TextVerticalAlignment;
+import com.otilm.api.model.common.signature.parameters.pades.TextWrapping;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.logging.enums.ActorType;
@@ -49,6 +58,10 @@ import org.hibernate.type.format.jackson.JacksonJsonFormatMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
+import static com.otilm.core.util.builders.PadesVisibleSignatureDtoBuilder.aVisibleSignature;
+import static com.otilm.core.util.builders.PadesVisibleSignaturePlacementDtoBuilder.aPlacement;
+import static com.otilm.core.util.builders.PadesVisibleSignatureStyleDtoBuilder.aStyle;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -112,6 +125,50 @@ class JsonColumnGoldenTest {
         assertThat(GoldenMappers.jsonColumnMapper().getRegisteredModuleIds())
                 .describedAs("without the JSR-310 module every Java 8 date fails to persist")
                 .contains("jackson-datatype-jsr310");
+    }
+
+    /**
+     * Backs {@code SigningProfileVersion.defaultSignatureParameters}. The polymorphic discriminator, the byte[] stamp,
+     * the enums and the nested containers are all shapes the mapper decides, and the column is read back with unknown
+     * properties still fatal, so a silent rename would make configured profiles unreadable rather than lossy.
+     */
+    @Test
+    void signatureParametersColumnKeepsItsShapeAndRoundTrips() {
+        // given
+        PadesSignatureParametersDto parameters = aPadesParameters()
+                .withReason("Contract approval")
+                .withLocation("Prague")
+                .withContactInfo("jane.doe@example.com")
+                .withSignerName("Jane Doe")
+                .withSignatureScope(PadesSignatureScope.CERTIFICATION)
+                .withCommitmentType(CommitmentType.PROOF_OF_APPROVAL)
+                .withClaimedRoles("Head of Legal", "Board member")
+                .withVisibleSignature(aVisibleSignature()
+                        .withVisible(true)
+                        .withText("Signed by Jane Doe")
+                        .withImage(new byte[]{(byte) 0x89, 'P', 'N', 'G'}, "image/png")
+                        .withPlacement(aPlacement()
+                                .withPage(3)
+                                .withOriginX(20f)
+                                .withOriginY(30f)
+                                .withWidth(180f)
+                                .withHeight(60f)
+                                .withRotation(90))
+                        .withStyle(aStyle()
+                                .withTextColor("#171717")
+                                .withTextBackgroundColor("#ffffff")
+                                .withBackgroundColor("#F5F5F5")
+                                .withPadding(5)
+                                .withTextWrapping(TextWrapping.FONT_BASED)
+                                .withTextPosition(TextPosition.LEFT)
+                                .withTextHorizontalAlignment(TextHorizontalAlignment.LEFT)
+                                .withTextVerticalAlignment(TextVerticalAlignment.MIDDLE)
+                                .withImageScaling(ImageScaling.STRETCH)
+                                .withDpi(300)))
+                .build();
+
+        // when / then
+        assertColumnGoldenAndRoundTrip("column-signature-parameters", parameters, SignatureParametersDto.class);
     }
 
     /**

@@ -1,0 +1,43 @@
+{
+  "claimedRoles" : [
+    "Head of Legal",
+    "Board member"
+  ],
+  "commitmentType" : "proof_of_approval",
+  "contactInfo" : "jane.doe@example.com",
+  "family" : "pades",
+  "location" : "Prague",
+  "reason" : "Contract approval",
+  "signatureScope" : "certification",
+  "signerName" : "Jane Doe",
+  "visibleSignature" : {
+    "image" : "iVBORw==",
+    "imageMimeType" : "image/png",
+    "placement" : {
+      "alignmentHorizontal" : null,
+      "alignmentVertical" : null,
+      "fieldId" : null,
+      "height" : 6E+1,
+      "originX" : 2E+1,
+      "originY" : 3E+1,
+      "page" : 3,
+      "rotation" : 90,
+      "width" : 1.8E+2,
+      "zoom" : null
+    },
+    "style" : {
+      "backgroundColor" : "#F5F5F5",
+      "dpi" : 300,
+      "imageScaling" : "stretch",
+      "padding" : 5,
+      "textBackgroundColor" : "#ffffff",
+      "textColor" : "#171717",
+      "textHorizontalAlignment" : "left",
+      "textPosition" : "left",
+      "textVerticalAlignment" : "middle",
+      "textWrapping" : "font_based"
+    },
+    "text" : "Signed by Jane Doe",
+    "visible" : true
+  }
+}

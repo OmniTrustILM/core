@@ -6,6 +6,7 @@ import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
@@ -126,6 +127,14 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @Column(name = "required_extended_key_usage_oids")
     @JdbcTypeCode(SqlTypes.ARRAY)
     private List<String> requiredExtendedKeyUsageOids = new ArrayList<>();
+
+    @Column(name = "allowed_request_parameter_groups")
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    private List<String> allowedRequestParameterGroups = new ArrayList<>();
+
+    @Column(name = "default_signature_parameters", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private SignatureParametersDto defaultSignatureParameters;
 
     @Column(name = "qualified_timestamp")
     private Boolean qualifiedTimestamp;

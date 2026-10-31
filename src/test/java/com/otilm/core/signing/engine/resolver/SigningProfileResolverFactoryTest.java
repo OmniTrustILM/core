@@ -3,6 +3,7 @@ package com.otilm.core.signing.engine.resolver;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModelBuilder;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
@@ -38,7 +39,7 @@ class SigningProfileResolverFactoryTest {
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfileModel() {
         ManagedContentSigningWorkflow workflow = new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null,
-                null, null, null, CertificatePurposeRequirements.NONE);
+                null, null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
         return new SigningProfileModel<>(UUID.randomUUID(), "test-profile", null, 1, true, List.of(SigningProtocol.TSP),
                 UUID.randomUUID(), workflow, new StaticKeyManagedSigning(UUID.randomUUID(), List.of()),
                 SigningRecordPolicyModelBuilder.notRecording().build());
@@ -46,7 +47,8 @@ class SigningProfileResolverFactoryTest {
 
     private static ResolvedManagedContentSigningProfile aResolvedContentSigningProfile() {
         return new ResolvedManagedContentSigningProfile(UUID.randomUUID(), "docs", null, 1, true, List.of(), List.of(),
-                null, null, null, null, CertificatePurposeRequirements.NONE, null, null);
+                null, null, null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL, null,
+                null);
     }
 
     @Test

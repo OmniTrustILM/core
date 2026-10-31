@@ -4,6 +4,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SignatureParameterPolicy;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,7 @@ class SigningWorkflowModelsTest {
         List<RequestAttribute> attrs = List.of();
 
         ManagedContentSigningWorkflow wf = new ManagedContentSigningWorkflow(connectorUuid, attrs, null, null, null,
-                null, CertificatePurposeRequirements.NONE);
+                null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
 
         assertEquals(SigningWorkflowType.CONTENT_SIGNING, wf.getWorkflowType());
         assertEquals(connectorUuid, wf.signatureFormattingConnectorUuid());

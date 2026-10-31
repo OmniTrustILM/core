@@ -52,6 +52,8 @@ import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.SignatureParameterGroup;
+import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
@@ -79,6 +81,7 @@ import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
@@ -154,6 +157,8 @@ import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1Connect
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
 import static com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder.aContentSigningWorkflow;
 import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
+import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
+import static com.otilm.core.util.builders.PadesVisibleSignatureDtoBuilder.aVisibleSignature;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static com.otilm.core.util.builders.RsaSignatureAttributesBuilder.rsaSignatureAttributes;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
@@ -181,6 +186,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     private static final String CUSTOM_ATTR_UUID = "c1d2e3f4-0001-0002-0003-000000000004";
     private static final String CUSTOM_ATTR_NAME = "signingProfileTestAttribute";
     private static final String BASE_URL = "http://localhost";
+
+    /** A real 1x1 PNG, so the stamp fixture is something a connector could actually draw. */
+    private static final String STAMP_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
 
     @Autowired
     private SigningProfileExternalService signingProfileService;
@@ -314,6 +322,13 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                 .withInternalTimestampSource(timestampSourceProfileUuid)
                                 .build())
                         .build());
+    }
+
+    /** Reads the persisted row directly, bypassing the DTO mapping the create/update calls already exercise. */
+    private SigningProfileVersion persistedVersion(String profileUuid, int version) {
+        return signingProfileVersionRepository
+                .findBySigningProfileUuidAndVersion(UUID.fromString(profileUuid), version)
+                .orElseThrow();
     }
 
     private static String firstErrorMessage(ValidationException ex) {
@@ -1413,6 +1428,73 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
+        void persistsTheGroupCodesAndTypedDefaults_ofAManagedContentSigningWorkflow() throws Exception {
+            // given: a request naming two allowed groups and a PAdES default
+            var defaultReason = "Contract approval";
+            var requestedDefaults = aPadesParameters().withReason(defaultReason).build();
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-content-parameter-policy")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withAllowedRequestParameterGroups(SignatureParameterGroup.SIGNATURE_CONTEXT,
+                                            SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT)
+                                    .withDefaultSignatureParameters(requestedDefaults)
+                                    .build())
+                            .build());
+
+            // then: the persisted column stores the wire codes, not the enum's name(), and the defaults tree intact
+            SigningProfileVersion persisted = persistedVersion(created.getUuid(), created.getVersion());
+            assertThat(persisted.getAllowedRequestParameterGroups())
+                    .containsExactly(SignatureParameterGroup.Codes.SIGNATURE_CONTEXT,
+                            SignatureParameterGroup.Codes.VISIBLE_SIGNATURE_CONTENT);
+            assertThat(persisted.getDefaultSignatureParameters())
+                    .isInstanceOfSatisfying(PadesSignatureParametersDto.class,
+                            defaults -> assertThat(defaults.getReason()).isEqualTo(defaultReason));
+        }
+
+        @Test
+        void echoesTheConfiguredStampImage_asTheSameBase64OnGet() throws Exception {
+            // given: a PAdES default carrying a stamp image supplied as base64
+            var stampMimeType = "image/png";
+            var requestedDefaults = aPadesParameters()
+                    .withVisibleSignature(aVisibleSignature()
+                            .withImage(Base64.getDecoder().decode(STAMP_IMAGE_BASE64), stampMimeType))
+                    .build();
+
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-content-stamp-image")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withDefaultSignatureParameters(requestedDefaults)
+                                    .build())
+                            .build());
+
+            // when
+            SigningProfileDto fetched = signingProfileService
+                    .getSigningProfile(SecuredUUID.fromString(created.getUuid()), created.getVersion());
+
+            // then
+            assertThat(((ContentSigningWorkflowDto) fetched.getWorkflow()).getDefaultSignatureParameters())
+                    .isInstanceOfSatisfying(PadesSignatureParametersDto.class, defaults -> {
+                        assertThat(Base64.getEncoder().encodeToString(defaults.getVisibleSignature().getImage()))
+                                .isEqualTo(STAMP_IMAGE_BASE64);
+                        assertThat(defaults.getVisibleSignature().getImageMimeType()).isEqualTo(stampMimeType);
+                    });
+        }
+
+        @Test
         void managedContentSigning_requiringNonRepudiation_refusesADigitalSignatureOnlyCertificate() {
             // given: defaultSigningCertificate carries digitalSignature but not nonRepudiation
             ThrowableAssert.ThrowingCallable create = () -> signingProfileService
@@ -1526,6 +1608,61 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(
                             "family, maxLevel and timestampSource must be omitted for delegated content signing");
+        }
+
+        /** A delegated signer never sees these parameters, so nothing would enforce a stored allow-list. */
+        @Test
+        void rejectsTheAllowList_whenTheContentSigningIsDelegated() {
+            // given — a delegated profile request carrying an allow-list
+
+            // when / then
+            assertThatThrownBy(() -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-parameter-groups")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withAllowedRequestParameterGroups(SignatureParameterGroup.SIGNATURE_CONTEXT)
+                                    .build())
+                            .build()))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("allowedRequestParameterGroups")
+                    .hasMessageContaining("delegated");
+        }
+
+        @Test
+        void rejectsTheDefaultParameters_whenTheContentSigningIsDelegated() {
+            // given — a delegated profile request carrying default parameters
+
+            // when / then
+            assertThatThrownBy(() -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-default-parameters")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withDefaultSignatureParameters(aPadesParameters().build())
+                                    .build())
+                            .build()))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("defaultSignatureParameters")
+                    .hasMessageContaining("delegated");
+        }
+
+        @Test
+        void rejectsTheDefaultParameters_whenTheContentSigningIsDelegatedAndTheGroupsAreNull() {
+            // given
+            var workflow = aContentSigningWorkflow().withDefaultSignatureParameters(aPadesParameters().build()).build();
+            workflow.setAllowedRequestParameterGroups(null);
+
+            // when / then
+            assertThatThrownBy(() -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-defaults-and-null-groups")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(workflow)
+                            .build()))
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("defaultSignatureParameters")
+                    .hasMessageContaining("delegated");
         }
 
         @Test
@@ -1874,6 +2011,38 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             ContentSigningWorkflowDto workflow = assertInstanceOf(ContentSigningWorkflowDto.class,
                     updated.getWorkflow());
             assertThat(workflow.getSignatureFormattingConnector()).isNull();
+        }
+
+        @Test
+        void clearsTheParameterPolicyColumns_whenTheWorkflowSwitchesFromManagedContentSigningToRaw() throws Exception {
+            // given: a managed content-signing profile whose allow-list and typed defaults are persisted
+            var requestedDefaults = aPadesParameters().withReason("Contract approval").build();
+            SigningProfileDto profile = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("parameter-policy-cleared-on-workflow-switch")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withAllowedRequestParameterGroups(SignatureParameterGroup.SIGNATURE_CONTEXT)
+                                    .withDefaultSignatureParameters(requestedDefaults)
+                                    .build())
+                            .build());
+            assertThat(persistedVersion(profile.getUuid(), profile.getVersion()).getAllowedRequestParameterGroups())
+                    .containsExactly(SignatureParameterGroup.Codes.SIGNATURE_CONTEXT);
+            SecuredUUID profileUuid = SecuredUUID.fromString(profile.getUuid());
+
+            // when: the profile switches away to a raw workflow, which carries neither field
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(profileUuid,
+                            aSigningProfileRequestFromExistingProfile(profile).withRawSigning().build());
+
+            // then: the reset block cleared both columns rather than leaving the last managed values stranded
+            SigningProfileVersion reloaded = persistedVersion(updated.getUuid(), updated.getVersion());
+            assertThat(reloaded.getAllowedRequestParameterGroups()).isEmpty();
+            assertThat(reloaded.getDefaultSignatureParameters()).isNull();
         }
 
         @Test

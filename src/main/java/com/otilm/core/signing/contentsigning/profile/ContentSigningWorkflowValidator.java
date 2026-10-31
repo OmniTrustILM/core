@@ -1,5 +1,6 @@
 package com.otilm.core.signing.contentsigning.profile;
 
+import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -9,15 +10,22 @@ import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflo
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.SignatureParameterGroup;
+import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
+import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
+import com.otilm.core.signing.contentsigning.parameters.PadesVisibleSignatureCompleteness;
+import com.otilm.core.signing.contentsigning.parameters.SignatureParameterMerge;
 import com.otilm.core.signing.contentsigning.state.ContentSigningTransitions;
 import com.otilm.core.signing.record.SigningRecordFloor;
 import jakarta.annotation.Nullable;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -44,6 +52,7 @@ public class ContentSigningWorkflowValidator {
 
         requireConnectorServes(connector, family, maxLevel);
         validateTimestampSource(workflow, maxLevel, targetProfileUuid);
+        validateSignatureParameters(workflow, family);
     }
 
     /**
@@ -195,5 +204,64 @@ public class ContentSigningWorkflowValidator {
                     "The Signing Profile named as the timestamp source does not meet the signing-record floor: "
                             + violation.get());
         }
+    }
+
+    /**
+     * The parameter rules that can be decided from the profile alone. Complements {@code @Valid} cascade on the request
+     * DTO.
+     */
+    private static void validateSignatureParameters(ContentSigningWorkflowRequestDto workflow, SignatureFamily family) {
+        Set<SignatureParameterGroup> allowed = workflow.getAllowedRequestParameterGroups() == null
+                ? Set.of()
+                : workflow.getAllowedRequestParameterGroups();
+        requireGroupsApplyToFamily(allowed, family);
+        requireDefaultsMatchFamily(workflow.getDefaultSignatureParameters(), family);
+        requireSatisfiableDefaults(workflow.getDefaultSignatureParameters(), allowed);
+    }
+
+    private static void requireGroupsApplyToFamily(Set<SignatureParameterGroup> allowed, SignatureFamily family) {
+        List<ValidationError> errors = allowed
+                .stream()
+                .filter(group -> !group.appliesTo(family))
+                .map(group -> ValidationError
+                        .create("Signature parameter group '{}' does not apply to the {} family", group.getCode(),
+                                family.name()))
+                .toList();
+        if (!errors.isEmpty()) {
+            throw new ValidationException(errors);
+        }
+    }
+
+    private static void requireDefaultsMatchFamily(@Nullable SignatureParametersDto defaults, SignatureFamily family) {
+        if (defaults != null && defaults.getFamily() != family) {
+            throw new ValidationException(
+                    "defaultSignatureParameters declares the %s family, but this workflow produces %s signatures"
+                            .formatted(defaults.getFamily().name(), family.name()));
+        }
+    }
+
+    /** Checks what a request supplying no parameters would get, so save time reads the object signing reads. */
+    private static void requireSatisfiableDefaults(@Nullable SignatureParametersDto defaults,
+            Set<SignatureParameterGroup> allowed) {
+        if (!(SignatureParameterMerge.merge(defaults, null) instanceof PadesSignatureParametersDto effective)) {
+            return;
+        }
+        List<ValidationError> errors = PadesVisibleSignatureCompleteness
+                .missingFields(effective)
+                .entrySet()
+                .stream()
+                .filter(gap -> !allowed.contains(gap.getKey()))
+                .map(gap -> unsatisfiable(gap.getKey(), gap.getValue()))
+                .toList();
+        if (!errors.isEmpty()) {
+            throw new ValidationException(errors);
+        }
+    }
+
+    private static ValidationError unsatisfiable(SignatureParameterGroup group, List<String> fields) {
+        return ValidationError
+                .create("The default visible signature is incomplete and no request can complete it: %s %s, and the '%s' group is not allow-listed"
+                        .formatted(fields.size() == 1 ? "field" : "fields", String.join(", ", fields),
+                                group.getCode()));
     }
 }
