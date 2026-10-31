@@ -102,6 +102,7 @@ import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.compliance.ComplianceResultDto;
@@ -1590,6 +1591,36 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions.assertTrue(resubmitted.getCertificateRequest().getSignatureAttributes().isEmpty());
+    }
+
+    @Test
+    void submitCertificateRequest_takesOverNoAttributesFromAPredecessorWithAnotherCsr() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        CertificateDetailDto predecessor = clientOperationService
+                .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
+        Certificate issuedPredecessor = certificateRepository
+                .findByUuid(UUID.fromString(predecessor.getUuid()))
+                .orElseThrow();
+        issuedPredecessor.setState(CertificateState.ISSUED);
+        certificateRepository.save(issuedPredecessor);
+        KeyPair newKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        ClientCertificateRequestDto rekeyed = uploadedRequest(null, null);
+        rekeyed
+                .setRequest(CertificateGeneratorHelper
+                        .generateCsrBase64Der(newKeyPair.getPrivate(), newKeyPair.getPublic(), "CN=rekeyed",
+                                "SHA256WithRSA"));
+        rekeyed.setSourceCertificateUuid(UUID.fromString(predecessor.getUuid()));
+
+        // when
+        CertificateDetailDto successor = clientOperationService.submitCertificateRequest(rekeyed, null);
+
+        // then
+        Assertions.assertTrue(successor.getCertificateRequest().getSignatureAttributes().isEmpty());
     }
 
     @Test
