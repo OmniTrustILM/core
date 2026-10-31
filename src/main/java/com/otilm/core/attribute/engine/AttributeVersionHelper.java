@@ -76,6 +76,25 @@ public class AttributeVersionHelper {
         return mapping.values().stream().toList();
     }
 
+    /** Groups stored rows into one response attribute per attribute. Each secret is decrypted on the way. */
+    public static List<ResponseAttribute> toResponseAttributes(List<ObjectAttributeContent> objectContents) {
+        Map<String, ResponseAttribute> mapping = new HashMap<>();
+        for (ObjectAttributeContent objectContent : objectContents) {
+            String uuid = objectContent.uuid().toString();
+            ResponseAttribute responseAttribute;
+
+            if ((responseAttribute = mapping.get(uuid)) == null) {
+                responseAttribute = getResponseAttribute(objectContent.uuid(), objectContent.name(),
+                        objectContent.label(), new ArrayList<>(), objectContent.contentType(), objectContent.type(),
+                        objectContent.version());
+                mapping.put(uuid, responseAttribute);
+            }
+            addResponseAttributeContent(responseAttribute, objectContent);
+        }
+
+        return mapping.values().stream().toList();
+    }
+
     public static RequestAttribute getRequestAttribute(UUID uuid, String name, List<? extends AttributeContent> content,
             AttributeContentType contentType, int version) {
         if (version == 2) {

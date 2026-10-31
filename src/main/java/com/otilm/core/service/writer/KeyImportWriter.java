@@ -327,7 +327,7 @@ public class KeyImportWriter {
     /** Drops the registered key's items from the cache, which may hold an item the key adopted. */
     private void evictItems(CryptographicKeyFullModel key) {
         key.items().forEach(item -> cacheEvictor.evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, item.uuid()));
-        keyOperationCache.forgetKeyItemAnswers();
+        keyOperationCache.forgetSignAttributeDefinitions();
     }
 
     /** Read afresh: an earlier read in the request may have left an older copy of the key and its items. */

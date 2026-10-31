@@ -71,9 +71,12 @@ public class CacheConfig {
         caches.add(readThrough(SYSTEM_USER_AUTH_CACHE, boundedWithStats(authTtl, authSize)));
         caches.add(readThrough(USER_UUID_AUTH_CACHE, boundedWithStats(authTtl, authSize)));
         caches
+                .add(readThrough(ATTRIBUTE_SEARCH_FIELDS_CACHE,
+                        boundedWithStats(attributeSearchFieldsCacheProperties.ttlMinutes(),
+                                attributeSearchFieldsCacheProperties.maxSize())));
+        caches
                 .add(readThrough(CERTIFICATE_AUTH_CACHE,
                         boundedWithStats(authTtl, authSize).removalListener(userCertificateIndex)));
-        caches.add(readThrough(TOKEN_AUTH_CACHE, boundedWithStats(authTtl, authSize).removalListener(tokenJtiIndex)));
         caches
                 .add(readThrough(CERTIFICATE_CHAIN_CACHE,
                         boundedWithStats(certChainProperties.ttlMinutes(), certChainProperties.maxSize())));
@@ -85,19 +88,11 @@ public class CacheConfig {
                         boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),
                                 cryptographicKeyItemCacheProperties.maxSize())));
         caches
-                .add(readThrough(TOKEN_SCOPE_ATTRIBUTES_CACHE,
-                        boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),
-                                cryptographicKeyItemCacheProperties.maxSize())));
-        caches
-                .add(readThrough(SIGN_ATTRIBUTE_DEFINITIONS_CACHE,
-                        boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),
-                                cryptographicKeyItemCacheProperties.maxSize())));
+                .add(readThrough(OBJECT_AUTHZ_CACHE,
+                        boundedWithStats(authzTtl, authorizationCacheProperties.objectMaxSize())));
         caches
                 .add(readThrough(RESOURCE_AUTHZ_CACHE,
                         boundedWithStats(authzTtl, authorizationCacheProperties.resourceMaxSize())));
-        caches
-                .add(readThrough(OBJECT_AUTHZ_CACHE,
-                        boundedWithStats(authzTtl, authorizationCacheProperties.objectMaxSize())));
         caches
                 .add(readThrough(SIGNING_CERTIFICATE_CACHE, boundedWithStats(
                         signingCertificateCacheProperties.ttlMinutes(), signingCertificateCacheProperties.maxSize())));
@@ -105,15 +100,20 @@ public class CacheConfig {
                 .add(readThrough(SIGNING_PROFILE_CACHE, boundedWithStats(signingProfileCacheProperties.ttlMinutes(),
                         signingProfileCacheProperties.maxSize())));
         caches
+                .add(readThrough(SIGN_ATTRIBUTE_DEFINITIONS_CACHE,
+                        boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),
+                                cryptographicKeyItemCacheProperties.maxSize())));
+        caches
                 .add(readThrough(TIME_QUALITY_CONFIGURATION_CACHE,
                         boundedWithStats(tqcCacheProperties.ttlMinutes(), tqcCacheProperties.maxSize())));
+        caches.add(readThrough(TOKEN_AUTH_CACHE, boundedWithStats(authTtl, authSize).removalListener(tokenJtiIndex)));
+        caches
+                .add(readThrough(TOKEN_SCOPE_ATTRIBUTES_CACHE,
+                        boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),
+                                cryptographicKeyItemCacheProperties.maxSize())));
         caches
                 .add(readThrough(TSP_PROFILE_CACHE,
                         boundedWithStats(tspProfileCacheProperties.ttlMinutes(), tspProfileCacheProperties.maxSize())));
-        caches
-                .add(readThrough(ATTRIBUTE_SEARCH_FIELDS_CACHE,
-                        boundedWithStats(attributeSearchFieldsCacheProperties.ttlMinutes(),
-                                attributeSearchFieldsCacheProperties.maxSize())));
         SimpleCacheManager mgr = new SimpleCacheManager();
         mgr.setCaches(caches);
         mgr.initializeCaches();

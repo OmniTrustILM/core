@@ -15,10 +15,7 @@ import java.util.UUID;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Component;
 
-/**
- * Entries hold what a warm v2 signature would otherwise read from the database and the connector's schema. The writes
- * an entry depends on evict it after commit.
- */
+/** Caches attributes required for crypto v2 signing operations. */
 @Component
 public class KeyOperationCache {
 
@@ -42,37 +39,30 @@ public class KeyOperationCache {
                 .getOrLoad(scope, () -> attributeEngine.getStoredObjectDataAttributesContent(scope));
     }
 
-    /**
-     * The key item's sign definitions as the connector answered them in {@code scope}. A caller holding a key item read
-     * before its move keys its load by the old scope, so callers in the new scope never read that answer.
-     */
+    /** The key item's sign definitions as the connector answered them in {@code scope}. */
     public List<BaseAttribute> signAttributeDefinitions(UUID keyItemUuid, KeyOperationScope scope,
             DefinitionsLoader loader) throws ConnectorException {
         return signAttributeDefinitionsCache.getOrLoad(new SignDefinitionsKey(keyItemUuid, scope), loader::load);
     }
 
-    /** Drops every definition, since each key pairs a key item with a scope a key-item write may have changed. */
-    public void forgetKeyItemAnswers() {
+    public void forgetSignAttributeDefinitions() {
         cacheEvictor.clear(CacheConfig.SIGN_ATTRIBUTE_DEFINITIONS_CACHE);
     }
 
-    /** Every definition goes as well. Each was answered while the old attributes applied. */
     public void forgetAttributesOf(Resource objectType, UUID objectUuid, UUID connectorUuid) {
         cacheEvictor
                 .evict(CacheConfig.TOKEN_SCOPE_ATTRIBUTES_CACHE, attributeScope(objectType, objectUuid, connectorUuid));
         cacheEvictor.clear(CacheConfig.SIGN_ATTRIBUTE_DEFINITIONS_CACHE);
     }
 
-    /** A connector change may change any definition the connector answered, stored rows carrying theirs included. */
-    public void forgetConnectorAnswers() {
+    public void forgetAllAttributes() {
         cacheEvictor.clear(CacheConfig.TOKEN_SCOPE_ATTRIBUTES_CACHE);
         cacheEvictor.clear(CacheConfig.SIGN_ATTRIBUTE_DEFINITIONS_CACHE);
     }
 
     /**
      * Resolves the token and token-profile attributes itself, after its entry exists, so an eviction during the load
-     * also drops an answer given for attributes that changed. Loaded definitions have already passed the secret echo
-     * check.
+     * also drops an answer given for attributes that changed.
      */
     @FunctionalInterface
     public interface DefinitionsLoader {

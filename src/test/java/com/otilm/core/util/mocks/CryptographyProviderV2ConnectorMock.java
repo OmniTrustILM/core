@@ -8,6 +8,7 @@ import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.http.Request;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
@@ -45,7 +46,11 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String RESOLVE_KEYS = "/v2/cryptographyProvider/keys/resolve";
 
     CryptographyProviderV2ConnectorMock() {
-        stubV2Info(List.of(ConnectorInterface.CRYPTOGRAPHY));
+        stubV2InfoDetails(List
+                .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
+                        interfaceInfo(ConnectorInterface.HEALTH, List.of()),
+                        interfaceInfo(ConnectorInterface.METRICS, List.of()),
+                        interfaceInfo(ConnectorInterface.CRYPTOGRAPHY, List.of(FeatureFlag.STATELESS))));
     }
 
     public CryptographyProviderV2ConnectorMock stubOperationAttributes(String operation, String responseJson) {

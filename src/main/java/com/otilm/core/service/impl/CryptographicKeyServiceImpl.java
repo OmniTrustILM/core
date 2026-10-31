@@ -1247,7 +1247,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
     private void evictKeyItemCache(UUID keyItemUuid) {
         cacheEvictor.evict(CacheConfig.CRYPTOGRAPHIC_KEY_ITEM_CACHE, keyItemUuid);
-        keyOperationCache.forgetKeyItemAnswers();
+        keyOperationCache.forgetSignAttributeDefinitions();
     }
 
     @Override

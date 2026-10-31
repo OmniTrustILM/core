@@ -36,6 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -44,7 +45,8 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -202,15 +204,15 @@ class KeyProviderAdapterFactoryTest {
         ValidationException rejectedScope = new ValidationException(
                 "The key no longer belongs to the authorized profile.");
         KeyProviderAdapter adapter = factory.forKeyItemInCurrentScope(item, resolvedScope -> {
-            assertSame(scope, resolvedScope);
+            assertThat(resolvedScope).isSameAs(scope);
             throw rejectedScope;
         });
 
         // when
-        Executable list = () -> adapter.listSignAttributes(item);
+        ThrowingCallable list = () -> adapter.listSignAttributes(item);
 
         // then
-        assertSame(rejectedScope, assertThrows(ValidationException.class, list));
+        assertThatThrownBy(list).isSameAs(rejectedScope);
         verify(keyRepository).findOperationScopeByUuid(item.keyUuid());
     }
 
@@ -224,12 +226,13 @@ class KeyProviderAdapterFactoryTest {
         KeyProviderAdapter adapter = factory.forKeyItemInCurrentScope(item, validated::add);
 
         // when
-        Executable list = () -> adapter.listSignAttributes(item);
+        ThrowingCallable list = () -> adapter.listSignAttributes(item);
 
         // then
-        NotFoundException failure = assertThrows(NotFoundException.class, list);
-        assertEquals("Key " + item.keyUuid() + " is outside any token profile.", failure.getMessage());
-        assertEquals(List.of(), validated);
+        assertThatThrownBy(list)
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Key " + item.keyUuid() + " is outside any token profile.");
+        assertThat(validated).isEmpty();
     }
 
     @Test
@@ -260,11 +263,12 @@ class KeyProviderAdapterFactoryTest {
         KeyProviderAdapter adapter = factory.forKeyItem(item);
 
         // when
-        Executable list = () -> adapter.listSignAttributes(item);
+        ThrowingCallable list = () -> adapter.listSignAttributes(item);
 
         // then
-        NotFoundException failure = assertThrows(NotFoundException.class, list);
-        assertEquals("Key " + item.keyUuid() + " is outside any token profile.", failure.getMessage());
+        assertThatThrownBy(list)
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Key " + item.keyUuid() + " is outside any token profile.");
         verifyNoInteractions(keyRepository, attributeEngine);
     }
 

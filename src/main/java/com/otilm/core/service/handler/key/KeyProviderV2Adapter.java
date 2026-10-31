@@ -1104,7 +1104,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         return definitions;
     }
 
-    /** A schema echoing a secret the request carried is refused before anything reads it. */
+    /** A schema echoing a secret from the request is refused before anything reads it. */
     private List<BaseAttribute> checkedSchema(ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall,
             KeyScopedRequestV2Dto request) throws ConnectorException {
         List<BaseAttribute> definitions = fetchSchema(schemaCall, request);
@@ -1112,7 +1112,6 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         return definitions;
     }
 
-    /** Sign definitions are kept per key item once checked. A warm signature skips the connector's schema call. */
     private List<BaseAttribute> cachedSignDefinitions(CryptographicKeyItemOperationModel keyItem,
             KeyOperationScope keyScope) throws ConnectorException {
         return operationCache.signAttributeDefinitions(keyItem.keyItemUuid(), keyScope, () -> {

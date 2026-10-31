@@ -96,6 +96,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -560,17 +561,15 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void signDataWithoutEventHistory_servesAWarmSignature_withoutDatabaseOrSchemaCall() throws Exception {
         // given
-        connectorMock
-                .stubOperationAttributes("sign", signSchema())
-                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        stubSigning();
         signWithoutEventHistory();
 
         // when
         SqlCapture.Captured<SignDataResponseDto> warm = SqlCapture.during(this::signWithoutEventHistory);
 
         // then
-        assertEquals(SIGNATURE, warm.result().getSignatures().get(0).getData());
-        assertEquals(List.of(), warm.statements());
+        assertThat(warm.result().getSignatures().get(0).getData()).isEqualTo(SIGNATURE);
+        assertThat(warm.statements()).isEmpty();
         connectorMock.verifyOperationAttributesRequests("sign", 1);
         connectorMock
                 .verifyOperationRequestsContaining("sign", 2,
@@ -582,9 +581,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void signDataWithoutEventHistory_asksForTheSignSchemaAgain_afterTheKeyItemIsEdited() throws Exception {
         // given
-        connectorMock
-                .stubOperationAttributes("sign", signSchema())
-                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        stubSigning();
         signWithoutEventHistory();
         EditKeyItemDto rename = new EditKeyItemDto();
         rename.setName("renamed-private-key");
@@ -600,9 +597,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void signDataWithoutEventHistory_asksForTheSignSchemaAgain_afterTheConnectorIsApproved() throws Exception {
         // given
-        connectorMock
-                .stubOperationAttributes("sign", signSchema())
-                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        stubSigning();
         signWithoutEventHistory();
         Connector awaitingApproval = connectorRepository.findByUuid(connector.getUuid()).orElseThrow();
         awaitingApproval.setStatus(ConnectorStatus.WAITING_FOR_APPROVAL);
@@ -617,15 +612,28 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void signDataWithoutEventHistory_asksForTheSignSchemaAgain_afterTheConnectorReconnects() throws Exception {
+        // given — the connector stays connected throughout
+        stubSigning();
+        signWithoutEventHistory();
+        connectorService.reconnect(connector.getSecuredUuid());
+
+        // when
+        signWithoutEventHistory();
+
+        // then
+        connectorMock.verifyOperationAttributesRequests("sign", 2);
+    }
+
+    @Test
     void signDataWithoutEventHistory_sendsUpdatedTokenAttributes_onceTheTokenWriterCommits() throws Exception {
         // given
-        connectorMock
-                .stubOperationAttributes("sign", signSchema())
-                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        stubSigning();
         signWithoutEventHistory();
+        String updatedSlot = "slot-9";
         tokenInstanceReferenceWriter
                 .updateAttributes(token.getUuid(), connector.getUuid(), List.of(),
-                        List.of(stringAttribute(tokenSlotUuid, "token-slot", "slot-9")), List.of());
+                        List.of(stringAttribute(tokenSlotUuid, "token-slot", updatedSlot)), List.of());
 
         // when
         signWithoutEventHistory();
@@ -633,19 +641,19 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         // then
         connectorMock
                 .verifyOperationRequestsContaining("sign", 1,
-                        "{\"tokenAttributes\":[{\"name\":\"token-slot\",\"content\":[{\"data\":\"slot-9\"}]}]}");
+                        "{\"tokenAttributes\":[{\"name\":\"token-slot\",\"content\":[{\"data\":\"" + updatedSlot
+                                + "\"}]}]}");
     }
 
     @Test
     void signDataWithoutEventHistory_sendsUpdatedProfileAttributes_onceTheProfileWriterCommits() throws Exception {
         // given
-        connectorMock
-                .stubOperationAttributes("sign", signSchema())
-                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        stubSigning();
         signWithoutEventHistory();
+        String updatedPolicy = "archiving";
         EditTokenProfileRequestDto edit = new EditTokenProfileRequestDto();
         edit.setCustomAttributes(List.of());
-        edit.setAttributes(List.of(stringAttribute(profilePolicyUuid, "profile-policy", "archiving")));
+        edit.setAttributes(List.of(stringAttribute(profilePolicyUuid, "profile-policy", updatedPolicy)));
         tokenProfileWriter.update(token.getUuid(), profile.getUuid(), edit);
 
         // when
@@ -654,18 +662,17 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         // then
         connectorMock
                 .verifyOperationRequestsContaining("sign", 1,
-                        "{\"tokenProfileAttributes\":[{\"name\":\"profile-policy\","
-                                + "\"content\":[{\"data\":\"archiving\"}]}]}");
+                        "{\"tokenProfileAttributes\":[{\"name\":\"profile-policy\"," + "\"content\":[{\"data\":\""
+                                + updatedPolicy + "\"}]}]}");
     }
 
     @Test
     void signDataWithoutEventHistory_sendsTheDecryptedTokenSecretEachTime_whileTheCacheKeepsItEncrypted()
             throws Exception {
         // given
-        connectorMock
-                .stubOperationAttributes("sign", signSchema())
-                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
-        persistEncryptedAttribute(Resource.TOKEN, token.getUuid(), "token-pin", "pin-4711");
+        stubSigning();
+        String tokenPin = "pin-4711";
+        persistEncryptedAttribute(Resource.TOKEN, token.getUuid(), "token-pin", tokenPin);
 
         // when
         signWithoutEventHistory();
@@ -674,15 +681,17 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         // then
         connectorMock
                 .verifyOperationRequestsContaining("sign", 2,
-                        "{\"tokenAttributes\":[{\"name\":\"token-pin\",\"content\":[{\"data\":\"pin-4711\"}]}]}");
+                        "{\"tokenAttributes\":[{\"name\":\"token-pin\",\"content\":[{\"data\":\"" + tokenPin
+                                + "\"}]}]}");
         ObjectAttributeContent cachedPin = keyOperationCache
                 .storedAttributes(Resource.TOKEN, token.getUuid(), connector.getUuid())
                 .stream()
                 .filter(row -> row.name().equals("token-pin"))
                 .findFirst()
                 .orElseThrow();
-        assertTrue(cachedPin.encryptedContent() != null && !cachedPin.encryptedContent().contains("pin-4711"));
-        assertNull(cachedPin.contentItem().getData());
+        Object cachedPinData = cachedPin.contentItem().getData();
+        assertThat(cachedPin.encryptedContent()).isNotNull().doesNotContain(tokenPin);
+        assertThat(cachedPinData).isNull();
     }
 
     // ---- fixtures ----
@@ -691,6 +700,12 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         return internalOperationService
                 .signDataWithoutEventHistory(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
                         privateKey.getUuid(), signRequest());
+    }
+
+    private void stubSigning() {
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
     }
 
     private Connector persistV2Connector(String url) {

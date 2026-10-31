@@ -78,7 +78,7 @@ public class KeyProviderAdapterFactory {
                 "token instance " + tokenInstance.toIdentifierString(), this::currentScope);
     }
 
-    /** Operations take their scope from the token and profile the cached key item names. */
+    /** Operations take their scope from the token and profile, based on the cached key item. */
     public KeyProviderAdapter forKeyItem(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
         Objects.requireNonNull(keyItem, "A key item is required to select a key-provider adapter.");
         return adapterFor(keyItem, KeyProviderAdapterFactory::keyItemScope);

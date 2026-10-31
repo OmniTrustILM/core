@@ -171,6 +171,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -1684,7 +1685,7 @@ class KeyProviderV2AdapterTest {
             ValidationException denied = new ValidationException(
                     "Token profile no longer matches the authorized scope.");
             when(scopeSource.scopeOf(keyItem)).thenThrow(denied);
-            org.mockito.Mockito.clearInvocations(attributes, resolver);
+            clearInvocations(attributes, resolver);
 
             // when
             ThrowingCallable execute = () -> operation.run(adapter, keyItem);
@@ -2320,7 +2321,7 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void sendsTokenAttributesCommittedDuringTheSchemaCall() throws Exception {
+        void sendsTheCommittedTokenAttributes_whenTheyChangeDuringTheSchemaCall() throws Exception {
             // given
             UUID tokenUuid = profile.tokenInstanceReferenceUuid();
             List<ObjectAttributeContent> committedRows = List.of(storedRow("committed-token"));
