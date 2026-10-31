@@ -1114,7 +1114,8 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
 
     private List<BaseAttribute> cachedSignDefinitions(CryptographicKeyItemOperationModel keyItem,
             KeyOperationScope keyScope) throws ConnectorException {
-        return operationCache.signAttributeDefinitions(keyItem.keyItemUuid(), keyScope, () -> {
+        UUID connectorUuid = UUID.fromString(connectorInfo.getUuid());
+        return operationCache.signAttributeDefinitions(keyItem.keyItemUuid(), keyScope, connectorUuid, () -> {
             KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), keyItem,
                     tokenProfileScopedRequest(keyScope));
             return checkedSchema(schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest),

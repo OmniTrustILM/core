@@ -39,10 +39,18 @@ public class KeyOperationCache {
                 .getOrLoad(scope, () -> attributeEngine.getStoredObjectDataAttributesContent(scope));
     }
 
-    /** The key item's sign definitions as the connector answered them in {@code scope}. */
-    public List<BaseAttribute> signAttributeDefinitions(UUID keyItemUuid, KeyOperationScope scope,
+    /**
+     * The key item's sign definitions as the connector answered them for the scope's current token and token-profile
+     * rows. Each answer is keyed by the row lists it was given, so it expires with them.
+     */
+    public List<BaseAttribute> signAttributeDefinitions(UUID keyItemUuid, KeyOperationScope scope, UUID connectorUuid,
             DefinitionsLoader loader) throws ConnectorException {
-        return signAttributeDefinitionsCache.getOrLoad(new SignDefinitionsKey(keyItemUuid, scope), loader::load);
+        RowsSnapshot tokenRows = new RowsSnapshot(
+                storedAttributes(Resource.TOKEN, scope.tokenInstanceReferenceUuid(), connectorUuid));
+        RowsSnapshot tokenProfileRows = new RowsSnapshot(
+                storedAttributes(Resource.TOKEN_PROFILE, scope.tokenProfileUuid(), connectorUuid));
+        SignDefinitionsKey key = new SignDefinitionsKey(keyItemUuid, scope, tokenRows, tokenProfileRows);
+        return signAttributeDefinitionsCache.getOrLoad(key, loader::load);
     }
 
     public void forgetSignAttributeDefinitions() {
@@ -69,7 +77,22 @@ public class KeyOperationCache {
         List<BaseAttribute> load() throws ConnectorException;
     }
 
-    private record SignDefinitionsKey(UUID keyItemUuid, KeyOperationScope scope) {
+    private record SignDefinitionsKey(UUID keyItemUuid, KeyOperationScope scope, RowsSnapshot tokenRows,
+            RowsSnapshot tokenProfileRows) {
+    }
+
+    /** Matches one cached row list by identity, which is cheap and changes on every reload of the rows. */
+    private record RowsSnapshot(List<ObjectAttributeContent> rows) {
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof RowsSnapshot snapshot && snapshot.rows == rows;
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(rows);
+        }
     }
 
     private static ObjectAttributeContentInfo attributeScope(Resource objectType, UUID objectUuid, UUID connectorUuid) {

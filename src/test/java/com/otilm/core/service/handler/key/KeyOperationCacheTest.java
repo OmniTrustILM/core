@@ -1,11 +1,15 @@
 package com.otilm.core.service.handler.key;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.config.cache.CacheConfig;
+import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.model.crypto.KeyOperationScope;
+import com.otilm.core.util.cache.CacheManagerFixtures;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,13 +18,17 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.CacheManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,17 +43,24 @@ import static org.mockito.Mockito.when;
 class KeyOperationCacheTest {
 
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration TTL = Duration.ofMinutes(5);
 
     @Mock
     private AttributeEngine attributeEngine;
 
     private KeyOperationCache cache;
+    private final AtomicLong ticker = new AtomicLong();
     private final UUID connectorUuid = UUID.randomUUID();
     private final KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), UUID.randomUUID());
 
     @BeforeEach
-    void wireCache() {
-        cache = KeyOperationCacheFixtures.inMemory(attributeEngine);
+    void wireCacheOnAManualClock() {
+        CacheManager cacheManager = CacheManagerFixtures
+                .readThrough(Caffeine.newBuilder().expireAfterWrite(TTL).ticker(ticker::get),
+                        CacheConfig.TOKEN_SCOPE_ATTRIBUTES_CACHE, CacheConfig.SIGN_ATTRIBUTE_DEFINITIONS_CACHE);
+        CacheEvictor cacheEvictor = new CacheEvictor();
+        cacheEvictor.setCacheManager(cacheManager);
+        cache = new KeyOperationCache(attributeEngine, cacheManager, cacheEvictor);
     }
 
     // ── StoredAttributes ─────────────────────────────────────────────────────
@@ -122,9 +137,9 @@ class KeyOperationCacheTest {
             when(secondLoader.load()).thenReturn(List.of());
 
             // when
-            cache.signAttributeDefinitions(firstKeyItem, scope, firstLoader);
-            cache.signAttributeDefinitions(firstKeyItem, scope, firstLoader);
-            cache.signAttributeDefinitions(secondKeyItem, scope, secondLoader);
+            cache.signAttributeDefinitions(firstKeyItem, scope, connectorUuid, firstLoader);
+            cache.signAttributeDefinitions(firstKeyItem, scope, connectorUuid, firstLoader);
+            cache.signAttributeDefinitions(secondKeyItem, scope, connectorUuid, secondLoader);
 
             // then
             verify(firstLoader).load();
@@ -138,12 +153,32 @@ class KeyOperationCacheTest {
             KeyOperationScope movedTo = new KeyOperationScope(UUID.randomUUID(), scope.tokenInstanceReferenceUuid());
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // when
-            cache.signAttributeDefinitions(keyItemUuid, movedTo, loader);
-            cache.signAttributeDefinitions(keyItemUuid, movedTo, loader);
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, movedTo, connectorUuid, loader);
+            cache.signAttributeDefinitions(keyItemUuid, movedTo, connectorUuid, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+
+            // then
+            verify(loader, times(2)).load();
+        }
+
+        @ParameterizedTest
+        @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
+        void asksAgain_onceTheRowsItWasLoadedForExpire(Resource expiringObject) throws Exception {
+            // given — the expiring object's rows are read a minute before the definitions
+            when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenAnswer(read -> new ArrayList<>());
+            cache.storedAttributes(expiringObject, uuidOf(expiringObject), connectorUuid);
+            ticker.set(Duration.ofMinutes(1).toNanos());
+            UUID keyItemUuid = UUID.randomUUID();
+            KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
+            when(loader.load()).thenReturn(List.of());
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+
+            // when — those rows expire a minute before the definitions do
+            ticker.set(TTL.toNanos());
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // then
             verify(loader, times(2)).load();
@@ -156,10 +191,11 @@ class KeyOperationCacheTest {
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             List<BaseAttribute> definitions = List.of();
             when(loader.load()).thenThrow(new ConnectorException("Provider unavailable")).thenReturn(definitions);
-            Throwable failure = catchThrowable(() -> cache.signAttributeDefinitions(keyItemUuid, scope, loader));
+            Throwable failure = catchThrowable(
+                    () -> cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader));
 
             // when
-            List<BaseAttribute> loaded = cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            List<BaseAttribute> loaded = cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // then
             assertThat(failure).isInstanceOf(ConnectorException.class);
@@ -173,11 +209,11 @@ class KeyOperationCacheTest {
             UUID keyItemUuid = UUID.randomUUID();
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // when
             cache.forgetAttributesOf(Resource.TOKEN_PROFILE, UUID.randomUUID(), connectorUuid);
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // then
             verify(loader, times(2)).load();
@@ -189,11 +225,11 @@ class KeyOperationCacheTest {
             UUID keyItemUuid = UUID.randomUUID();
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // when
             cache.forgetSignAttributeDefinitions();
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // then
             verify(loader, times(2)).load();
@@ -205,11 +241,11 @@ class KeyOperationCacheTest {
             UUID keyItemUuid = UUID.randomUUID();
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // when
             cache.forgetAllAttributes();
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // then
             verify(loader, times(2)).load();
@@ -227,7 +263,7 @@ class KeyOperationCacheTest {
             cache.forgetAttributesOf(Resource.TOKEN, UUID.randomUUID(), connectorUuid);
             loader.open();
             loading.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // then
             assertThat(loader.loads()).isEqualTo(2);
@@ -245,16 +281,20 @@ class KeyOperationCacheTest {
             cache.forgetAllAttributes();
             loader.open();
             loading.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-            cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
 
             // then
             assertThat(loader.loads()).isEqualTo(2);
         }
 
+        private UUID uuidOf(Resource object) {
+            return object == Resource.TOKEN ? scope.tokenInstanceReferenceUuid() : scope.tokenProfileUuid();
+        }
+
         private CompletableFuture<List<BaseAttribute>> loadInBackground(UUID keyItemUuid, GatedLoader loader) {
             return CompletableFuture.supplyAsync(() -> {
                 try {
-                    return cache.signAttributeDefinitions(keyItemUuid, scope, loader);
+                    return cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
                 } catch (ConnectorException e) {
                     throw new IllegalStateException(e);
                 }
