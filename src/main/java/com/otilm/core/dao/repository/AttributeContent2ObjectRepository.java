@@ -411,6 +411,8 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
             @Param("objectUuid") UUID objectUuid, @Param("sourceObjectType") Resource sourceObjectType,
             @Param("sourceObjectUuid") UUID sourceObjectUuid);
 
+    List<AttributeContent2Object> findByObjectTypeAndObjectUuid(Resource objectType, UUID objectUuid);
+
     Long deleteByObjectTypeAndObjectUuid(Resource objectType, UUID objectUuid);
 
     // Version-scoped bulk delete — removes all attribute rows for one specific version of a resource.

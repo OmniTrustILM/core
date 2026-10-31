@@ -731,9 +731,8 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void issuingTwoRegisteredCertsWithTheSameCsrSharesOneCertificateRequest() throws Exception {
-        // Get-or-create by fingerprint: an identical CSR attached to two registered placeholders must be
-        // shared, not duplicated (matching the canonical CSR-attach path).
+    void issuingTwoRegisteredCertsWithTheSameCsrStoresARequestForEach() throws Exception {
+        // Each placeholder's request carries the compliance result checked for that placeholder's RA profile.
         String csr = generateCsrBase64();
         UUID first = UUID.fromString(registerSyncRegistered());
         UUID second = UUID.fromString(registerSyncRegistered());
@@ -748,9 +747,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         UUID firstReq = certificateRepository.findByUuid(first).orElseThrow().getCertificateRequestUuid();
         UUID secondReq = certificateRepository.findByUuid(second).orElseThrow().getCertificateRequestUuid();
         Assertions.assertNotNull(firstReq);
-        Assertions
-                .assertEquals(firstReq, secondReq,
-                        "an identical CSR must be shared across registered placeholders, not duplicated");
+        Assertions.assertNotEquals(firstReq, secondReq);
     }
 
     @Test
@@ -2196,7 +2193,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void approvalRejectedRemovesTheAssociationsOfTheRequestItDetaches() throws Exception {
+    void approvalRejectedDeletesTheRequestItDetaches() throws Exception {
         UUID certUuid = UUID.fromString(registerWithSecret(null));
         clientOperationInternalService.approvalCreatedAction(certUuid);
         String subjectDn = "CN=rejectedRequest";
@@ -2216,10 +2213,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
         clientOperationInternalService.issueCertificateRejectedAction(certUuid);
 
+        Assertions.assertFalse(certificateRequestRepository.existsById(request.getUuid()));
         Assertions
                 .assertFalse(complianceProfileAssociationRepository
-                        .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, List.of(request.getUuid())),
-                        "the rejected placeholder no longer refers to the request, and nothing else does");
+                        .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, List.of(request.getUuid())));
     }
 
     @Test

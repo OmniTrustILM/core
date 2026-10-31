@@ -2736,6 +2736,34 @@ public class AttributeEngine {
                         objectType.getLabel(), objectUuid, version);
     }
 
+    /**
+     * Maps the attribute values of one object to another object of the same type as well. The values are not validated
+     * again: the target takes over what the source was given.
+     */
+    public void copyObjectAttributeContent(Resource objectType, UUID sourceObjectUuid, UUID targetObjectUuid) {
+        List<AttributeContent2Object> copies = attributeContent2ObjectRepository
+                .findByObjectTypeAndObjectUuid(objectType, sourceObjectUuid)
+                .stream()
+                .map(mapping -> copyMapping(mapping, targetObjectUuid))
+                .toList();
+        attributeContent2ObjectRepository.saveAll(copies);
+    }
+
+    private static AttributeContent2Object copyMapping(AttributeContent2Object mapping, UUID objectUuid) {
+        AttributeContent2Object copy = new AttributeContent2Object();
+        copy.setConnectorUuid(mapping.getConnectorUuid());
+        copy.setAttributeContentItemUuid(mapping.getAttributeContentItemUuid());
+        copy.setObjectType(mapping.getObjectType());
+        copy.setObjectUuid(objectUuid);
+        copy.setSourceObjectType(mapping.getSourceObjectType());
+        copy.setSourceObjectUuid(mapping.getSourceObjectUuid());
+        copy.setSourceObjectName(mapping.getSourceObjectName());
+        copy.setOrder(mapping.getOrder());
+        copy.setPurpose(mapping.getPurpose());
+        copy.setObjectVersion(mapping.getObjectVersion());
+        return copy;
+    }
+
     public void bulkDeleteObjectAttributeContent(Resource objectType, List<UUID> objectUuids) {
         logger
                 .debug("Deleting the attribute content for resource {} with UUIDs: {}", objectType.getLabel(),

@@ -234,7 +234,12 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                     .findByUuid(objectUuid)
                     .map(item -> SecuredUUID.fromUUID(item.getKeyUuid()))
                     .orElse(null);
-            // CERTIFICATE_REQUEST (and any other) carry their own compliance result with no stable owning object,
+            case CERTIFICATE_REQUEST -> certificateRepository
+                    .findUuidsByCertificateRequestUuid(objectUuid)
+                    .stream()
+                    .findFirst()
+                    .map(SecuredUUID::fromUUID)
+                    .orElse(null);
             default -> null;
         };
     }
@@ -395,7 +400,7 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
         List<ComplianceProfile> complianceProfiles = complianceProfileRepository
                 .findWithAssociationsByUuidIn(uuids.stream().map(SecuredUUID::getValue).toList())
                 .stream()
-                .filter(p -> !p.getAssociations().isEmpty() && !p.getComplianceRules().isEmpty())
+                .filter(p -> !p.getAssociations().isEmpty())
                 .toList();
         logger.debug("Loaded {} compliance profiles to be checked", complianceProfiles.size());
         for (ComplianceProfile profile : complianceProfiles) {
@@ -529,68 +534,80 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
 
         Map<UUID, ComplianceProfile> complianceProfilesMap = new HashMap<>();
         Map<UUID, Map<Resource, Set<ComplianceSubject>>> complianceProfileSubjectsMap = new HashMap<>();
+        Map<Resource, Set<ComplianceSubject>> subjectsWithoutProfile = new EnumMap<>(Resource.class);
         loadComplianceProfilesFromComplianceSubjects(resource, objectUuids, complianceProfilesMap,
-                complianceProfileSubjectsMap);
+                complianceProfileSubjectsMap, subjectsWithoutProfile);
 
-        ComplianceCheckContext context = new ComplianceCheckContext(null, null, ruleHandler, getSubjectHandlers(false),
+        Map<Resource, ComplianceSubjectHandler<? extends ComplianceSubject>> subjectHandlers = getSubjectHandlers(
+                false);
+        ComplianceCheckContext context = new ComplianceCheckContext(null, null, ruleHandler, subjectHandlers,
                 connectorApiFactory, eventProducer);
         for (ComplianceProfile profile : complianceProfilesMap.values()) {
             context.addComplianceProfile(profile, complianceProfileSubjectsMap.get(profile.getUuid()));
         }
         context.performComplianceCheck();
+        subjectsWithoutProfile
+                .forEach((subjectResource, subjects) -> subjects
+                        .forEach(subjectHandlers.get(subjectResource)::clearComplianceResult));
         logger.info("Completed compliance check for resource {} on {} objects", resource, objectUuids.size());
     }
 
+    /**
+     * Collects the compliance profiles that apply to the objects through their RA, token or vault profile. A
+     * certificate, request, key item or secret none applies to is collected into {@code subjectsWithoutProfile}, unless
+     * a profile is associated with the subject itself; checking an RA, token or vault profile collects none.
+     */
     private void loadComplianceProfilesFromComplianceSubjects(Resource resource, List<UUID> objectUuids,
             Map<UUID, ComplianceProfile> complianceProfilesMap,
-            Map<UUID, Map<Resource, Set<ComplianceSubject>>> complianceProfileSubjectsMap) {
+            Map<UUID, Map<Resource, Set<ComplianceSubject>>> complianceProfileSubjectsMap,
+            Map<Resource, Set<ComplianceSubject>> subjectsWithoutProfile) {
         switch (resource) {
             case CERTIFICATE -> {
                 List<Certificate> certificates = certificateRepository.findByUuidInAndArchivedFalse(objectUuids);
                 for (Certificate certificate : certificates) {
-                    ComplianceSubject subject = certificate.getCertificateContentId() != null
-                            ? certificate
-                            : certificate.getCertificateRequestEntity();
-                    if (certificate.getRaProfileUuid() == null || subject == null) {
+                    boolean issued = certificate.getCertificateContentId() != null;
+                    ComplianceSubject subject = issued ? certificate : certificate.getCertificateRequestEntity();
+                    if (subject == null) {
                         continue;
                     }
-
-                    loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
-                            Resource.RA_PROFILE, certificate.getRaProfileUuid(),
-                            certificate.getCertificateContentId() != null
-                                    ? Resource.CERTIFICATE
-                                    : Resource.CERTIFICATE_REQUEST,
-                            List.of(subject));
+                    Resource subjectResource = issued ? Resource.CERTIFICATE : Resource.CERTIFICATE_REQUEST;
+                    if (!loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
+                            Resource.RA_PROFILE, certificate.getRaProfileUuid(), subjectResource, List.of(subject))) {
+                        addSubjectWithoutProfile(subjectsWithoutProfile, subjectResource, subject);
+                    }
                 }
             }
             case CRYPTOGRAPHIC_KEY -> {
                 List<CryptographicKey> keys = cryptographicKeyRepository.findByUuidIn(objectUuids);
                 for (CryptographicKey key : keys) {
-                    if (key.getTokenProfileUuid() == null) {
-                        continue;
-                    }
-                    loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
+                    if (!loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
                             Resource.TOKEN_PROFILE, key.getTokenProfileUuid(), Resource.CRYPTOGRAPHIC_KEY,
-                            new ArrayList<>(key.getItems()));
+                            new ArrayList<>(key.getItems()))) {
+                        key
+                                .getItems()
+                                .forEach(keyItem -> addSubjectWithoutProfile(subjectsWithoutProfile,
+                                        Resource.CRYPTOGRAPHIC_KEY, keyItem));
+                    }
                 }
             }
             case CRYPTOGRAPHIC_KEY_ITEM -> {
                 List<CryptographicKeyItem> keyItems = cryptographicKeyItemRepository.findByUuidIn(objectUuids);
                 for (CryptographicKeyItem keyItem : keyItems) {
-                    if (keyItem.getKey() == null || keyItem.getKey().getTokenProfileUuid() == null) {
-                        continue;
+                    UUID tokenProfileUuid = keyItem.getKey() == null ? null : keyItem.getKey().getTokenProfileUuid();
+                    if (!loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
+                            Resource.TOKEN_PROFILE, tokenProfileUuid, Resource.CRYPTOGRAPHIC_KEY, List.of(keyItem))) {
+                        addSubjectWithoutProfile(subjectsWithoutProfile, Resource.CRYPTOGRAPHIC_KEY, keyItem);
                     }
-                    loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
-                            Resource.TOKEN_PROFILE, keyItem.getKey().getTokenProfileUuid(), Resource.CRYPTOGRAPHIC_KEY,
-                            List.of(keyItem));
                 }
             }
             case SECRET -> {
                 List<Secret> secrets = secretRepository.findByUuidIn(objectUuids);
                 for (Secret secret : secrets) {
-                    loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
+                    if (!loadComplianceProfilesWithSubjects(complianceProfilesMap, complianceProfileSubjectsMap,
                             Resource.VAULT_PROFILE, secret.getSourceVaultProfileUuid(), Resource.SECRET,
-                            List.of(secret));
+                            List.of(secret))) {
+                        addSubjectWithoutProfile(subjectsWithoutProfile, Resource.SECRET, secret);
+                    }
                 }
             }
             case RA_PROFILE -> {
@@ -633,6 +650,7 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
             default -> throw new ValidationException(
                     COMPLIANCE_CHECK_VALIDATION_INVALID_RESOURCE_MESSAGE.formatted(resource.getLabel()));
         }
+        keepSubjectsWithoutDirectProfile(subjectsWithoutProfile);
     }
 
     private ComplianceRuleStatus getFailedRuleStatus(ComplianceResultRulesDto complianceResultRules, UUID ruleUuid) {
@@ -646,9 +664,15 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
         return ComplianceRuleStatus.NOT_AVAILABLE;
     }
 
-    private void loadComplianceProfilesWithSubjects(Map<UUID, ComplianceProfile> complianceProfilesMap,
+    /**
+     * @return whether any compliance profile is associated with the object
+     */
+    private boolean loadComplianceProfilesWithSubjects(Map<UUID, ComplianceProfile> complianceProfilesMap,
             Map<UUID, Map<Resource, Set<ComplianceSubject>>> complianceProfileSubjectsMap, Resource resource,
             UUID associationObjectUuid, Resource subjectResource, Collection<ComplianceSubject> complianceSubjects) {
+        if (associationObjectUuid == null) {
+            return false;
+        }
         List<ComplianceProfile> complianceProfiles = complianceProfileAssociationRepository
                 .findDistinctByResourceAndObjectUuid(resource, associationObjectUuid)
                 .stream()
@@ -661,6 +685,38 @@ public class ComplianceServiceImpl implements ComplianceExternalService, Complia
                     .computeIfAbsent(subjectResource, r -> new HashSet<>())
                     .addAll(complianceSubjects);
         }
+        return !complianceProfiles.isEmpty();
+    }
+
+    private static void addSubjectWithoutProfile(Map<Resource, Set<ComplianceSubject>> subjectsWithoutProfile,
+            Resource subjectResource, ComplianceSubject subject) {
+        subjectsWithoutProfile.computeIfAbsent(subjectResource, r -> new HashSet<>()).add(subject);
+    }
+
+    /**
+     * A profile associated with the subject itself is applied only by a check of that profile, which this check does
+     * not run, so the result it stored is kept. A key item counts as associated through its key too.
+     */
+    private void keepSubjectsWithoutDirectProfile(Map<Resource, Set<ComplianceSubject>> subjectsWithoutProfile) {
+        subjectsWithoutProfile.forEach((subjectResource, subjects) -> {
+            if (subjectResource == Resource.CRYPTOGRAPHIC_KEY) {
+                Set<UUID> associatedItems = findAssociated(Resource.CRYPTOGRAPHIC_KEY_ITEM,
+                        subjects.stream().map(ComplianceSubject::getUuid).toList());
+                Set<UUID> associatedKeys = findAssociated(Resource.CRYPTOGRAPHIC_KEY,
+                        subjects.stream().map(subject -> ((CryptographicKeyItem) subject).getKeyUuid()).toList());
+                subjects
+                        .removeIf(subject -> associatedItems.contains(subject.getUuid())
+                                || associatedKeys.contains(((CryptographicKeyItem) subject).getKeyUuid()));
+            } else {
+                Set<UUID> associated = findAssociated(subjectResource,
+                        subjects.stream().map(ComplianceSubject::getUuid).toList());
+                subjects.removeIf(subject -> associated.contains(subject.getUuid()));
+            }
+        });
+    }
+
+    private Set<UUID> findAssociated(Resource resource, Collection<UUID> objectUuids) {
+        return complianceProfileAssociationRepository.findAssociatedObjectUuids(resource, objectUuids);
     }
 
     private boolean isAssociationResourceCompatible(Resource associationResource, Resource resource) {

@@ -4,6 +4,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Modifying;
@@ -32,7 +33,7 @@ public interface ComplianceProfileAssociationRepository
 
     @Query("SELECT DISTINCT a.objectUuid FROM ComplianceProfileAssociation a"
             + " WHERE a.resource = :resource AND a.objectUuid IN :objectUuids")
-    List<UUID> findAssociatedObjectUuids(@Param("resource") Resource resource,
+    Set<UUID> findAssociatedObjectUuids(@Param("resource") Resource resource,
             @Param("objectUuids") Collection<UUID> objectUuids);
 
     /**

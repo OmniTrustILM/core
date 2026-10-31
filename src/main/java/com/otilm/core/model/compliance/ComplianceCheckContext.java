@@ -53,10 +53,12 @@ public class ComplianceCheckContext {
         this.eventProducer = eventProducer;
     }
 
+    /**
+     * A profile without rules is added too: the subjects it applies to are found compliant with it.
+     */
     public void addComplianceProfile(ComplianceProfile complianceProfile,
             Map<Resource, Set<ComplianceSubject>> complianceSubjects) {
-        if (complianceProfile.getComplianceRules().isEmpty() || complianceSubjects == null
-                || complianceSubjects.isEmpty()) {
+        if (complianceSubjects == null || complianceSubjects.isEmpty()) {
             return;
         }
 
