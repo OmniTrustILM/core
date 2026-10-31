@@ -216,7 +216,6 @@ class TspProfileMapperTest {
             // then
             BasicCredentialRef ref = model.basicCredentials().getFirst();
             assertThat(ref.username()).isEqualTo(username);
-            assertThat(ref.secretUuid()).isEqualTo(secretUuid);
             assertThat(ref.mappedUserUuid()).isEqualTo(mappedUserUuid);
             assertThat(ref.fingerprint()).isEqualTo(fingerprint);
         }
@@ -276,17 +275,18 @@ class TspProfileMapperTest {
             TspProfile profile = newTspProfile("desc", true, null);
             profile.getBasicCredentials().add(newBasicCredential("alice", secretUuidAlice, mappedUserUuidAlice));
             profile.getBasicCredentials().add(newBasicCredential("bob", secretUuidBob, mappedUserUuidBob));
+            Map<UUID, String> fingerprintsBySecret = Map.of(secretUuidAlice, "fp-alice", secretUuidBob, "fp-bob");
 
             // when
-            TspProfileModel model = TspProfileMapper.toModel(profile, List.of(), FINGERPRINTS_BY_SECRET);
+            TspProfileModel model = TspProfileMapper.toModel(profile, List.of(), fingerprintsBySecret);
 
             // then
             assertThat(model.basicCredentials()).hasSize(2);
             BasicCredentialRef alice = credentialOf(model, "alice");
-            assertThat(alice.secretUuid()).isEqualTo(secretUuidAlice);
+            assertThat(alice.fingerprint()).isEqualTo("fp-alice");
             assertThat(alice.mappedUserUuid()).isEqualTo(mappedUserUuidAlice);
             BasicCredentialRef bob = credentialOf(model, "bob");
-            assertThat(bob.secretUuid()).isEqualTo(secretUuidBob);
+            assertThat(bob.fingerprint()).isEqualTo("fp-bob");
             assertThat(bob.mappedUserUuid()).isEqualTo(mappedUserUuidBob);
         }
     }

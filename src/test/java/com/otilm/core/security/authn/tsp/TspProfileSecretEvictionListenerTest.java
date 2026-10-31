@@ -29,6 +29,6 @@ class TspProfileSecretEvictionListenerTest {
         listener.onSecretContentUpdated(new SecretContentUpdatedEvent(secretUuid));
 
         // then
-        verify(credentialService).evictCachesForSecret(secretUuid);
+        verify(credentialService).evictProfileModelForSecret(secretUuid);
     }
 }

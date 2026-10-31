@@ -11,6 +11,7 @@ import com.otilm.api.model.client.signing.protocols.tsp.TspBasicCredentialUpdate
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDetailDto;
 import com.otilm.api.model.core.secret.SecretDetailDto;
+import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.signing.TspProfile;
@@ -18,7 +19,6 @@ import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.reference.ObjectRef;
-import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.TspProfileBasicCredentialExternalService;
@@ -31,6 +31,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,8 +62,8 @@ class TspProfileBasicCredentialServiceImplITest extends BaseSpringBootTest {
     private SecretServiceImpl secretService;
     @MockitoBean
     private UserManagementServiceImpl userManagementService;
-    @MockitoBean
-    private CredentialVerificationCache credentialVerificationCache;
+    @Autowired
+    private CacheManager cacheManager;
 
     private TspProfile profileWithVault;
     private TspProfile profileNoVault;
@@ -270,7 +272,7 @@ class TspProfileBasicCredentialServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void doesNotEagerlyEvictVerificationCache_whenRotating() throws Exception {
+        void evictsTheProfileModel_whenMappedUserChangedWithoutRotation() throws Exception {
             // given
             SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
 
@@ -278,35 +280,17 @@ class TspProfileBasicCredentialServiceImplITest extends BaseSpringBootTest {
             when(secretService.createSecret(any(), any(), any())).thenReturn(secretDtoWithUuid(secretUuid));
             TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
             SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
-
-            // when — rotate the password, mapped user unchanged
-            service.update(parent, credentialUuid, updateRequest("svc", "newsecret"));
-
-            // then — the vault rotation commits asynchronously
-            verify(secretService, times(1)).updateSecret(eq(secretUuid), any());
-            // secretService is mocked, so it does not publish SecretContentUpdatedEvent as it would in production:
-            // assert that the cache eviction did not happen synchronously
-            verify(credentialVerificationCache, never()).evictBySecretUuid(any());
-        }
-
-        @Test
-        void evictsVerificationCache_whenMappedUserChangedWithoutRotation() throws Exception {
-            // given
-            SecuredParentUUID parent = SecuredParentUUID.fromUUID(profileWithVault.getUuid());
-
-            UUID secretUuid = UUID.randomUUID();
-            when(secretService.createSecret(any(), any(), any())).thenReturn(secretDtoWithUuid(secretUuid));
-            TspBasicCredentialDto created = service.create(parent, createRequest("svc", "secret"));
-            SecuredUUID credentialUuid = SecuredUUID.fromUUID(created.getUuid());
+            Cache modelCache = cacheManager.getCache(CacheConfig.TSP_PROFILE_CACHE);
+            modelCache.get(profileWithVault.getName(), () -> "cached-tsp-profile-model");
 
             // when — remap to a different user, no password change
             TspBasicCredentialUpdateRequestDto remap = updateRequest("svc", null);
             remap.setMappedUserUuid(UUID.randomUUID());
             service.update(parent, credentialUuid, remap);
 
-            // then — no secret rotation, synchronous cache eviction
+            // then
             verify(secretService, never()).updateSecret(any(), any());
-            verify(credentialVerificationCache, times(1)).evictBySecretUuid(secretUuid);
+            assertThat(modelCache.get(profileWithVault.getName())).isNull();
         }
 
         @Test

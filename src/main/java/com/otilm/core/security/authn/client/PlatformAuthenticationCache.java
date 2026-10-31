@@ -1,66 +1,53 @@
 package com.otilm.core.security.authn.client;
 
 import com.otilm.core.config.cache.CacheConfig;
-import java.util.Objects;
+import com.otilm.core.config.cache.ReadThroughCache;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
 @Component
 public class PlatformAuthenticationCache implements AuthenticationCache {
 
-    private final CacheManager cacheManager;
     private final TokenJtiIndex tokenJtiIndex;
     private final UserCertificateIndex userCertificateIndex;
-    private final Cache certCache;
-    private final Cache tokenCache;
+    private final ReadThroughCache systemUserCache;
+    private final ReadThroughCache userUuidCache;
+    private final ReadThroughCache certCache;
+    private final ReadThroughCache tokenCache;
 
     @Autowired
     public PlatformAuthenticationCache(CacheManager cacheManager, TokenJtiIndex tokenJtiIndex,
             UserCertificateIndex userCertificateIndex) {
-        this.cacheManager = cacheManager;
         this.tokenJtiIndex = tokenJtiIndex;
         this.userCertificateIndex = userCertificateIndex;
-        this.certCache = Objects.requireNonNull(cacheManager.getCache(CacheConfig.CERTIFICATE_AUTH_CACHE));
-        this.tokenCache = Objects.requireNonNull(cacheManager.getCache(CacheConfig.TOKEN_AUTH_CACHE));
+        this.systemUserCache = ReadThroughCache.from(cacheManager, CacheConfig.SYSTEM_USER_AUTH_CACHE);
+        this.userUuidCache = ReadThroughCache.from(cacheManager, CacheConfig.USER_UUID_AUTH_CACHE);
+        this.certCache = ReadThroughCache.from(cacheManager, CacheConfig.CERTIFICATE_AUTH_CACHE);
+        this.tokenCache = ReadThroughCache.from(cacheManager, CacheConfig.TOKEN_AUTH_CACHE);
     }
 
     @Override
-    @Cacheable(value = CacheConfig.SYSTEM_USER_AUTH_CACHE, key = "#username", unless = "#result.anonymous")
     public AuthenticationInfo getOrAuthenticateSystemUser(String username, Supplier<AuthenticationInfo> loader) {
-        return loader.get();
+        return systemUserCache.getOrLoad(username, loader::get, PlatformAuthenticationCache::authenticated);
     }
 
     @Override
-    @Cacheable(value = CacheConfig.USER_UUID_AUTH_CACHE, key = "#userUuid", unless = "#result.anonymous")
     public AuthenticationInfo getOrAuthenticateByUserUuid(UUID userUuid, Supplier<AuthenticationInfo> loader) {
-        return loader.get();
+        return userUuidCache.getOrLoad(userUuid, loader::get, PlatformAuthenticationCache::authenticated);
     }
 
-    // Manual caching (instead of @Cacheable) keeps userCertificateIndex in sync, enabling targeted
-    // per-user certificate eviction via evictByUserUuid().
     @Override
     public AuthenticationInfo getOrAuthenticateByCertificate(String thumbprint, Supplier<AuthenticationInfo> loader) {
-        Cache.ValueWrapper cached = certCache.get(thumbprint);
-        if (cached != null) {
-            return (AuthenticationInfo) cached.get();
-        }
-        AuthenticationInfo result = loader.get();
-        if (!result.isAnonymous()) {
-            certCache.put(thumbprint, result);
-            userCertificateIndex.add(UUID.fromString(result.getUserUuid()), thumbprint);
-        }
-        return result;
+        return certCache
+                .getOrLoad(thumbprint, loader::get, PlatformAuthenticationCache::authenticated,
+                        result -> userCertificateIndex.add(thumbprint, result));
     }
 
-    // Manual caching (instead of @Cacheable) keeps tokenJtiIndex in sync, enabling targeted
-    // per-user eviction via evictTokensByUserUuid().
     @Override
     public AuthenticationInfo getOrAuthenticateByToken(String issuer, String jti, long settingsGeneration,
             Supplier<AuthenticationInfo> loader) {
@@ -68,16 +55,13 @@ public class PlatformAuthenticationCache implements AuthenticationCache {
             return loader.get();
         }
         String cacheKey = tokenCacheKey(issuer, jti, settingsGeneration);
-        Cache.ValueWrapper cached = tokenCache.get(cacheKey);
-        if (cached != null) {
-            return (AuthenticationInfo) cached.get();
-        }
-        AuthenticationInfo result = loader.get();
-        if (!result.isAnonymous()) {
-            tokenCache.put(cacheKey, result);
-            tokenJtiIndex.add(UUID.fromString(result.getUserUuid()), cacheKey);
-        }
-        return result;
+        return tokenCache
+                .getOrLoad(cacheKey, loader::get, PlatformAuthenticationCache::authenticated,
+                        result -> tokenJtiIndex.add(cacheKey, result));
+    }
+
+    private static boolean authenticated(AuthenticationInfo result) {
+        return !result.isAnonymous();
     }
 
     /**
@@ -95,24 +79,23 @@ public class PlatformAuthenticationCache implements AuthenticationCache {
 
     @Override
     public void evictByUserUuid(UUID userUuid) {
-        Objects.requireNonNull(cacheManager.getCache(CacheConfig.USER_UUID_AUTH_CACHE)).evict(userUuid);
+        userUuidCache.evict(userUuid);
         evictTokensByUserUuid(userUuid);
-        evictCertificateByUserUuid(userUuid);
+        evictCertificatesByUserUuid(userUuid);
     }
 
     @Override
     public void evictAll() {
         tokenJtiIndex.clear();
         userCertificateIndex.clear();
-        Objects.requireNonNull(cacheManager.getCache(CacheConfig.SYSTEM_USER_AUTH_CACHE)).clear();
-        Objects.requireNonNull(cacheManager.getCache(CacheConfig.USER_UUID_AUTH_CACHE)).clear();
+        systemUserCache.clear();
+        userUuidCache.clear();
         certCache.clear();
         tokenCache.clear();
     }
 
-    // Looks up jtis for the user in the index and evicts each one from the token cache.
-    // No-op if the user has no cached tokens.
     private void evictTokensByUserUuid(UUID userUuid) {
+        tokenCache.evictInFlight();
         Set<String> jtis = tokenJtiIndex.removeUser(userUuid);
         if (jtis == null) {
             return;
@@ -120,14 +103,13 @@ public class PlatformAuthenticationCache implements AuthenticationCache {
         jtis.forEach(tokenCache::evict);
     }
 
-    // Looks up the fingerprint for the user in the index and evicts it from the certificate cache.
-    // No-op if the user has no cached certificate.
-    private void evictCertificateByUserUuid(UUID userUuid) {
-        String fingerprint = userCertificateIndex.removeUser(userUuid);
-        if (fingerprint == null) {
+    private void evictCertificatesByUserUuid(UUID userUuid) {
+        certCache.evictInFlight();
+        Set<String> fingerprints = userCertificateIndex.removeUser(userUuid);
+        if (fingerprints == null) {
             return;
         }
-        certCache.evict(fingerprint);
+        fingerprints.forEach(certCache::evict);
     }
 
     @Override
