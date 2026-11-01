@@ -2320,21 +2320,19 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void sendsTheCommittedTokenAttributes_whenTheyChangeDuringTheSchemaCall() throws Exception {
+        void sendsTheTokenAttributesItsSchemaWasAskedWith_whenTheyChangeDuringTheSchemaCall() throws Exception {
             // given
             UUID tokenUuid = profile.tokenInstanceReferenceUuid();
-            List<ObjectAttributeContent> committedRows = List.of(storedRow("committed-token"));
-            List<RequestAttribute> resolvedCommitted = List.of(requestAttribute("resolved-committed-token"));
-            AtomicReference<List<ObjectAttributeContent>> storedTokenRows = new AtomicReference<>(
-                    List.of(storedRow("earlier-token")));
+            List<ObjectAttributeContent> earlierRows = List.of(storedRow("earlier-token"));
+            List<RequestAttribute> resolvedEarlier = List.of(requestAttribute("resolved-earlier-token"));
+            AtomicReference<List<ObjectAttributeContent>> storedTokenRows = new AtomicReference<>(earlierRows);
             when(attributes.getStoredObjectDataAttributesContent(attributeScope(Resource.TOKEN, tokenUuid)))
                     .thenAnswer(read -> storedTokenRows.get());
             when(resolver
-                    .resolveForConnectorRequestAsSystem(eq(profile.connectorUuid()),
-                            argThat(mappedFrom(committedRows))))
-                    .thenReturn(resolvedCommitted);
+                    .resolveForConnectorRequestAsSystem(eq(profile.connectorUuid()), argThat(mappedFrom(earlierRows))))
+                    .thenReturn(resolvedEarlier);
             when(operationsClient.listSignAttributes(any(), any())).thenAnswer(schemaCall -> {
-                storedTokenRows.set(committedRows);
+                storedTokenRows.set(List.of(storedRow("committed-token")));
                 operationCache.forgetAttributesOf(Resource.TOKEN, tokenUuid, profile.connectorUuid());
                 return List.of();
             });
@@ -2346,9 +2344,12 @@ class KeyProviderV2AdapterTest {
             adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()));
 
             // then
+            ArgumentCaptor<KeyScopedRequestV2Dto> asked = ArgumentCaptor.forClass(KeyScopedRequestV2Dto.class);
+            verify(operationsClient).listSignAttributes(any(), asked.capture());
             ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
             verify(operationsClient).signData(any(), sent.capture());
-            assertThat(sent.getValue().getTokenAttributes()).isSameAs(resolvedCommitted);
+            assertThat(asked.getValue().getTokenAttributes()).isSameAs(resolvedEarlier);
+            assertThat(sent.getValue().getTokenAttributes()).isSameAs(resolvedEarlier);
         }
 
         @Test

@@ -1,5 +1,6 @@
 package com.otilm.core.service.handler.key;
 
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
@@ -39,17 +40,23 @@ public class KeyOperationCache {
                 .getOrLoad(scope, () -> attributeEngine.getStoredObjectDataAttributesContent(scope));
     }
 
+    /** The rows of the scope's token and token profile, which an operation reads once and uses throughout. */
+    public ScopeRows scopeRows(KeyOperationScope scope, UUID connectorUuid) {
+        List<ObjectAttributeContent> tokenRows = storedAttributes(Resource.TOKEN, scope.tokenInstanceReferenceUuid(),
+                connectorUuid);
+        List<ObjectAttributeContent> tokenProfileRows = storedAttributes(Resource.TOKEN_PROFILE,
+                scope.tokenProfileUuid(), connectorUuid);
+        return new ScopeRows(scope, tokenRows, tokenProfileRows);
+    }
+
     /**
-     * The key item's sign definitions as the connector answered them for the scope's current token and token-profile
-     * rows. Each answer is keyed by the row lists it was given, so it expires with them.
+     * The key item's sign definitions as the connector answered them for the scope's rows. Each answer is keyed by the
+     * cached connector and row lists it was given, so it expires with them.
      */
-    public List<BaseAttribute> signAttributeDefinitions(UUID keyItemUuid, KeyOperationScope scope, UUID connectorUuid,
-            DefinitionsLoader loader) throws ConnectorException {
-        RowsSnapshot tokenRows = new RowsSnapshot(
-                storedAttributes(Resource.TOKEN, scope.tokenInstanceReferenceUuid(), connectorUuid));
-        RowsSnapshot tokenProfileRows = new RowsSnapshot(
-                storedAttributes(Resource.TOKEN_PROFILE, scope.tokenProfileUuid(), connectorUuid));
-        SignDefinitionsKey key = new SignDefinitionsKey(keyItemUuid, scope, tokenRows, tokenProfileRows);
+    public List<BaseAttribute> signAttributeDefinitions(UUID keyItemUuid, ApiClientConnectorInfo connector,
+            ScopeRows rows, DefinitionsLoader loader) throws ConnectorException {
+        SignDefinitionsKey key = new SignDefinitionsKey(keyItemUuid, rows.scope(), new Snapshot(connector),
+                new Snapshot(rows.tokenRows()), new Snapshot(rows.tokenProfileRows()));
         return signAttributeDefinitionsCache.getOrLoad(key, loader::load);
     }
 
@@ -69,29 +76,33 @@ public class KeyOperationCache {
     }
 
     /**
-     * Resolves the token and token-profile attributes itself, after its entry exists, so an eviction during the load
-     * also drops an answer given for attributes that changed.
+     * It must ask its entry's connector with the attributes resolved from its entry's rows, so each answer matches its
+     * key.
      */
     @FunctionalInterface
     public interface DefinitionsLoader {
         List<BaseAttribute> load() throws ConnectorException;
     }
 
-    private record SignDefinitionsKey(UUID keyItemUuid, KeyOperationScope scope, RowsSnapshot tokenRows,
-            RowsSnapshot tokenProfileRows) {
+    public record ScopeRows(KeyOperationScope scope, List<ObjectAttributeContent> tokenRows,
+            List<ObjectAttributeContent> tokenProfileRows) {
     }
 
-    /** Matches one cached row list by identity, which is cheap and changes on every reload of the rows. */
-    private record RowsSnapshot(List<ObjectAttributeContent> rows) {
+    private record SignDefinitionsKey(UUID keyItemUuid, KeyOperationScope scope, Snapshot connector, Snapshot tokenRows,
+            Snapshot tokenProfileRows) {
+    }
+
+    /** Matches one cached value by identity, which is cheap and changes on every reload of the value. */
+    private record Snapshot(Object value) {
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof RowsSnapshot snapshot && snapshot.rows == rows;
+            return other instanceof Snapshot snapshot && snapshot.value == value;
         }
 
         @Override
         public int hashCode() {
-            return System.identityHashCode(rows);
+            return System.identityHashCode(value);
         }
     }
 

@@ -1,13 +1,17 @@
 package com.otilm.core.service.handler.key;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.connector.AuthType;
+import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
+import com.otilm.core.model.connector.ImmutableConnectorInfo;
 import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.util.cache.CacheManagerFixtures;
 import java.time.Duration;
@@ -51,6 +55,7 @@ class KeyOperationCacheTest {
     private KeyOperationCache cache;
     private final AtomicLong ticker = new AtomicLong();
     private final UUID connectorUuid = UUID.randomUUID();
+    private final ApiClientConnectorInfo connector = connectorAt("http://connector.test");
     private final KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), UUID.randomUUID());
 
     @BeforeEach
@@ -137,9 +142,9 @@ class KeyOperationCacheTest {
             when(secondLoader.load()).thenReturn(List.of());
 
             // when
-            cache.signAttributeDefinitions(firstKeyItem, scope, connectorUuid, firstLoader);
-            cache.signAttributeDefinitions(firstKeyItem, scope, connectorUuid, firstLoader);
-            cache.signAttributeDefinitions(secondKeyItem, scope, connectorUuid, secondLoader);
+            signDefinitions(firstKeyItem, scope, firstLoader);
+            signDefinitions(firstKeyItem, scope, firstLoader);
+            signDefinitions(secondKeyItem, scope, secondLoader);
 
             // then
             verify(firstLoader).load();
@@ -153,12 +158,32 @@ class KeyOperationCacheTest {
             KeyOperationScope movedTo = new KeyOperationScope(UUID.randomUUID(), scope.tokenInstanceReferenceUuid());
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // when
-            cache.signAttributeDefinitions(keyItemUuid, movedTo, connectorUuid, loader);
-            cache.signAttributeDefinitions(keyItemUuid, movedTo, connectorUuid, loader);
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, movedTo, loader);
+            signDefinitions(keyItemUuid, movedTo, loader);
+            signDefinitions(keyItemUuid, scope, loader);
+
+            // then
+            verify(loader, times(2)).load();
+        }
+
+        @Test
+        void asksAgain_forTheConnectorReloadedAfterAnEdit() throws Exception {
+            // given — an operation that captured the connector before an edit loads after the edit cleared the caches
+            UUID keyItemUuid = UUID.randomUUID();
+            KeyOperationCache.ScopeRows rowsReadAfterTheEdit = cache.scopeRows(scope, connectorUuid);
+            KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
+            when(loader.load()).thenReturn(List.of());
+            cache
+                    .signAttributeDefinitions(keyItemUuid, connectorAt("http://before-edit.test"), rowsReadAfterTheEdit,
+                            loader);
+
+            // when
+            cache
+                    .signAttributeDefinitions(keyItemUuid, connectorAt("http://after-edit.test"), rowsReadAfterTheEdit,
+                            loader);
 
             // then
             verify(loader, times(2)).load();
@@ -174,11 +199,11 @@ class KeyOperationCacheTest {
             UUID keyItemUuid = UUID.randomUUID();
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // when — those rows expire a minute before the definitions do
             ticker.set(TTL.toNanos());
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // then
             verify(loader, times(2)).load();
@@ -191,11 +216,10 @@ class KeyOperationCacheTest {
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             List<BaseAttribute> definitions = List.of();
             when(loader.load()).thenThrow(new ConnectorException("Provider unavailable")).thenReturn(definitions);
-            Throwable failure = catchThrowable(
-                    () -> cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader));
+            Throwable failure = catchThrowable(() -> signDefinitions(keyItemUuid, scope, loader));
 
             // when
-            List<BaseAttribute> loaded = cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            List<BaseAttribute> loaded = signDefinitions(keyItemUuid, scope, loader);
 
             // then
             assertThat(failure).isInstanceOf(ConnectorException.class);
@@ -209,11 +233,11 @@ class KeyOperationCacheTest {
             UUID keyItemUuid = UUID.randomUUID();
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // when
             cache.forgetAttributesOf(Resource.TOKEN_PROFILE, UUID.randomUUID(), connectorUuid);
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // then
             verify(loader, times(2)).load();
@@ -225,11 +249,11 @@ class KeyOperationCacheTest {
             UUID keyItemUuid = UUID.randomUUID();
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // when
             cache.forgetSignAttributeDefinitions();
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // then
             verify(loader, times(2)).load();
@@ -241,11 +265,11 @@ class KeyOperationCacheTest {
             UUID keyItemUuid = UUID.randomUUID();
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // when
             cache.forgetAllAttributes();
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // then
             verify(loader, times(2)).load();
@@ -263,7 +287,7 @@ class KeyOperationCacheTest {
             cache.forgetAttributesOf(Resource.TOKEN, UUID.randomUUID(), connectorUuid);
             loader.open();
             loading.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // then
             assertThat(loader.loads()).isEqualTo(2);
@@ -281,10 +305,17 @@ class KeyOperationCacheTest {
             cache.forgetAllAttributes();
             loader.open();
             loading.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
-            cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+            signDefinitions(keyItemUuid, scope, loader);
 
             // then
             assertThat(loader.loads()).isEqualTo(2);
+        }
+
+        /** Reads the scope's current rows for each call, as an operation does. */
+        private List<BaseAttribute> signDefinitions(UUID keyItemUuid, KeyOperationScope keyScope,
+                KeyOperationCache.DefinitionsLoader loader) throws ConnectorException {
+            return cache
+                    .signAttributeDefinitions(keyItemUuid, connector, cache.scopeRows(keyScope, connectorUuid), loader);
         }
 
         private UUID uuidOf(Resource object) {
@@ -294,7 +325,7 @@ class KeyOperationCacheTest {
         private CompletableFuture<List<BaseAttribute>> loadInBackground(UUID keyItemUuid, GatedLoader loader) {
             return CompletableFuture.supplyAsync(() -> {
                 try {
-                    return cache.signAttributeDefinitions(keyItemUuid, scope, connectorUuid, loader);
+                    return signDefinitions(keyItemUuid, scope, loader);
                 } catch (ConnectorException e) {
                     throw new IllegalStateException(e);
                 }
@@ -337,5 +368,12 @@ class KeyOperationCacheTest {
                 }
             }
         }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private ApiClientConnectorInfo connectorAt(String url) {
+        return new ImmutableConnectorInfo(connectorUuid.toString(), "connector", url, ConnectorStatus.CONNECTED,
+                AuthType.NONE, List.of(), null);
     }
 }
