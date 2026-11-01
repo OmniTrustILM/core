@@ -58,10 +58,9 @@ public interface AuthenticationCache {
             Supplier<AuthenticationInfo> loader);
 
     /**
-     * Evicts all auth cache entries for a single user: their UUID entry, all token entries tracked in the jti index,
-     * and their certificate entry tracked in the certificate index. Use this for user-scoped changes (role assignment,
-     * disable, delete, certificate revocation) where only one user is affected and the system-user cache can be left
-     * untouched.
+     * Evicts a single user's UUID entry and indexed token and certificate entries, along with every running token or
+     * certificate lookup of any user. Use this for user-scoped changes (role assignment, disable, delete, certificate
+     * revocation) where only one user is affected and the system-user cache can be left untouched.
      *
      * @param userUuid UUID of the user whose cache entries should be evicted
      */

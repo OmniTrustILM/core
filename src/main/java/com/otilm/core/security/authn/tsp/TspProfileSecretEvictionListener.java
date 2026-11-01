@@ -12,8 +12,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 /**
  * TSP-side adapter for {@link SecretContentUpdatedEvent}. Keeps the Secret subsystem decoupled from TSP: when a
  * secret's latest-version fingerprint flips (async rotation), this bridges the committed event to
- * {@link TspProfileBasicCredentialInternalService#evictCachesForSecret}, which refreshes the TSP profile model cache
- * and the credential-verification cache against the new fingerprint.
+ * {@link TspProfileBasicCredentialInternalService#evictProfileModelForSecret}.
  *
  * <p>
  * Runs AFTER_COMMIT so the eventual model reload reads the committed new fingerprint, not the stale one. A no-op for
@@ -33,6 +32,6 @@ public class TspProfileSecretEvictionListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
     public void onSecretContentUpdated(SecretContentUpdatedEvent event) {
-        credentialService.evictCachesForSecret(event.secretUuid());
+        credentialService.evictProfileModelForSecret(event.secretUuid());
     }
 }

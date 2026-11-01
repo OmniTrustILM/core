@@ -7,6 +7,7 @@ import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.security.authn.ForwardedClientCertificateParser;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.service.AuditLogInternalService;
+import com.otilm.core.util.cache.CacheManagerFixtures;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -19,7 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.MDC;
-import org.springframework.cache.caffeine.CaffeineCacheManager;
+import org.springframework.cache.CacheManager;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import static com.otilm.core.security.authn.ForwardedCertificateFixtures.ISSUER_DER;
@@ -36,7 +37,7 @@ class PlatformAuthenticationClientCertificateTest {
     private static final String SUCCESS = "{\"authenticated\":true,\"data\":{\"user\":{\"uuid\":\"00000000-0000-0000-0000-000000000001\",\"username\":\"alice\"},\"roles\":[]}}";
     private MockWebServer server;
     private PlatformAuthenticationClient client;
-    private CaffeineCacheManager cacheManager;
+    private CacheManager cacheManager;
     private PlatformAuthenticationCache cache;
     private final AtomicLong ticker = new AtomicLong();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -46,9 +47,10 @@ class PlatformAuthenticationClientCertificateTest {
     void setUp() throws Exception {
         server = new MockWebServer();
         server.start();
-        cacheManager = new CaffeineCacheManager(CacheConfig.CERTIFICATE_AUTH_CACHE, CacheConfig.TOKEN_AUTH_CACHE,
-                CacheConfig.SYSTEM_USER_AUTH_CACHE, CacheConfig.USER_UUID_AUTH_CACHE);
-        cacheManager.setCaffeine(Caffeine.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).ticker(ticker::get));
+        cacheManager = CacheManagerFixtures
+                .readThrough(Caffeine.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).ticker(ticker::get),
+                        CacheConfig.CERTIFICATE_AUTH_CACHE, CacheConfig.TOKEN_AUTH_CACHE,
+                        CacheConfig.SYSTEM_USER_AUTH_CACHE, CacheConfig.USER_UUID_AUTH_CACHE);
         cache = new PlatformAuthenticationCache(cacheManager, new TokenJtiIndex(), new UserCertificateIndex());
         auditLogService = mock(AuditLogInternalService.class);
         client = client();
