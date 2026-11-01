@@ -61,7 +61,7 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
     @BeforeEach
     void seedMlDsaSigningKey() throws Exception {
         tokenProfile = tokenProfileSeeder.seedTokenProfile();
-        String publicKeyBase64 = base64(PqcKeyFixtures.keyPair().getPublic());
+        String publicKeyBase64 = encodeBase64(PqcKeyFixtures.keyPair().getPublic());
         key = cryptographicKeySeeder
                 .seedKey("signing-key", tokenProfile, tokenProfile.getTokenInstanceReference(),
                         signingPrivateKey(KeyAlgorithm.MLDSA),
@@ -115,8 +115,8 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
                     .containsExactly(key.getUuid(), tokenProfile.getTokenInstanceReference().getUuid(),
                             tokenProfile.getUuid());
             assertThat(signingCertificate.keyItemUuids())
-                    .containsExactlyInAnyOrder(itemOfType(KeyType.PRIVATE_KEY).getUuid(),
-                            itemOfType(KeyType.PUBLIC_KEY).getUuid());
+                    .containsExactlyInAnyOrder(findItemOfType(KeyType.PRIVATE_KEY).getUuid(),
+                            findItemOfType(KeyType.PUBLIC_KEY).getUuid());
         }
     }
 
@@ -128,7 +128,7 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
         @Test
         void returnsModelWithoutParameterSpec_whenItemIsPrivateKey() throws Exception {
             // given
-            CryptographicKeyItem privateItem = itemOfType(KeyType.PRIVATE_KEY);
+            CryptographicKeyItem privateItem = findItemOfType(KeyType.PRIVATE_KEY);
 
             // when
             CryptographicKeyItemOperationModel model = cryptographicKeyService.getKeyItemModel(privateItem.getUuid());
@@ -144,7 +144,7 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
         @Test
         void returnsParameterSpecOfTheKeyData_whenItemIsMlDsaPublicKey() throws Exception {
             // given
-            CryptographicKeyItem publicItem = itemOfType(KeyType.PUBLIC_KEY);
+            CryptographicKeyItem publicItem = findItemOfType(KeyType.PUBLIC_KEY);
 
             // when
             CryptographicKeyItemOperationModel model = cryptographicKeyService.getKeyItemModel(publicItem.getUuid());
@@ -160,11 +160,11 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private CryptographicKeyItem itemOfType(KeyType type) {
+    private CryptographicKeyItem findItemOfType(KeyType type) {
         return key.getItems().stream().filter(item -> item.getType() == type).findFirst().orElseThrow();
     }
 
-    private static String base64(PublicKey publicKey) {
+    private static String encodeBase64(PublicKey publicKey) {
         return Base64.getEncoder().encodeToString(publicKey.getEncoded());
     }
 }

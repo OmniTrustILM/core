@@ -30,7 +30,9 @@ public class TokenProfileSeeder {
     private TokenProfileRepository tokenProfileRepository;
 
     public TokenProfile seedTokenProfile() {
-        Connector connector = connectorRepository.saveAndFlush(aConnector().withGeneratedUuid().build());
+        String uniqueUrl = "http://provider-" + UUID.randomUUID() + ".test";
+        Connector connector = connectorRepository
+                .saveAndFlush(aConnector().withGeneratedUuid().withUrl(uniqueUrl).build());
 
         TokenInstanceReference tokenInstance = new TokenInstanceReference();
         tokenInstance.setName("test-token");

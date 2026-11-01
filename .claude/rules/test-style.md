@@ -19,7 +19,7 @@ void returnsPolicy_whenRequestNamesOne() throws Exception {
 }
 
 @Test
-void throwsUnsupported_withoutCallingTheConnector() {
+void throwsUnsupported_whenListingTheWholeToken() {
     // given
     var token = mock(TokenInstanceBasicModel.class);
 
