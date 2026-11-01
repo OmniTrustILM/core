@@ -97,7 +97,7 @@ public class KeyOperationCache {
 
         @Override
         public boolean equals(Object other) {
-            return other instanceof Snapshot snapshot && snapshot.value == value;
+            return other instanceof Snapshot(Object otherValue) && otherValue == value;
         }
 
         @Override
