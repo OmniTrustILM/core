@@ -1,5 +1,6 @@
 package com.otilm.core.util.builders;
 
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -25,7 +26,7 @@ import java.util.UUID;
  * placeholder) and absent {@code state}. A field is written only when its {@code withXxx} is called, so building with
  * no overrides is behaviourally identical to {@code new Certificate()}.
  */
-public class CertificateBuilder {
+public final class CertificateBuilder {
 
     private UUID uuid;
     private String commonName;
@@ -41,6 +42,7 @@ public class CertificateBuilder {
     private CertificateState state;
     private CertificateValidationStatus validationStatus;
     private CertificateSubjectType subjectType;
+    private List<CertificateKeyUsage> keyUsage;
     private Date notBefore;
     private Boolean archived;
     private List<String> extendedKeyUsageOids;
@@ -127,6 +129,11 @@ public class CertificateBuilder {
 
     public CertificateBuilder withSubjectType(CertificateSubjectType subjectType) {
         this.subjectType = subjectType;
+        return this;
+    }
+
+    public CertificateBuilder withKeyUsage(CertificateKeyUsage... usages) {
+        this.keyUsage = List.of(usages);
         return this;
     }
 
@@ -243,6 +250,9 @@ public class CertificateBuilder {
         }
         if (subjectType != null) {
             certificate.setSubjectType(subjectType);
+        }
+        if (keyUsage != null) {
+            certificate.setUsage(keyUsage);
         }
         if (notBefore != null) {
             certificate.setNotBefore(notBefore);

@@ -71,6 +71,6 @@ void throwsUnsupported_whenListingTheWholeToken() {
 
 ## Test data
 
-- Domain objects come from the builders in `util/builders`: static-import the `aXxx()` entry point and override only the field the scenario is about, so the defaults carry the rest.
+- Domain objects come from builders, most in `util/builders` and some beside their package's tests: static-import the `aXxx()` entry point and override only the field the scenario is about, so the defaults carry the rest.
 - Persisted setup and entity graphs come from seeders in `util/seeders`, ready material such as key pairs and DER envelopes from `XxxFixtures` classes, and connector doubles from `util/mocks`, chaining only the `stubXxx(...)` calls the scenario needs.
 - Search those places before writing a new builder, seeder, fixture or mock, and follow `.claude/rules/test-support.md` when writing one.

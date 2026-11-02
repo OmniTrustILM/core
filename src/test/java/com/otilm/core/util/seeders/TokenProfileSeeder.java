@@ -1,5 +1,6 @@
 package com.otilm.core.util.seeders;
 
+import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.TokenInstanceReference;
@@ -14,7 +15,7 @@ import org.springframework.stereotype.Component;
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 
 /**
- * Seeds the connector, token instance and token profile chain that every persisted key hangs from; the token is
+ * Seeds the V2 connector, token instance and token profile chain that every persisted key hangs from; the token is
  * connected and the profile enabled.
  */
 @Component
@@ -32,7 +33,8 @@ public class TokenProfileSeeder {
     public TokenProfile seedTokenProfile() {
         String uniqueUrl = "http://provider-" + UUID.randomUUID() + ".test";
         Connector connector = connectorRepository
-                .saveAndFlush(aConnector().withGeneratedUuid().withUrl(uniqueUrl).build());
+                .saveAndFlush(
+                        aConnector().withGeneratedUuid().withVersion(ConnectorVersion.V2).withUrl(uniqueUrl).build());
 
         TokenInstanceReference tokenInstance = new TokenInstanceReference();
         tokenInstance.setName("test-token");

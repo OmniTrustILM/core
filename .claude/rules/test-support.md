@@ -3,12 +3,17 @@ paths:
   - "src/test/java/**/util/builders/**"
   - "src/test/java/**/util/seeders/**"
   - "src/test/java/**/util/mocks/**"
+  - "src/test/java/**/*Builder.java"
+  - "src/test/java/**/*Seeder.java"
+  - "src/test/java/**/*Fixture.java"
   - "src/test/java/**/*Fixtures.java"
 ---
 
 # Test support classes
 
 A builder constructs an in-memory object that the test adjusts and persists itself. A seeder is an `@Component` that persists, or drives services, for setup that is procedural by nature, such as an entity graph or a condition→rule→trigger chain. A fixture hands out ready material that tests use as is.
+
+New support classes follow these rules whole, and a change to an existing one follows them in the members it adds or changes. Restyle the rest of a class only when the task asks for it, so a diff stays about its change.
 
 ## Builders
 

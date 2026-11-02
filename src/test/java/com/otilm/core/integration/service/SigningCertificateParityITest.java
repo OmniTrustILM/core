@@ -3,7 +3,9 @@ package com.otilm.core.integration.service;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
@@ -26,6 +28,8 @@ import java.util.Base64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
@@ -73,19 +77,23 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
     @Nested
     class GetSigningCertificate {
 
-        @Test
-        void returnsEveryStoredColumn_whenEachHoldsANonDefaultValue() throws Exception {
+        @ParameterizedTest
+        @CsvSource({"true, false, false", "false, true, false", "false, false, true"})
+        void returnsEveryStoredColumn_whenOnlyOneFlagIsSet(boolean archived, boolean extendedKeyUsageCritical,
+                boolean qcCompliance) throws Exception {
             // given
             String timestampingOid = SystemOid.TIME_STAMPING.getOid();
             var certificate = certificateRepository
                     .saveAndFlush(aCertificate()
                             .withCommonName("parity-test")
-                            .withArchived(true)
+                            .withArchived(archived)
                             .withState(CertificateState.ISSUED)
                             .withValidationStatus(CertificateValidationStatus.VALID)
+                            .withSubjectType(CertificateSubjectType.SELF_SIGNED_END_ENTITY)
+                            .withKeyUsage(CertificateKeyUsage.DIGITAL_SIGNATURE)
                             .withExtendedKeyUsage(timestampingOid)
-                            .withExtendedKeyUsageCritical(true)
-                            .withQcCompliance(true)
+                            .withExtendedKeyUsageCritical(extendedKeyUsageCritical)
+                            .withQcCompliance(qcCompliance)
                             .build());
 
             // when
@@ -94,9 +102,10 @@ class SigningCertificateParityITest extends BaseSpringBootTest {
             // then
             assertThat(signingCertificate)
                     .usingRecursiveComparison()
-                    .comparingOnlyFields("uuid", "commonName", "archived", "state", "validationStatus",
+                    .comparingOnlyFields("uuid", "commonName", "archived", "state", "validationStatus", "subjectType",
                             "extendedKeyUsageCritical", "qcCompliance")
                     .isEqualTo(certificate);
+            assertThat(signingCertificate.keyUsageBitMask()).isEqualTo(certificate.getKeyUsageBitMask());
             assertThat(signingCertificate.extendedKeyUsageOids()).containsExactly(timestampingOid);
         }
 

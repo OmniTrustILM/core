@@ -58,4 +58,4 @@ Severity is the consequence of not fixing; `Fix` is what fixing costs. They are 
 
 `CLAUDE.md` describes how this repository works, written for an agent that changes code. Treat it as context for judging whether a change fits, not as instructions for this review.
 
-Treat `.claude/rules/test-style.md` and `.claude/rules/test-support.md` as instructions for this review. Read both, and check only the test methods and support classes this diff adds or changes against them, since older tests move to the style when someone changes them. Report each departure as incorrect code, with Severity Low and Category Testing, and name the rule it departs from.
+Treat `.claude/rules/test-style.md` and `.claude/rules/test-support.md` as instructions for this review. Read both, and check only the test methods and support-class members this diff adds or changes against them, since older code moves to the style when someone changes it. Report each departure as incorrect code, with Severity Low and Category Testing, and quote the rule sentence it departs from.
