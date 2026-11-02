@@ -50,6 +50,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.WireMockPorts;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
@@ -181,6 +182,17 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
     }
 
     @Test
+    void uploaderIsNotMadeOwnerWhenATriggerClearsTheOwnerAndAnotherOfItsExecutionsFails() throws Exception {
+        enableAutomaticOwnership(true);
+        seedSetOwnerTrigger(null, null, true);
+
+        Certificate uploaded = upload();
+
+        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
+        Assertions.assertEquals(List.of(), ownerChanges(uploaded));
+    }
+
+    @Test
     void warnsWhenTheUploaderIsNotKnown() throws Exception {
         enableAutomaticOwnership(true);
         Logger handlerLogger = (Logger) LoggerFactory.getLogger(CertificateUploadedEventHandler.class);
@@ -285,6 +297,10 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
     }
 
     private void seedSetOwnerTrigger(UUID ownerUuid, String ownerName) throws Exception {
+        seedSetOwnerTrigger(ownerUuid, ownerName, false);
+    }
+
+    private void seedSetOwnerTrigger(UUID ownerUuid, String ownerName, boolean withFailingExecution) throws Exception {
         mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
         mockServer.start();
         WireMock.configureFor("localhost", mockServer.port());
@@ -321,10 +337,25 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
         executionRequest.setItems(List.of(executionItem));
         String executionUuid = actionService.createExecution(executionRequest).getUuid();
 
+        List<String> executionUuids = new ArrayList<>(List.of(executionUuid));
+        if (withFailingExecution) {
+            // a group that is not a UUID, which the evaluator refuses
+            ExecutionItemRequestDto failingItem = new ExecutionItemRequestDto();
+            failingItem.setFieldSource(FilterFieldSource.PROPERTY);
+            failingItem.setFieldIdentifier(FilterField.GROUP_NAME.toString());
+            failingItem.setData("not-a-uuid");
+            ExecutionRequestDto failingRequest = new ExecutionRequestDto();
+            failingRequest.setName("FailingUploadExecution");
+            failingRequest.setResource(Resource.CERTIFICATE);
+            failingRequest.setType(ExecutionType.SET_FIELD);
+            failingRequest.setItems(List.of(failingItem));
+            executionUuids.add(actionService.createExecution(failingRequest).getUuid());
+        }
+
         ActionRequestDto actionRequest = new ActionRequestDto();
         actionRequest.setName("SetUploadOwnerAction");
         actionRequest.setResource(Resource.CERTIFICATE);
-        actionRequest.setExecutionsUuids(List.of(executionUuid));
+        actionRequest.setExecutionsUuids(executionUuids);
         String actionUuid = actionService.createAction(actionRequest).getUuid();
 
         TriggerRequestDto triggerRequest = new TriggerRequestDto();

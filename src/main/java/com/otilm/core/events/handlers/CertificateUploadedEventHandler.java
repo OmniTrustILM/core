@@ -231,12 +231,12 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     }
 
     /**
-     * Whether an upload trigger performed an action on the owner, whether it set one or cleared it. Such a trigger
+     * Whether an upload trigger carried out an action on the owner, whether it set one or cleared it. Such a trigger
      * decides the owner, so automatic ownership leaves the certificate as the trigger left it.
      */
     private boolean triggerActedOnOwner(EventHistory eventHistory) {
         return triggerHistoryRepository
-                .existsPerformedSetFieldAction(eventHistory.getUuid(), ExecutionType.SET_FIELD,
+                .existsSucceededSetFieldExecution(eventHistory.getUuid(), ExecutionType.SET_FIELD,
                         FilterFieldSource.PROPERTY, FilterField.OWNER.name());
     }
 

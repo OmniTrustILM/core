@@ -19,30 +19,33 @@ import org.springframework.stereotype.Repository;
 public interface TriggerHistoryRepository extends SecurityFilterRepository<TriggerHistory, UUID> {
 
     @EntityGraph(attributePaths = {"records"})
-    /**
-     * Whether a trigger of the event performed its actions, one of which sets the property field named by
-     * {@code fieldIdentifier}.
-     */
-    @Query("""
-            SELECT COUNT(th) > 0 FROM TriggerHistory th, Trigger t
-            JOIN t.actions a JOIN a.executions e JOIN e.items i
-            WHERE th.eventHistoryUuid = :eventHistoryUuid
-              AND th.actionsPerformed = true
-              AND t.uuid = th.triggerUuid
-              AND e.type = :executionType
-              AND i.fieldSource = :fieldSource
-              AND i.fieldIdentifier = :fieldIdentifier
-            """)
-    boolean existsPerformedSetFieldAction(@Param("eventHistoryUuid") UUID eventHistoryUuid,
-            @Param("executionType") ExecutionType executionType, @Param("fieldSource") FilterFieldSource fieldSource,
-            @Param("fieldIdentifier") String fieldIdentifier);
-
     List<TriggerHistory> findAllByTriggerUuidAndTriggerAssociationObjectUuid(UUID triggerUuid,
             UUID triggerAssociationObjectUuid);
 
     @EntityGraph(attributePaths = {"records"})
     List<TriggerHistory> findByTriggerAssociationObjectUuidOrderByTriggerUuidAscTriggeredAtAsc(
             UUID triggerAssociationObjectUuid);
+
+    /**
+     * Whether a trigger of the event, whose conditions matched, ran an execution that sets the property field named by
+     * {@code fieldIdentifier} and did not fail doing it. Other executions of the trigger failing does not matter.
+     */
+    @Query("""
+            SELECT COUNT(th) > 0 FROM TriggerHistory th, Trigger t
+            JOIN t.actions a JOIN a.executions e JOIN e.items i
+            WHERE th.eventHistoryUuid = :eventHistoryUuid
+              AND th.conditionsMatched = true
+              AND t.uuid = th.triggerUuid
+              AND e.type = :executionType
+              AND i.fieldSource = :fieldSource
+              AND i.fieldIdentifier = :fieldIdentifier
+              AND NOT EXISTS (
+                SELECT r FROM TriggerHistoryRecord r
+                WHERE r.triggerHistoryUuid = th.uuid AND r.executionUuid = e.uuid)
+            """)
+    boolean existsSucceededSetFieldExecution(@Param("eventHistoryUuid") UUID eventHistoryUuid,
+            @Param("executionType") ExecutionType executionType, @Param("fieldSource") FilterFieldSource fieldSource,
+            @Param("fieldIdentifier") String fieldIdentifier);
 
     @Modifying
     @Query("UPDATE TriggerHistory t SET t.triggerAssociationUuid = NULL WHERE t.triggerAssociationUuid = :uuid")
