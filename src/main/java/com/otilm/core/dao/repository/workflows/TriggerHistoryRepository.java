@@ -1,6 +1,8 @@
 package com.otilm.core.dao.repository.workflows;
 
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
 import java.util.List;
@@ -17,6 +19,24 @@ import org.springframework.stereotype.Repository;
 public interface TriggerHistoryRepository extends SecurityFilterRepository<TriggerHistory, UUID> {
 
     @EntityGraph(attributePaths = {"records"})
+    /**
+     * Whether a trigger of the event performed its actions, one of which sets the property field named by
+     * {@code fieldIdentifier}.
+     */
+    @Query("""
+            SELECT COUNT(th) > 0 FROM TriggerHistory th, Trigger t
+            JOIN t.actions a JOIN a.executions e JOIN e.items i
+            WHERE th.eventHistoryUuid = :eventHistoryUuid
+              AND th.actionsPerformed = true
+              AND t.uuid = th.triggerUuid
+              AND e.type = :executionType
+              AND i.fieldSource = :fieldSource
+              AND i.fieldIdentifier = :fieldIdentifier
+            """)
+    boolean existsPerformedSetFieldAction(@Param("eventHistoryUuid") UUID eventHistoryUuid,
+            @Param("executionType") ExecutionType executionType, @Param("fieldSource") FilterFieldSource fieldSource,
+            @Param("fieldIdentifier") String fieldIdentifier);
+
     List<TriggerHistory> findAllByTriggerUuidAndTriggerAssociationObjectUuid(UUID triggerUuid,
             UUID triggerAssociationObjectUuid);
 

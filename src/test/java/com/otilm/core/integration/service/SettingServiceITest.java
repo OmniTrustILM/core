@@ -26,6 +26,7 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.settings.CertificateRegistrationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateRequestAttributesSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
+import com.otilm.api.model.core.settings.CertificateUploadSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.EventSettingsDto;
 import com.otilm.api.model.core.settings.EventsSettingsDto;
@@ -457,6 +458,33 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(3, edited.getCertificates().getRegistration().getMaxFailedAttempts());
         Assertions.assertNotNull(edited.getCertificates().getValidation());
         Assertions.assertTrue(edited.getCertificates().getValidation().getEnabled());
+    }
+
+    @Test
+    void platformUploadSettingsDefaultToOffAndAreEditable() {
+        Assertions
+                .assertFalse(settingService.getPlatformSettings().getCertificates().getUpload().isAutomaticOwnership());
+
+        CertificateUploadSettingsUpdateDto upload = new CertificateUploadSettingsUpdateDto();
+        upload.setAutomaticOwnership(true);
+        CertificateSettingsUpdateDto certificateSettings = new CertificateSettingsUpdateDto();
+        certificateSettings.setUpload(upload);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setCertificates(certificateSettings);
+        settingService.updatePlatformSettings(update);
+
+        PlatformSettingsDto edited = settingService.getPlatformSettings();
+        Assertions.assertTrue(edited.getCertificates().getUpload().isAutomaticOwnership());
+        Assertions.assertTrue(edited.getCertificates().getValidation().getEnabled());
+
+        // a certificates update without the upload group leaves the setting as it was
+        CertificateSettingsUpdateDto withoutUpload = new CertificateSettingsUpdateDto();
+        withoutUpload.setRegistration(new CertificateRegistrationSettingsUpdateDto());
+        PlatformSettingsUpdateDto otherUpdate = new PlatformSettingsUpdateDto();
+        otherUpdate.setCertificates(withoutUpload);
+        settingService.updatePlatformSettings(otherUpdate);
+        Assertions
+                .assertTrue(settingService.getPlatformSettings().getCertificates().getUpload().isAutomaticOwnership());
     }
 
     @Test
