@@ -233,9 +233,10 @@ def git(*args):
 
 
 def added_lines():
-    # No external diff or text conversion: the parser reads the plain unified format.
-    diff = git('diff', '-M', '-U0', '--no-color', '--no-ext-diff', '--no-textconv',
-               '--src-prefix=a/', '--dst-prefix=b/', MERGE_BASE)
+    # No external diff, text conversion or inter-hunk context: the parser reads
+    # plain unified hunks with zero context.
+    diff = git('diff', '-M', '-U0', '--inter-hunk-context=0', '--no-color', '--no-ext-diff',
+               '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', MERGE_BASE)
     added, path, in_header = {}, None, False
     for line in diff.splitlines():
         if line.startswith('diff --git '):
