@@ -1,5 +1,6 @@
 package com.otilm.core.mapper.signing;
 
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
@@ -36,12 +37,17 @@ import com.otilm.core.util.TspProtocolUrlFactory;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.NonNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SigningProfileMapper {
+
+    private static final Logger logger = LoggerFactory.getLogger(SigningProfileMapper.class);
 
     private SigningProfileMapper() {
     }
@@ -360,8 +366,19 @@ public class SigningProfileMapper {
     private static Set<SignatureParameterGroup> toParameterGroups(SigningProfileVersion version) {
         return safeList(version.getAllowedRequestParameterGroups())
                 .stream()
-                .map(SignatureParameterGroup::findByCode)
+                .flatMap(code -> knownParameterGroup(code, version).stream())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static Optional<SignatureParameterGroup> knownParameterGroup(String code, SigningProfileVersion version) {
+        try {
+            return Optional.of(SignatureParameterGroup.findByCode(code));
+        } catch (ValidationException e) {
+            logger
+                    .warn("Ignoring unknown stored signature parameter group '{}' of Signing Profile {} version {}.",
+                            code, version.getSigningProfileUuid(), version.getVersion());
+            return Optional.empty();
+        }
     }
 
     private static <T> List<T> safeList(List<T> list) {

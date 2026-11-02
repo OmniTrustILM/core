@@ -113,6 +113,22 @@ class SigningProfileMapperContentSigningTest {
             // then
             assertThat(model.workflow().parameterPolicy().allowedGroups()).isEmpty();
         }
+
+        @Test
+        void dropsAnUnknownStoredGroup_andKeepsTheKnownOnes() {
+            // given
+            var storedCodes = List.of("retired_group", SignatureParameterGroup.SIGNATURE_CONTEXT.getCode());
+            SigningProfileVersion version = aContentSigningVersion();
+            version.setAllowedRequestParameterGroups(new ArrayList<>(storedCodes));
+
+            // when
+            SigningProfileModel<ManagedContentSigningWorkflow, ?> model = SigningProfileMapper
+                    .toManagedContentSigningModel(aHeader(), version, List.of(), List.of());
+
+            // then
+            assertThat(model.workflow().parameterPolicy().allowedGroups())
+                    .containsExactly(SignatureParameterGroup.SIGNATURE_CONTEXT);
+        }
     }
 
     // ── ToDto ─────────────────────────────────────────────────────────────────

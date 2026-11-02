@@ -17,6 +17,11 @@ import java.util.Map;
  * and a profile default may be legitimately partial because the request completes it; only the effective object has to
  * stand on its own.
  * </p>
+ *
+ * <p>
+ * A placement that is present must be complete for its mode. Only a signature resolved as drawn must have one, and text
+ * or an image: an unset {@code visible} leaves the draw decision to the connector.
+ * </p>
  */
 public final class PadesVisibleSignatureCompleteness {
 
@@ -49,7 +54,6 @@ public final class PadesVisibleSignatureCompleteness {
     private static List<String> missingPlacementFields(PadesVisibleSignatureDto visible) {
         PadesVisibleSignaturePlacementDto placement = visible.getPlacement();
         if (placement == null) {
-            // An absent visible leaves both the draw decision and the placement to the connector.
             return isDrawn(visible) ? List.of(PLACEMENT) : List.of();
         }
         if (placement.getFieldId() != null) {

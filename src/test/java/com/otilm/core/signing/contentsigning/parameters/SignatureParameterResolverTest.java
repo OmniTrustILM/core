@@ -21,6 +21,7 @@ import static com.otilm.core.util.builders.PadesVisibleSignaturePlacementDtoBuil
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 class SignatureParameterResolverTest {
 
@@ -145,6 +146,80 @@ class SignatureParameterResolverTest {
         assertThatThrownBy(() -> resolver.effectiveParameters(null, profile(Set.of(), defaults)))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.text or visibleSignature.image");
+    }
+
+    @Test
+    void refusesVisibleSignatureFields_whenTheProfileDrawsNothingAndTheRequestLeavesVisibleUnset() {
+        // given
+        var contentAndPlacement = Set
+                .of(SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT,
+                        SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT);
+        PadesSignatureParametersDto defaults = aPadesParameters()
+                .withVisibleSignature(aVisibleSignature().withVisible(false))
+                .build();
+        PadesSignatureParametersDto requested = aPadesParameters()
+                .withVisibleSignature(
+                        aVisibleSignature().withText("Signed by Jane Doe").withPlacement(aPlacement().withPage(2)))
+                .build();
+
+        // when / then
+        assertThatThrownBy(() -> resolver.effectiveParameters(requested, profile(contentAndPlacement, defaults)))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("visibleSignature.visible unset")
+                .hasMessageContaining("visibleSignature.text")
+                .hasMessageContaining("visibleSignature.placement.page");
+    }
+
+    @Test
+    void drawsTheRequestedSignature_whenTheRequestSetsVisibleOverAnUndrawnDefault() {
+        // given
+        var text = "Signed by Jane Doe";
+        var contentAndPlacement = Set
+                .of(SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT,
+                        SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT);
+        PadesSignatureParametersDto defaults = aPadesParameters()
+                .withVisibleSignature(aVisibleSignature().withVisible(false))
+                .build();
+        PadesSignatureParametersDto requested = aPadesParameters()
+                .withVisibleSignature(aVisibleSignature()
+                        .withVisible(true)
+                        .withText(text)
+                        .withPlacement(aPlacement()
+                                .withPage(1)
+                                .withOriginX(20f)
+                                .withOriginY(30f)
+                                .withWidth(180f)
+                                .withHeight(60f)))
+                .build();
+
+        // when
+        PadesSignatureParametersDto effective = (PadesSignatureParametersDto) resolver
+                .effectiveParameters(requested, profile(contentAndPlacement, defaults));
+
+        // then
+        assertThat(effective.getVisibleSignature().getVisible()).isTrue();
+        assertThat(effective.getVisibleSignature().getText()).isEqualTo(text);
+    }
+
+    /** A caller denied the visible-signature groups must not learn whether the profile draws one by default. */
+    @Test
+    void refusesADeniedField_alike_whetherOrNotTheProfileDrawsByDefault() {
+        // given
+        PadesSignatureParametersDto undrawn = aPadesParameters()
+                .withVisibleSignature(aVisibleSignature().withVisible(false))
+                .build();
+        PadesSignatureParametersDto requested = aPadesParameters()
+                .withVisibleSignature(aVisibleSignature().withText("Signed by Jane Doe"))
+                .build();
+
+        // when
+        Throwable overUndrawn = catchThrowable(
+                () -> resolver.effectiveParameters(requested, profile(Set.of(), undrawn)));
+        Throwable overNoDefaults = catchThrowable(
+                () -> resolver.effectiveParameters(requested, profile(Set.of(), null)));
+
+        // then
+        assertThat(overUndrawn).isInstanceOf(ValidationException.class).hasMessage(overNoDefaults.getMessage());
     }
 
     /**
@@ -277,6 +352,24 @@ class SignatureParameterResolverTest {
                 .effectiveParameters(requested, profile(Set.of(SignatureParameterGroup.SIGNED_ATTRIBUTES), defaults)))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("claimedRoles");
+    }
+
+    @Test
+    void refusesEmptyImage_whenTheRequestSendsOne() {
+        // given
+        PadesSignatureParametersDto defaults = aPadesParameters()
+                .withVisibleSignature(aVisibleSignature().withImage(new byte[]{1, 2, 3, 4}, "image/png"))
+                .build();
+        PadesSignatureParametersDto requested = aPadesParameters()
+                .withVisibleSignature(aVisibleSignature().withImage(new byte[0], "image/png"))
+                .build();
+
+        // when / then
+        assertThatThrownBy(() -> resolver
+                .effectiveParameters(requested,
+                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT), defaults)))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("visibleSignature.image: image must be between 1 and");
     }
 
     /** A family the profile does not sign is a permission answer, so it surfaces as a platform validation error. */

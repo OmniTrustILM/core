@@ -23,20 +23,30 @@ public final class ComputeDtbsRequests {
      * @param effective the permission-checked, merged parameters, or {@code null} when neither side supplied any; only
      * PAdES carries them
      * @throws SigningEngineException when a PAdES run was given a digest alone
+     * @throws IllegalStateException when parameters arrive for a family whose connector request has no field for them
      */
     public static ComputeDtbsRequestDto forFamily(SignatureFamily family, SignatureParametersDto effective,
             DocumentTransferDto document) throws SigningEngineException {
         ComputeDtbsRequestDto request = switch (family) {
             case PADES -> padesRequest(effective, document);
-            case XADES -> new XadesComputeDtbsRequestDto();
-            case CADES -> new CadesComputeDtbsRequestDto();
-            case JADES -> new JadesComputeDtbsRequestDto();
+            case XADES -> carryingNoParameters(new XadesComputeDtbsRequestDto(), effective);
+            case CADES -> carryingNoParameters(new CadesComputeDtbsRequestDto(), effective);
+            case JADES -> carryingNoParameters(new JadesComputeDtbsRequestDto(), effective);
         };
         request.setDocument(document);
         return request;
     }
 
-    /** A PAdES signature is laid out as an incremental revision of the PDF, which no digest can stand in for. */
+    private static <R extends ComputeDtbsRequestDto> R carryingNoParameters(R request,
+            SignatureParametersDto effective) {
+        if (effective != null) {
+            throw new IllegalStateException("the %s computeDtbs request has no field for %s signature parameters"
+                    .formatted(request.getFamily(), effective.getFamily()));
+        }
+        return request;
+    }
+
+    /** A PAdES signature is laid out as an incremental revision of the PDF. No room for digests. */
     private static PadesComputeDtbsRequestDto padesRequest(SignatureParametersDto effective,
             DocumentTransferDto document) throws SigningEngineException {
         if (document instanceof DigestOnlyDocumentTransferDto) {
