@@ -241,7 +241,8 @@ def added_lines():
         if line.startswith('diff --git '):
             path, in_header = None, True
         elif in_header and line.startswith('+++ '):
-            path = line[6:] if line.startswith('+++ b/') else None
+            # Git ends the header with a tab when the path contains a space.
+            path = line[6:].rstrip('\t') if line.startswith('+++ b/') else None
         elif line.startswith('@@ '):
             in_header = False
             if path:
@@ -270,7 +271,7 @@ def print_issues(title, issues, limit=None):
     if issues:
         print(f'  {title}:')
     for issue in sorted(issues, key=lambda i: (i['component'], i.get('line', 0)))[:limit]:
-        path = issue['component'].split(':', 1)[1]
+        path = issue['component'].split(':', 1)[-1]
         print(f'    [{issue.get("severity", "?")}] {path}:{issue.get("line", "?")} - {issue["message"]}')
 
 
