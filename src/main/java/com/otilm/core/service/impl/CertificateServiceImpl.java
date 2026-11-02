@@ -120,6 +120,7 @@ import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.handlers.CertificateExpiringEventHandler;
+import com.otilm.core.events.handlers.CertificateNotCompliantEventHandler;
 import com.otilm.core.events.handlers.CertificateStatusChangedEventHandler;
 import com.otilm.core.events.handlers.discovery.DiscoveredCertificateImport;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
@@ -169,6 +170,7 @@ import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.CertificateValidationWriter;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
+import com.otilm.core.service.writer.PendingNotificationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
@@ -342,6 +344,12 @@ public class CertificateServiceImpl
 
     private CommentInternalService commentService;
     private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private PendingNotificationWriter pendingNotificationWriter;
+
+    @Autowired
+    public void setPendingNotificationWriter(PendingNotificationWriter pendingNotificationWriter) {
+        this.pendingNotificationWriter = pendingNotificationWriter;
+    }
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -910,6 +918,7 @@ public class CertificateServiceImpl
         objectAssociationService.removeObjectAssociations(Resource.CERTIFICATE, uuid.getValue());
         commentService.removeObjectComments(Resource.CERTIFICATE, uuid.getValue());
         complianceProfileAssociationWriter.deleteAllForObject(Resource.CERTIFICATE, uuid.getValue());
+        pendingNotificationWriter.deleteForObject(Resource.CERTIFICATE, uuid.getValue());
         attributeEngine.deleteObjectAttributeContent(Resource.CERTIFICATE, uuid.getValue());
 
         scepProfileRepository.clearCaCertificateReference(certificate.getUuid());
@@ -1179,6 +1188,7 @@ public class CertificateServiceImpl
         objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, permittedUuids);
         commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, permittedUuids);
         complianceProfileAssociationWriter.deleteAllForObjects(Resource.CERTIFICATE, permittedUuids);
+        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, permittedUuids);
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, permittedUuids);
 
         // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths
@@ -2896,6 +2906,15 @@ public class CertificateServiceImpl
             eventProducer.produceMessage(CertificateExpiringEventHandler.constructEventMessages(uuid));
         }
         return expiringCertificates.size();
+    }
+
+    @Override
+    public int handleNonCompliantCertificatesReminders() {
+        List<UUID> certificates = certificateRepository.findNonCompliantCertificatesWithReminders();
+        for (UUID uuid : certificates) {
+            eventProducer.produceMessage(CertificateNotCompliantEventHandler.constructReminderEventMessage(uuid));
+        }
+        return certificates.size();
     }
 
     @Override

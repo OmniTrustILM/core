@@ -186,7 +186,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             return;
         }
 
-        if (!proceedWithNotifying(notificationProfileVersion, pendingNotification)) {
+        if (!proceedWithNotifying(message.getEvent(), notificationProfileVersion, pendingNotification)) {
             logger
                     .debug("Notification suppressed for {} with UUID {} by configuration of notification profile {} for event {}. Notification sent last time at {} and was repeated {} times.",
                             pendingNotification.getResource().getLabel(), pendingNotification.getObjectUuid(),
@@ -413,7 +413,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
     private static PendingNotification getNewPendingNotification(NotificationMessage message,
             NotificationProfileVersion notificationProfileVersion, PendingNotification pendingNotification) {
         if (message.getEvent().isMonitoring() && (notificationProfileVersion.getFrequency() != null
-                || notificationProfileVersion.getRepetitions() != null)) {
+                || notificationProfileVersion.getRepetitions() != null
+                || message.getEvent() == ResourceEvent.CERTIFICATE_NOT_COMPLIANT)) {
             pendingNotification = new PendingNotification();
             pendingNotification.setNotificationProfileUuid(notificationProfileVersion.getNotificationProfileUuid());
             pendingNotification.setVersion(notificationProfileVersion.getVersion());
@@ -424,10 +425,15 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         return pendingNotification;
     }
 
-    private boolean proceedWithNotifying(NotificationProfileVersion notificationProfileVersion,
+    private boolean proceedWithNotifying(ResourceEvent event, NotificationProfileVersion notificationProfileVersion,
             PendingNotification pendingNotification) {
         if (pendingNotification == null) {
             return true;
+        }
+
+        if (event == ResourceEvent.CERTIFICATE_NOT_COMPLIANT && notificationProfileVersion.getFrequency() == null
+                && notificationProfileVersion.getRepetitions() == null) {
+            return pendingNotification.getRepetitions() < 1;
         }
 
         OffsetDateTime now = OffsetDateTime.now();

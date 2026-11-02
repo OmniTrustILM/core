@@ -382,6 +382,12 @@ public interface CertificateInternalService extends ResourceExtensionService {
      */
     int handleExpiringCertificates();
 
+    /**
+     * Raise the not compliant event again for certificates that are still not compliant and whose notification profile
+     * is set to remind
+     */
+    int handleNonCompliantCertificatesReminders();
+
     /***
      * Update Subject DN and Issuer DN in certificates when there is a change in code
      *

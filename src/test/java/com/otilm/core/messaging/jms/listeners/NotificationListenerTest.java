@@ -15,6 +15,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
+import com.otilm.core.dao.entity.notifications.PendingNotification;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRepository;
@@ -32,6 +33,7 @@ import com.otilm.core.service.notifications.NotificationObjectDataService;
 import com.otilm.core.service.notifications.NotificationSubjectResolver.SubjectRef;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.writer.PendingNotificationWriter;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -54,6 +56,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -236,6 +240,137 @@ class NotificationListenerTest {
                         eq(1));
         // The failed suppression write is not a delivery failure: trigger history stays untouched.
         verifyNoInteractions(triggerService);
+    }
+
+    @Test
+    void notCompliantWithoutReminderSettingsNotifiesOnce() throws Exception {
+        UUID profileUuid = UUID.randomUUID();
+        Fixture first = fixture(profileUuid, null, null, null);
+        first.listener.processMessage(first.message(ResourceEvent.CERTIFICATE_NOT_COMPLIANT));
+
+        verify(first.apiClient).sendNotification(any(), any(), any());
+        verify(first.writer)
+                .recordSent(eq(profileUuid), eq(Resource.CERTIFICATE), any(),
+                        eq(ResourceEvent.CERTIFICATE_NOT_COMPLIANT), eq(1));
+
+        PendingNotification sentOnce = pending(profileUuid, 1, 1);
+        Fixture second = fixture(profileUuid, null, null, sentOnce);
+        second.listener.processMessage(second.message(ResourceEvent.CERTIFICATE_NOT_COMPLIANT));
+
+        verify(second.apiClient, never()).sendNotification(any(), any(), any());
+        verify(second.writer, never()).recordSent(any(), any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void notCompliantWithRepetitionsRemindsUntilTheMaximum() throws Exception {
+        UUID profileUuid = UUID.randomUUID();
+
+        Fixture first = fixture(profileUuid, null, 2, null);
+        first.listener.processMessage(first.message(ResourceEvent.CERTIFICATE_NOT_COMPLIANT));
+        verify(first.apiClient).sendNotification(any(), any(), any());
+
+        Fixture reminder = fixture(profileUuid, null, 2, pending(profileUuid, 1, 1));
+        reminder.listener.processMessage(reminder.message(ResourceEvent.CERTIFICATE_NOT_COMPLIANT));
+        verify(reminder.apiClient).sendNotification(any(), any(), any());
+
+        Fixture exhausted = fixture(profileUuid, null, 2, pending(profileUuid, 1, 2));
+        exhausted.listener.processMessage(exhausted.message(ResourceEvent.CERTIFICATE_NOT_COMPLIANT));
+        verify(exhausted.apiClient, never()).sendNotification(any(), any(), any());
+    }
+
+    @Test
+    void notCompliantReminderWaitsForTheFrequency() throws Exception {
+        UUID profileUuid = UUID.randomUUID();
+        PendingNotification sentNow = pending(profileUuid, 1, 1);
+        sentNow.setLastSentAt(OffsetDateTime.now());
+
+        Fixture tooSoon = fixture(profileUuid, Duration.ofDays(1), null, sentNow);
+        tooSoon.listener.processMessage(tooSoon.message(ResourceEvent.CERTIFICATE_NOT_COMPLIANT));
+        verify(tooSoon.apiClient, never()).sendNotification(any(), any(), any());
+
+        PendingNotification sentYesterday = pending(profileUuid, 1, 1);
+        sentYesterday.setLastSentAt(OffsetDateTime.now().minusDays(2));
+        Fixture due = fixture(profileUuid, Duration.ofDays(1), null, sentYesterday);
+        due.listener.processMessage(due.message(ResourceEvent.CERTIFICATE_NOT_COMPLIANT));
+        verify(due.apiClient).sendNotification(any(), any(), any());
+    }
+
+    @Test
+    void expiringWithoutReminderSettingsKeepsNotifyingOnEveryRaise() throws Exception {
+        UUID profileUuid = UUID.randomUUID();
+        Fixture raise = fixture(profileUuid, null, null, null);
+        raise.listener.processMessage(raise.message(ResourceEvent.CERTIFICATE_EXPIRING));
+        raise.listener.processMessage(raise.message(ResourceEvent.CERTIFICATE_EXPIRING));
+
+        verify(raise.apiClient, times(2)).sendNotification(any(), any(), any());
+        verify(raise.writer, never()).recordSent(any(), any(), any(), any(), anyInt());
+    }
+
+    private static PendingNotification pending(UUID profileUuid, int version, int repetitions) {
+        PendingNotification pending = new PendingNotification();
+        pending.setNotificationProfileUuid(profileUuid);
+        pending.setVersion(version);
+        pending.setRepetitions(repetitions);
+        pending.setLastSentAt(OffsetDateTime.now().minusDays(30));
+        return pending;
+    }
+
+    private record Fixture(NotificationListener listener, NotificationInstanceSyncApiClient apiClient,
+            PendingNotificationWriter writer, UUID profileUuid) {
+
+        NotificationMessage message(ResourceEvent event) {
+            return new NotificationMessage(event, Resource.CERTIFICATE, UUID.randomUUID(), List.of(profileUuid),
+                    List.of(), null, UUID.randomUUID(), null);
+        }
+    }
+
+    private Fixture fixture(UUID profileUuid, Duration frequency, Integer repetitions, PendingNotification existing)
+            throws Exception {
+        UUID instanceRefUuid = UUID.randomUUID();
+
+        NotificationProfileVersion version = new NotificationProfileVersion();
+        version.setNotificationProfileUuid(profileUuid);
+        version.setVersion(1);
+        version.setRecipientType(RecipientType.NONE);
+        version.setInternalNotification(false);
+        version.setFrequency(frequency);
+        version.setRepetitions(repetitions);
+        version.setNotificationInstanceRefUuid(instanceRefUuid);
+
+        NotificationInstanceReference instanceRef = new NotificationInstanceReference();
+        instanceRef.setKind("WEBHOOK");
+        instanceRef.setConnectorUuid(UUID.randomUUID());
+        instanceRef.setNotificationInstanceUuid(UUID.randomUUID());
+        instanceRef.setMappedAttributes(List.of());
+
+        NotificationProfileVersionRepository versionRepository = mock(NotificationProfileVersionRepository.class);
+        when(versionRepository.findTopByNotificationProfileUuidOrderByVersionDesc(profileUuid))
+                .thenReturn(Optional.of(version));
+        when(versionRepository.findByNotificationProfileUuidAndVersion(profileUuid, 1))
+                .thenReturn(Optional.of(version));
+        NotificationInstanceReferenceRepository instanceRefRepository = mock(
+                NotificationInstanceReferenceRepository.class);
+        when(instanceRefRepository.findWithMappedAttributesByUuid(instanceRefUuid))
+                .thenReturn(Optional.of(instanceRef));
+
+        PendingNotificationRepository pendingRepository = mock(PendingNotificationRepository.class);
+        when(pendingRepository
+                .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(any(), any(), any(), any()))
+                .thenReturn(existing);
+
+        NotificationInstanceSyncApiClient apiClient = mock(NotificationInstanceSyncApiClient.class);
+        when(apiClient.listMappingAttributes(any(), any())).thenReturn(List.of());
+        ConnectorApiFactory connectorApiFactory = mock(ConnectorApiFactory.class);
+        when(connectorApiFactory.getNotificationInstanceApiClient(any())).thenReturn(apiClient);
+
+        PendingNotificationWriter writer = mock(PendingNotificationWriter.class);
+        NotificationListener listener = new NotificationListener(JsonMapper.builder().findAndAddModules().build(),
+                mock(AttributeEngine.class), notificationService, mock(TriggerInternalService.class),
+                connectorApiFactory, mock(ConnectorInternalService.class), pendingRepository, versionRepository,
+                instanceRefRepository, mock(GroupRepository.class), mock(UserManagementApiClient.class),
+                mock(RoleManagementApiClient.class), mock(ResourceObjectAssociationService.class),
+                new TransactionHandler(), writer, mock(NotificationObjectDataService.class));
+        return new Fixture(listener, apiClient, writer, profileUuid);
     }
 
     @Test

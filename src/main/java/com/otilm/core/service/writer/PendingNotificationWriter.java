@@ -4,9 +4,11 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.repository.notifications.PendingNotificationRepository;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -33,5 +35,26 @@ public class PendingNotificationWriter {
         pendingNotificationRepository
                 .upsertSent(UUID.randomUUID(), notificationProfileUuid, resource.name(), objectUuid, event.name(),
                         pinnedVersion, OffsetDateTime.now());
+    }
+
+    /**
+     * Runs in its own transaction so the rows are gone before the event that follows is processed, whatever transaction
+     * the caller is in.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void deleteForObjectAndEvent(Resource resource, UUID objectUuid, ResourceEvent event) {
+        pendingNotificationRepository.deleteForObjectAndEvent(resource, objectUuid, event);
+    }
+
+    @Transactional
+    public void deleteForObject(Resource resource, UUID objectUuid) {
+        pendingNotificationRepository.deleteForObject(resource, objectUuid);
+    }
+
+    @Transactional
+    public void deleteForObjects(Resource resource, Collection<UUID> objectUuids) {
+        if (!objectUuids.isEmpty()) {
+            pendingNotificationRepository.deleteForObjects(resource, objectUuids);
+        }
     }
 }
