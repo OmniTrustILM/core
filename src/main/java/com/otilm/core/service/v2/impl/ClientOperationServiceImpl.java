@@ -2098,8 +2098,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     public ClientCertificateDataResponseDto renewCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, ClientCertificateRenewRequestDto request) throws NotFoundException,
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
-        Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, authorityUuid,
-                raProfileUuid.toString(), ResourceAction.RENEW);
+        Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
+                ResourceAction.RENEW, authorityUuid);
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
         // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
@@ -2300,8 +2300,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             String certificateUuid, ClientCertificateRekeyRequestDto request)
             throws NotFoundException, CertificateException, CertificateOperationException, CertificateRequestException,
             ConnectorException, AttributeException {
-        Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, authorityUuid,
-                raProfileUuid.toString(), ResourceAction.REKEY);
+        Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
+                ResourceAction.REKEY, authorityUuid);
 
         // Self-service gate, symmetric with renew: a certificate with a live registration authorization rekeys
         // only against its challenge, and a verified challenge lets the authorization follow the successor.
@@ -2551,8 +2551,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public void revokeCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, String certificateUuid,
             ClientCertificateRevocationDto request) throws ConnectorException, AttributeException, NotFoundException {
-        Certificate certificate = validateOldCertificateForOperation(certificateUuid, authorityUuid,
-                raProfileUuid.toString(), ResourceAction.REVOKE);
+        Certificate certificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
+                ResourceAction.REVOKE, authorityUuid);
 
         // validate revoke attributes
         extendedAttributeService.mergeAndValidateRevokeAttributes(certificate.getRaProfile(), request.getAttributes());
@@ -2846,8 +2846,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         return originatingAction == ResourceAction.ISSUE ? CertificateOperation.ISSUE : CertificateOperation.RENEW;
     }
 
-    private Certificate validateOldCertificateForOperation(String certificateUuid, SecuredParentUUID authorityUuid,
-            String raProfileUuid, ResourceAction action) throws NotFoundException {
+    private Certificate validateOldCertificateForOperation(String certificateUuid, String raProfileUuid,
+            ResourceAction action, SecuredParentUUID authorityUuid) throws NotFoundException {
         Certificate oldCertificate = certificateRepository
                 .findByUuid(UUID.fromString(certificateUuid))
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
