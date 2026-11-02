@@ -25,7 +25,6 @@ import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.mapper.signing.TspProfileBasicCredentialMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.reference.ObjectRef;
-import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -59,7 +58,6 @@ public class TspProfileBasicCredentialServiceImpl
     private VaultProfileInternalService vaultProfileService;
     private SecretExternalService secretService;
     private UserManagementExternalService userManagementService;
-    private CredentialVerificationCache credentialVerificationCache;
     private CacheEvictor cacheEvictor;
 
     @Override
@@ -117,7 +115,7 @@ public class TspProfileBasicCredentialServiceImpl
             log.warn("Failed to persist Basic credential for TSP Profile {}", profile.getUuid(), e);
             throw e;
         }
-        evictModelCache(profile);
+        evictProfileModel(profile);
         return TspProfileBasicCredentialMapper.mapToDto(row, resolveUserName(row.getMappedUserUuid()));
     }
 
@@ -142,7 +140,6 @@ public class TspProfileBasicCredentialServiceImpl
         if (rotate) {
             rotateVaultSecret(credential.getSecretUuid(), request.getUsername(), request.getPassword());
         }
-        boolean mappedUserChanged = !Objects.equals(credential.getMappedUserUuid(), request.getMappedUserUuid());
         credential.setUsername(request.getUsername());
         credential.setMappedUserUuid(request.getMappedUserUuid());
         try {
@@ -152,13 +149,7 @@ public class TspProfileBasicCredentialServiceImpl
                     "A Basic credential with username '" + request.getUsername() + "' already exists on this profile.");
         }
 
-        // Vault updates the secret asynchronously - the cache is notified via SecretContentUpdatedEvent processed by
-        // TspProfileSecretEvictionListener.
-        // Evict synchronously here only on mapped-user-only change (no secret update).
-        if (mappedUserChanged) {
-            credentialVerificationCache.evictBySecretUuid(credential.getSecretUuid());
-        }
-        evictModelCache(profile);
+        evictProfileModel(profile);
         return TspProfileBasicCredentialMapper.mapToDto(credential, resolveUserName(credential.getMappedUserUuid()));
     }
 
@@ -170,12 +161,9 @@ public class TspProfileBasicCredentialServiceImpl
             throws AttributeException, ConnectorCommunicationException, NotFoundException {
         TspProfile profile = getTspProfile(tspProfileUuid);
         TspProfileBasicCredential credential = getCredentialScoped(tspProfileUuid, uuid);
-        UUID secretUuid = credential.getSecretUuid();
-
         deleteOwnedVaultSecret(credential);
         credentialWriter.deleteByUuid(credential.getUuid());
-        credentialVerificationCache.evictBySecretUuid(secretUuid);
-        evictModelCache(profile);
+        evictProfileModel(profile);
     }
 
     @Override
@@ -192,17 +180,15 @@ public class TspProfileBasicCredentialServiceImpl
                         .warn("Could not delete vault secret {} during TSP profile {} teardown; manual reconciliation may be needed.",
                                 secretUuid, tspProfileUuid, e);
             }
-            credentialVerificationCache.evictBySecretUuid(secretUuid);
         }
     }
 
     @Override
     @Transactional(readOnly = true)
-    public void evictCachesForSecret(UUID secretUuid) {
+    public void evictProfileModelForSecret(UUID secretUuid) {
         credentialRepository
                 .findBySecretUuid(secretUuid)
-                .ifPresent(credential -> evictModelCache(credential.getTspProfile()));
-        credentialVerificationCache.evictBySecretUuid(secretUuid);
+                .ifPresent(credential -> evictProfileModel(credential.getTspProfile()));
     }
 
     private TspProfile getTspProfile(SecuredParentUUID tspProfileUuid) throws NotFoundException {
@@ -345,7 +331,7 @@ public class TspProfileBasicCredentialServiceImpl
         }
     }
 
-    private void evictModelCache(TspProfile profile) {
+    private void evictProfileModel(TspProfile profile) {
         cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, profile.getUuid());
         cacheEvictor.evict(CacheConfig.TSP_PROFILE_CACHE, profile.getName());
     }
@@ -378,11 +364,6 @@ public class TspProfileBasicCredentialServiceImpl
     @Autowired
     public void setUserManagementExternalService(UserManagementExternalService userManagementService) {
         this.userManagementService = userManagementService;
-    }
-
-    @Autowired
-    public void setCredentialVerificationCache(CredentialVerificationCache credentialVerificationCache) {
-        this.credentialVerificationCache = credentialVerificationCache;
     }
 
     @Autowired

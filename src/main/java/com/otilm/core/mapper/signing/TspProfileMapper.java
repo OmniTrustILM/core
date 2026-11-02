@@ -45,7 +45,7 @@ public class TspProfileMapper {
         List<BasicCredentialRef> basicCredentialRefs = profile
                 .getBasicCredentials()
                 .stream()
-                .map(c -> new BasicCredentialRef(c.getUsername(), c.getSecretUuid(), c.getMappedUserUuid(),
+                .map(c -> new BasicCredentialRef(c.getUsername(), c.getMappedUserUuid(),
                         fingerprintsBySecretUuid.get(c.getSecretUuid())))
                 .toList();
         return new TspProfileModel(profile.getUuid(), profile.getName(), profile.getDescription(), profile.isEnabled(),
