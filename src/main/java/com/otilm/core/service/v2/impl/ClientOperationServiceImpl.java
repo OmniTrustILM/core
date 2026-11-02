@@ -122,6 +122,7 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
@@ -151,6 +152,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import javax.security.auth.x500.X500Principal;
 import org.apache.commons.lang3.StringUtils;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -230,10 +232,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
     private ResourceObjectAssociationService objectAssociationService;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setObjectAssociationService(ResourceObjectAssociationService objectAssociationService) {
         this.objectAssociationService = objectAssociationService;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired
@@ -2066,6 +2075,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // request attached" stays reserved for a completion in flight — the invariant
             // addCertificateRequestToExisting
             // relies on. A never-completed placeholder carries no request, so this is a no-op for it.
+            UUID detachedRequestUuid = certificate.getCertificateRequestUuid();
             certificate.setCertificateRequest(null);
             certificate.setCertificateRequestUuid(null);
             certificate.setKeyUuid(null);
@@ -2073,6 +2083,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .transition(certificate, CertificateState.REGISTERED, CertificateEvent.APPROVAL_CLOSE,
                             "Issuance approval was rejected; certificate restored to "
                                     + CertificateState.REGISTERED.getLabel() + ".");
+            complianceProfileAssociationWriter
+                    .deleteAllForCertificateRequestsWithoutCertificate(Stream.ofNullable(detachedRequestUuid).toList());
             return;
         }
         handleFailedOrRejectedEvent(certificate, null, CertificateState.REJECTED, null, null, null);

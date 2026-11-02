@@ -1,18 +1,19 @@
 package com.otilm.core.security.authz.opa;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.otilm.core.config.cache.AuthorizationCacheProperties;
-import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.security.authz.opa.dto.OpaObjectAccessResult;
 import com.otilm.core.security.authz.opa.dto.OpaRequestDetails;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.util.PrincipalFixtures;
+import com.otilm.core.util.cache.CacheManagerFixtures;
+import com.otilm.core.util.cache.HeldLoad;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,7 +23,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.cache.caffeine.CaffeineCacheManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,10 +43,7 @@ class PlatformAuthorizationCacheTest {
     }
 
     private static PlatformAuthorizationCache newCache(boolean enabled) {
-        CaffeineCacheManager mgr = new CaffeineCacheManager();
-        mgr.registerCustomCache(CacheConfig.RESOURCE_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
-        mgr.registerCustomCache(CacheConfig.OBJECT_AUTHZ_CACHE, Caffeine.newBuilder().maximumSize(100).build());
-        return new PlatformAuthorizationCache(mgr, new ObjectMapper(),
+        return new PlatformAuthorizationCache(CacheManagerFixtures.configured(), new ObjectMapper(),
                 new AuthorizationCacheProperties(enabled, 5, 100, 100));
     }
 
@@ -308,6 +305,25 @@ class PlatformAuthorizationCacheTest {
         cache.evictAll();
         resourceAccess(PrincipalFixtures.operator("1111", "alice"), certificateDetail());
 
+        assertThat(loads).hasValue(2);
+    }
+
+    @Test
+    void anEvictAllDuringALoadDropsItsResult() {
+        // given
+        String principal = PrincipalFixtures.operator("1111", "alice");
+        HeldLoad held = new HeldLoad();
+        CompletableFuture<OpaResourceAccessResult> during = held
+                .start(() -> cache
+                        .getOrCheckResourceAccess("method", certificateDetail(), principal, DETAILS,
+                                held.holding(this::load)));
+
+        // when
+        cache.evictAll();
+        held.release(during);
+        resourceAccess(principal, certificateDetail());
+
+        // then
         assertThat(loads).hasValue(2);
     }
 

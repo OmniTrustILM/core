@@ -167,6 +167,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.CertificateValidationWriter;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.settings.SettingsCache;
@@ -220,6 +221,7 @@ import java.util.concurrent.Future;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
 import org.bouncycastle.asn1.ASN1Primitive;
@@ -339,10 +341,17 @@ public class CertificateServiceImpl
     }
 
     private CommentInternalService commentService;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired
@@ -881,6 +890,7 @@ public class CertificateServiceImpl
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DELETE)
     public void deleteCertificate(SecuredUUID uuid) throws NotFoundException {
         Certificate certificate = getCertificateEntity(uuid);
+        UUID certificateRequestUuid = certificate.getCertificateRequestUuid();
         if (certificate.getUserUuid() != null) {
             certificateEventHistoryService
                     .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.DELETE,
@@ -899,6 +909,7 @@ public class CertificateServiceImpl
         certificate.getGroups().clear();
         objectAssociationService.removeObjectAssociations(Resource.CERTIFICATE, uuid.getValue());
         commentService.removeObjectComments(Resource.CERTIFICATE, uuid.getValue());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.CERTIFICATE, uuid.getValue());
         attributeEngine.deleteObjectAttributeContent(Resource.CERTIFICATE, uuid.getValue());
 
         scepProfileRepository.clearCaCertificateReference(certificate.getUuid());
@@ -916,6 +927,8 @@ public class CertificateServiceImpl
             certificateContentRepository.delete(content);
             certificate.setCertificateContent(null);
         }
+        complianceProfileAssociationWriter
+                .deleteAllForCertificateRequestsWithoutCertificate(Stream.ofNullable(certificateRequestUuid).toList());
     }
 
     @Override
@@ -1165,14 +1178,22 @@ public class CertificateServiceImpl
         });
         objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, permittedUuids);
         commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, permittedUuids);
+        complianceProfileAssociationWriter.deleteAllForObjects(Resource.CERTIFICATE, permittedUuids);
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, permittedUuids);
 
         // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths
         scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
         cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
 
+        List<UUID> certificateRequestUuids = certificates
+                .stream()
+                .map(Certificate::getCertificateRequestUuid)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
+        complianceProfileAssociationWriter.deleteAllForCertificateRequestsWithoutCertificate(certificateRequestUuids);
         return certificates.size();
     }
 

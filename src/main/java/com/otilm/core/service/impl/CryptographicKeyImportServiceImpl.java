@@ -29,6 +29,7 @@ import com.otilm.core.model.crypto.ImportedKeyDetail;
 import com.otilm.core.model.crypto.KeyImportMetadata;
 import com.otilm.core.model.crypto.KeyImportTerms;
 import com.otilm.core.model.crypto.KeyMaterial;
+import com.otilm.core.model.crypto.KeyRemovalCandidate;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -36,6 +37,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyImportExternalService;
 import com.otilm.core.service.handler.KeyImportGates;
 import com.otilm.core.service.handler.KeyImportSaga;
+import com.otilm.core.service.handler.KeyRemovalGates;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.util.AuthHelper;
@@ -83,11 +85,13 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
     private final KeyNormalizer keyNormalizer;
     private final KeyImportSaga keyImportSaga;
     private final GroupRepository groupRepository;
+    private final KeyRemovalGates keyRemovalGates;
 
     public CryptographicKeyImportServiceImpl(AuthorizationEnforcer authorizationEnforcer, KeyImportGates keyImportGates,
             KeyTransferCapabilityService keyTransferCapabilityService,
             KeyProviderAdapterFactory keyProviderAdapterFactory, AttributeEngine attributeEngine,
-            KeyNormalizer keyNormalizer, KeyImportSaga keyImportSaga, GroupRepository groupRepository) {
+            KeyNormalizer keyNormalizer, KeyImportSaga keyImportSaga, GroupRepository groupRepository,
+            KeyRemovalGates keyRemovalGates) {
         this.authorizationEnforcer = authorizationEnforcer;
         this.keyImportGates = keyImportGates;
         this.keyTransferCapabilityService = keyTransferCapabilityService;
@@ -96,6 +100,7 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
         this.keyNormalizer = keyNormalizer;
         this.keyImportSaga = keyImportSaga;
         this.groupRepository = groupRepository;
+        this.keyRemovalGates = keyRemovalGates;
     }
 
     @Override
@@ -229,6 +234,7 @@ public class CryptographicKeyImportServiceImpl implements CryptographicKeyImport
             requireVisible(key);
         }
         KeyDetailDto detail = CryptographicKeyDtoMapper.mapToDetailDto(key);
+        detail.setRemovableFromInventory(keyRemovalGates.isRemovable(KeyRemovalCandidate.from(key)));
         detail
                 .setCustomAttributes(
                         attributeEngine.getObjectCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, key.uuid()));

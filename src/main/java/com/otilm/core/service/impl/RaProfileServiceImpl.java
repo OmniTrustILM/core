@@ -66,6 +66,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.ValidatorUtil;
@@ -74,6 +75,7 @@ import jakarta.transaction.Transactional;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -331,7 +333,9 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DELETE)
     public void bulkDeleteRaProfile(List<SecuredUUID> uuids) {
-        for (SecuredUUID uuid : uuids) {
+        // UUID order, as the compliance profile associate takes them, so their per-object locks cannot deadlock
+        List<SecuredUUID> orderedUuids = uuids.stream().sorted(Comparator.comparing(SecuredUUID::getValue)).toList();
+        for (SecuredUUID uuid : orderedUuids) {
             try {
                 deleteRaProfile(uuid);
             } catch (NotFoundException e) {
@@ -908,6 +912,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
         attributeEngine.deleteObjectAttributeContent(Resource.RA_PROFILE, raProfile.getUuid());
         commentService.removeObjectComments(Resource.RA_PROFILE, raProfile.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.RA_PROFILE, raProfile.getUuid());
         raProfileRepository.delete(raProfile);
     }
 
@@ -933,10 +938,17 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     // SETTERs
 
     private CommentInternalService commentService;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired

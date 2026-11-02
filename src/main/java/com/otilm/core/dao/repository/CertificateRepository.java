@@ -144,6 +144,11 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
 
     Optional<Certificate> findByFingerprint(String fingerprint);
 
+    boolean existsByCertificateRequestUuid(UUID certificateRequestUuid);
+
+    @Query("SELECT c.uuid FROM Certificate c WHERE c.certificateRequestUuid = :certificateRequestUuid")
+    List<UUID> findUuidsByCertificateRequestUuid(@Param("certificateRequestUuid") UUID certificateRequestUuid);
+
     List<Certificate> findByRaProfile(RaProfile raProfile);
 
     @EntityGraph(attributePaths = {"certificateContent", "certificateRequestEntity"})

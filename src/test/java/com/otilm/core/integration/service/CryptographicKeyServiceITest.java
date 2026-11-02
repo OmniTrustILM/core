@@ -52,6 +52,7 @@ import com.otilm.api.model.core.cryptography.key.KeyDto;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemListDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.search.FilterConditionOperator;
@@ -71,6 +72,8 @@ import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CommentRepository;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyEventHistoryRepository;
@@ -109,6 +112,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.KeySizeUtil;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
@@ -211,6 +215,10 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     private CryptographicKeyEventHistoryRepository cryptographicKeyEventHistoryRepository;
     @Autowired
     private OwnerAssociationRepository ownerAssociationRepository;
+    @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
     @MockitoBean
     private NotificationProducer notificationProducer;
 
@@ -403,6 +411,19 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertNotNull(dto);
         Assertions.assertEquals(key.getUuid().toString(), dto.getUuid());
         Assertions.assertEquals(2, dto.getItems().size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void getKey_reportsWhetherTheKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws NotFoundException {
+        // given
+        configureV2Token(tokenListsKeys);
+
+        // when
+        KeyDetailDto dto = cryptographicKeyService.getKey(SecuredUUID.fromUUID(key.getUuid()));
+
+        // then
+        Assertions.assertEquals(tokenListsKeys, dto.isRemovableFromInventory());
     }
 
     @Test
@@ -692,6 +713,22 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                                 exportable))));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void createKey_reportsWhetherTheCreatedKeyCanBeRemovedFromTheInventory(boolean tokenListsKeys) throws Exception {
+        // given
+        configureV2Token(tokenListsKeys);
+        stubV2KeyPairCreation(List.of());
+
+        // when
+        KeyDetailDto created = cryptographicKeyService
+                .createKey(tokenInstanceReference.getUuid(), tokenProfile.getSecuredParentUuid(),
+                        KeyRequestType.KEY_PAIR, keyCreationRequest("v2-removable"));
+
+        // then
+        Assertions.assertEquals(tokenListsKeys, created.isRemovableFromInventory());
+    }
+
     @Test
     void createKey_statesNoExportableIntentToAV2ConnectorWithoutKeyExport() throws Exception {
         // given
@@ -749,6 +786,11 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     private void configureV2Token() {
         configureV2Token(List.of(FeatureFlag.STATELESS));
+    }
+
+    private void configureV2Token(boolean listsKeys) {
+        configureV2Token(
+                listsKeys ? List.of(FeatureFlag.STATELESS, FeatureFlag.KEY_LIST) : List.of(FeatureFlag.STATELESS));
     }
 
     private void configureV2Token(List<FeatureFlag> features) {
@@ -1727,6 +1769,76 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void listCryptographicKeys_marksEachRowWithWhetherItsKeyCanBeRemoved() {
+        // given
+        configureV2Token(true);
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto.setItemsPerPage(10);
+        searchRequestDto.setPageNumber(1);
+
+        // when
+        CryptographicKeyResponseDto response = cryptographicKeyService
+                .listCryptographicKeys(SecurityFilter.create(), searchRequestDto);
+
+        // then
+        Map<String, List<Boolean>> removableByKey = response
+                .getCryptographicKeys()
+                .stream()
+                .collect(Collectors
+                        .groupingBy(KeyItemListDto::getKeyWrapperUuid,
+                                Collectors.mapping(KeyItemListDto::isRemovableFromInventory, Collectors.toList())));
+        Assertions
+                .assertEquals(Map
+                        .of(key.getUuid().toString(), List.of(true, true), keyWithoutToken.getUuid().toString(),
+                                List.of(false)),
+                        removableByKey);
+    }
+
+    @Test
+    void listCryptographicKeys_marksARowNotRemovable_whenAFilteredOutSiblingIsCompromised() {
+        // given
+        configureV2Token(true);
+        publicKeyItem.setState(KeyState.COMPROMISED);
+        cryptographicKeyItemRepository.saveAndFlush(publicKeyItem);
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto.setItemsPerPage(10);
+        searchRequestDto.setPageNumber(1);
+        searchRequestDto
+                .setFilters(List
+                        .of(new SearchFilterRequestDto(FilterFieldSource.PROPERTY, FilterField.CKI_TYPE.toString(),
+                                FilterConditionOperator.EQUALS, KeyType.PRIVATE_KEY.getCode())));
+
+        // when
+        CryptographicKeyResponseDto response = cryptographicKeyService
+                .listCryptographicKeys(SecurityFilter.create(), searchRequestDto);
+
+        // then
+        List<KeyItemListDto> rows = response.getCryptographicKeys();
+        Assertions
+                .assertEquals(List.of(privateKeyItem.getUuid().toString()),
+                        rows.stream().map(KeyItemListDto::getUuid).toList());
+        Assertions.assertFalse(rows.getFirst().isRemovableFromInventory());
+    }
+
+    @Test
+    void listCryptographicKeys_marksNoRowRemovable_whenTheTokenCannotListKeys() {
+        // given
+        configureV2Token(false);
+        SearchRequestDto searchRequestDto = new SearchRequestDto();
+        searchRequestDto.setItemsPerPage(10);
+        searchRequestDto.setPageNumber(1);
+
+        // when
+        CryptographicKeyResponseDto response = cryptographicKeyService
+                .listCryptographicKeys(SecurityFilter.create(), searchRequestDto);
+
+        // then
+        List<KeyItemListDto> rows = response.getCryptographicKeys();
+        Assertions.assertEquals(3, rows.size());
+        Assertions.assertTrue(rows.stream().noneMatch(KeyItemListDto::isRemovableFromInventory));
+    }
+
+    @Test
     void getCertificateAssociationCounts_returnsZeroForUnassociatedKey() {
         // given
         List<UUID> keyUuids = List.of(key.getUuid());
@@ -1752,6 +1864,40 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(NotFoundException.class,
                         () -> cryptographicKeyService.getKey(SecuredUUID.fromUUID(key.getUuid())));
+    }
+
+    @Test
+    void deleteKey_removesComplianceProfileAssociationsOfTheKeyAndItsItems()
+            throws ConnectorException, NotFoundException {
+        // given
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY_ITEM, privateKeyItem.getUuid());
+
+        // when
+        cryptographicKeyService.deleteKey(key.getUuid(), List.of());
+
+        // then
+        Assertions.assertFalse(hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()));
+        Assertions
+                .assertFalse(
+                        hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY_ITEM, privateKeyItem.getUuid()));
+    }
+
+    @Test
+    void deleteKey_removesComplianceProfileAssociationsOfTheItemsOfAKeyWithoutToken() throws ConnectorException {
+        // given
+        UUID itemUuid = cryptographicKeyItemRepository
+                .findByKeyUuidIn(List.of(keyWithoutToken.getUuid()))
+                .getFirst()
+                .getUuid();
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY_ITEM, itemUuid);
+
+        // when
+        cryptographicKeyService.deleteKey(List.of(keyWithoutToken.getUuid().toString()));
+
+        // then
+        Assertions.assertFalse(cryptographicKeyRepository.existsById(keyWithoutToken.getUuid()));
+        Assertions.assertFalse(hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY_ITEM, itemUuid));
     }
 
     @Test
@@ -1829,6 +1975,22 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions
                 .assertNotNull(
                         ownerAssociationRepository.findByResourceAndObjectUuid(Resource.CRYPTOGRAPHIC_KEY, parentUuid));
+    }
+
+    @Test
+    void deleteKeyItem_removesItsComplianceProfileAssociationsButKeepsTheKeys() {
+        // given
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY_ITEM, privateKeyItem.getUuid());
+
+        // when
+        cryptographicKeyWriter.deleteKeyItem(keyAsRead(), privateKeyItem.getUuid());
+
+        // then
+        Assertions
+                .assertFalse(
+                        hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY_ITEM, privateKeyItem.getUuid()));
+        Assertions.assertTrue(hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()));
     }
 
     @Test
@@ -1950,6 +2112,27 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions
                 .assertFalse(
                         cryptographicKeyItemRepository.findByKeyUuidIn(List.of(keyWithoutToken.getUuid())).isEmpty());
+    }
+
+    @Test
+    void deleteKeyItemsWithAssociations_removesComplianceProfileAssociationsOfItemsAndEmptiedParent() {
+        // given
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY_ITEM, privateKeyItem.getUuid());
+        associateComplianceProfile(Resource.CRYPTOGRAPHIC_KEY_ITEM, publicKeyItem.getUuid());
+
+        // when
+        cryptographicKeyWriter
+                .deleteKeyItemsWithAssociations(List.of(privateKeyItem.getUuid(), publicKeyItem.getUuid()),
+                        List.of(keyAsRead()));
+
+        // then
+        Assertions.assertFalse(hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()));
+        Assertions
+                .assertFalse(
+                        hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY_ITEM, privateKeyItem.getUuid()));
+        Assertions
+                .assertFalse(hasComplianceProfileAssociation(Resource.CRYPTOGRAPHIC_KEY_ITEM, publicKeyItem.getUuid()));
     }
 
     @Test
@@ -2746,6 +2929,16 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
                                 .stream()
                                 .map(GroupModel::uuid)
                                 .collect(Collectors.toSet()));
+    }
+
+    private void associateComplianceProfile(Resource resource, UUID objectUuid) {
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        resource, objectUuid);
+    }
+
+    private boolean hasComplianceProfileAssociation(Resource resource, UUID objectUuid) {
+        return complianceProfileAssociationRepository.existsByResourceAndObjectUuidIn(resource, List.of(objectUuid));
     }
 
     /** The fixture's key as a request reads it. */

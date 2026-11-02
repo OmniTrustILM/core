@@ -34,6 +34,8 @@ import com.otilm.core.dao.entity.Secret2SyncVaultProfileId;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
@@ -49,6 +51,7 @@ import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -81,6 +84,10 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
     private Secret2SyncVaultProfileRepository secret2SyncVaultProfileRepository;
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
     private VaultProfile vaultProfile;
     private VaultInstance vaultInstance;
@@ -211,6 +218,21 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
                         ((List<AttributeContent>) detailDto.getCustomAttributes().getFirst().getContent())
                                 .getFirst()
                                 .getData());
+    }
+
+    @Test
+    void deleteVaultProfile_removesItsComplianceProfileAssociations() throws NotFoundException {
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.VAULT_PROFILE, vaultProfile.getUuid());
+
+        vaultProfileService
+                .deleteVaultProfile(SecuredParentUUID.fromUUID(vaultInstance.getUuid()),
+                        SecuredUUID.fromUUID(vaultProfile.getUuid()));
+
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.VAULT_PROFILE, List.of(vaultProfile.getUuid())));
     }
 
     @Test

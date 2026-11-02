@@ -5,18 +5,15 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
+import com.otilm.core.config.cache.ReadThroughCache;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.model.SearchFieldObject;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
-import java.util.Objects;
-import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
-import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Component;
 
@@ -36,15 +33,21 @@ import org.springframework.stereotype.Component;
  * for every caller: {@code AttributeEngine} narrows them to the custom attributes the current caller may read.
  */
 @Component
-@RequiredArgsConstructor
 public class AttributeSearchFieldCatalogue {
 
     private static final List<AttributeType> SEARCHABLE_TYPES = List
             .of(AttributeType.CUSTOM, AttributeType.DATA, AttributeType.META);
 
     private final AttributeDefinitionRepository attributeDefinitionRepository;
-    private final CacheManager cacheManager;
+    private final ReadThroughCache cache;
     private final CacheEvictor cacheEvictor;
+
+    public AttributeSearchFieldCatalogue(AttributeDefinitionRepository attributeDefinitionRepository,
+            CacheManager cacheManager, CacheEvictor cacheEvictor) {
+        this.attributeDefinitionRepository = attributeDefinitionRepository;
+        this.cache = ReadThroughCache.from(cacheManager, CacheConfig.ATTRIBUTE_SEARCH_FIELDS_CACHE);
+        this.cacheEvictor = cacheEvictor;
+    }
 
     private record Key(Resource resource, boolean settable) {
     }
@@ -56,7 +59,7 @@ public class AttributeSearchFieldCatalogue {
      */
     public List<SearchFieldObject> fields(Resource resource, boolean settable) {
         Key key = new Key(resource, settable);
-        return copies(cached(key, () -> load(key)));
+        return copies(cache.getOrLoad(key, () -> load(key)));
     }
 
     /**
@@ -66,13 +69,13 @@ public class AttributeSearchFieldCatalogue {
     public List<SearchFieldObject> fieldsNaming(Resource resource, boolean settable, Collection<NamedField> named) {
         Key key = new Key(resource, settable);
         AtomicBoolean loadedByThisCall = new AtomicBoolean();
-        List<SearchFieldObject> rows = cached(key, () -> {
+        List<SearchFieldObject> rows = cache.getOrLoad(key, () -> {
             loadedByThisCall.set(true);
             return load(key);
         });
         if (!loadedByThisCall.get() && !coversAll(rows, named)) {
-            rows = load(key);
-            cache().put(key, rows);
+            cache.evict(key);
+            rows = cache.getOrLoad(key, () -> load(key));
         }
         return copies(rows);
     }
@@ -80,18 +83,6 @@ public class AttributeSearchFieldCatalogue {
     /** Drops every entry after the current transaction commits, on this replica. */
     public void evictAll() {
         cacheEvictor.clear(CacheConfig.ATTRIBUTE_SEARCH_FIELDS_CACHE);
-    }
-
-    /** The entry, loaded on a miss. A load that fails throws its own exception rather than the cache's wrapper. */
-    private List<SearchFieldObject> cached(Key key, Callable<List<SearchFieldObject>> loader) {
-        try {
-            return cache().get(key, loader);
-        } catch (Cache.ValueRetrievalException e) {
-            if (e.getCause() instanceof RuntimeException cause) {
-                throw cause;
-            }
-            throw e;
-        }
     }
 
     private List<SearchFieldObject> load(Key key) {
@@ -114,9 +105,5 @@ public class AttributeSearchFieldCatalogue {
 
     private static List<SearchFieldObject> copies(List<SearchFieldObject> rows) {
         return rows.stream().map(SearchFieldObject::copy).collect(Collectors.toCollection(ArrayList::new));
-    }
-
-    private Cache cache() {
-        return Objects.requireNonNull(cacheManager.getCache(CacheConfig.ATTRIBUTE_SEARCH_FIELDS_CACHE));
     }
 }
