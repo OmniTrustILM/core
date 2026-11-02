@@ -27,8 +27,8 @@ public interface OwnerAssociationRepository extends JpaRepository<OwnerAssociati
 
     /**
      * Returns those of {@code resources} with at least one object owned by {@code ownerUuid}, or assigned to one of
-     * {@code groupUuids} (to any group when {@code allGroups}). Both lists are Postgres array literals, so an empty
-     * group list matches nothing rather than rendering an invalid {@code IN ()}.
+     * {@code groupUuids} (to any group outside {@code deniedGroupUuids} when {@code allGroups}). The lists are Postgres
+     * array literals, so an empty one stays valid SQL where an empty {@code IN ()} would not.
      */
     @Query(value = """
             SELECT r.resource FROM unnest(CAST(:resources AS text[])) AS r(resource)
@@ -36,9 +36,10 @@ public interface OwnerAssociationRepository extends JpaRepository<OwnerAssociati
                           WHERE oa.owner_uuid = :ownerUuid AND oa.resource = r.resource)
                OR EXISTS (SELECT 1 FROM {h-schema}group_association ga
                           WHERE ga.resource = r.resource
-                            AND (:allGroups OR ga.group_uuid = ANY (CAST(:groupUuids AS uuid[]))))
+                            AND (:allGroups AND ga.group_uuid <> ALL (CAST(:deniedGroupUuids AS uuid[]))
+                                 OR ga.group_uuid = ANY (CAST(:groupUuids AS uuid[]))))
             """, nativeQuery = true)
     List<String> findResourcesWithOwnedOrGroupAssignedObjects(@Param("resources") String resources,
             @Param("ownerUuid") UUID ownerUuid, @Param("allGroups") boolean allGroups,
-            @Param("groupUuids") String groupUuids);
+            @Param("groupUuids") String groupUuids, @Param("deniedGroupUuids") String deniedGroupUuids);
 }

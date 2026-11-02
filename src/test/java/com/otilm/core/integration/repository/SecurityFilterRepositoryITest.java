@@ -50,6 +50,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 @SpringBootTest
 class SecurityFilterRepositoryITest extends BaseSpringBootTest {
 
@@ -218,6 +220,31 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         Assertions.assertTrue(foundUuids.contains(certificateRaProfile2.getUuid()));
         Assertions.assertTrue(foundUuids.contains(certificateGroup.getUuid()));
         Assertions.assertTrue(foundUuids.contains(certificateOwner.getUuid()));
+    }
+
+    @Test
+    void membersOnEveryGroupListsObjectsAssignedToAnyGroupWithoutAListGrant() {
+        SecurityFilter filter = SecurityFilter.create();
+        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
+        resourceFilter.setResource(Resource.CERTIFICATE);
+        resourceFilter.setResourceAction(ResourceAction.LIST);
+        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
+        filter.setResourceFilter(resourceFilter);
+        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
+        groupMembersFilter.setResource(Resource.GROUP);
+        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
+        filter.setGroupMembersFilter(groupMembersFilter);
+
+        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+                .extracting(UniquelyIdentifiedAndAudited::getUuid)
+                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+
+        groupMembersFilter.addDeniedObjects(List.of(group.getUuid().toString(), secondGroup.getUuid().toString()));
+
+        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+                .describedAs("an object assigned only to denied groups drops out")
+                .extracting(UniquelyIdentifiedAndAudited::getUuid)
+                .containsExactly(certificateOwner.getUuid());
     }
 
     @Test

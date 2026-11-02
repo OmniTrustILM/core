@@ -26,10 +26,12 @@ import com.otilm.core.util.AuthHelper;
 import java.security.cert.CertificateException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -113,7 +115,7 @@ public class AuthServiceImpl implements AuthExternalService {
                         certificateFingerprint);
     }
 
-    /** Shared by both permission-derived fields, so a change to how a grant is looked up reaches each of them. */
+    /** Shared by the permission-derived fields, so a change to how a grant is looked up reaches each of them. */
     private static Map<Resource, ResourcePermissionsDto> mapPermissionsByResource(UserProfileDto userProfileDto) {
         return userProfileDto
                 .getPermissions()
@@ -142,7 +144,9 @@ public class AuthServiceImpl implements AuthExternalService {
         allowedListings = new ArrayList<>();
         List<Resource> ownedResourcesToCheck = new ArrayList<>();
         for (Resource resource : allListings) {
-            if (hasListGrant(mappedUserPermissions.get(resource))) {
+            ResourcePermissionsDto resourcePermissions = mappedUserPermissions.get(resource);
+            if (hasListGrant(resourcePermissions)
+                    || resource.hasOwner() && hasResourceLevelAction(resourcePermissions, ResourceAction.CREATE)) {
                 allowedListings.add(resource);
             } else if (resource.hasOwner()) {
                 ownedResourcesToCheck.add(resource);
@@ -157,11 +161,15 @@ public class AuthServiceImpl implements AuthExternalService {
     }
 
     private static boolean hasListGrant(ResourcePermissionsDto resourcePermissions) {
+        return hasResourceLevelAction(resourcePermissions, ResourceAction.LIST)
+                || resourcePermissions != null && objectsOf(resourcePermissions)
+                        .anyMatch(obj -> obj.getAllow().contains(ResourceAction.LIST.getCode()));
+    }
+
+    private static boolean hasResourceLevelAction(ResourcePermissionsDto resourcePermissions, ResourceAction action) {
         return resourcePermissions != null && (Boolean.TRUE.equals(resourcePermissions.getAllowAllActions())
                 || resourcePermissions.getActions() != null
-                        && resourcePermissions.getActions().contains(ResourceAction.LIST.getCode())
-                || objectsOf(resourcePermissions)
-                        .anyMatch(obj -> obj.getAllow().contains(ResourceAction.LIST.getCode())));
+                        && resourcePermissions.getActions().contains(action.getCode()));
     }
 
     private List<Resource> findResourcesWithOwnedOrGroupAssignedObjects(List<Resource> resources, UUID userUuid,
@@ -170,37 +178,43 @@ public class AuthServiceImpl implements AuthExternalService {
             return List.of();
         }
         String resourceNames = resources.stream().map(Resource::name).collect(Collectors.joining(",", "{", "}"));
-        String groupUuids = groupMembership
-                .groupUuids()
-                .stream()
-                .map(UUID::toString)
-                .collect(Collectors.joining(",", "{", "}"));
         return ownerAssociationRepository
                 .findResourcesWithOwnedOrGroupAssignedObjects(resourceNames, userUuid, groupMembership.allGroups(),
-                        groupUuids)
+                        toArrayLiteral(groupMembership.groupUuids()),
+                        toArrayLiteral(groupMembership.deniedGroupUuids()))
                 .stream()
                 .map(Resource::valueOf)
                 .toList();
     }
 
+    private static String toArrayLiteral(Set<UUID> uuids) {
+        return uuids.stream().map(UUID::toString).collect(Collectors.joining(",", "{", "}"));
+    }
+
     /**
-     * The groups whose members' access the user holds: an object assigned to one of them is listable and viewable by
-     * the user, which is how group ownership reaches authorization.
+     * The groups on which the user holds the members action: an object assigned to one of them is listable and viewable
+     * by the user. A group on which the action is denied is excluded however it was granted, as the authorization
+     * service excludes it.
      */
-    private record GroupMembership(boolean allGroups, Set<UUID> groupUuids) {
+    private record GroupMembership(boolean allGroups, Set<UUID> groupUuids, Set<UUID> deniedGroupUuids) {
 
         static GroupMembership of(ResourcePermissionsDto groupPermissions) {
             if (groupPermissions == null) {
-                return new GroupMembership(false, Set.of());
+                return new GroupMembership(false, Set.of(), Set.of());
             }
-            boolean allGroups = Boolean.TRUE.equals(groupPermissions.getAllowAllActions())
-                    || groupPermissions.getActions() != null
-                            && groupPermissions.getActions().contains(ResourceAction.MEMBERS.getCode());
-            Set<UUID> groupUuids = objectsOf(groupPermissions)
-                    .filter(obj -> obj.getAllow().contains(ResourceAction.MEMBERS.getCode()))
-                    .flatMap(obj -> parseUuid(obj.getUuid()))
-                    .collect(Collectors.toSet());
-            return new GroupMembership(allGroups, groupUuids);
+            boolean allGroups = hasResourceLevelAction(groupPermissions, ResourceAction.MEMBERS);
+            Set<UUID> deniedGroupUuids = groupUuidsWhere(groupPermissions, ObjectPermissionsDto::getDeny);
+            Set<UUID> groupUuids = groupUuidsWhere(groupPermissions, ObjectPermissionsDto::getAllow);
+            groupUuids.removeAll(deniedGroupUuids);
+            return new GroupMembership(allGroups, groupUuids, deniedGroupUuids);
+        }
+
+        private static Set<UUID> groupUuidsWhere(ResourcePermissionsDto groupPermissions,
+                Function<ObjectPermissionsDto, List<String>> actions) {
+            return objectsOf(groupPermissions).filter(obj -> {
+                List<String> objectActions = actions.apply(obj);
+                return objectActions != null && objectActions.contains(ResourceAction.MEMBERS.getCode());
+            }).flatMap(obj -> parseUuid(obj.getUuid())).collect(Collectors.toCollection(HashSet::new));
         }
 
         boolean any() {

@@ -41,6 +41,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 @SpringBootTest
 class AuthServiceITest extends BaseSpringBootTest {
 
@@ -126,16 +128,17 @@ class AuthServiceITest extends BaseSpringBootTest {
 
         UserProfileDetailDto userProfileDto = authService.getAuthProfile();
         List<Resource> allowedListings = userProfileDto.getPermissions().getAllowedListings();
-        // SETTINGS through its list grant + DASHBOARD and APPROVAL added by default
-        Assertions.assertEquals(3, allowedListings.size());
+        // SETTINGS through its list grant, CERTIFICATE through its create grant + DASHBOARD and APPROVAL by default
+        Assertions.assertEquals(4, allowedListings.size());
         Assertions.assertTrue(allowedListings.contains(Resource.DASHBOARD), "DASHBOARD must be allowed by default");
         Assertions.assertTrue(allowedListings.contains(Resource.APPROVAL), "APPROVAL must be allowed by default");
 
         // allow also users through group object member permissions
         injectLocalhostUserProfileChangedToContext();
         allowedListings = authService.getAuthProfile().getPermissions().getAllowedListings();
-        // GROUP and SETTINGS through list grants, USER through the group members grant + DASHBOARD and APPROVAL
-        Assertions.assertEquals(5, allowedListings.size());
+        // GROUP and SETTINGS through list grants, USER through the group members grant, CERTIFICATE through its create
+        // grant + DASHBOARD and APPROVAL
+        Assertions.assertEquals(6, allowedListings.size());
         Assertions.assertTrue(allowedListings.contains(Resource.DASHBOARD), "DASHBOARD must be allowed by default");
         Assertions.assertTrue(allowedListings.contains(Resource.APPROVAL), "APPROVAL must be allowed by default");
     }
@@ -235,18 +238,29 @@ class AuthServiceITest extends BaseSpringBootTest {
 
     @Test
     void testAuthProfileListsOwnedResourceOnlyWhenTheUserOwnsAnObject() {
-        injectLocalhostUserProfileToContext();
+        injectProfileWithResources("[]");
 
-        Assertions
-                .assertTrue(ownedResourcesListed().isEmpty(),
-                        "a user with no grant on and no object of an owned resource must not see it listed");
+        assertThat(ownedResourcesListed())
+                .describedAs("a user with no grant on and no object of an owned resource must not see it listed")
+                .isEmpty();
 
         saveOwner(Resource.SECRET, UUID.fromString(USER_UUID));
         saveOwner(Resource.CERTIFICATE, UUID.randomUUID());
 
-        Assertions
-                .assertEquals(Set.of(Resource.SECRET), ownedResourcesListed(),
-                        "only the resource of which the user owns an object may be listed");
+        assertThat(ownedResourcesListed())
+                .describedAs("only the resource of which the user owns an object may be listed")
+                .containsExactly(Resource.SECRET);
+    }
+
+    @Test
+    void testAuthProfileListsOwnedResourceForAResourceLevelCreateGrant() {
+        injectProfileWithResources("""
+                [{"name": "certificates", "allowAllActions": false, "actions": ["create"], "objects": []}]
+                """);
+
+        assertThat(ownedResourcesListed())
+                .describedAs("whatever the user creates becomes theirs, so the listing leads to the create flow")
+                .containsExactly(Resource.CERTIFICATE);
     }
 
     @Test
@@ -264,9 +278,9 @@ class AuthServiceITest extends BaseSpringBootTest {
                 }]
                 """.formatted(memberGroup.getUuid()));
 
-        Assertions
-                .assertEquals(Set.of(Resource.CRYPTOGRAPHIC_KEY), ownedResourcesListed(),
-                        "only the resource with an object assigned to the user's group may be listed");
+        assertThat(ownedResourcesListed())
+                .describedAs("only the resource with an object assigned to the user's group may be listed")
+                .containsExactly(Resource.CRYPTOGRAPHIC_KEY);
     }
 
     @Test
@@ -285,7 +299,7 @@ class AuthServiceITest extends BaseSpringBootTest {
                 }]
                 """.formatted(memberGroup.getUuid()));
 
-        Assertions.assertEquals(Set.of(Resource.SECRET), ownedResourcesListed());
+        assertThat(ownedResourcesListed()).containsExactly(Resource.SECRET);
     }
 
     @Test
@@ -295,7 +309,52 @@ class AuthServiceITest extends BaseSpringBootTest {
                 [{"name": "groups", "allowAllActions": false, "actions": ["members"], "objects": []}]
                 """);
 
-        Assertions.assertEquals(Set.of(Resource.SECRET), ownedResourcesListed());
+        assertThat(ownedResourcesListed()).containsExactly(Resource.SECRET);
+    }
+
+    @Test
+    void testAuthProfileListsEveryGroupAssignedResourceForAllActionsOnGroups() {
+        saveGroupAssociation(Resource.SECRET, saveGroup("any"));
+        injectProfileWithResources("""
+                [{"name": "groups", "allowAllActions": true, "actions": [], "objects": []}]
+                """);
+
+        assertThat(ownedResourcesListed()).containsExactly(Resource.SECRET);
+    }
+
+    @Test
+    void testAuthProfileDoesNotListAResourceAssignedOnlyToADeniedGroup() {
+        Group deniedGroup = saveGroup("denied");
+        saveGroupAssociation(Resource.SECRET, deniedGroup);
+        saveGroupAssociation(Resource.CRYPTOGRAPHIC_KEY, saveGroup("allowed"));
+        injectProfileWithResources("""
+                [{
+                    "name": "groups",
+                    "allowAllActions": false,
+                    "actions": ["members"],
+                    "objects": [{"uuid": "%s", "name": "denied", "allow": [], "deny": ["members"]}]
+                }]
+                """.formatted(deniedGroup.getUuid()));
+
+        assertThat(ownedResourcesListed())
+                .describedAs("a group denied the members action must not reveal what is assigned to it")
+                .containsExactly(Resource.CRYPTOGRAPHIC_KEY);
+    }
+
+    @Test
+    void testAuthProfileDeniesAGroupGrantedAndDeniedOnTheSameObject() {
+        Group group = saveGroup("granted and denied");
+        saveGroupAssociation(Resource.SECRET, group);
+        injectProfileWithResources("""
+                [{
+                    "name": "groups",
+                    "allowAllActions": false,
+                    "actions": [],
+                    "objects": [{"uuid": "%s", "name": "granted and denied", "allow": ["members"], "deny": ["members"]}]
+                }]
+                """.formatted(group.getUuid()));
+
+        assertThat(ownedResourcesListed()).isEmpty();
     }
 
     @Test
@@ -317,25 +376,31 @@ class AuthServiceITest extends BaseSpringBootTest {
 
         UserProfileDetailDto userProfileDto = authService.getAuthProfile();
 
-        Assertions
-                .assertEquals(
-                        List
-                                .of(new ObjectActionsDto(Resource.CERTIFICATE, certificateUuid,
-                                        List.of(ResourceAction.DETAIL, ResourceAction.LIST, ResourceAction.UPDATE))),
-                        userProfileDto.getPermissions().getObjectActions());
-        Assertions
-                .assertTrue(userProfileDto.getPermissions().getAllowedListings().contains(Resource.CERTIFICATE),
-                        "an object-level list grant lists the resource");
-        Assertions
-                .assertTrue(allowedActionsFor(userProfileDto, Resource.CERTIFICATE).isEmpty(),
-                        "an object-level grant must not reach allowedActions");
+        assertThat(userProfileDto.getPermissions().getObjectActions())
+                .containsExactly(new ObjectActionsDto(Resource.CERTIFICATE, certificateUuid,
+                        List.of(ResourceAction.DETAIL, ResourceAction.LIST, ResourceAction.UPDATE)));
+        assertThat(userProfileDto.getPermissions().getAllowedListings())
+                .describedAs("an object-level list grant lists the resource")
+                .contains(Resource.CERTIFICATE);
+        assertThat(allowedActionsFor(userProfileDto, Resource.CERTIFICATE))
+                .describedAs("an object-level grant must not reach allowedActions")
+                .isEmpty();
     }
 
     @Test
     void testAuthProfileObjectActionsAllowAllResources() {
-        injectAllowAllResourcesUserProfileToContext();
+        injectProfile(true, """
+                [{
+                    "name": "certificates",
+                    "allowAllActions": false,
+                    "actions": [],
+                    "objects": [{"uuid": "%s", "name": "granted", "allow": ["detail"], "deny": []}]
+                }]
+                """.formatted(UUID.randomUUID()));
 
-        Assertions.assertEquals(List.of(), authService.getAuthProfile().getPermissions().getObjectActions());
+        assertThat(authService.getAuthProfile().getPermissions().getObjectActions())
+                .describedAs("a role holding every resource needs no object-scoped grant reported")
+                .isEmpty();
     }
 
     private Set<Resource> ownedResourcesListed() {
@@ -372,6 +437,10 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     private void injectProfileWithResources(String resourcesJson) {
+        injectProfile(false, resourcesJson);
+    }
+
+    private void injectProfile(boolean allowAllResources, String resourcesJson) {
         String userProfileData = """
                 {
                     "user": {
@@ -386,11 +455,11 @@ class AuthServiceITest extends BaseSpringBootTest {
                     },
                     "roles": [],
                     "permissions": {
-                        "allowAllResources": false,
+                        "allowAllResources": %s,
                         "resources": %s
                     }
                 }
-                """.formatted(USER_UUID, resourcesJson);
+                """.formatted(USER_UUID, allowAllResources, resourcesJson);
 
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, USER_UUID, "localhost", List.of(),
                 userProfileData);

@@ -661,8 +661,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
             if (filter.getResourceFilter().getResource().hasGroups()
                     && (filter.getResourceFilter().getResourceAction() == ResourceAction.LIST
                             || filter.getResourceFilter().getResourceAction() == ResourceAction.DETAIL)) {
-                objectAccessPredicates
-                        .add(getPredicateBySecurityResourceFilter(root, filter.getGroupMembersFilter(), "groups.uuid"));
+                objectAccessPredicates.add(getGroupMembersPredicate(root, filter.getGroupMembersFilter(), cb));
             }
             // check for owner association predicate
             if (filter.getResourceFilter().getResource().hasOwner()) {
@@ -682,6 +681,22 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
                 }
             }
         }
+    }
+
+    /**
+     * A group-members filter that restricts nothing grants the members action on every group, so it admits objects
+     * assigned to any group, not every object as an unrestricted resource filter would.
+     */
+    private Predicate getGroupMembersPredicate(Root<T> root, SecurityResourceFilter groupMembersFilter,
+            CriteriaBuilder cb) {
+        if (groupMembersFilter == null || groupMembersFilter.areOnlySpecificObjectsAllowed()
+                || !groupMembersFilter.getForbiddenObjects().isEmpty()) {
+            return getPredicateBySecurityResourceFilter(root, groupMembersFilter, "groups.uuid");
+        }
+        String groupsPath = root.getJavaType().equals(CryptographicKeyItem.class)
+                ? "%s.groups".formatted(CryptographicKeyItem_.key.getName())
+                : "groups";
+        return cb.isNotNull(FilterPredicatesBuilder.prepareJoin(root, groupsPath).get("uuid"));
     }
 
     private Predicate getPredicateBySecurityResourceFilter(Root<T> root, SecurityResourceFilter resourceFilter,
