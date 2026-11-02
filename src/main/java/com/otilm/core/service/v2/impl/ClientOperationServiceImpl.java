@@ -2855,7 +2855,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 || !oldCertificate.getRaProfileUuid().toString().equals(raProfileUuid)) {
             throw new ValidationException(String
                     .format("Cannot perform operation %s on certificate. Existing Certificate RA profile is different than RA profile of request. Certificate: %s",
-                            action.getCode(), oldCertificate));
+                            action.getCode(), certificateUuid));
         }
         assertRaProfileUnderAuthority(oldCertificate.getRaProfile(), authorityUuid);
         if (oldCertificate.isArchived()) {

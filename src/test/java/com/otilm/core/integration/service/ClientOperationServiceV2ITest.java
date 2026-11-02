@@ -772,6 +772,27 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void revokeOfAPendingCertificateOfAnotherRaProfileRevealsNoCertificateDetails() {
+        RaProfile otherRaProfile = new RaProfile();
+        otherRaProfile.setName("otherRaProfile");
+        otherRaProfile.setAuthorityInstanceReference(authorityInstanceReference);
+        otherRaProfile.setEnabled(true);
+        SecuredUUID otherRaProfileUuid = raProfileRepository.save(otherRaProfile).getSecuredUuid();
+        certificate.setState(CertificateState.PENDING_REVOKE);
+        certificateRepository.save(certificate);
+        SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        String certificateUuid = certificate.getUuid().toString();
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+
+        ValidationException refusal = Assertions
+                .assertThrows(ValidationException.class, () -> clientOperationService
+                        .revokeCertificate(authorityUuid, otherRaProfileUuid, certificateUuid, request));
+
+        Assertions.assertTrue(refusal.getMessage().contains("RA profile is different than RA profile of request"));
+        Assertions.assertFalse(refusal.getMessage().contains(certificate.getSerialNumber()));
+    }
+
+    @Test
     void revokeThroughAnotherAuthorityIsRefusedBeforeTheCertificateStateIsExamined() {
         certificate.setState(CertificateState.REVOKED);
         certificateRepository.save(certificate);
