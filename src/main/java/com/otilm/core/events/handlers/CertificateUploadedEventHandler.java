@@ -215,7 +215,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
         if (upload == null || !upload.isAutomaticOwnership()) {
             return;
         }
-        if (triggerActedOnOwner(eventHistory)) {
+        if (triggerSetsOwner(eventHistory)) {
             return;
         }
         NameAndUuidDto uploader = AuthHelper.getActingUserOrNull();
@@ -231,12 +231,12 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
     }
 
     /**
-     * Whether an upload trigger carried out an action on the owner, whether it set one or cleared it. Such a trigger
-     * decides the owner, so automatic ownership leaves the certificate as the trigger left it.
+     * Whether an upload trigger that applies to the certificate sets its owner, whether to a user or to nobody. Such a
+     * trigger decides the owner, so automatic ownership leaves the certificate as the trigger left it.
      */
-    private boolean triggerActedOnOwner(EventHistory eventHistory) {
+    private boolean triggerSetsOwner(EventHistory eventHistory) {
         return triggerHistoryRepository
-                .existsSucceededSetFieldExecution(eventHistory.getUuid(), ExecutionType.SET_FIELD,
+                .existsMatchedSetFieldExecution(eventHistory.getUuid(), ExecutionType.SET_FIELD,
                         FilterFieldSource.PROPERTY, FilterField.OWNER.name());
     }
 

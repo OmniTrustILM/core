@@ -27,8 +27,9 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
             UUID triggerAssociationObjectUuid);
 
     /**
-     * Whether a trigger of the event, whose conditions matched, ran an execution that sets the property field named by
-     * {@code fieldIdentifier} and did not fail doing it. Other executions of the trigger failing does not matter.
+     * Whether a trigger of the event, whose conditions matched, has an execution that sets the property field named by
+     * {@code fieldIdentifier}. Whether the execution succeeded is not looked at: a trigger that addresses the field has
+     * taken it over.
      */
     @Query("""
             SELECT COUNT(th) > 0 FROM TriggerHistory th, Trigger t
@@ -39,11 +40,8 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
               AND e.type = :executionType
               AND i.fieldSource = :fieldSource
               AND i.fieldIdentifier = :fieldIdentifier
-              AND NOT EXISTS (
-                SELECT r FROM TriggerHistoryRecord r
-                WHERE r.triggerHistoryUuid = th.uuid AND r.executionUuid = e.uuid)
             """)
-    boolean existsSucceededSetFieldExecution(@Param("eventHistoryUuid") UUID eventHistoryUuid,
+    boolean existsMatchedSetFieldExecution(@Param("eventHistoryUuid") UUID eventHistoryUuid,
             @Param("executionType") ExecutionType executionType, @Param("fieldSource") FilterFieldSource fieldSource,
             @Param("fieldIdentifier") String fieldIdentifier);
 

@@ -184,7 +184,18 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
     @Test
     void uploaderIsNotMadeOwnerWhenATriggerClearsTheOwnerAndAnotherOfItsExecutionsFails() throws Exception {
         enableAutomaticOwnership(true);
-        seedSetOwnerTrigger(null, null, true);
+        seedSetOwnerTrigger(null, null, FailingPart.OTHER_EXECUTION);
+
+        Certificate uploaded = upload();
+
+        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
+        Assertions.assertEquals(List.of(), ownerChanges(uploaded));
+    }
+
+    @Test
+    void uploaderIsNotMadeOwnerWhenATriggerClearsTheOwnerAndAnotherItemOfTheSameExecutionFails() throws Exception {
+        enableAutomaticOwnership(true);
+        seedSetOwnerTrigger(null, null, FailingPart.SAME_EXECUTION);
 
         Certificate uploaded = upload();
 
@@ -297,10 +308,10 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
     }
 
     private void seedSetOwnerTrigger(UUID ownerUuid, String ownerName) throws Exception {
-        seedSetOwnerTrigger(ownerUuid, ownerName, false);
+        seedSetOwnerTrigger(ownerUuid, ownerName, FailingPart.NONE);
     }
 
-    private void seedSetOwnerTrigger(UUID ownerUuid, String ownerName, boolean withFailingExecution) throws Exception {
+    private void seedSetOwnerTrigger(UUID ownerUuid, String ownerName, FailingPart failingPart) throws Exception {
         mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
         mockServer.start();
         WireMock.configureFor("localhost", mockServer.port());
@@ -334,11 +345,19 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
         executionRequest.setName("SetUploadOwnerExecution");
         executionRequest.setResource(Resource.CERTIFICATE);
         executionRequest.setType(ExecutionType.SET_FIELD);
-        executionRequest.setItems(List.of(executionItem));
+        if (failingPart == FailingPart.SAME_EXECUTION) {
+            ExecutionItemRequestDto failingItem = new ExecutionItemRequestDto();
+            failingItem.setFieldSource(FilterFieldSource.PROPERTY);
+            failingItem.setFieldIdentifier(FilterField.GROUP_NAME.toString());
+            failingItem.setData("not-a-uuid");
+            executionRequest.setItems(List.of(executionItem, failingItem));
+        } else {
+            executionRequest.setItems(List.of(executionItem));
+        }
         String executionUuid = actionService.createExecution(executionRequest).getUuid();
 
         List<String> executionUuids = new ArrayList<>(List.of(executionUuid));
-        if (withFailingExecution) {
+        if (failingPart == FailingPart.OTHER_EXECUTION) {
             // a group that is not a UUID, which the evaluator refuses
             ExecutionItemRequestDto failingItem = new ExecutionItemRequestDto();
             failingItem.setFieldSource(FilterFieldSource.PROPERTY);
@@ -371,5 +390,11 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
         triggerService
                 .createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null,
                         List.of(UUID.fromString(triggerUuid)), true);
+    }
+
+    private enum FailingPart {
+        NONE,
+        OTHER_EXECUTION,
+        SAME_EXECUTION
     }
 }
