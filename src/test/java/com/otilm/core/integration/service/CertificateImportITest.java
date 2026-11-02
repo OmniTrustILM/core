@@ -34,6 +34,9 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.api.model.core.secret.UploadedFile;
+import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
+import com.otilm.api.model.core.settings.CertificateUploadSettingsUpdateDto;
+import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
@@ -545,6 +548,44 @@ class CertificateImportITest extends BaseSpringBootTest {
                 attributeEngine.getObjectCustomAttributesContent(Resource.CERTIFICATE, inventoried(another).getUuid()))
                 .extracting(ResponseAttribute::getName)
                 .containsExactly("department");
+    }
+
+    @Test
+    void importCertificates_makesTheImportingUserOwnerOfTheCertificatesItCreatesWhenAutomaticOwnershipIsOn()
+            throws Exception {
+        // given
+        enableAutomaticOwnership();
+        NameAndUuidDto importer = AuthHelper.getUserIdentification();
+        X509CertificateHolder another = ContainerFixtures.selfSigned(ContainerFixtures.ec(), "CN=Another");
+        String registered = certificateUploadService
+                .upload(Base64.getEncoder().encodeToString(other.getEncoded()), null, true);
+        UUID registeredUuid = certificateRepository.findByFingerprint(registered).orElseThrow().getUuid();
+        objectAssociationService.setOwner(Resource.CERTIFICATE, registeredUuid, UUID.randomUUID(), "someone else");
+        CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, other, another), null,
+                entry(reference(other), null), entry(reference(another), null));
+
+        // when
+        importCertificates(request);
+
+        // then
+        assertThat(objectAssociationService.getOwner(Resource.CERTIFICATE, inventoried(another).getUuid()))
+                .extracting(NameAndUuidDto::getUuid, NameAndUuidDto::getName)
+                .containsExactly(importer.getUuid(), importer.getName());
+        assertThat(objectAssociationService.getOwner(Resource.CERTIFICATE, registeredUuid).getName())
+                .isEqualTo("someone else");
+    }
+
+    @Test
+    void importCertificates_leavesCertificatesItCreatesWithoutOwnerByDefault() throws Exception {
+        // given
+        CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, other), null,
+                entry(reference(other), null));
+
+        // when
+        importCertificates(request);
+
+        // then
+        assertThat(objectAssociationService.getOwner(Resource.CERTIFICATE, inventoried(other).getUuid())).isNull();
     }
 
     @Test
@@ -1326,6 +1367,16 @@ class CertificateImportITest extends BaseSpringBootTest {
     }
 
     // ---- fixtures ----
+
+    private void enableAutomaticOwnership() {
+        CertificateUploadSettingsUpdateDto upload = new CertificateUploadSettingsUpdateDto();
+        upload.setAutomaticOwnership(true);
+        CertificateSettingsUpdateDto certificates = new CertificateSettingsUpdateDto();
+        certificates.setUpload(upload);
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setCertificates(certificates);
+        settingService.updatePlatformSettings(update);
+    }
 
     private List<CertificateImportResultDto> importCertificates(CertificateImportRequestDto request) throws Exception {
         return certificateController.importCertificates(request).getResults();
