@@ -249,12 +249,12 @@ def added_lines():
             if path:
                 start, count = re.match(r'@@ -\S+ \+(\d+)(?:,(\d+))?', line).groups()
                 added.setdefault(path, set()).update(range(int(start), int(start) + int(count or 1)))
-    # The scan reads the working tree, where a file that is not tracked yet is new in full.
-    for path in git('ls-files', '--others', '--exclude-standard').splitlines():
-        if os.path.isfile(path):
-            with open(path, encoding='utf-8', errors='replace') as source:
-                added[path] = set(range(1, len(source.readlines()) + 1))
     return added
+
+
+def line_count(path):
+    with open(path, encoding='utf-8', errors='replace') as source:
+        return sum(1 for _ in source)
 
 
 def duplicated_lines(component):
@@ -283,6 +283,7 @@ def main():
         print_issues(f'Up to {LIST_LIMIT} shown', result['issues'], LIST_LIMIT)
         return
     added = added_lines()
+    untracked = set(git('ls-files', '--others', '--exclude-standard').splitlines())
     on_added, pre_existing = [], []
     known = new_lines = duplicated = 0
     for path in CHANGED:
@@ -291,7 +292,8 @@ def main():
         if info is None:
             continue
         known += 1
-        lines = added.get(path, set())
+        # The scan reads the working tree, where a file that is not tracked yet is new in full.
+        lines = set(range(1, line_count(path) + 1)) if path in untracked else added.get(path, set())
         for issue in unresolved_issues(component):
             (on_added if issue.get('line') in lines else pre_existing).append(issue)
         # Sonar detects duplications in main code only, so test files stay out of the ratio.
