@@ -368,6 +368,13 @@ class CryptographicOperationServiceSignerTest {
                             named("batch with an empty item", List.of(DTBS_0, new byte[0])),
                             named("batch with a null item", Arrays.asList(DTBS_0, null)));
         }
+
+        private static void assertSignerFault(ThrowingCallable call) {
+            assertThatThrownBy(call)
+                    .isInstanceOf(SigningEngineException.class)
+                    .satisfies(ex -> assertThat(((SigningEngineException) ex).failure())
+                            .isEqualTo(SigningEngineFailure.SIGNER_FAULT));
+        }
     }
 
     // ── GetSignatureAlgorithm ─────────────────────────────────────────────────
@@ -395,12 +402,5 @@ class CryptographicOperationServiceSignerTest {
         data.setIdentifier(identifier);
         data.setData(Base64.getEncoder().encodeToString(signature));
         return data;
-    }
-
-    private static void assertSignerFault(ThrowingCallable call) {
-        assertThatThrownBy(call)
-                .isInstanceOf(SigningEngineException.class)
-                .satisfies(ex -> assertThat(((SigningEngineException) ex).failure())
-                        .isEqualTo(SigningEngineFailure.SIGNER_FAULT));
     }
 }
