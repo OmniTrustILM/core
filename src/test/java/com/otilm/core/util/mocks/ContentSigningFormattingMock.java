@@ -193,19 +193,34 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
      * request that named none.
      */
     public List<String> signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation operation) {
+        return bodiesReceivedBy(operation)
+                .stream()
+                .map(body -> body.path("signatureAlgorithm"))
+                .map(algorithm -> algorithm.isTextual() ? algorithm.asText() : "")
+                .toList();
+    }
+
+    /**
+     * The {@code signatureParameters} object each request to {@code operation} carried, in call order. A request that
+     * carried none contributes a missing node.
+     */
+    public List<JsonNode> signatureParametersReceivedBy(ContentSigningFormattingOperation operation) {
+        return bodiesReceivedBy(operation).stream().map(body -> body.path("signatureParameters")).toList();
+    }
+
+    private List<JsonNode> bodiesReceivedBy(ContentSigningFormattingOperation operation) {
         return server
                 .findAll(WireMock
                         .postRequestedFor(
                                 WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.operation(operation))))
                 .stream()
-                .map(request -> signatureAlgorithmOf(request.getBodyAsString()))
+                .map(request -> parse(request.getBodyAsString()))
                 .toList();
     }
 
-    private static String signatureAlgorithmOf(String body) {
+    private static JsonNode parse(String body) {
         try {
-            JsonNode algorithm = OBJECT_MAPPER.readTree(body).path("signatureAlgorithm");
-            return algorithm.isTextual() ? algorithm.asText() : "";
+            return OBJECT_MAPPER.readTree(body);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Recorded request body is not JSON", e);
         }
