@@ -159,6 +159,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
@@ -175,6 +176,7 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -193,6 +195,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -293,9 +297,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private DataSource dataSource;
-
-    @Autowired
-    private PendingIssueReaper pendingIssueReaper;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
@@ -315,7 +316,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     private WireMockServer mockServer;
     private final WireMockResponseGate responseGate = new WireMockResponseGate();
-    private static final String RENEW_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/renew";
 
     private X509Certificate x509Cert;
     @MockitoSpyBean
@@ -2648,9 +2648,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(CertificateState.PENDING_ISSUE, fetched.getState(),
                         "a duplicate ISSUE for a cert already claimed to PENDING_ISSUE must leave it in PENDING_ISSUE, not FAILED");
-        Assertions
-                .assertNull(fetched.getPendingIssueClaimedAt(),
-                        "a skipped duplicate ISSUE must not stamp a claim the reaper could later fail");
 
         mockServer
                 .verify(0, WireMock
@@ -3364,7 +3361,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.ISSUED, newCert.getState(), "sync 200 renew must finish in ISSUED");
-        Assertions.assertNull(newCert.getPendingIssueClaimedAt(), "an answered renew leaves no claim stamp");
 
         var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(newCert);
         Assertions
@@ -3405,7 +3401,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         .formatted(successorUuid), ex.getMessage());
         assertFailedHistory(CertificateEvent.RENEW,
                 "Connector accepted renewal but local update failed: internal error");
-        assertParkedWithoutClaimStamp(successorUuid);
     }
 
     /**
@@ -3426,7 +3421,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.ISSUED, newCert.getState(), "sync 200 rekey must finish in ISSUED");
-        Assertions.assertNull(newCert.getPendingIssueClaimedAt(), "an answered rekey leaves no claim stamp");
 
         var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(newCert);
         Assertions
@@ -3466,90 +3460,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .assertEquals("Connector accepted rekey but local update failed for certificate %s: internal error"
                         .formatted(successorUuid), ex.getMessage());
         assertFailedHistory(CertificateEvent.REKEY, "Connector accepted rekey but local update failed: internal error");
-        assertParkedWithoutClaimStamp(successorUuid);
-    }
-
-    @Test
-    void issueCertificateAction_stampsTheClaimDuringTheConnectorCall_andClearsItOn202() throws Exception {
-        UUID certUuid = prepareCertificateForIssuance();
-        String issuePath = "/v2/authorityProvider/authorities/[^/]+/certificates/issue";
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching(issuePath))
-                        .willReturn(WireMock.aResponse().withStatus(202)));
-
-        assertClaimStampedDuringCallAndClearedAfterAcceptance(issuePath, certUuid, () -> {
-            clientOperationInternalService.issueCertificateAction(certUuid, true);
-            return null;
-        });
-    }
-
-    @Test
-    void renewCertificateAction_stampsTheClaimDuringTheConnectorCall_andClearsItOn202() throws Exception {
-        prepareCertificateForRenewal();
-        stubRenewAccepted();
-        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
-        UUID successorUuid = certificate.getUuid();
-
-        assertClaimStampedDuringCallAndClearedAfterAcceptance(RENEW_PATH, successorUuid, () -> {
-            clientOperationInternalService.renewCertificateAction(successorUuid, request, true);
-            return null;
-        });
-    }
-
-    @Test
-    void rekeyCertificateAction_stampsTheClaimDuringTheConnectorCall_andClearsItOn202() throws Exception {
-        prepareCertificateForRenewal();
-        stubRenewAccepted();
-        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
-        UUID successorUuid = certificate.getUuid();
-
-        assertClaimStampedDuringCallAndClearedAfterAcceptance(RENEW_PATH, successorUuid, () -> {
-            clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true);
-            return null;
-        });
-    }
-
-    private void stubRenewAccepted() {
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching(RENEW_PATH))
-                        .willReturn(WireMock.aResponse().withStatus(202)));
-    }
-
-    /**
-     * Holds the connector's 202 so the claim stamp can be read while the call is in flight, then releases it and checks
-     * the stamp is gone once the acceptance is recorded.
-     */
-    private void assertClaimStampedDuringCallAndClearedAfterAcceptance(String connectorPath, UUID certUuid,
-            Callable<Void> action) throws Exception {
-        CountDownLatch release = responseGate.hold();
-        try (ExecutorService caller = new DelegatingSecurityContextExecutorService(
-                Executors.newSingleThreadExecutor())) {
-            Future<Void> call = caller.submit(action);
-            await()
-                    .atMost(5, TimeUnit.SECONDS)
-                    .until(() -> mockServer
-                            .countRequestsMatching(
-                                    WireMock.postRequestedFor(WireMock.urlPathMatching(connectorPath)).build())
-                            .getCount() == 1);
-            Certificate inFlight = certificateRepository.findByUuid(certUuid).orElseThrow();
-            Assertions.assertEquals(CertificateState.PENDING_ISSUE, inFlight.getState());
-            Assertions
-                    .assertNotNull(inFlight.getPendingIssueClaimedAt(),
-                            "the claim is stamped while the synchronous call is in flight");
-            release.countDown();
-            call.get(10, TimeUnit.SECONDS);
-        }
-        assertParkedWithoutClaimStamp(certUuid);
-    }
-
-    private void assertParkedWithoutClaimStamp(UUID successorUuid) {
-        Certificate parked = certificateRepository.findByUuid(successorUuid).orElseThrow();
-        Assertions.assertEquals(CertificateState.PENDING_ISSUE, parked.getState());
-        Assertions
-                .assertNull(parked.getPendingIssueClaimedAt(),
-                        "the authority answered, so the reaper must not see an interrupted call");
     }
 
     @Test
@@ -3766,10 +3676,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
      * mismatch branch.
      */
     private KeyPair setupPendingIssueCertWithRealCsr() throws Exception {
-        return setupCertWithRealCsr(CertificateState.PENDING_ISSUE);
-    }
-
-    private KeyPair setupCertWithRealCsr(CertificateState state) throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
         KeyPair kp = kpg.generateKeyPair();
@@ -3791,7 +3697,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
-        certificate.setState(state);
+        certificate.setState(CertificateState.PENDING_ISSUE);
         certificate.setCertificateRequest(csrEntity);
         certificate.setCertificateRequestUuid(csrEntity.getUuid());
         certificateRepository.save(certificate);
@@ -3830,53 +3736,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.ISSUED, fetched.getState());
-    }
-
-    /**
-     * An authority that completes issuance out-of-band answers 202 and cannot be polled. The certificate must wait in
-     * PENDING_ISSUE however long the operator takes, and stay finalizable by upload.
-     */
-    @Test
-    void outOfBandIssueSurvivesTheReaperAndCanBeFinalized() throws Exception {
-        KeyPair kp = setupCertWithRealCsr(CertificateState.REQUESTED);
-        UUID certUuid = certificate.getUuid();
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
-                        .willReturn(WireMock.aResponse().withStatus(202)));
-
-        clientOperationInternalService.issueCertificateAction(certUuid, true);
-
-        Certificate parked = certificateRepository.findByUuid(certUuid).orElseThrow();
-        Assertions.assertEquals(CertificateState.PENDING_ISSUE, parked.getState());
-        Assertions.assertNull(parked.getPendingIssueClaimedAt(), "the authority answered, so no claim is left");
-
-        // Days pass before the operator gets to it — far beyond reap-stale-after.
-        new JdbcTemplate(dataSource)
-                .update("UPDATE certificate SET i_upd = ? WHERE uuid = ?",
-                        OffsetDateTime.now(ZoneOffset.UTC).minusDays(2), certUuid);
-        pendingIssueReaper.reapStaleOrphans();
-
-        Assertions
-                .assertEquals(CertificateState.PENDING_ISSUE,
-                        certificateRepository.findByUuid(certUuid).orElseThrow().getState(),
-                        "a request waiting for out-of-band completion must not be failed by the reaper");
-
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
-                        .willReturn(WireMock.okJson("{\"meta\":[]}")));
-        ManuallyIssueCertificateRequestDto req = new ManuallyIssueCertificateRequestDto();
-        req.setCertificate(buildSelfSignedCertBase64(kp, "test-pending-issue"));
-        req.setCustomAttributes(List.of());
-
-        clientOperationService
-                .manuallyIssueCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
-                        raProfile.getSecuredUuid(), certUuid.toString(), req);
-
-        Assertions
-                .assertEquals(CertificateState.ISSUED,
-                        certificateRepository.findByUuid(certUuid).orElseThrow().getState());
     }
 
     @Test
@@ -4883,5 +4742,289 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(1, certificateRepository.count(),
                         "only the fixture certificate exists; the denied request must persist none");
+    }
+
+    // ── PendingIssueClaim ─────────────────────────────────────────────────────
+
+    /**
+     * The claim stamp marks a synchronous connector call whose answer has not been recorded yet: it is set when the
+     * certificate moves to PENDING_ISSUE and cleared once the authority answers, so only a call that never returned is
+     * left for the reaper.
+     */
+    @Nested
+    class PendingIssueClaim {
+
+        private static final String ISSUE_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/issue";
+        private static final String RENEW_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/renew";
+
+        @Autowired
+        private PendingIssueReaper pendingIssueReaper;
+
+        @Test
+        void stampsClaim_whileTheIssueCallIsInFlight() throws Exception {
+            // given
+            UUID certUuid = prepareCertificateForIssuance();
+            stubAccepted(ISSUE_PATH);
+
+            // when
+            Certificate inFlight = readCertificateWhileTheCallIsHeld(ISSUE_PATH, certUuid, () -> {
+                clientOperationInternalService.issueCertificateAction(certUuid, true);
+                return null;
+            });
+
+            // then
+            assertThat(inFlight.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+            assertThat(inFlight.getPendingIssueClaimedAt()).isNotNull();
+        }
+
+        @Test
+        void stampsClaim_whileTheRenewalCallIsInFlight() throws Exception {
+            // given
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            stubAccepted(RENEW_PATH);
+            ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            Certificate inFlight = readCertificateWhileTheCallIsHeld(RENEW_PATH, successorUuid, () -> {
+                clientOperationInternalService.renewCertificateAction(successorUuid, request, true);
+                return null;
+            });
+
+            // then
+            assertThat(inFlight.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+            assertThat(inFlight.getPendingIssueClaimedAt()).isNotNull();
+        }
+
+        @Test
+        void stampsClaim_whileTheRekeyCallIsInFlight() throws Exception {
+            // given
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            stubAccepted(RENEW_PATH);
+            ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+
+            // when
+            Certificate inFlight = readCertificateWhileTheCallIsHeld(RENEW_PATH, successorUuid, () -> {
+                clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true);
+                return null;
+            });
+
+            // then
+            assertThat(inFlight.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+            assertThat(inFlight.getPendingIssueClaimedAt()).isNotNull();
+        }
+
+        @Test
+        void clearsClaim_whenAuthorityAcceptsTheIssueAsynchronously() throws Exception {
+            // given
+            UUID certUuid = prepareCertificateForIssuance();
+            stubAccepted(ISSUE_PATH);
+
+            // when
+            clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+            // then
+            assertParkedWithoutClaim(certUuid);
+        }
+
+        @Test
+        void clearsClaim_whenAuthorityAcceptsTheRenewalAsynchronously() throws Exception {
+            // given
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            stubAccepted(RENEW_PATH);
+            ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            clientOperationInternalService.renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertParkedWithoutClaim(successorUuid);
+        }
+
+        @Test
+        void clearsClaim_whenAuthorityAcceptsTheRekeyAsynchronously() throws Exception {
+            // given
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            stubAccepted(RENEW_PATH);
+            ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+
+            // when
+            clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            assertParkedWithoutClaim(successorUuid);
+        }
+
+        @Test
+        void clearsClaim_whenRenewalIsIssuedSynchronously() throws Exception {
+            // given
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            stubIssuedSynchronously(RENEW_PATH);
+            ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            clientOperationInternalService.renewCertificateAction(successorUuid, request, true);
+
+            // then
+            Certificate renewed = certificateRepository.findByUuid(successorUuid).orElseThrow();
+            assertThat(renewed.getState()).isEqualTo(CertificateState.ISSUED);
+            assertThat(renewed.getPendingIssueClaimedAt()).isNull();
+        }
+
+        @Test
+        void clearsClaim_whenRekeyIsIssuedSynchronously() throws Exception {
+            // given
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            stubIssuedSynchronously(RENEW_PATH);
+            ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+
+            // when
+            clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            Certificate rekeyed = certificateRepository.findByUuid(successorUuid).orElseThrow();
+            assertThat(rekeyed.getState()).isEqualTo(CertificateState.ISSUED);
+            assertThat(rekeyed.getPendingIssueClaimedAt()).isNull();
+        }
+
+        @Test
+        void clearsClaim_whenRenewalLocalUpdateFailsAfterAcceptance() throws Exception {
+            // given — the connector renews synchronously, then recording the issued successor fails
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            stubIssuedSynchronously(RENEW_PATH);
+            doThrow(new RuntimeException("internal db detail"))
+                    .when(certificateService)
+                    .issueRequestedCertificate(any(), any(), any());
+            ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(renew).isInstanceOf(CertificateOperationException.class);
+            assertParkedWithoutClaim(successorUuid);
+        }
+
+        @Test
+        void clearsClaim_whenRekeyLocalUpdateFailsAfterAcceptance() throws Exception {
+            // given — the connector rekeys synchronously, then recording the issued successor fails
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            stubIssuedSynchronously(RENEW_PATH);
+            doThrow(new RuntimeException("internal db detail"))
+                    .when(certificateService)
+                    .issueRequestedCertificate(any(), any(), any());
+            ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(rekey).isInstanceOf(CertificateOperationException.class);
+            assertParkedWithoutClaim(successorUuid);
+        }
+
+        @Test
+        void leavesNoClaim_whenADuplicateIssueIsSkipped() throws Exception {
+            // given — a certificate already claimed and parked, whose issue action is delivered again
+            UUID certUuid = prepareCertificateForIssuance();
+            certificate.setState(CertificateState.PENDING_ISSUE);
+            certificateRepository.save(certificate);
+            stubAccepted(ISSUE_PATH);
+
+            // when
+            clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+            // then
+            assertParkedWithoutClaim(certUuid);
+        }
+
+        @Test
+        void remainsFinalizable_whenNonPollableAuthorityAcceptsTheIssue() throws Exception {
+            // given — a v2 authority accepted the request with 202 and cannot be polled; days pass before the operator
+            // finalizes it, far beyond reap-stale-after
+            KeyPair keyPair = setupPendingIssueCertWithRealCsr();
+            certificate.setState(CertificateState.REQUESTED);
+            certificateRepository.save(certificate);
+            UUID certUuid = certificate.getUuid();
+            stubAccepted(ISSUE_PATH);
+            clientOperationInternalService.issueCertificateAction(certUuid, true);
+            new JdbcTemplate(dataSource)
+                    .update("UPDATE certificate SET i_upd = ? WHERE uuid = ?",
+                            OffsetDateTime.now(ZoneOffset.UTC).minusDays(2), certUuid);
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                            .willReturn(WireMock.okJson("{\"meta\":[]}")));
+            ManuallyIssueCertificateRequestDto upload = new ManuallyIssueCertificateRequestDto();
+            upload.setCertificate(buildSelfSignedCertBase64(keyPair, "test-pending-issue"));
+            upload.setCustomAttributes(List.of());
+
+            // when — the reaper runs, then the operator uploads the issued certificate
+            pendingIssueReaper.reapStaleOrphans();
+            clientOperationService
+                    .manuallyIssueCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                            raProfile.getSecuredUuid(), certUuid.toString(), upload);
+
+            // then
+            assertThat(certificateRepository.findByUuid(certUuid).orElseThrow().getState())
+                    .isEqualTo(CertificateState.ISSUED);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void stubAccepted(String connectorPath) {
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathMatching(connectorPath))
+                            .willReturn(WireMock.aResponse().withStatus(202)));
+        }
+
+        private void stubIssuedSynchronously(String connectorPath) throws Exception {
+            String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathMatching(connectorPath))
+                            .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+        }
+
+        /**
+         * Holds the connector's response, reads the certificate while the call is in flight, then lets the call finish.
+         */
+        private Certificate readCertificateWhileTheCallIsHeld(String connectorPath, UUID certUuid,
+                Callable<Void> action) throws Exception {
+            CountDownLatch release = responseGate.hold();
+            try (ExecutorService caller = new DelegatingSecurityContextExecutorService(
+                    Executors.newSingleThreadExecutor())) {
+                Future<Void> call = caller.submit(action);
+                await()
+                        .atMost(5, TimeUnit.SECONDS)
+                        .until(() -> mockServer
+                                .countRequestsMatching(
+                                        WireMock.postRequestedFor(WireMock.urlPathMatching(connectorPath)).build())
+                                .getCount() == 1);
+                Certificate inFlight = certificateRepository.findByUuid(certUuid).orElseThrow();
+                release.countDown();
+                call.get(10, TimeUnit.SECONDS);
+                return inFlight;
+            }
+        }
+
+        private void assertParkedWithoutClaim(UUID certUuid) {
+            Certificate parked = certificateRepository.findByUuid(certUuid).orElseThrow();
+            assertThat(parked.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+            assertThat(parked.getPendingIssueClaimedAt())
+                    .as("the authority answered, so the reaper must not see an interrupted call")
+                    .isNull();
+        }
     }
 }
