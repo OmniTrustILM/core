@@ -68,6 +68,9 @@ public class OcspUtil {
     /** How far the validity period of an OCSP answer may be off from this server's clock. */
     private static final Duration CLOCK_SKEW = Duration.ofMinutes(5);
 
+    /** Position of digitalSignature in {@link X509Certificate#getKeyUsage()}. */
+    private static final int DIGITAL_SIGNATURE = 0;
+
     private static int ocspReadTimeout; // milliseconds
     private static int ocspConnectTimeout; // milliseconds
 
@@ -222,8 +225,10 @@ public class OcspUtil {
             responder.verify(issuer.getPublicKey());
             responder.checkValidity();
             List<String> purposes = Objects.requireNonNullElse(responder.getExtendedKeyUsage(), List.of());
+            boolean[] keyUsage = responder.getKeyUsage();
             boolean authorized = responder.getIssuerX500Principal().equals(issuer.getSubjectX500Principal())
-                    && purposes.contains(KeyPurposeId.id_kp_OCSPSigning.getId());
+                    && purposes.contains(KeyPurposeId.id_kp_OCSPSigning.getId())
+                    && (keyUsage == null || keyUsage[DIGITAL_SIGNATURE]);
             return authorized ? Optional.of(responder.getPublicKey()) : Optional.empty();
         } catch (GeneralSecurityException | IOException e) {
             logger.debug("OCSP response certificate is not an authorized responder: {}", e.getMessage());
@@ -240,8 +245,11 @@ public class OcspUtil {
 
     private static boolean isCurrent(Date thisUpdate, Date nextUpdate) {
         Instant now = Instant.now();
+        // An answer without nextUpdate is current only around its thisUpdate, as for the JDK's OCSP checker, so an old
+        // one cannot be replayed.
+        Date validUntil = nextUpdate == null ? thisUpdate : nextUpdate;
         return !thisUpdate.toInstant().isAfter(now.plus(CLOCK_SKEW))
-                && (nextUpdate == null || !nextUpdate.toInstant().isBefore(now.minus(CLOCK_SKEW)));
+                && !validUntil.toInstant().isBefore(now.minus(CLOCK_SKEW));
     }
 
     private static boolean nonceMatches(BasicOCSPResp response, OCSPReq request) {

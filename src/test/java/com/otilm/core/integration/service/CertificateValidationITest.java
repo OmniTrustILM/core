@@ -58,6 +58,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -74,7 +75,6 @@ import java.security.cert.CRLException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509CRL;
 import java.security.cert.X509Certificate;
-import java.security.interfaces.ECPublicKey;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -88,17 +88,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import javax.security.auth.x500.X500Principal;
 import org.apache.commons.lang3.StringUtils;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
-import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERIA5String;
-import org.bouncycastle.asn1.DEROctetString;
-import org.bouncycastle.asn1.ocsp.CertID;
-import org.bouncycastle.asn1.ocsp.OCSPObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
-import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.CRLDistPoint;
 import org.bouncycastle.asn1.x509.CRLNumber;
@@ -106,7 +102,6 @@ import org.bouncycastle.asn1.x509.CRLReason;
 import org.bouncycastle.asn1.x509.DistributionPoint;
 import org.bouncycastle.asn1.x509.DistributionPointName;
 import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
@@ -119,25 +114,18 @@ import org.bouncycastle.cert.X509v2CRLBuilder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CRLConverter;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
-import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509v2CRLBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
-import org.bouncycastle.cert.ocsp.BasicOCSPRespBuilder;
-import org.bouncycastle.cert.ocsp.CertificateID;
 import org.bouncycastle.cert.ocsp.CertificateStatus;
 import org.bouncycastle.cert.ocsp.OCSPReq;
 import org.bouncycastle.cert.ocsp.OCSPResp;
-import org.bouncycastle.cert.ocsp.OCSPRespBuilder;
 import org.bouncycastle.cert.ocsp.RevokedStatus;
-import org.bouncycastle.cert.ocsp.jcajce.JcaBasicOCSPRespBuilder;
 import org.bouncycastle.cms.CMSException;
 import org.bouncycastle.cms.CMSSignedData;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
-import org.bouncycastle.operator.DigestCalculator;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
-import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 import org.bouncycastle.util.Store;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemReader;
@@ -153,6 +141,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.otilm.core.util.builders.OcspResponseBuilder.anOcspResponse;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -1279,7 +1268,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         @Test
         void reportsValid_whenIssuerSignsGoodAnswer() throws Exception {
             // given
-            ocspResponder.answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair()).build());
+            ocspResponder.answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair()).build());
 
             // when
             CertificateValidationStatus status = checkOcspStatus();
@@ -1293,7 +1282,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             var revocation = new RevokedStatus(new Date(), CRLReason.keyCompromise);
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
                             .withStatus(revocation)
                             .build());
 
@@ -1311,7 +1300,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             X509Certificate authorizedResponder = issueResponderCertificate(responderKeyPair,
                     KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
                             .withSignerCertificate(authorizedResponder)
                             .build());
 
@@ -1329,8 +1318,27 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             X509Certificate authorizedResponder = issueResponderCertificate(ecResponderKeyPair,
                     KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, ecResponderKeyPair)
+                    .answerWith(request -> anOcspResponse(request, ecResponderKeyPair)
                             .withSignerCertificate(authorizedResponder)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsValid_whenAuthorizedResponderHasNoKeyUsage() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            KeyUsage noKeyUsage = null;
+            X509Certificate responderWithoutKeyUsage = issueResponderCertificate(responderKeyPair, noKeyUsage,
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(responderWithoutKeyUsage)
                             .build());
 
             // when
@@ -1345,8 +1353,9 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             Date justPassedNextUpdate = Date.from(Instant.now().minus(Duration.ofMinutes(1)));
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
-                            .withValidity(calculateDate(-1), justPassedNextUpdate)
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(calculateDate(-1))
+                            .withNextUpdate(justPassedNextUpdate)
                             .build());
 
             // when
@@ -1361,8 +1370,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             Date slightlyFutureThisUpdate = Date.from(Instant.now().plus(Duration.ofMinutes(1)));
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
-                            .withValidity(slightlyFutureThisUpdate, null)
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(slightlyFutureThisUpdate)
                             .build());
 
             // when
@@ -1377,7 +1386,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         void reportsFailed_whenAnswerIsSignedByUnrelatedKey(CapturedOutput output) throws Exception {
             // given
             KeyPair unrelatedKeyPair = freshRsaKeyPair();
-            ocspResponder.answerWith(request -> anOcspAnswer(request, unrelatedKeyPair).build());
+            ocspResponder.answerWith(request -> anOcspResponse(request, unrelatedKeyPair).build());
 
             // when
             CertificateValidationStatus status = checkOcspStatus();
@@ -1395,7 +1404,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             KeyPair unrelatedKeyPair = freshRsaKeyPair();
             var revocation = new RevokedStatus(new Date(), CRLReason.keyCompromise);
-            ocspResponder.answerWith(request -> anOcspAnswer(request, unrelatedKeyPair).withStatus(revocation).build());
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, unrelatedKeyPair).withStatus(revocation).build());
 
             // when
             CertificateValidationStatus status = checkOcspStatus();
@@ -1411,7 +1421,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             X509Certificate clientAuthCertificate = issueResponderCertificate(responderKeyPair,
                     KeyPurposeId.id_kp_clientAuth, calculateDate(24 * 30));
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
                             .withSignerCertificate(clientAuthCertificate)
                             .build());
 
@@ -1434,7 +1444,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                     .generateCertificateWithExtendedKeyUsage(otherCaKeyPair, otherCaOfTheSameName, responderKeyPair,
                             KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
                             .withSignerCertificate(responderOfOtherCa)
                             .build());
 
@@ -1455,8 +1465,27 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                     .generateCertificateWithExtendedKeyUsage(chain.getCaCertificateKeyPair(), otherCaSharingTheKey,
                             responderKeyPair, KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
                             .withSignerCertificate(responderOfOtherCa)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderKeyUsageForbidsSigning() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            var keyEnciphermentOnly = new KeyUsage(KeyUsage.keyEncipherment);
+            X509Certificate responderThatMayNotSign = issueResponderCertificate(responderKeyPair, keyEnciphermentOnly,
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(responderThatMayNotSign)
                             .build());
 
             // when
@@ -1474,7 +1503,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             X509Certificate expiredResponder = issueResponderCertificate(responderKeyPair,
                     KeyPurposeId.id_kp_OCSPSigning, expiredAMinuteAgo);
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
                             .withSignerCertificate(expiredResponder)
                             .build());
 
@@ -1490,7 +1519,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             BigInteger anotherSerialNumber = chain.getEndEntityCertificate().getSerialNumber().add(BigInteger.ONE);
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
                             .withSerialNumber(anotherSerialNumber)
                             .build());
 
@@ -1507,7 +1536,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             X509Certificate anotherIssuer = CertificateGeneratorHelper
                     .generateCACertificate(freshRsaKeyPair(), "CN=Another-Ca");
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
                             .withIssuer(anotherIssuer)
                             .build());
 
@@ -1525,7 +1554,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                     .generateCACertificate(freshRsaKeyPair(),
                             chain.getCaCertificate().getSubjectX500Principal().getName());
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
                             .withIssuer(anotherIssuerOfTheSameName)
                             .build());
 
@@ -1541,8 +1570,26 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             var unsupportedHashAlgorithm = new ASN1ObjectIdentifier("1.2.3.4.5");
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
                             .withHashAlgorithm(unsupportedHashAlgorithm)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerWithoutNextUpdateIsOld() throws Exception {
+            // given
+            Date thisUpdateAnHourAgo = calculateDate(-1);
+            byte[] noNonce = null;
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(thisUpdateAnHourAgo)
+                            .withNonce(noNonce)
                             .build());
 
             // when
@@ -1557,8 +1604,9 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             Date passedNextUpdate = calculateDate(-1);
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
-                            .withValidity(calculateDate(-2), passedNextUpdate)
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(calculateDate(-2))
+                            .withNextUpdate(passedNextUpdate)
                             .build());
 
             // when
@@ -1573,8 +1621,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             Date futureThisUpdate = calculateDate(1);
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
-                            .withValidity(futureThisUpdate, null)
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(futureThisUpdate)
                             .build());
 
             // when
@@ -1589,7 +1637,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             byte[] nonceOfAnotherRequest = "another request".getBytes(StandardCharsets.US_ASCII);
             ocspResponder
-                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
                             .withNonce(nonceOfAnotherRequest)
                             .build());
 
@@ -1612,32 +1660,29 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
         private X509Certificate issueResponderCertificate(KeyPair responderKeyPair, KeyPurposeId purpose, Date notAfter)
                 throws Exception {
+            return issueResponderCertificate(responderKeyPair, new KeyUsage(KeyUsage.digitalSignature), purpose,
+                    notAfter);
+        }
+
+        private X509Certificate issueResponderCertificate(KeyPair responderKeyPair, KeyUsage keyUsage,
+                KeyPurposeId purpose, Date notAfter) throws Exception {
             return CertificateGeneratorHelper
                     .generateCertificateWithExtendedKeyUsage(chain.getCaCertificateKeyPair(), chain.getCaCertificate(),
-                            responderKeyPair, purpose, notAfter);
+                            responderKeyPair, keyUsage, purpose, notAfter);
         }
 
-        private static OcspAnswerBuilder anOcspAnswer(OCSPReq request, KeyPair signer) {
-            return new OcspAnswerBuilder(request, signer);
-        }
-
-        @FunctionalInterface
-        private interface OcspAnswer {
-            OCSPResp to(OCSPReq request) throws Exception;
-        }
-
-        /** Answers each OCSP request with what the test's {@link OcspAnswer} makes of it, as a real responder does. */
+        /** Answers each OCSP request with what the test's answer function makes of it, as a real responder does. */
         private static final class OcspResponder implements ResponseDefinitionTransformerV2 {
 
-            private final AtomicReference<OcspAnswer> answer = new AtomicReference<>();
+            private final AtomicReference<Function<OCSPReq, OCSPResp>> answer = new AtomicReference<>();
 
-            void answerWith(OcspAnswer ocspAnswer) {
+            void answerWith(Function<OCSPReq, OCSPResp> ocspAnswer) {
                 answer.set(ocspAnswer);
             }
 
             @Override
             public ResponseDefinition transform(ServeEvent serveEvent) {
-                OcspAnswer ocspAnswer = answer.get();
+                Function<OCSPReq, OCSPResp> ocspAnswer = answer.get();
                 if (ocspAnswer == null) {
                     return serveEvent.getResponseDefinition();
                 }
@@ -1645,118 +1690,16 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                     OCSPReq request = new OCSPReq(serveEvent.getRequest().getBody());
                     return ResponseDefinitionBuilder
                             .like(serveEvent.getResponseDefinition())
-                            .withBody(ocspAnswer.to(request).getEncoded())
+                            .withBody(ocspAnswer.apply(request).getEncoded())
                             .build();
-                } catch (Exception e) {
-                    throw new IllegalStateException("The test OCSP responder could not answer the request", e);
+                } catch (IOException e) {
+                    throw new UncheckedIOException("The test OCSP responder could not answer the request", e);
                 }
             }
 
             @Override
             public String getName() {
                 return "ocsp-responder";
-            }
-        }
-
-        /**
-         * Builds a responder's answer to one OCSP request: {@code good} for the requested certificate, valid from now
-         * with no next update, echoing the request nonce, signed by {@code signer} and carrying no certificate.
-         */
-        private static final class OcspAnswerBuilder {
-
-            private final OCSPReq request;
-
-            private final KeyPair signer;
-
-            private X509Certificate signerCertificate;
-
-            private CertificateStatus status = CertificateStatus.GOOD;
-
-            private BigInteger serialNumber;
-
-            private X509Certificate issuer;
-
-            private ASN1ObjectIdentifier hashAlgorithm;
-
-            private Date thisUpdate = new Date();
-
-            private Date nextUpdate;
-
-            private Extension nonce;
-
-            private OcspAnswerBuilder(OCSPReq request, KeyPair signer) {
-                this.request = request;
-                this.signer = signer;
-                this.nonce = request.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce);
-            }
-
-            OcspAnswerBuilder withSignerCertificate(X509Certificate signerCertificate) {
-                this.signerCertificate = signerCertificate;
-                return this;
-            }
-
-            OcspAnswerBuilder withStatus(CertificateStatus status) {
-                this.status = status;
-                return this;
-            }
-
-            OcspAnswerBuilder withSerialNumber(BigInteger serialNumber) {
-                this.serialNumber = serialNumber;
-                return this;
-            }
-
-            OcspAnswerBuilder withIssuer(X509Certificate issuer) {
-                this.issuer = issuer;
-                return this;
-            }
-
-            OcspAnswerBuilder withHashAlgorithm(ASN1ObjectIdentifier hashAlgorithm) {
-                this.hashAlgorithm = hashAlgorithm;
-                return this;
-            }
-
-            OcspAnswerBuilder withValidity(Date thisUpdate, Date nextUpdate) {
-                this.thisUpdate = thisUpdate;
-                this.nextUpdate = nextUpdate;
-                return this;
-            }
-
-            OcspAnswerBuilder withNonce(byte[] nonce) {
-                this.nonce = new Extension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce, false, new DEROctetString(nonce));
-                return this;
-            }
-
-            OCSPResp build() throws Exception {
-                DigestCalculator sha1 = new JcaDigestCalculatorProviderBuilder().build().get(CertificateID.HASH_SHA1);
-                BasicOCSPRespBuilder responseBuilder = new JcaBasicOCSPRespBuilder(signer.getPublic(), sha1);
-                responseBuilder.addResponse(answeredCertificateId(sha1), status, thisUpdate, nextUpdate, null);
-                responseBuilder.setResponseExtensions(new Extensions(nonce));
-                String signatureAlgorithm = signer.getPublic() instanceof ECPublicKey
-                        ? "SHA256withECDSA"
-                        : "SHA256withRSA";
-                ContentSigner contentSigner = new JcaContentSignerBuilder(signatureAlgorithm)
-                        .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                        .build(signer.getPrivate());
-                X509CertificateHolder[] embeddedCertificates = signerCertificate == null
-                        ? new X509CertificateHolder[0]
-                        : new X509CertificateHolder[]{new JcaX509CertificateHolder(signerCertificate)};
-                return new OCSPRespBuilder()
-                        .build(OCSPRespBuilder.SUCCESSFUL,
-                                responseBuilder.build(contentSigner, embeddedCertificates, new Date()));
-            }
-
-            private CertificateID answeredCertificateId(DigestCalculator sha1) throws Exception {
-                CertificateID requested = request.getRequestList()[0].getCertID();
-                BigInteger answeredSerialNumber = serialNumber == null ? requested.getSerialNumber() : serialNumber;
-                if (issuer != null) {
-                    return new CertificateID(sha1, new JcaX509CertificateHolder(issuer), answeredSerialNumber);
-                }
-                CertID requestedId = requested.toASN1Primitive();
-                AlgorithmIdentifier answeredHashAlgorithm = hashAlgorithm == null
-                        ? requestedId.getHashAlgorithm()
-                        : new AlgorithmIdentifier(hashAlgorithm);
-                return new CertificateID(new CertID(answeredHashAlgorithm, requestedId.getIssuerNameHash(),
-                        requestedId.getIssuerKeyHash(), new ASN1Integer(answeredSerialNumber)));
             }
         }
     }

@@ -187,6 +187,13 @@ public class CertificateGeneratorHelper {
      */
     public static X509Certificate generateCertificateWithExtendedKeyUsage(KeyPair caKeyPair, X509Certificate caCert,
             KeyPair eeKeyPair, KeyPurposeId purpose, Date notAfter) throws Exception {
+        return generateCertificateWithExtendedKeyUsage(caKeyPair, caCert, eeKeyPair,
+                new KeyUsage(KeyUsage.digitalSignature), purpose, notAfter);
+    }
+
+    /** As above, with {@code keyUsage} as its key usage, or no key usage extension when it is {@code null}. */
+    public static X509Certificate generateCertificateWithExtendedKeyUsage(KeyPair caKeyPair, X509Certificate caCert,
+            KeyPair eeKeyPair, KeyUsage keyUsage, KeyPurposeId purpose, Date notAfter) throws Exception {
 
         X500Name issuer = new X500Name(caCert.getSubjectX500Principal().getName());
         X500Name subject = new X500Name("CN=Test-Delegated-Signer");
@@ -197,7 +204,9 @@ public class CertificateGeneratorHelper {
                 eeKeyPair.getPublic());
 
         builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
-        builder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature));
+        if (keyUsage != null) {
+            builder.addExtension(Extension.keyUsage, true, keyUsage);
+        }
         builder.addExtension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(purpose));
 
         ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
