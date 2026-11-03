@@ -2787,12 +2787,19 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * The authority has answered but the certificate stays in {@code PENDING_ISSUE} (accepted asynchronously, or parked
      * after a local failure), so its claim stamp must no longer mark an unanswered call. Nulls the stamp on the held
      * instance too, so a later save of it cannot write the stamp back. Best-effort: the authority has accepted, so a
-     * failure here must not fail the operation — it leaves the certificate to the reaper, as before this stamp existed.
+     * failure here must not fail the operation — it leaves the certificate to the reaper.
      */
     private void clearPendingIssueClaimBestEffort(Certificate certificate) {
         certificate.setPendingIssueClaimedAt(null);
         try {
-            pendingIssueClaimWriter.clear(certificate.getUuid());
+            if (pendingIssueClaimWriter.clear(certificate.getUuid()) == 0) {
+                // The certificate left PENDING_ISSUE while the call was in flight (reaped or cancelled), so the
+                // platform has ended an operation the authority accepted.
+                logger
+                        .warn("Certificate {} was no longer {} when the authority's acceptance was recorded; "
+                                + "the authority may still complete it", certificate.getUuid(),
+                                CertificateState.PENDING_ISSUE.getLabel());
+            }
         } catch (RuntimeException e) {
             logger
                     .warn("Failed to clear the pending-issue claim of certificate {}; the reaper may fail it: {}",

@@ -1,5 +1,9 @@
 package com.otilm.core.service.v2.impl;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -35,10 +39,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
@@ -498,6 +504,54 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .schedule(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateOperation.ISSUE),
                         ArgumentMatchers.any());
         inOrder.verify(claimWriter).clear(certUuid);
+    }
+
+    @Test
+    void warnsWhenTheCertificateLeftPendingIssueBeforeTheClaimWasCleared() throws Exception {
+        // given — the authority accepted, but by the time Core records it the certificate has already left
+        // PENDING_ISSUE (reaped or cancelled during a slow call), so the guarded clear updates nothing
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenReturn(0);
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThat(warnings(logged)).anySatisfy(message -> assertThat(message).contains(certUuid.toString()));
+    }
+
+    @Test
+    void doesNotWarnWhenTheClaimIsCleared() throws Exception {
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenReturn(1);
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        service.issueCertificateAction(certUuid, true);
+
+        assertThat(warnings(logged)).noneSatisfy(message -> assertThat(message).contains("claim"));
+    }
+
+    @AfterEach
+    void releaseTheServiceLogger() {
+        ((Logger) LoggerFactory.getLogger(ClientOperationServiceImpl.class)).detachAndStopAllAppenders();
+    }
+
+    private static ListAppender<ILoggingEvent> captureServiceLogs() {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ((Logger) LoggerFactory.getLogger(ClientOperationServiceImpl.class)).addAppender(appender);
+        return appender;
+    }
+
+    private static List<String> warnings(ListAppender<ILoggingEvent> logged) {
+        return logged.list
+                .stream()
+                .filter(event -> event.getLevel() == Level.WARN)
+                .map(ILoggingEvent::getFormattedMessage)
+                .toList();
     }
 
     /** The claim was cleared both in the database and on the instance the caller holds. */
