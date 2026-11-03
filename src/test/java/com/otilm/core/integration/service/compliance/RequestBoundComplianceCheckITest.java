@@ -7,13 +7,18 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
+import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.compliance.BaseComplianceTest;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.List;
@@ -22,7 +27,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -34,6 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RequestBoundComplianceCheckITest extends BaseComplianceTest {
 
     private static final String REVOKE_BEHIND_THE_REQUEST = "UPDATE certificate SET state = 'REVOKED' WHERE uuid = ?";
+    private static final String RENAME_BEHIND_THE_REQUEST = "UPDATE certificate_request SET common_name = 'renamed'"
+            + " WHERE uuid = ?";
 
     @Autowired
     private ComplianceInternalService complianceService;
@@ -43,6 +52,12 @@ class RequestBoundComplianceCheckITest extends BaseComplianceTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
 
     /**
      * A revocation committed after the request read the certificate survives the check the request runs and the read of
@@ -90,6 +105,44 @@ class RequestBoundComplianceCheckITest extends BaseComplianceTest {
         Certificate checked = certificateRepository.findByUuid(certificateUuid).orElseThrow();
         assertThat(checked.getState()).isEqualTo(CertificateState.REVOKED);
         assertThat(checked.getComplianceStatus()).isEqualTo(ComplianceStatus.NOK);
+    }
+
+    /**
+     * A check that finds no profile left for a certificate not yet issued clears its request's result. A certificate
+     * request is written as a whole row, so a change committed to it since the request read it must survive the
+     * request's next transaction.
+     */
+    @Test
+    void aResetInARequestKeepsAChangeCommittedToTheCertificateRequestSinceTheRequestReadIt() throws Exception {
+        // given
+        CertificateRequestEntity certificateRequest = CertificateRequestEntityBuilder
+                .aCertificateRequest()
+                .withContent(Base64.getEncoder().encodeToString("CN=pending".getBytes(StandardCharsets.UTF_8)))
+                .build();
+        certificateRequest.setCommonName("pending");
+        certificateRequest.setComplianceStatus(ComplianceStatus.NOK);
+        certificateRequest.setComplianceResult(new ComplianceResultDto());
+        UUID requestUuid = certificateRequestRepository.save(certificateRequest).getUuid();
+        Certificate pending = new Certificate();
+        pending.setState(CertificateState.REQUESTED);
+        pending.setCertificateRequestUuid(requestUuid);
+        pending.setRaProfileUuid(unassociatedRaProfileUuid);
+        UUID certificateUuid = certificateRepository.save(pending).getUuid();
+
+        // when
+        inARequest(request -> {
+            request.find(Certificate.class, certificateUuid);
+            request.find(CertificateRequestEntity.class, requestUuid);
+            jdbcTemplate.update(RENAME_BEHIND_THE_REQUEST, requestUuid);
+            complianceService.checkResourceObjectComplianceAsSystem(Resource.CERTIFICATE, certificateUuid);
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> request.flush());
+            return null;
+        });
+
+        // then
+        CertificateRequestEntity checked = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
+        assertThat(checked.getCommonName()).isEqualTo("renamed");
+        assertThat(checked.getComplianceStatus()).isEqualTo(ComplianceStatus.NOT_CHECKED);
     }
 
     /**

@@ -12,7 +12,6 @@ import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.service.ResourceInternalService;
 import java.util.Collection;
-import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -87,34 +86,6 @@ public class ComplianceProfileAssociationWriter {
         }
         synchronizer.lockAll(objectUuids.stream().map(objectUuid -> objectLockKey(resource, objectUuid)).toList());
         return complianceProfileAssociationRepository.deleteByResourceAndObjectUuidIn(resource, objectUuids);
-    }
-
-    /**
-     * A certificate request exists while a certificate refers to it, so removing a certificate, or its reference to a
-     * request, can end the request's existence. The lock is the one {@link #create} takes before it looks for such a
-     * certificate, so an associate racing the removal either sees no certificate or is purged here. Only requests with
-     * associations are looked up, because nothing indexes the certificates' reference to their request.
-     */
-    @Transactional
-    public int deleteAllForCertificateRequestsWithoutCertificate(Collection<UUID> certificateRequestUuids) {
-        if (certificateRequestUuids.isEmpty()) {
-            return 0;
-        }
-        synchronizer
-                .lockAll(certificateRequestUuids
-                        .stream()
-                        .map(requestUuid -> objectLockKey(Resource.CERTIFICATE_REQUEST, requestUuid))
-                        .toList());
-        List<UUID> requestUuidsWithoutCertificate = complianceProfileAssociationRepository
-                .findAssociatedObjectUuids(Resource.CERTIFICATE_REQUEST, certificateRequestUuids)
-                .stream()
-                .filter(requestUuid -> !certificateRepository.existsByCertificateRequestUuid(requestUuid))
-                .toList();
-        if (requestUuidsWithoutCertificate.isEmpty()) {
-            return 0;
-        }
-        return complianceProfileAssociationRepository
-                .deleteByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, requestUuidsWithoutCertificate);
     }
 
     /**

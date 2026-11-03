@@ -23,6 +23,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.acme.AcmeOrderRepository;
+import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AcmeAccountExternalService;
@@ -33,9 +34,13 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 class AcmeAccountServiceITest extends BaseSpringBootTest {
@@ -265,5 +270,46 @@ class AcmeAccountServiceITest extends BaseSpringBootTest {
         nameAndUuidDto = acmeAccountInternalService.getResourceObjectExternal(acmeAccount.getSecuredUuid());
         Assertions.assertEquals(acmeAccount.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(acmeAccount.getAccountId(), nameAndUuidDto.getName());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("acmeProfileScopedCalls")
+    void testAcmeProfileScopedCall_refusesAnAccountUnderAnotherAcmeProfile(String endpoint,
+            AcmeProfileScopedCall call) {
+        AcmeProfile otherAcmeProfile = new AcmeProfile();
+        otherAcmeProfile.setName("otherAcmeProfile");
+        otherAcmeProfile.setDnsResolverPort("53");
+        otherAcmeProfile.setDnsResolverIp("localhost");
+        SecuredParentUUID otherAcmeProfileUuid = acmeProfileRepository.save(otherAcmeProfile).getSecuredParentUuid();
+        SecuredUUID accountUuid = acmeAccount.getSecuredUuid();
+
+        NotFoundException refusal = Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> call.call(acmeAccountService, otherAcmeProfileUuid, accountUuid));
+
+        Assertions
+                .assertTrue(refusal.getMessage().contains(acmeAccount.getUuid().toString()),
+                        endpoint + ": " + refusal.getMessage());
+        AcmeAccount unchanged = acmeAccountRepository.findByUuid(acmeAccount.getUuid()).orElseThrow();
+        Assertions.assertTrue(unchanged.isEnabled());
+        Assertions.assertEquals(AccountStatus.VALID, unchanged.getStatus());
+    }
+
+    @FunctionalInterface
+    private interface AcmeProfileScopedCall {
+        void call(AcmeAccountExternalService service, SecuredParentUUID acmeProfileUuid, SecuredUUID accountUuid)
+                throws Exception;
+    }
+
+    private static Stream<Arguments> acmeProfileScopedCalls() {
+        return Stream
+                .of(call("get", AcmeAccountExternalService::getAcmeAccount),
+                        call("enable", AcmeAccountExternalService::enableAccount),
+                        call("disable", AcmeAccountExternalService::disableAccount),
+                        call("revoke", AcmeAccountExternalService::revokeAccount));
+    }
+
+    private static Arguments call(String endpoint, AcmeProfileScopedCall call) {
+        return Arguments.of(endpoint, call);
     }
 }
