@@ -180,7 +180,7 @@ public class CryptographicOperationServiceImpl
         logger.info("Requesting to list encryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
-        KeyProviderAdapter adapter = adapterFor(keyItem);
+        KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return adapter.listEncryptAttributes(keyItem);
     }
 
@@ -194,7 +194,7 @@ public class CryptographicOperationServiceImpl
         logger.info("Requesting to list decryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
-        KeyProviderAdapter adapter = adapterFor(keyItem);
+        KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return adapter.listDecryptAttributes(keyItem);
     }
 
@@ -213,7 +213,7 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
         }
         requireUsage(keyItem, KeyUsage.ENCRYPT);
-        KeyProviderAdapter adapter = adapterFor(keyItem);
+        KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return recordEvent(keyItem, KeyEvent.ENCRYPT, "Encryption of data success ", "Encryption of data failed ",
                 () -> adapter.encryptData(keyItem, request));
     }
@@ -233,7 +233,7 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
         }
         requireUsage(keyItem, KeyUsage.DECRYPT);
-        KeyProviderAdapter adapter = adapterFor(keyItem);
+        KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return recordEvent(keyItem, KeyEvent.DECRYPT, "Decryption of data success ", "Decryption of data failed ",
                 () -> adapter.decryptData(keyItem, request));
     }
@@ -363,6 +363,15 @@ public class CryptographicOperationServiceImpl
 
     private KeyProviderAdapter adapterFor(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
         return keyProviderAdapterFactory.forKeyItem(keyItem);
+    }
+
+    /**
+     * Encryption and decryption pay a read of the key's row to refuse a moved key at once; signing and verification
+     * take the scope from the cached item.
+     */
+    private KeyProviderAdapter adapterInUnchangedScopeFor(CryptographicKeyItemOperationModel keyItem)
+            throws NotFoundException {
+        return keyProviderAdapterFactory.forKeyItemInUnchangedScope(keyItem);
     }
 
     @Override

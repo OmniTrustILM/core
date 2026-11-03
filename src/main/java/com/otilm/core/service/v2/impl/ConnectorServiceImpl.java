@@ -986,7 +986,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     void evictConnectorCache(UUID uuid) {
         cacheEvictor.evict(CacheConfig.CONNECTOR_API_CLIENT_CACHE, uuid);
-        keyOperationCache.forgetAllAttributes();
+        keyOperationCache.forgetConnector(uuid);
         // Drop any cached CERTIFICATE WebClient built for this connector so a deleted or reconfigured
         // connector does not retain its client (and parsed key material). Keyed by the UUID string,
         // matching mapToApiClientDtoV2().

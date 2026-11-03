@@ -71,7 +71,7 @@ class ScepRequestDecryptionTest {
         byte[] message = ScepMessageTestData
                 .keyTransportEnvelopedPkcsReq(caCertificate, ScepMessageTestData.SUBJECT_DN, List.of(), null);
         request = new ScepRequest(message);
-        when(factory.forKeyItem(keyItem)).thenReturn(adapter);
+        when(factory.forKeyItemInUnchangedScope(keyItem)).thenReturn(adapter);
         when(adapter.cipherAttributesFor(any())).thenReturn(List.of());
     }
 

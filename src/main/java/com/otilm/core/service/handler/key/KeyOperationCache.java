@@ -46,17 +46,17 @@ public class KeyOperationCache {
                 connectorUuid);
         List<ObjectAttributeContent> tokenProfileRows = storedAttributes(Resource.TOKEN_PROFILE,
                 scope.tokenProfileUuid(), connectorUuid);
-        return new ScopeRows(scope, tokenRows, tokenProfileRows);
+        return new ScopeRows(scope, connectorUuid, tokenRows, tokenProfileRows);
     }
 
     /**
      * The key item's sign definitions as the connector answered them for the scope's rows. Each answer is keyed by the
-     * cached connector and row lists it was given, so it expires with them.
+     * cached connector and row lists it was given, so a reload of any of them asks the connector again.
      */
     public List<BaseAttribute> signAttributeDefinitions(UUID keyItemUuid, ApiClientConnectorInfo connector,
             ScopeRows rows, DefinitionsLoader loader) throws ConnectorException {
-        SignDefinitionsKey key = new SignDefinitionsKey(keyItemUuid, rows.scope(), new Snapshot(connector),
-                new Snapshot(rows.tokenRows()), new Snapshot(rows.tokenProfileRows()));
+        SignDefinitionsKey key = new SignDefinitionsKey(keyItemUuid, rows.scope(), rows.connectorUuid(),
+                new Snapshot(connector), new Snapshot(rows.tokenRows()), new Snapshot(rows.tokenProfileRows()));
         return signAttributeDefinitionsCache.getOrLoad(key, loader::load);
     }
 
@@ -70,9 +70,15 @@ public class KeyOperationCache {
         cacheEvictor.clear(CacheConfig.SIGN_ATTRIBUTE_DEFINITIONS_CACHE);
     }
 
-    public void forgetAllAttributes() {
-        cacheEvictor.clear(CacheConfig.TOKEN_SCOPE_ATTRIBUTES_CACHE);
-        cacheEvictor.clear(CacheConfig.SIGN_ATTRIBUTE_DEFINITIONS_CACHE);
+    /** Forgets what was read for the connector, as an edit to it may change the definitions behind its rows. */
+    public void forgetConnector(UUID connectorUuid) {
+        cacheEvictor
+                .evictIf(CacheConfig.TOKEN_SCOPE_ATTRIBUTES_CACHE, key -> key instanceof ObjectAttributeContentInfo rows
+                        && connectorUuid.equals(rows.connectorUuid()));
+        cacheEvictor
+                .evictIf(CacheConfig.SIGN_ATTRIBUTE_DEFINITIONS_CACHE,
+                        key -> key instanceof SignDefinitionsKey definitions
+                                && connectorUuid.equals(definitions.connectorUuid()));
     }
 
     /**
@@ -84,12 +90,12 @@ public class KeyOperationCache {
         List<BaseAttribute> load() throws ConnectorException;
     }
 
-    public record ScopeRows(KeyOperationScope scope, List<ObjectAttributeContent> tokenRows,
+    public record ScopeRows(KeyOperationScope scope, UUID connectorUuid, List<ObjectAttributeContent> tokenRows,
             List<ObjectAttributeContent> tokenProfileRows) {
     }
 
-    private record SignDefinitionsKey(UUID keyItemUuid, KeyOperationScope scope, Snapshot connector, Snapshot tokenRows,
-            Snapshot tokenProfileRows) {
+    private record SignDefinitionsKey(UUID keyItemUuid, KeyOperationScope scope, UUID connectorUuid, Snapshot connector,
+            Snapshot tokenRows, Snapshot tokenProfileRows) {
     }
 
     /** Matches one cached value by identity, which is cheap and changes on every reload of the value. */

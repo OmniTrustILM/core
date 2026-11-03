@@ -322,7 +322,8 @@ class ReadThroughCacheTest {
         return Stream
                 .of(named("evict", c -> c.evict(KEY)), named("evictIfPresent", c -> c.evictIfPresent(KEY)),
                         named("clear", Cache::clear), named("invalidate", Cache::invalidate),
-                        named("evictInFlight", ReadThroughCache::evictInFlight));
+                        named("evictInFlight", ReadThroughCache::evictInFlight),
+                        named("evictIf", c -> c.evictIf(KEY::equals)));
     }
 
     @ParameterizedTest
@@ -368,6 +369,21 @@ class ReadThroughCacheTest {
         cache.evictInFlight();
 
         assertThat(cache.getOrLoad(KEY, this::load)).isEqualTo("value-1");
+    }
+
+    @Test
+    void evictIfKeepsTheEntriesItDoesNotMatch() {
+        // given
+        var keptKey = "kept";
+        cache.getOrLoad(KEY, this::load);
+        cache.getOrLoad(keptKey, this::load);
+
+        // when
+        cache.evictIf(KEY::equals);
+
+        // then
+        assertThat(cache.getOrLoad(keptKey, this::load)).isEqualTo("value-2");
+        assertThat(cache.getOrLoad(KEY, this::load)).isEqualTo("value-3");
     }
 
     @Test

@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
@@ -297,6 +298,63 @@ class KeyProviderAdapterFactoryTest {
                     .isInstanceOf(NotFoundException.class)
                     .hasMessageContaining("Key " + item.keyUuid() + " is outside any token profile.");
             assertThat(validated).isEmpty();
+        }
+    }
+
+    // ── ForKeyItemInUnchangedScope ────────────────────────────────────────────
+
+    @Nested
+    class ForKeyItemInUnchangedScope {
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("movedScopes")
+        void rejectsAKeyMovedOffTheCachedItemsScope(UnaryOperator<KeyOperationScope> move) throws Exception {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+            KeyOperationScope movedScope = move.apply(cachedScopeOf(item));
+            when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(movedScope));
+            KeyProviderAdapter adapter = factory.forKeyItemInUnchangedScope(item);
+
+            // when
+            ThrowingCallable list = () -> adapter.listEncryptAttributes(item);
+
+            // then
+            assertThatThrownBy(list)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Key token or token profile association changed during the operation.");
+            verifyNoInteractions(attributeEngine);
+        }
+
+        @Test
+        void scopesTheOperationByTheKeysRow_whenItMatchesTheCachedItem() throws Exception {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+            when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(cachedScopeOf(item)));
+            CryptographicOperationsSyncApiClient operations = mock(CryptographicOperationsSyncApiClient.class);
+            when(v2Clients.getCryptographicOperationsApiClient(connector)).thenReturn(operations);
+            when(operations.listEncryptAttributes(any(), any())).thenReturn(List.of());
+            KeyProviderAdapter adapter = factory.forKeyItemInUnchangedScope(item);
+
+            // when
+            adapter.listEncryptAttributes(item);
+
+            // then
+            verify(keyRepository).findOperationScopeByUuid(item.keyUuid());
+            verify(operations).listEncryptAttributes(any(), any());
+        }
+
+        private static Stream<Arguments> movedScopes() {
+            return Stream
+                    .of(arguments(named("moved to another token",
+                            (UnaryOperator<KeyOperationScope>) scope -> new KeyOperationScope(scope.tokenProfileUuid(),
+                                    UUID.randomUUID()))),
+                            arguments(named("moved to another token profile",
+                                    (UnaryOperator<KeyOperationScope>) scope -> new KeyOperationScope(UUID.randomUUID(),
+                                            scope.tokenInstanceReferenceUuid()))));
+        }
+
+        private static KeyOperationScope cachedScopeOf(CryptographicKeyItemOperationModel item) {
+            return new KeyOperationScope(item.tokenProfileUuid(), item.tokenInstanceReferenceUuid());
         }
     }
 

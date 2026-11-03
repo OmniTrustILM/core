@@ -585,8 +585,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             throws ConnectorException, NotFoundException {
         List<RequestAttribute> submittedAttributes = orEmpty(request.getCipherAttributes());
         List<RequestAttribute> connectorAttributes = EncryptionOperationAttributes.toConnector(submittedAttributes);
-        TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem,
-                schemaRequest -> checkedSchema(schemaCall, schemaRequest), connectorAttributes);
+        TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem, schemaCall, connectorAttributes);
         IdentifiedBatch<CipherDataV2Dto> batch = cipherBatch(request.getCipherData());
         CipherDataRequestV2Dto body = keyScoped(new CipherDataRequestV2Dto(), keyItem, scope);
         body.setCipherAttributes(connectorAttributes);
@@ -674,9 +673,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         List<RequestAttribute> submittedAttributes = orEmpty(request.getSignatureAttributes());
         List<RequestAttribute> connectorAttributes = SignatureOperationAttributes.toConnector(submittedAttributes);
         TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem,
-                schemaRequest -> checkedSchema(
-                        verifyRequest -> operationsApiClient.listVerifyAttributes(connectorInfo, verifyRequest),
-                        schemaRequest),
+                verifyRequest -> operationsApiClient.listVerifyAttributes(connectorInfo, verifyRequest),
                 connectorAttributes);
         IdentifiedBatch<SignatureDataV2Dto> data = signatureBatch(request.getData());
         IdentifiedBatch<SignatureDataV2Dto> signatures = signatureBatch(request.getSignatures());
@@ -774,9 +771,9 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     public byte[] exportKey(CryptographicKeyItemOperationModel keyItem, HeldKey heldKey, Passphrase passphrase,
             List<RequestAttribute> attributes) throws ConnectorException, NotFoundException {
         List<RequestAttribute> stated = orEmpty(attributes);
-        TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem, schemaRequest -> checkedSchema(
+        TokenProfileScopedRequestV2Dto scope = validatedScope(keyItem,
                 exportRequest -> keyManagementSyncApiClient.listExportKeyAttributes(connectorInfo, exportRequest),
-                schemaRequest), stated);
+                stated);
         ExportKeyRequestV2Dto request = keyScoped(new ExportKeyRequestV2Dto(), keyItem, scope);
         request.setKeyRequestType(heldKey.type());
         request.setKeyReference(heldKey.keyReference() == null ? null : heldKey.keyReference().toString());
@@ -1170,11 +1167,11 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
      * operation schema.
      */
     private TokenProfileScopedRequestV2Dto validatedScope(CryptographicKeyItemOperationModel keyItem,
-            ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> checkedSchemaCall,
-            List<RequestAttribute> attributes) throws ConnectorException, NotFoundException {
+            ConnectorCall<KeyScopedRequestV2Dto, List<BaseAttribute>> schemaCall, List<RequestAttribute> attributes)
+            throws ConnectorException, NotFoundException {
         TokenProfileScopedRequestV2Dto scope = keyOperationScoped(keyItem);
         KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), keyItem, scope);
-        List<BaseAttribute> definitions = checkedSchemaCall.call(request);
+        List<BaseAttribute> definitions = checkedSchema(schemaCall, request);
         AttributeDefinitionUtils.validateAttributes(definitions, attributes);
         return scope;
     }

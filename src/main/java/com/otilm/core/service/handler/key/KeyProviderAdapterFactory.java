@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.key;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -82,6 +83,21 @@ public class KeyProviderAdapterFactory {
     public KeyProviderAdapter forKeyItem(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
         Objects.requireNonNull(keyItem, "A key item is required to select a key-provider adapter.");
         return adapterFor(keyItem, KeyProviderAdapterFactory::keyItemScope);
+    }
+
+    /**
+     * Operations take their scope from the key's current row and are refused once it differs from the cached item's, so
+     * a node still holding the item cannot use the key in an old token or token profile.
+     */
+    public KeyProviderAdapter forKeyItemInUnchangedScope(CryptographicKeyItemOperationModel keyItem)
+            throws NotFoundException {
+        return forKeyItemInCurrentScope(keyItem, scope -> {
+            if (!Objects.equals(scope.tokenInstanceReferenceUuid(), keyItem.tokenInstanceReferenceUuid())
+                    || !Objects.equals(scope.tokenProfileUuid(), keyItem.tokenProfileUuid())) {
+                throw new ValidationException(
+                        "Key token or token profile association changed during the operation. Retry the operation.");
+            }
+        });
     }
 
     /**

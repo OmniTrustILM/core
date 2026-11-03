@@ -107,22 +107,32 @@ class KeyOperationCacheTest {
         }
 
         @Test
-        void readsEveryObjectAgain_afterAllAttributesAreForgotten() {
+        void readsAgainOnlyTheObjectsOfTheForgottenConnector() {
             // given
             when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenAnswer(read -> new ArrayList<>());
             UUID tokenUuid = UUID.randomUUID();
+            UUID otherConnectorUuid = UUID.randomUUID();
+            UUID otherConnectorsToken = UUID.randomUUID();
             cache.storedAttributes(Resource.TOKEN, tokenUuid, connectorUuid);
+            cache.storedAttributes(Resource.TOKEN, otherConnectorsToken, otherConnectorUuid);
 
             // when
-            cache.forgetAllAttributes();
+            cache.forgetConnector(connectorUuid);
             cache.storedAttributes(Resource.TOKEN, tokenUuid, connectorUuid);
+            cache.storedAttributes(Resource.TOKEN, otherConnectorsToken, otherConnectorUuid);
 
             // then
             verify(attributeEngine, times(2)).getStoredObjectDataAttributesContent(attributeScope(tokenUuid));
+            verify(attributeEngine)
+                    .getStoredObjectDataAttributesContent(attributeScope(otherConnectorsToken, otherConnectorUuid));
         }
 
         private ObjectAttributeContentInfo attributeScope(UUID tokenUuid) {
-            return ObjectAttributeContentInfo.builder(Resource.TOKEN, tokenUuid).connector(connectorUuid).build();
+            return attributeScope(tokenUuid, connectorUuid);
+        }
+
+        private static ObjectAttributeContentInfo attributeScope(UUID tokenUuid, UUID tokenConnectorUuid) {
+            return ObjectAttributeContentInfo.builder(Resource.TOKEN, tokenUuid).connector(tokenConnectorUuid).build();
         }
     }
 
@@ -260,19 +270,25 @@ class KeyOperationCacheTest {
         }
 
         @Test
-        void asksAgain_afterAllAttributesAreForgotten() throws Exception {
+        void asksAgainOnlyForTheForgottenConnector() throws Exception {
             // given
             UUID keyItemUuid = UUID.randomUUID();
+            ApiClientConnectorInfo otherConnector = connectorOf(UUID.randomUUID(), "http://other.test");
             KeyOperationCache.DefinitionsLoader loader = mock(KeyOperationCache.DefinitionsLoader.class);
+            KeyOperationCache.DefinitionsLoader otherConnectorsLoader = mock(KeyOperationCache.DefinitionsLoader.class);
             when(loader.load()).thenReturn(List.of());
+            when(otherConnectorsLoader.load()).thenReturn(List.of());
             signDefinitions(keyItemUuid, scope, loader);
+            signDefinitions(otherConnector, keyItemUuid, otherConnectorsLoader);
 
             // when
-            cache.forgetAllAttributes();
+            cache.forgetConnector(connectorUuid);
             signDefinitions(keyItemUuid, scope, loader);
+            signDefinitions(otherConnector, keyItemUuid, otherConnectorsLoader);
 
             // then
             verify(loader, times(2)).load();
+            verify(otherConnectorsLoader).load();
         }
 
         @Test
@@ -294,7 +310,7 @@ class KeyOperationCacheTest {
         }
 
         @Test
-        void asksAgain_whenAllAttributesAreForgottenDuringALoad() throws Exception {
+        void asksAgain_whenItsConnectorIsForgottenDuringALoad() throws Exception {
             // given
             UUID keyItemUuid = UUID.randomUUID();
             GatedLoader loader = new GatedLoader();
@@ -302,7 +318,7 @@ class KeyOperationCacheTest {
             loader.awaitEntered();
 
             // when
-            cache.forgetAllAttributes();
+            cache.forgetConnector(connectorUuid);
             loader.open();
             loading.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
             signDefinitions(keyItemUuid, scope, loader);
@@ -316,6 +332,12 @@ class KeyOperationCacheTest {
                 KeyOperationCache.DefinitionsLoader loader) throws ConnectorException {
             return cache
                     .signAttributeDefinitions(keyItemUuid, connector, cache.scopeRows(keyScope, connectorUuid), loader);
+        }
+
+        private List<BaseAttribute> signDefinitions(ApiClientConnectorInfo through, UUID keyItemUuid,
+                KeyOperationCache.DefinitionsLoader loader) throws ConnectorException {
+            KeyOperationCache.ScopeRows rows = cache.scopeRows(scope, UUID.fromString(through.getUuid()));
+            return cache.signAttributeDefinitions(keyItemUuid, through, rows, loader);
         }
 
         private UUID uuidOf(Resource object) {
@@ -373,7 +395,11 @@ class KeyOperationCacheTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private ApiClientConnectorInfo connectorAt(String url) {
-        return new ImmutableConnectorInfo(connectorUuid.toString(), "connector", url, ConnectorStatus.CONNECTED,
-                AuthType.NONE, List.of(), null);
+        return connectorOf(connectorUuid, url);
+    }
+
+    private static ApiClientConnectorInfo connectorOf(UUID uuid, String url) {
+        return new ImmutableConnectorInfo(uuid.toString(), "connector", url, ConnectorStatus.CONNECTED, AuthType.NONE,
+                List.of(), null);
     }
 }

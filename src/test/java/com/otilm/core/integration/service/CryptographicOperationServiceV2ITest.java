@@ -85,6 +85,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.security.auth.x500.X500Principal;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -98,6 +99,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -342,6 +344,26 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         assertEquals(KeyEventStatus.SUCCESS, onlyEvent(KeyEvent.DECRYPT).getStatus());
     }
 
+    @Test
+    void encryptData_refusesAKeyMovedToAnotherProfile_behindTheCache() throws Exception {
+        // given
+        connectorMock
+                .stubOperationAttributes("encrypt", cipherSchema())
+                .stubOperation("encrypt",
+                        "{\"encryptedData\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+        encryptInTheOriginalProfile();
+        moveKeyToAnotherProfileBehindTheCache();
+
+        // when
+        ThrowingCallable encrypt = this::encryptInTheOriginalProfile;
+
+        // then
+        assertThatThrownBy(encrypt)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Key token or token profile association changed during the operation.");
+        connectorMock.verifyOperationRequestsContaining("encrypt", 1, cipherAlgorithmSelection());
+    }
+
     private static CipherDataRequestDto cipherRequest() {
         CipherDataRequestDto request = new CipherDataRequestDto();
         request.setCipherAttributes(List.of(EncryptionAlgorithmAttribute.request(CIPHER_ALGORITHM)));
@@ -581,6 +603,25 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
+        void keepsSigningInTheCachedScope_whenTheKeyMovesBehindTheCache() throws Exception {
+            // given
+            stubSigning();
+            signWithoutEventHistory();
+            moveKeyToAnotherProfileBehindTheCache();
+
+            // when
+            SqlCapture.Captured<SignDataResponseDto> warm = SqlCapture.during(this::signWithoutEventHistory);
+
+            // then
+            assertThat(warm.result().getSignatures().get(0).getData()).isEqualTo(SIGNATURE);
+            assertThat(warm.statements()).isEmpty();
+            connectorMock
+                    .verifyOperationRequestsContaining("sign", 2,
+                            "{\"tokenProfileAttributes\":[{\"name\":\"profile-policy\","
+                                    + "\"content\":[{\"data\":\"signing\"}]}]}");
+        }
+
+        @Test
         void asksForTheSignSchemaAgain_afterTheKeyItemIsEdited() throws Exception {
             // given
             stubSigning();
@@ -777,6 +818,18 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         value.setTokenProfile(profile);
         value.setTokenInstanceReference(token);
         return cryptographicKeyRepository.save(value);
+    }
+
+    private EncryptDataResponseDto encryptInTheOriginalProfile() throws Exception {
+        return operationService
+                .encryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                        privateKey.getUuid(), cipherRequest());
+    }
+
+    /** Moves the key as another node would, leaving this node's cached key item in place. */
+    private void moveKeyToAnotherProfileBehindTheCache() {
+        key.setTokenProfile(persistProfile(List.of(KeyUsage.SIGN, KeyUsage.ENCRYPT)));
+        key = cryptographicKeyRepository.save(key);
     }
 
     private CryptographicKeyItem persistKeyItem(KeyType type, String opaqueHandle) {

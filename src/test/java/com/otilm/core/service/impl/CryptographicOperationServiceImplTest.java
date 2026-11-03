@@ -518,11 +518,11 @@ class CryptographicOperationServiceImplTest {
     @ParameterizedTest(name = "{0}")
     @MethodSource("operationAttributeListings")
     void listOperationAttributes_delegatesToItsOwnAdapterCall(AdapterListing adapterListing,
-            ServiceListing serviceListing) throws Exception {
+            ServiceListing serviceListing, AdapterSelection adapterSelection) throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
+        when(adapterSelection.select(keyProviderAdapterFactory, key)).thenReturn(adapter);
         List<BaseAttribute> schema = List.of(new DataAttributeV2());
         when(adapterListing.list(adapter)).thenReturn(schema);
 
@@ -540,16 +540,26 @@ class CryptographicOperationServiceImplTest {
         return Stream
                 .of(Arguments
                         .of(named("encrypt", (AdapterListing) listing -> listing.listEncryptAttributes(any())),
-                                (ServiceListing) CryptographicOperationServiceImpl::listEncryptAttributes),
+                                (ServiceListing) CryptographicOperationServiceImpl::listEncryptAttributes,
+                                (AdapterSelection) KeyProviderAdapterFactory::forKeyItemInUnchangedScope),
                         Arguments
                                 .of(named("decrypt", (AdapterListing) listing -> listing.listDecryptAttributes(any())),
-                                        (ServiceListing) CryptographicOperationServiceImpl::listDecryptAttributes),
+                                        (ServiceListing) CryptographicOperationServiceImpl::listDecryptAttributes,
+                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItemInUnchangedScope),
                         Arguments
                                 .of(named("sign", (AdapterListing) listing -> listing.listSignAttributes(any())),
-                                        (ServiceListing) CryptographicOperationServiceImpl::listSignAttributes),
+                                        (ServiceListing) CryptographicOperationServiceImpl::listSignAttributes,
+                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItem),
                         Arguments
                                 .of(named("verify", (AdapterListing) listing -> listing.listVerifyAttributes(any())),
-                                        (ServiceListing) CryptographicOperationServiceImpl::listVerifyAttributes));
+                                        (ServiceListing) CryptographicOperationServiceImpl::listVerifyAttributes,
+                                        (AdapterSelection) KeyProviderAdapterFactory::forKeyItem));
+    }
+
+    @FunctionalInterface
+    interface AdapterSelection {
+        KeyProviderAdapter select(KeyProviderAdapterFactory factory, CryptographicKeyItemOperationModel key)
+                throws NotFoundException;
     }
 
     @FunctionalInterface
