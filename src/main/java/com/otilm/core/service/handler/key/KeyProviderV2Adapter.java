@@ -1236,7 +1236,10 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 throw new ConnectorException("Connector returned an identifier that was not part of the request.", e,
                         connector);
             }
-            if (position < 0 || position >= callerIdentifiers.size()) {
+            // parseInt also reads "+1", "01" and non-ASCII digits, none of which Core sent.
+            boolean sent = position >= 0 && position < callerIdentifiers.size()
+                    && Integer.toString(position).equals(positionalIdentifier);
+            if (!sent) {
                 throw new ConnectorException("Connector returned an identifier that was not part of the request.",
                         connector);
             }
