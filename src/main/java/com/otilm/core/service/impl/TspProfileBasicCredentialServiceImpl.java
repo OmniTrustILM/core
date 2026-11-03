@@ -244,8 +244,7 @@ public class TspProfileBasicCredentialServiceImpl
         secretRequest.setSecret(new BasicAuthSecretContent(username, password));
         try {
             SecretDetailDto created = secretService
-                    .createSecret(secretRequest, SecuredParentUUID.fromUUID(vaultProfile.getUuid()),
-                            SecuredUUID.fromUUID(vaultInstanceUuid));
+                    .createSecret(secretRequest, SecuredParentUUID.fromUUID(vaultInstanceUuid), vaultProfile.getUuid());
             return UUID.fromString(created.getUuid());
         } catch (ConnectorException e) {
             throw vaultUnavailable("create", profile.getUuid().toString(), e);

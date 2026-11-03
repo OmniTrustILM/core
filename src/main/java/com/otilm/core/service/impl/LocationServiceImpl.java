@@ -1157,7 +1157,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         }
         // Parent Permission evaluation - Entity Instance
         authorizationEnforcer
-                .enforce(Resource.AUTHORITY, ResourceAction.DETAIL,
+                .enforce(Resource.ENTITY, ResourceAction.DETAIL,
                         location.getEntityInstanceReference().getSecuredUuid());
 
     }

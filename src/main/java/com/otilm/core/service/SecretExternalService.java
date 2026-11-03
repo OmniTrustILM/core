@@ -16,7 +16,6 @@ import com.otilm.api.model.core.secret.SecretUpdateObjectsDto;
 import com.otilm.api.model.core.secret.SecretUpdateRequestDto;
 import com.otilm.api.model.core.secret.SecretVersionDto;
 import com.otilm.core.security.authz.SecuredParentUUID;
-import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import java.util.List;
 import java.util.UUID;
@@ -27,8 +26,8 @@ public interface SecretExternalService {
 
     PaginationResponseDto<SecretDto> listSecrets(SearchRequestDto searchRequest, SecurityFilter securityFilter);
 
-    SecretDetailDto createSecret(SecretRequestDto secretRequest, SecuredParentUUID securedParentUUID,
-            SecuredUUID securedUUID)
+    SecretDetailDto createSecret(SecretRequestDto secretRequest, SecuredParentUUID vaultInstanceUuid,
+            UUID sourceVaultProfileUuid)
             throws NotFoundException, AttributeException, AlreadyExistException, ConnectorException;
 
     SecretDetailDto updateSecret(UUID uuid, SecretUpdateRequestDto secretRequest)
