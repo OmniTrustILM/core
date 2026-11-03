@@ -64,7 +64,7 @@ class ScepRequestDecryptionTest {
     private ScepRequest request;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void buildEnvelopedRequestAndStubAdapter() throws Exception {
         Security.addProvider(new BouncyCastleProvider());
         caKeyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
         X509Certificate caCertificate = CertificateTestUtil.generateRandomX509Certificate(caKeyPair);

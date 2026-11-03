@@ -11,7 +11,9 @@ import com.otilm.api.model.common.attribute.common.content.data.CodeBlockAttribu
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.ProgrammingLanguageEnum;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
@@ -120,6 +122,37 @@ class OutboundSecretContainmentTest {
 
         // then
         assertThat(expandedSecrets).containsExactly(credentialPassword);
+    }
+
+    @Test
+    void recordsTheTextValue_ofACredentialAttributeStoredEncrypted() {
+        // given
+        var credentialPin = "4815162342";
+        var resolved = List
+                .of(resolvedAttribute("token-login",
+                        credentialHolding(credentialAttribute("pin", ProtectionLevel.ENCRYPTED, credentialPin))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(credentialPin);
+    }
+
+    @Test
+    void leavesOutTheValue_ofACredentialAttributeStoredInPlain() {
+        // given
+        var resolved = List
+                .of(resolvedAttribute("token-login",
+                        credentialHolding(credentialAttribute("user", ProtectionLevel.NONE, "hsm-operator"))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).isEmpty();
     }
 
     @Test
@@ -411,6 +444,25 @@ class OutboundSecretContainmentTest {
     /** Decryption returns a protected row's data in a base content, whatever the content type. */
     private static BaseAttributeContentV2<Serializable> decryptedContent(Serializable data) {
         return new BaseAttributeContentV2<>(null, data);
+    }
+
+    /** A credential attribute as its expansion returns it, decrypted whatever its protection level. */
+    private static DataAttributeV2 credentialAttribute(String name, ProtectionLevel protectionLevel, String value) {
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setProtectionLevel(protectionLevel);
+        DataAttributeV2 attribute = new DataAttributeV2();
+        attribute.setName(name);
+        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setProperties(properties);
+        attribute.setContent(List.of(decryptedContent(value)));
+        return attribute;
+    }
+
+    private static CredentialAttributeContentV2 credentialHolding(DataAttributeV2 attribute) {
+        CredentialAttributeContentData credential = new CredentialAttributeContentData();
+        credential.setName("hsm-login");
+        credential.setAttributes(List.of(attribute));
+        return new CredentialAttributeContentV2("hsm-login", credential);
     }
 
     private static FileAttributeContentData fileData(String content, String fileName, String mimeType) {

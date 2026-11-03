@@ -8,9 +8,11 @@ import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.data.CodeBlockAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
@@ -72,8 +74,9 @@ public class OutboundSecretContainment {
     /**
      * Record the secret leaf values materialized by expanding {@code blob}, so a later echo of them in the connector's
      * response can be detected. Records ONLY genuinely secret-typed leaves — a {@link ResourceSecretContentData}'s
-     * inline {@link SecretContent} and a {@link SecretAttributeContentData}'s {@code secret} — never benign metadata,
-     * so the value-echo check cannot false-positive on a public value.
+     * inline {@link SecretContent}, a {@link SecretAttributeContentData}'s {@code secret}, and the text, file body or
+     * code of a data attribute stored encrypted, which expansion decrypts — never benign metadata, so the value-echo
+     * check cannot false-positive on a public value.
      * <p>
      * A credential/authority blob is a {@link ResourceSimpleContentData}, not a {@link ResourceSecretContentData}: its
      * secret material surfaces as a {@link SecretAttributeContentV2} nested in its attributes. Walking the blob with
@@ -154,7 +157,17 @@ public class OutboundSecretContainment {
             collectScalarStrings(tree, sink);
         } else if (node instanceof SecretAttributeContentData data) {
             addIfPresent(data.getSecret(), sink);
+        } else if (node instanceof DataAttribute attribute && isStoredEncrypted(attribute)) {
+            List<? extends AttributeContent> content = attribute.getContent();
+            if (content != null) {
+                content.forEach(item -> addIfPresent(protectedText(item.getData()), sink));
+            }
         }
+    }
+
+    private static boolean isStoredEncrypted(DataAttribute attribute) {
+        return attribute.getProperties() != null
+                && attribute.getProperties().getProtectionLevel() == ProtectionLevel.ENCRYPTED;
     }
 
     private static void addIfPresent(String value, Set<String> sink) {

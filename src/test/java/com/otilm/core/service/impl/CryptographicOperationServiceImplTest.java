@@ -63,6 +63,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -517,7 +518,7 @@ class CryptographicOperationServiceImplTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("operationAttributeListings")
-    void listOperationAttributes_delegatesToItsOwnAdapterCall(AdapterListing adapterListing,
+    void delegatesToItsOwnAdapterCall_whenListingOperationAttributes(AdapterListing adapterListing,
             ServiceListing serviceListing, AdapterSelection adapterSelection) throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
@@ -532,7 +533,7 @@ class CryptographicOperationServiceImplTest {
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid());
 
         // then
-        assertSame(schema, result);
+        assertThat(result).isSameAs(schema);
         verifyNoInteractions(eventHistoryService);
     }
 
