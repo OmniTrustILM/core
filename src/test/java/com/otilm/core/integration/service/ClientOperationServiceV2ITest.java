@@ -103,6 +103,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
+import com.otilm.core.messaging.jms.listeners.poll.PendingIssueReaper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.compliance.ComplianceResultDto;
@@ -142,6 +143,8 @@ import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
@@ -289,6 +292,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PendingIssueReaper pendingIssueReaper;
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
     @Autowired
@@ -2499,6 +2505,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(CertificateState.PENDING_ISSUE, fetched.getState(),
                         "a duplicate ISSUE for a cert already claimed to PENDING_ISSUE must leave it in PENDING_ISSUE, not FAILED");
+        Assertions
+                .assertNull(fetched.getPendingIssueClaimedAt(),
+                        "a skipped duplicate ISSUE must not stamp a claim the reaper could later fail");
 
         mockServer
                 .verify(0, WireMock
@@ -3631,6 +3640,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
      * mismatch branch.
      */
     private KeyPair setupPendingIssueCertWithRealCsr() throws Exception {
+        return setupCertWithRealCsr(CertificateState.PENDING_ISSUE);
+    }
+
+    private KeyPair setupCertWithRealCsr(CertificateState state) throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
         KeyPair kp = kpg.generateKeyPair();
@@ -3652,7 +3665,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
-        certificate.setState(CertificateState.PENDING_ISSUE);
+        certificate.setState(state);
         certificate.setCertificateRequest(csrEntity);
         certificate.setCertificateRequestUuid(csrEntity.getUuid());
         certificateRepository.save(certificate);
@@ -3691,6 +3704,53 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.ISSUED, fetched.getState());
+    }
+
+    /**
+     * An authority that completes issuance out-of-band answers 202 and cannot be polled. The certificate must wait in
+     * PENDING_ISSUE however long the operator takes, and stay finalizable by upload.
+     */
+    @Test
+    void outOfBandIssueSurvivesTheReaperAndCanBeFinalized() throws Exception {
+        KeyPair kp = setupCertWithRealCsr(CertificateState.REQUESTED);
+        UUID certUuid = certificate.getUuid();
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                        .willReturn(WireMock.aResponse().withStatus(202)));
+
+        clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+        Certificate parked = certificateRepository.findByUuid(certUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, parked.getState());
+        Assertions.assertNull(parked.getPendingIssueClaimedAt(), "the authority answered, so no claim is left");
+
+        // Days pass before the operator gets to it — far beyond reap-stale-after.
+        new JdbcTemplate(dataSource)
+                .update("UPDATE certificate SET i_upd = ? WHERE uuid = ?",
+                        OffsetDateTime.now(ZoneOffset.UTC).minusDays(2), certUuid);
+        pendingIssueReaper.reapStaleOrphans();
+
+        Assertions
+                .assertEquals(CertificateState.PENDING_ISSUE,
+                        certificateRepository.findByUuid(certUuid).orElseThrow().getState(),
+                        "a request waiting for out-of-band completion must not be failed by the reaper");
+
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/identify"))
+                        .willReturn(WireMock.okJson("{\"meta\":[]}")));
+        ManuallyIssueCertificateRequestDto req = new ManuallyIssueCertificateRequestDto();
+        req.setCertificate(buildSelfSignedCertBase64(kp, "test-pending-issue"));
+        req.setCustomAttributes(List.of());
+
+        clientOperationService
+                .manuallyIssueCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                        raProfile.getSecuredUuid(), certUuid.toString(), req);
+
+        Assertions
+                .assertEquals(CertificateState.ISSUED,
+                        certificateRepository.findByUuid(certUuid).orElseThrow().getState());
     }
 
     @Test
