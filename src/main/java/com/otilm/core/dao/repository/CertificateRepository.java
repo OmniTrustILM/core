@@ -223,9 +223,8 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             @Param("skipStatuses") List<CertificateValidationStatus> skipStatuses,
             @Param("platformEnabled") boolean platformEnabled, Pageable pageable);
 
-    // Pending-issue reaper: certificates whose synchronous connector call never returned — the claim stamp written
-    // with the move to PENDING_ISSUE was never cleared. The poll-row condition is a guard: a pollable 202 whose
-    // best-effort clear failed belongs to the poller.
+    // Pending-issue reaper: stale claims, i.e. synchronous connector calls that never returned. The poll-row condition
+    // leaves a pollable 202 whose claim clear failed to the poller.
     @Query("""
             SELECT c.uuid FROM Certificate c
                 WHERE c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}

@@ -7,10 +7,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Clears a certificate's pending-issue claim stamp once the authority has answered but the certificate stays in
- * {@code PENDING_ISSUE} (accepted asynchronously, or parked after a local failure). Runs in its own transaction: the
- * caller holds none after the connector call, and this write must not be able to roll back work the caller already
- * committed.
+ * Clears a certificate's pending-issue claim stamp while it is still in {@code PENDING_ISSUE}. Runs in its own
+ * {@code REQUIRES_NEW} transaction, since the callers hold none after the connector call.
  */
 @Component
 public class CertificatePendingIssueClaimWriter {

@@ -1414,7 +1414,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
-            // state via the state machine. The claim stamp commits with the move.
+            // state via the state machine.
             certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
@@ -1479,8 +1479,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * Records the authority's answer to an issue: parks the certificate on an asynchronous acceptance, or records the
-     * certificate it returned. Steps that follow a recorded certificate are the caller's, after its accepted-failure
-     * handling, so a failure there is never reported as a failure to complete issuance.
+     * certificate it returned. The caller runs the post-issue steps after its own failure handling, so their failure is
+     * never reported as a failed issuance.
      *
      * @return {@code true} when the certificate was issued synchronously
      */
@@ -2255,7 +2255,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
-            // uniform PENDING_ISSUE state via the state machine. The claim stamp commits with the move.
+            // uniform PENDING_ISSUE state via the state machine.
             certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
@@ -2514,7 +2514,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
-            // uniform PENDING_ISSUE state via the state machine. The claim stamp commits with the move.
+            // uniform PENDING_ISSUE state via the state machine.
             certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
@@ -2830,10 +2830,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             .build();
 
     /**
-     * The authority has answered but the certificate stays in {@code PENDING_ISSUE} (accepted asynchronously, or parked
-     * after a local failure), so its claim stamp must no longer mark an unanswered call. Nulls the stamp on the held
-     * instance too, so a later save of it cannot write the stamp back. Best-effort: the authority has accepted, so a
-     * failure here must not fail the operation — it leaves the certificate to the reaper.
+     * Clears the claim stamp of a certificate the authority answered but that stays in {@code PENDING_ISSUE} (accepted
+     * asynchronously, or parked after a local failure), on the held instance too so a later save cannot write it back.
+     * Best-effort: the authority has accepted, so a failure is logged and leaves the certificate to the reaper.
      */
     private void clearPendingIssueClaimBestEffort(Certificate certificate) {
         certificate.setPendingIssueClaimedAt(null);

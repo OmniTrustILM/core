@@ -4746,11 +4746,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     // ── PendingIssueClaim ─────────────────────────────────────────────────────
 
-    /**
-     * The claim stamp marks a synchronous connector call whose answer has not been recorded yet: it is set when the
-     * certificate moves to PENDING_ISSUE and cleared once the authority answers, so only a call that never returned is
-     * left for the reaper.
-     */
     @Nested
     class PendingIssueClaim {
 

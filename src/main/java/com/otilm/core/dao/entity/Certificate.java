@@ -317,11 +317,10 @@ public class Certificate extends UniquelyIdentifiedAndAudited
     private List<RequestAttribute> pendingRevokeAttributes;
 
     /**
-     * When a synchronous issue, renew or rekey call to the authority started. Set together with the move to
-     * {@code PENDING_ISSUE} and cleared once the authority's answer is recorded, so a value that goes stale marks a
-     * call that never returned — the only certificates the pending-issue reaper fails. Cleared when the certificate
-     * leaves {@code PENDING_ISSUE}; a node on an older version during a rolling upgrade does not clear it, so readers
-     * always check the state too.
+     * When a synchronous issue, renew or rekey call to the authority started. Set with the move to
+     * {@code PENDING_ISSUE} and cleared once the authority's answer is recorded or the certificate leaves that state,
+     * so a stale value marks a call that never returned: the only certificates the pending-issue reaper fails. A node
+     * on an older version does not clear it during a rolling upgrade, so readers check the state too.
      */
     @Column(name = "pending_issue_claimed_at")
     private OffsetDateTime pendingIssueClaimedAt;

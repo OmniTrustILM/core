@@ -17,8 +17,8 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The claim-clear writer runs a guarded update: it clears the stamp only while the certificate is still in
- * PENDING_ISSUE. The stamp is read and written over JDBC so the assertions see the committed column, not an entity.
+ * Integration coverage for {@link CertificatePendingIssueClaimWriter}. The stamp is read and written over JDBC so the
+ * assertions see the committed column, not an entity.
  */
 class CertificatePendingIssueClaimWriterITest extends BaseSpringBootTest {
 

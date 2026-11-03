@@ -156,11 +156,10 @@ provider:
     sweep-interval-ms: ${PROVIDER_STATUS_POLL_SWEEP_INTERVAL_MS:10000}
     sweep-batch-size: ${PROVIDER_STATUS_POLL_SWEEP_BATCH_SIZE:200}
     sweep-max-batches-per-run: ${PROVIDER_STATUS_POLL_SWEEP_MAX_BATCHES_PER_RUN:10}
-    # How long a synchronous issue/renew/rekey call to the authority may stay unanswered (a crash)
-    # before the reaper fails its certificate; certificates the authority answered are not reaped,
-    # unless clearing their claim failed.
-    # Must exceed three connector calls at the connector timeouts configured, for the secret reads that
-    # precede the request (checked at startup).
+    # How long a synchronous issue/renew/rekey call may stay unanswered (Core stopped mid-call)
+    # before the reaper fails its certificate. Certificates the authority answered are not reaped,
+    # unless clearing their claim failed. Must exceed three connector calls at the configured
+    # connector timeouts (secret reads, then the request); checked at startup.
     reap-stale-after: ${PROVIDER_STATUS_POLL_REAP_STALE_AFTER:PT30M}
     defaults:
       delays:

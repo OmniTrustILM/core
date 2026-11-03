@@ -38,10 +38,6 @@ class PendingIssueReaperTimingCheckTest {
         assertThatCode(checkTimings).doesNotThrowAnyException();
     }
 
-    /**
-     * The reaper fails a certificate whose claim is older than reap-stale-after, which must only ever mean the
-     * synchronous phase is gone: reading the vault-backed secrets of the authority and RA profile, then the request.
-     */
     @Test
     void refuses_whenSecretReadsAndTheRequestCouldOutlastTheReapDelay() {
         // given — at the default timeouts one connector call can take 48 s

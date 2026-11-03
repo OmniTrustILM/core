@@ -26,10 +26,8 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration coverage for {@link PendingIssueReaper}: only a certificate whose synchronous connector call never
- * returned - still in PENDING_ISSUE with a stale claim stamp and no status-poll row - is failed. Certificates the
- * authority answered (no stamp), fresh claims, claims owned by the poller, and other states are left alone. The stamp
- * and {@code i_upd} are written directly, since {@code @UpdateTimestamp} would otherwise stamp {@code i_upd} to now.
+ * Integration coverage for {@link PendingIssueReaper}. The claim stamp and {@code i_upd} are written directly, since
+ * {@code @UpdateTimestamp} would otherwise stamp {@code i_upd} to now.
  */
 class PendingIssueReaperITest extends BaseSpringBootTest {
 

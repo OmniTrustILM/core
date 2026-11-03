@@ -21,11 +21,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * Fails certificates left orphaned in {@link CertificateState#PENDING_ISSUE} by a crash during a synchronous
- * issue/renew/rekey call to the authority. The claim stamp ({@code pending_issue_claimed_at}) commits together with the
- * move to PENDING_ISSUE and is cleared once the authority's answer is recorded, so a stamp older than
- * {@code reap-stale-after} marks a call that never returned. Re-drive is impossible (the connector response is lost),
- * so such an orphan is moved to FAILED. A reaped renew/rekey successor also has its PENDING predecessor relation
- * dropped — the caller-side cleanup the state machine does not perform.
+ * issue/renew/rekey call to the authority: those whose claim stamp ({@code pending_issue_claimed_at}) is older than
+ * {@code reap-stale-after}. Re-drive is impossible (the connector response is lost), so such an orphan is moved to
+ * FAILED. A reaped renew/rekey successor also has its PENDING predecessor relation dropped — the caller-side cleanup
+ * the state machine does not perform.
  *
  * <p>
  * A certificate without a stamp is never reaped: the authority answered — accepted asynchronously and waiting for
