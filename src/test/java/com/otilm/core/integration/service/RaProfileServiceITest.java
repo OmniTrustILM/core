@@ -51,6 +51,7 @@ import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.RaProfileProtocolAttribute;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
@@ -65,9 +66,11 @@ import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
+import com.otilm.core.dao.repository.RaProfileProtocolAttributeRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -76,18 +79,37 @@ import com.otilm.core.service.ApprovalProfileExternalService;
 import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.LockContention;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.WireMockResponseGate;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.concurrent.DelegatingSecurityContextCallable;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+import static org.awaitility.Awaitility.await;
 
 class RaProfileServiceITest extends ApprovalProfileData {
 
@@ -124,6 +146,12 @@ class RaProfileServiceITest extends ApprovalProfileData {
     private ScepProfileRepository scepProfileRepository;
     @Autowired
     private CmpProfileRepository cmpProfileRepository;
+    @Autowired
+    private RaProfileProtocolAttributeRepository raProfileProtocolAttributeRepository;
+    @Autowired
+    private LockContention lockContention;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
@@ -138,10 +166,11 @@ class RaProfileServiceITest extends ApprovalProfileData {
     private Connector connector;
 
     private WireMockServer mockServer;
+    private final WireMockResponseGate responseGate = new WireMockResponseGate();
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(LoopbackWireMock.options());
+        mockServer = new WireMockServer(LoopbackWireMock.options().extensions(responseGate));
         mockServer.start();
 
         WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
@@ -481,7 +510,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
 
     @Test
     void testEnableRaProfile() throws NotFoundException {
-        raProfileService.enableRaProfile(raProfile.getSecuredParentUuid(), raProfile.getSecuredUuid());
+        raProfileService.enableRaProfile(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid());
         Assertions.assertEquals(true, raProfile.getEnabled());
     }
 
@@ -490,13 +519,14 @@ class RaProfileServiceITest extends ApprovalProfileData {
         Assertions
                 .assertThrows(NotFoundException.class,
                         () -> raProfileService
-                                .enableRaProfile(raProfile.getSecuredParentUuid(),
+                                .enableRaProfile(authorityInstanceReference.getSecuredParentUuid(),
                                         SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
     }
 
     @Test
     void testDisableRaProfile() throws NotFoundException {
-        raProfileService.disableRaProfile(raProfile.getSecuredParentUuid(), raProfile.getSecuredUuid());
+        raProfileService
+                .disableRaProfile(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid());
         Assertions.assertFalse(raProfileService.getRaProfile(raProfile.getSecuredUuid()).getEnabled());
     }
 
@@ -505,7 +535,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
         Assertions
                 .assertThrows(NotFoundException.class,
                         () -> raProfileService
-                                .disableRaProfile(raProfile.getSecuredParentUuid(),
+                                .disableRaProfile(authorityInstanceReference.getSecuredParentUuid(),
                                         SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002")));
     }
 
@@ -708,6 +738,22 @@ class RaProfileServiceITest extends ApprovalProfileData {
     }
 
     @Test
+    void testListRevokeCertificateAttributes() throws ConnectorException, NotFoundException {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+
+        List<BaseAttribute> attributes = raProfileService
+                .listRevokeCertificateAttributes(authorityInstanceReference.getSecuredParentUuid(),
+                        raProfile.getSecuredUuid());
+
+        Assertions.assertEquals(List.of(), attributes);
+    }
+
+    @Test
     void testListRenewCertificateAttributes_resolvesEmptyOnV2Authority() throws ConnectorException, NotFoundException {
         // A v2 authority has no renew schema endpoint; resolution is empty without any connector call.
         Assertions
@@ -812,4 +858,270 @@ class RaProfileServiceITest extends ApprovalProfileData {
                                 .getContent()).getFirst().getData());
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("authorityScopedCalls")
+    void testAuthorityScopedCall_refusesAnRaProfileUnderAnotherAuthority(String endpoint, AuthorityScopedCall call) {
+        SecuredParentUUID otherAuthorityUuid = anotherAuthority().getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+
+        NotFoundException refusal = Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> call.call(raProfileService, otherAuthorityUuid, raProfileUuid));
+
+        Assertions
+                .assertTrue(refusal.getMessage().contains(raProfile.getUuid().toString()),
+                        endpoint + ": " + refusal.getMessage());
+        RaProfile unchanged = reloadedRaProfile();
+        Assertions.assertTrue(unchanged.getEnabled());
+        Assertions.assertEquals(authorityInstanceReference.getUuid(), unchanged.getAuthorityInstanceReferenceUuid());
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("callsWithoutConnector")
+    void testAuthorityScopedCall_acceptsAnRaProfileUnderItsOwnAuthority(String endpoint, AuthorityScopedCall call) {
+        SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+
+        Assertions.assertDoesNotThrow(() -> call.call(raProfileService, authorityUuid, raProfileUuid), endpoint);
+    }
+
+    @Test
+    void testDeactivateProtocols_clearsEachActivation() throws NotFoundException {
+        RaProfileProtocolAttribute protocolAttribute = new RaProfileProtocolAttribute();
+        protocolAttribute.setRaProfile(raProfile);
+        raProfileProtocolAttributeRepository.save(protocolAttribute);
+        raProfile.setAcmeProfile(acmeProfileRepository.save(new AcmeProfile()));
+        raProfile.setScepProfile(scepProfileRepository.save(new ScepProfile()));
+        raProfile.setCmpProfile(cmpProfileRepository.save(new CmpProfile()));
+        raProfile = raProfileRepository.save(raProfile);
+        SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+
+        raProfileService.deactivateAcmeForRaProfile(authorityUuid, raProfileUuid);
+        raProfileService.deactivateScepForRaProfile(authorityUuid, raProfileUuid);
+        raProfileService.deactivateCmpForRaProfile(authorityUuid, raProfileUuid);
+
+        RaProfile deactivated = reloadedRaProfile();
+        Assertions.assertNull(deactivated.getAcmeProfileUuid());
+        Assertions.assertNull(deactivated.getScepProfileUuid());
+        Assertions.assertNull(deactivated.getCmpProfileUuid());
+    }
+
+    @Test
+    void testEditRaProfile_movesTheRaProfileToTheAuthorityInThePath()
+            throws ConnectorException, AttributeException, NotFoundException {
+        stubRaProfileAttributeValidation();
+        AuthorityInstanceReference otherAuthority = anotherAuthority();
+
+        raProfileService
+                .editRaProfile(otherAuthority.getSecuredParentUuid(), raProfile.getSecuredUuid(), editRequest());
+
+        Assertions.assertEquals(otherAuthority.getUuid(), reloadedRaProfile().getAuthorityInstanceReferenceUuid());
+    }
+
+    @Test
+    void testEditRaProfile_refusesTheMoveWithoutDetailOnTheAuthorityItLeaves() {
+        SecuredParentUUID otherAuthorityUuid = anotherAuthority().getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        EditRaProfileRequestDto request = editRequest();
+        denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL, authorityInstanceReference.getUuid());
+
+        Assertions
+                .assertThrows(AccessDeniedException.class,
+                        () -> raProfileService.editRaProfile(otherAuthorityUuid, raProfileUuid, request));
+
+        Assertions
+                .assertEquals(authorityInstanceReference.getUuid(),
+                        reloadedRaProfile().getAuthorityInstanceReferenceUuid());
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void testEditRaProfile_refusesTheEditWhenAnotherRequestMovedTheRaProfileMeanwhile() throws Exception {
+        stubRaProfileAttributeValidation();
+        SecuredParentUUID targetAuthorityUuid = anotherAuthority().getSecuredParentUuid();
+        AuthorityInstanceReference movedTo = authority("3l");
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        EditRaProfileRequestDto request = editRequest();
+        CountDownLatch release = responseGate.hold();
+
+        try (ExecutorService editor = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            Future<RaProfileDto> edit = editor
+                    .submit(() -> raProfileService.editRaProfile(targetAuthorityUuid, raProfileUuid, request));
+            await()
+                    .atMost(5, TimeUnit.SECONDS)
+                    .until(() -> mockServer
+                            .countRequestsMatching(WireMock
+                                    .postRequestedFor(WireMock
+                                            .urlPathMatching(
+                                                    "/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
+                                    .build())
+                            .getCount() == 1);
+            RaProfile moved = reloadedRaProfile();
+            moved.setAuthorityInstanceReference(movedTo);
+            raProfileRepository.save(moved);
+            release.countDown();
+
+            ExecutionException failure = Assertions
+                    .assertThrows(ExecutionException.class, () -> edit.get(10, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(ValidationException.class, failure.getCause());
+        }
+
+        Assertions.assertEquals(movedTo.getUuid(), reloadedRaProfile().getAuthorityInstanceReferenceUuid());
+    }
+
+    @Test
+    void testEditRaProfile_waitsForTheRowLockAndRefusesTheEditWhenTheHolderMovesTheRaProfile() {
+        stubRaProfileAttributeValidation();
+        UUID movedTo = authority("3l").getUuid();
+        SecuredParentUUID ownAuthorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        EditRaProfileRequestDto unchangedColumns = new EditRaProfileRequestDto();
+        unchangedColumns.setAttributes(List.of());
+
+        Future<RaProfileDto> edit = lockContention
+                .callBlockedBy(
+                        () -> jdbcTemplate
+                                .update("UPDATE ra_profile SET authority_instance_ref_uuid = ? WHERE uuid = ?", movedTo,
+                                        raProfile.getUuid()),
+                        DelegatingSecurityContextCallable
+                                .create(() -> raProfileService
+                                        .editRaProfile(ownAuthorityUuid, raProfileUuid, unchangedColumns),
+                                        SecurityContextHolder.getContext()));
+
+        ExecutionException failure = Assertions
+                .assertThrows(ExecutionException.class, () -> edit.get(10, TimeUnit.SECONDS));
+        Assertions.assertInstanceOf(ValidationException.class, failure.getCause());
+        Assertions.assertEquals(movedTo, reloadedRaProfile().getAuthorityInstanceReferenceUuid());
+    }
+
+    @Test
+    void testEditRaProfile_placesAnRaProfileWithoutAuthorityUnderTheAuthorityInThePath()
+            throws ConnectorException, AttributeException, NotFoundException {
+        stubRaProfileAttributeValidation();
+        raProfile.setAuthorityInstanceReference(null);
+        raProfile = raProfileRepository.save(raProfile);
+
+        raProfileService
+                .editRaProfile(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        editRequest());
+
+        Assertions
+                .assertEquals(authorityInstanceReference.getUuid(),
+                        reloadedRaProfile().getAuthorityInstanceReferenceUuid());
+    }
+
+    @FunctionalInterface
+    private interface AuthorityScopedCall {
+        void call(RaProfileExternalService service, SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid)
+                throws Exception;
+    }
+
+    private static Stream<Arguments> authorityScopedCalls() {
+        SecuredUUID otherProfileUuid = SecuredUUID.fromUUID(UUID.randomUUID());
+        return Stream
+                .of(call("get", RaProfileExternalService::getRaProfile),
+                        call("update validation",
+                                (service, authority, profile) -> service
+                                        .updateRaProfileValidationConfiguration(authority, profile,
+                                                new RaProfileCertificateValidationSettingsUpdateDto())),
+                        call("update request attributes",
+                                (service, authority, profile) -> service
+                                        .updateRaProfileRequestAttributesConfiguration(authority, profile,
+                                                new RaProfileCertificateRequestAttributesUpdateDto())),
+                        call("delete", RaProfileExternalService::deleteRaProfile),
+                        call("enable", RaProfileExternalService::enableRaProfile),
+                        call("disable", RaProfileExternalService::disableRaProfile),
+                        call("get ACME", RaProfileExternalService::getAcmeForRaProfile),
+                        call("activate ACME",
+                                (service, authority, profile) -> service
+                                        .activateAcmeForRaProfile(authority, profile, otherProfileUuid,
+                                                new ActivateAcmeForRaProfileRequestDto())),
+                        call("deactivate ACME", RaProfileExternalService::deactivateAcmeForRaProfile),
+                        call("get SCEP", RaProfileExternalService::getScepForRaProfile),
+                        call("activate SCEP",
+                                (service, authority, profile) -> service
+                                        .activateScepForRaProfile(authority, profile, otherProfileUuid,
+                                                new ActivateScepForRaProfileRequestDto())),
+                        call("deactivate SCEP", RaProfileExternalService::deactivateScepForRaProfile),
+                        call("get CMP", RaProfileExternalService::getCmpForRaProfile),
+                        call("activate CMP",
+                                (service, authority, profile) -> service
+                                        .activateCmpForRaProfile(authority, profile, otherProfileUuid,
+                                                new ActivateCmpForRaProfileRequestDto())),
+                        call("deactivate CMP", RaProfileExternalService::deactivateCmpForRaProfile),
+                        call("list revoke attributes", RaProfileExternalService::listRevokeCertificateAttributes),
+                        call("list issue attributes", RaProfileExternalService::listIssueCertificateAttributes),
+                        call("list renew attributes", RaProfileExternalService::listRenewCertificateAttributes),
+                        call("list identify attributes", RaProfileExternalService::listIdentifyCertificateAttributes),
+                        call("get CA certificates", RaProfileExternalService::getAuthorityCertificateChain),
+                        call("list compliance profiles",
+                                (service, authority, profile) -> service
+                                        .getComplianceProfiles(authority.toString(), profile.toString(),
+                                                SecurityFilter.create())),
+                        call("list approval profiles",
+                                (service, authority, profile) -> service
+                                        .getAssociatedApprovalProfiles(authority.toString(), profile.toString(),
+                                                SecurityFilter.create())),
+                        call("associate approval profile", (service, authority, profile) -> service
+                                .associateApprovalProfile(authority.toString(), profile.toString(), otherProfileUuid)),
+                        call("disassociate approval profile",
+                                (service, authority, profile) -> service
+                                        .disassociateApprovalProfile(authority.toString(), profile.toString(),
+                                                otherProfileUuid)));
+    }
+
+    private static Stream<Arguments> callsWithoutConnector() {
+        return Stream
+                .of(call("get", RaProfileExternalService::getRaProfile),
+                        call("get ACME", RaProfileExternalService::getAcmeForRaProfile),
+                        call("get SCEP", RaProfileExternalService::getScepForRaProfile),
+                        call("get CMP", RaProfileExternalService::getCmpForRaProfile),
+                        call("delete", RaProfileExternalService::deleteRaProfile));
+    }
+
+    private static Arguments call(String endpoint, AuthorityScopedCall call) {
+        return Arguments.of(endpoint, call);
+    }
+
+    private AuthorityInstanceReference anotherAuthority() {
+        return authority("2l");
+    }
+
+    private AuthorityInstanceReference authority(String authorityInstanceUuid) {
+        AuthorityInstanceReference authority = new AuthorityInstanceReference();
+        authority.setAuthorityInstanceUuid(authorityInstanceUuid);
+        authority.setConnector(connector);
+        return authorityInstanceReferenceRepository.save(authority);
+    }
+
+    private RaProfile reloadedRaProfile() {
+        return raProfileRepository.findByUuid(raProfile.getUuid()).orElseThrow();
+    }
+
+    private static EditRaProfileRequestDto editRequest() {
+        EditRaProfileRequestDto request = new EditRaProfileRequestDto();
+        request.setDescription("some description");
+        request.setAttributes(List.of());
+        return request;
+    }
+
+    private void stubRaProfileAttributeValidation() {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/raProfile/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(
+                                        "/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/authorityProvider/authorities/[^/]+/caCertificates"))
+                        .willReturn(WireMock.okJson("{\"certificates\": []}")));
+    }
 }
