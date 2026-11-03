@@ -57,15 +57,16 @@ class PendingIssueReaperTimingCheckTest {
         assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("reap-stale-after must be longer than PT2M24S")
-                .hasMessageContaining("was PT2M");
+                .hasMessageContaining("was " + reapDelayForOneCall);
     }
 
     @Test
     void refuses_whenAConnectorCallCouldOutlastTheReapDelay() {
         // given
         Duration slowResponse = Duration.ofSeconds(115);
+        Duration reapDelayForOneSlowCall = Duration.ofMinutes(1);
         when(proxyProvider.getIfAvailable()).thenReturn(null);
-        PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(Duration.ofMinutes(1),
+        PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(reapDelayForOneSlowCall,
                 createClient(slowResponse), proxyProvider);
 
         // when
@@ -75,15 +76,17 @@ class PendingIssueReaperTimingCheckTest {
         assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("reap-stale-after must be longer than PT6M24S")
-                .hasMessageContaining("was PT1M");
+                .hasMessageContaining("was " + reapDelayForOneSlowCall);
     }
 
     @Test
     void refuses_whenAProxyRequestCouldOutlastTheReapDelay() {
         // given
-        when(proxy.requestTimeout()).thenReturn(Duration.ofMinutes(5));
+        Duration proxyRequestTimeout = Duration.ofMinutes(5);
+        Duration reapDelayForOneProxyRequest = Duration.ofMinutes(5);
+        when(proxy.requestTimeout()).thenReturn(proxyRequestTimeout);
         when(proxyProvider.getIfAvailable()).thenReturn(proxy);
-        PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(Duration.ofMinutes(5),
+        PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(reapDelayForOneProxyRequest,
                 createClient(Duration.ofSeconds(35)), proxyProvider);
 
         // when
@@ -93,7 +96,7 @@ class PendingIssueReaperTimingCheckTest {
         assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("reap-stale-after must be longer than PT15M15S")
-                .hasMessageContaining("was PT5M");
+                .hasMessageContaining("was " + reapDelayForOneProxyRequest);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
