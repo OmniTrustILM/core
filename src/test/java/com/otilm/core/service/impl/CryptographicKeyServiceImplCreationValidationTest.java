@@ -86,7 +86,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
     private final List<BaseAttribute> definitions = List.of(new DataAttributeV2());
 
     @BeforeEach
-    void setUp() throws Exception {
+    void wireService() throws Exception {
         ConnectorApiFactory apiFactory = mock(ConnectorApiFactory.class);
         when(apiFactory.getKeyManagementApiClient(connector)).thenReturn(client);
         KeyProviderV1Adapter adapter = new KeyProviderV1Adapter(apiFactory, connector, attributeEngine);
