@@ -9,7 +9,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
-import com.otilm.api.model.core.cryptography.key.KeyItemDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemListDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.model.NamedModel;
@@ -208,8 +208,8 @@ public class CryptographicKeyItem extends UniquelyIdentified
         return dto;
     }
 
-    public KeyItemDto mapToSummaryDto() {
-        KeyItemDto dto = new KeyItemDto();
+    public KeyItemListDto mapToListDto() {
+        KeyItemListDto dto = new KeyItemListDto();
         dto.setName(name);
         dto.setUuid(uuid.toString());
         if (keyReferenceUuid != null) {

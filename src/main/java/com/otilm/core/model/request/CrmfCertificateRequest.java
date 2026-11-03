@@ -3,8 +3,10 @@ package com.otilm.core.model.request;
 import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.CryptographyUtil;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
+import java.security.spec.InvalidKeySpecException;
 import java.util.List;
 import java.util.Map;
 import lombok.Getter;
@@ -14,8 +16,6 @@ import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.crmf.jcajce.JcaCertificateRequestMessage;
-import org.bouncycastle.openssl.PEMException;
-import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 
 public class CrmfCertificateRequest implements CertificateRequest {
 
@@ -53,9 +53,12 @@ public class CrmfCertificateRequest implements CertificateRequest {
     @Override
     public PublicKey getPublicKey() throws NoSuchAlgorithmException, CertificateRequestException {
         SubjectPublicKeyInfo subjectPublicKeyInfo = certificateRequestMessage.getCertTemplate().getPublicKey();
+        if (subjectPublicKeyInfo == null) {
+            throw new CertificateRequestException("Cannot get public key from certificate request.");
+        }
         try {
-            return new JcaPEMKeyConverter().getPublicKey(subjectPublicKeyInfo);
-        } catch (PEMException e) {
+            return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
             throw new CertificateRequestException("Cannot get public key from certificate request.", e);
         }
     }

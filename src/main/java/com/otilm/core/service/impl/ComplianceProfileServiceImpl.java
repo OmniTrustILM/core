@@ -532,13 +532,19 @@ public class ComplianceProfileServiceImpl
         return raProfileRepository.findAllByUuidIn(raProfileUuids).stream().map(RaProfile::mapToDtoSimplified).toList();
     }
 
+    /**
+     * All or nothing: a missing RA profile or an existing association rolls back the associations made before it. The
+     * RA profiles are taken in UUID order because each association locks its RA profile, and bulk RA profile delete
+     * takes those locks in the same order, so the two cannot deadlock.
+     */
     @Override
     @ExternalAuthorization(resource = Resource.COMPLIANCE_PROFILE, action = ResourceAction.UPDATE)
+    @Transactional(rollbackFor = Exception.class)
     public void associateProfile(SecuredUUID uuid, RaProfileAssociationRequestDto raProfiles)
             throws NotFoundException, AlreadyExistException {
-        for (String raProfileUuid : raProfiles.getRaProfileUuids()) {
-            complianceProfileServiceV2
-                    .associateComplianceProfile(uuid, Resource.RA_PROFILE, UUID.fromString(raProfileUuid));
+        List<UUID> raProfileUuids = raProfiles.getRaProfileUuids().stream().map(UUID::fromString).sorted().toList();
+        for (UUID raProfileUuid : raProfileUuids) {
+            complianceProfileServiceV2.associateComplianceProfile(uuid, Resource.RA_PROFILE, raProfileUuid);
         }
     }
 

@@ -1,9 +1,12 @@
 package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.extension.ResponseDefinitionTransformerV2;
+import com.github.tomakehurst.wiremock.http.ResponseDefinition;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
@@ -28,6 +31,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Crl;
+import com.otilm.core.dao.entity.CrlEntry;
 import com.otilm.core.dao.entity.CrlEntryId;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -49,11 +53,14 @@ import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.PlatformX500NameStyle;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -63,14 +70,12 @@ import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.SecureRandom;
-import java.security.Signature;
 import java.security.SignatureException;
 import java.security.cert.CRLException;
-import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509CRL;
 import java.security.cert.X509Certificate;
-import java.security.spec.InvalidKeySpecException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -78,14 +83,15 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Date;
-import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import javax.security.auth.x500.X500Principal;
 import org.apache.commons.lang3.StringUtils;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -96,24 +102,24 @@ import org.bouncycastle.asn1.x509.CRLReason;
 import org.bouncycastle.asn1.x509.DistributionPoint;
 import org.bouncycastle.asn1.x509.DistributionPointName;
 import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.asn1.x509.KeyPurposeId;
 import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
-import org.bouncycastle.asn1.x509.TBSCertificate;
 import org.bouncycastle.cert.CertIOException;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.X509v2CRLBuilder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CRLConverter;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
-import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509v2CRLBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.cert.ocsp.CertificateStatus;
+import org.bouncycastle.cert.ocsp.OCSPReq;
 import org.bouncycastle.cert.ocsp.OCSPResp;
+import org.bouncycastle.cert.ocsp.RevokedStatus;
 import org.bouncycastle.cms.CMSException;
 import org.bouncycastle.cms.CMSSignedData;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -126,11 +132,18 @@ import org.bouncycastle.util.io.pem.PemReader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.otilm.core.util.builders.OcspResponseBuilder.anOcspResponse;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 public class CertificateValidationITest extends BaseSpringBootTest {
@@ -563,212 +576,310 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testCrlProcessing_emptyCrl_validatesAndPersistsNoEntry()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void reportsCrlValid_whenIssuerSignedCrlListsNothing() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String urlPath = "/p2-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlEmpty-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlEmpty-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
         Certificate entity = createTrustedCertEntity(cert);
-        stubCrlPoint(urlPath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
+        stubCrlPoint(urlPath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.VALID,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
-        UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Assertions.assertNotNull(crlUuid);
-        Assertions.assertNull(crlService.findCrlEntryForCertificate(cert.getSerialNumber().toString(16), crlUuid));
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.VALID);
+        assertThat(findStoredCrl(cert)).isPresent();
+        assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).isEmpty();
     }
 
     @Test
-    void testCrlProcessing_crlNumberBump_oldEntriesReplaced()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void replacesCrlEntries_whenRefreshedCrlHasHigherNumber() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String urlPath = "/p3-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlUpdate-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlUpdate-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
         createTrustedCertEntity(cert);
-
-        Map<BigInteger, Integer> v1Entries = new HashMap<>();
-        v1Entries.put(BigInteger.valueOf(0x99), CRLReason.keyCompromise);
-        X509CRL v1 = buildStaleCrl(caCert, pair.getPrivate(), BigInteger.TWO, v1Entries);
-        stubCrlPoint(urlPath, v1.getEncoded());
+        BigInteger replacedSerialNumber = BigInteger.valueOf(0x99);
+        BigInteger replacementSerialNumber = BigInteger.valueOf(0xAA);
+        stubCrlPoint(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.TWO,
+                Map.of(replacedSerialNumber, CRLReason.keyCompromise)).getEncoded());
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Assertions.assertNotNull(crlUuid);
-        CrlEntryId v1EntryId = new CrlEntryId(crlUuid, BigInteger.valueOf(0x99).toString(16));
-        Assertions
-                .assertTrue(crlEntryRepository.findById(v1EntryId).isPresent(),
-                        "v1 entry must be persisted by the initial getCurrentCrl");
+        CrlEntryId replacedEntryId = new CrlEntryId(crlUuid, replacedSerialNumber.toString(16));
+        assertThat(crlEntryRepository.findById(replacedEntryId)).as("entry of the first CRL").isPresent();
+        replaceStub(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.valueOf(3),
+                Map.of(replacementSerialNumber, CRLReason.affiliationChanged)).getEncoded());
 
-        replaceStub(urlPath, buildStaleCrl(caCert, pair.getPrivate(), BigInteger.valueOf(3),
-                Map.of(BigInteger.valueOf(0xAA), CRLReason.affiliationChanged)).getEncoded());
-        UUID crlUuid2 = crlService.getCurrentCrl(cert, cert);
-        Assertions
-                .assertEquals(crlUuid, crlUuid2,
-                        "CRL row UUID must be preserved across a CRL-number bump (update path keeps the existing row)");
-        Assertions
-                .assertTrue(crlEntryRepository.findById(v1EntryId).isEmpty(),
-                        "after CRL-number bump, persistCrlAndEntries(isNewCrl=false) must clear the old entries");
-        Assertions
-                .assertTrue(crlEntryRepository
-                        .findById(new CrlEntryId(crlUuid, BigInteger.valueOf(0xAA).toString(16)))
-                        .isPresent(), "v2 entry must be inserted into the same CRL row");
+        // when
+        UUID refreshedCrlUuid = crlService.getCurrentCrl(cert, cert);
+
+        // then
+        assertThat(refreshedCrlUuid).as("the refresh keeps the CRL row").isEqualTo(crlUuid);
+        assertThat(crlEntryRepository.findById(replacedEntryId)).as("entry of the first CRL").isEmpty();
+        assertThat(crlEntryRepository.findById(new CrlEntryId(crlUuid, replacementSerialNumber.toString(16))))
+                .as("entry of the refreshed CRL")
+                .isPresent();
     }
 
     @Test
-    void testCrlProcessing_revokedCertViaSecondCdp_revoked()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void reportsCrlRevoked_whenSecondDistributionPointListsCertificate() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
-        String urlPathBad = "/p4-bad-" + stamp + ".crl"; // intentionally not stubbed
-        String urlPathOk = "/p4-ok-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlRevoked-" + stamp,
-                List.of(LoopbackWireMock.url(mockServer) + urlPathBad, LoopbackWireMock.url(mockServer) + urlPathOk),
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String unansweredPath = "/p4-bad-" + stamp + ".crl";
+        String listingPath = "/p4-ok-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRevoked-" + stamp, List
+                .of(LoopbackWireMock.url(mockServer) + unansweredPath, LoopbackWireMock.url(mockServer) + listingPath),
                 null, BigInteger.ONE);
         Certificate entity = createTrustedCertEntity(cert);
+        X509CRL revokingCrl = addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                createEmptyCRL(cert, issuerKeyPair.getPrivate()),
+                Map.of(cert.getSerialNumber(), CRLReason.keyCompromise));
+        stubCrlPoint(listingPath, revokingCrl.getEncoded());
 
-        X509CRL empty = createEmptyCRL(caCert, pair.getPrivate());
-        Map<BigInteger, Integer> entries = new HashMap<>();
-        entries.put(cert.getSerialNumber(), CRLReason.keyCompromise);
-        X509CRL revokedCrl = addRevocationToCRL(pair.getPrivate(), "SHA256WithRSAEncryption", empty, entries);
-        stubCrlPoint(urlPathOk, revokedCrl.getEncoded());
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.REVOKED,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
-        UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Assertions.assertNotNull(crlService.findCrlEntryForCertificate(cert.getSerialNumber().toString(16), crlUuid));
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).isPresent();
     }
 
     @Test
-    void testCrlProcessing_deltaCrlOk_metadataPersisted()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void storesDeltaCrlState_whenDeltaCrlExtendsBaseCrl() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String basePath = "/p5-base-" + stamp + ".crl";
         String deltaPath = "/p5-delta-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaOk-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaOk-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         createTrustedCertEntity(cert);
+        stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        BigInteger baseCrlNumber = BigInteger.TWO;
+        stubCrlPoint(deltaPath, createEmptyDeltaCRL(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate(),
+                baseCrlNumber, BigInteger.ONE).getEncoded());
 
-        stubCrlPoint(basePath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
-        X509CRL delta = createEmptyDeltaCRL(caCert.getSubjectX500Principal(), pair.getPrivate(),
-                BigInteger.TWO /* indicator matches base crlNumber */, BigInteger.ONE);
-        stubCrlPoint(deltaPath, delta.getEncoded());
-
+        // when
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Crl persisted = crlRepository.findByUuid(SecuredUUID.fromUUID(crlUuid)).orElseThrow();
-        Assertions.assertNotNull(persisted.getCrlNumberDelta(), "delta CRL number must be persisted");
-        Assertions.assertNotNull(persisted.getNextUpdateDelta(), "delta nextUpdate must be persisted");
+
+        // then
+        Crl storedCrl = crlRepository.findByUuid(SecuredUUID.fromUUID(crlUuid)).orElseThrow();
+        assertThat(storedCrl.getCrlNumberDelta()).isNotNull();
+        assertThat(storedCrl.getNextUpdateDelta()).isNotNull();
     }
 
     @Test
-    void testCrlProcessing_deltaCrlIndicatorMismatch_throws()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void reportsCrlFailed_whenDeltaCrlNeedsNewerBaseCrl() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String basePath = "/p6-base-" + stamp + ".crl";
         String deltaPath = "/p6-delta-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaBad-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaBad-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        BigInteger unpublishedBaseCrlNumber = BigInteger.valueOf(3);
+        stubCrlPoint(deltaPath, createEmptyDeltaCRL(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate(),
+                unpublishedBaseCrlNumber, BigInteger.TWO).getEncoded());
 
-        // Base CRL has crlNumber=2; delta carries indicator=3 (unreachable since base never advances to 3).
-        stubCrlPoint(basePath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
-        stubCrlPoint(deltaPath, createEmptyDeltaCRL(caCert.getSubjectX500Principal(), pair.getPrivate(),
-                BigInteger.valueOf(3), BigInteger.TWO).getEncoded());
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.FAILED,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
-        Assertions.assertThrows(ValidationException.class, () -> crlService.getCurrentCrl(cert, cert));
+        // then
+        CertificateValidationCheckDto crlCheck = result
+                .getValidationChecks()
+                .get(CertificateValidationCheck.CRL_VERIFICATION);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("Unable to get CRL with base CRL number equal to DeltaCRLIndicator");
     }
 
     @Test
-    void testCrlProcessing_deltaCrlIssuerMismatch_throws()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void reportsCrlFailed_whenDeltaCrlNamesAnotherIssuer() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String basePath = "/p7-base-" + stamp + ".crl";
         String deltaPath = "/p7-delta-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaIssuer-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaIssuer-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
-
-        stubCrlPoint(basePath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
-        // Delta signed under cert's own subject DN — different from the base CRL's issuer DN.
+        stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        X500Principal anotherIssuerName = new X500Principal("CN=Another-Crl-Issuer");
         stubCrlPoint(deltaPath,
-                createEmptyDeltaCRL(cert.getIssuerX500Principal(), pair.getPrivate(), BigInteger.TWO, BigInteger.TWO)
+                createEmptyDeltaCRL(anotherIssuerName, issuerKeyPair.getPrivate(), BigInteger.TWO, BigInteger.TWO)
                         .getEncoded());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.FAILED,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
-        Assertions.assertThrows(ValidationException.class, () -> crlService.getCurrentCrl(cert, cert));
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = result
+                .getValidationChecks()
+                .get(CertificateValidationCheck.CRL_VERIFICATION);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("Delta CRL issuer not same as issuer stored in CRL entity");
     }
 
     @Test
-    void testCrlProcessing_deltaCrlAppliesRemoveAndUpsert()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void appliesDeltaCrlEntries_whenDeltaCrlExtendsBaseCrl() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String basePath = "/p8-base-" + stamp + ".crl";
         String deltaPath = "/p8-delta-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaApply-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaApply-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
-
-        // Base CRL: serial 123 (KEY_COMPROMISE) and 1234 (CA_COMPROMISE).
-        Map<BigInteger, Integer> baseEntries = new HashMap<>();
-        baseEntries.put(BigInteger.valueOf(123), CRLReason.keyCompromise);
-        baseEntries.put(BigInteger.valueOf(1234), CRLReason.cACompromise);
-        X509CRL baseCrl = addRevocationToCRL(pair.getPrivate(), "SHA256WithRSAEncryption",
-                createEmptyCRL(caCert, pair.getPrivate()), baseEntries);
+        BigInteger removedSerialNumber = BigInteger.valueOf(123);
+        BigInteger changedSerialNumber = BigInteger.valueOf(1234);
+        X509CRL baseCrl = addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                createEmptyCRL(cert, issuerKeyPair.getPrivate()),
+                Map.of(removedSerialNumber, CRLReason.keyCompromise, changedSerialNumber, CRLReason.cACompromise));
         stubCrlPoint(basePath, baseCrl.getEncoded());
-
-        // Delta CRL: remove 123, change 1234's reason to KEY_COMPROMISE, add the cert's own serial (CA_COMPROMISE).
-        Map<BigInteger, Integer> deltaEntries = new HashMap<>();
-        deltaEntries.put(BigInteger.valueOf(123), CRLReason.removeFromCRL);
-        deltaEntries.put(BigInteger.valueOf(1234), CRLReason.keyCompromise);
-        deltaEntries.put(cert.getSerialNumber(), CRLReason.cACompromise);
-        X509CRL deltaCrl = addRevocationToCRL(pair.getPrivate(), "SHA256WithRSAEncryption", createEmptyDeltaCRL(
-                caCert.getSubjectX500Principal(), pair.getPrivate(), BigInteger.TWO, BigInteger.TWO), deltaEntries);
+        X509CRL deltaCrl = addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                createEmptyDeltaCRL(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate(), BigInteger.TWO,
+                        BigInteger.TWO),
+                Map
+                        .of(removedSerialNumber, CRLReason.removeFromCRL, changedSerialNumber, CRLReason.keyCompromise,
+                                cert.getSerialNumber(), CRLReason.cACompromise));
         stubCrlPoint(deltaPath, deltaCrl.getEncoded());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.REVOKED,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
 
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).as("entry the delta CRL adds").isPresent();
+        assertThat(findStoredCrlEntry(cert, removedSerialNumber)).as("entry the delta CRL removes").isEmpty();
+        assertThat(findStoredCrlEntry(cert, changedSerialNumber))
+                .as("entry the delta CRL changes")
+                .hasValueSatisfying(entry -> assertThat(entry.getRevocationReason())
+                        .isEqualTo(CertificateRevocationReason.KEY_COMPROMISE));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void reportsCrlFailed_whenCrlIsNotSignedByIssuer(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        KeyPair forgerKeyPair = freshRsaKeyPair();
+        String urlPath = "/forged-" + stamp + ".crl";
+        String crlUrl = LoopbackWireMock.url(mockServer) + urlPath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlForged-" + stamp,
+                List.of(crlUrl), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath, createEmptyCRL(cert, forgerKeyPair.getPrivate()).getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = result
+                .getValidationChecks()
+                .get(CertificateValidationCheck.CRL_VERIFICATION);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("signature verifies with the issuer's public key");
+        assertThat(findStoredCrl(cert)).isEmpty();
+        assertThat(output.getOut().lines().filter(line -> line.contains("Ignoring the CRL from " + crlUrl)))
+                .isNotEmpty()
+                .allSatisfy(line -> assertThat(line).contains("WARN"));
+    }
+
+    @Test
+    void keepsStoredCrl_whenRefreshedCrlIsNotSignedByIssuer() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        KeyPair forgerKeyPair = freshRsaKeyPair();
+        String urlPath = "/refresh-forged-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRefreshForged-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.TWO,
+                Map.of(cert.getSerialNumber(), CRLReason.keyCompromise)).getEncoded());
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Assertions
-                .assertNotNull(crlService.findCrlEntryForCertificate(cert.getSerialNumber().toString(16), crlUuid),
-                        "delta upsert must have added the cert's own serial");
-        Assertions
-                .assertNull(crlService.findCrlEntryForCertificate(BigInteger.valueOf(123).toString(16), crlUuid),
-                        "delta REMOVE_FROM_CRL must have deleted serial 123");
-        CrlEntryId changedReason = new CrlEntryId(crlUuid, BigInteger.valueOf(1234).toString(16));
-        Assertions
-                .assertEquals(CertificateRevocationReason.KEY_COMPROMISE,
-                        crlEntryRepository.findById(changedReason).orElseThrow().getRevocationReason(),
-                        "delta upsert must have changed the revocation reason on serial 1234");
+        replaceStub(urlPath,
+                buildStaleCrl(cert, forgerKeyPair.getPrivate(), BigInteger.valueOf(3), Map.of()).getEncoded());
+
+        // when
+        ThrowingCallable refreshCrl = () -> crlService.getCurrentCrl(cert, cert);
+
+        // then
+        assertThatThrownBy(refreshCrl).isInstanceOf(IOException.class);
+        assertThat(crlEntryRepository.findById(new CrlEntryId(crlUuid, cert.getSerialNumber().toString(16))))
+                .as("revocation listed by the stored CRL")
+                .isPresent();
+    }
+
+    @Test
+    void keepsBaseCrlRevocation_whenDeltaCrlIsNotSignedByIssuer() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        KeyPair forgerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-forged-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaForged-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                        createEmptyCRL(cert, issuerKeyPair.getPrivate()),
+                        Map.of(cert.getSerialNumber(), CRLReason.keyCompromise)).getEncoded());
+        X509CRL forgedDeltaCrl = addRevocationToCRL(forgerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                createEmptyDeltaCRL(cert.getSubjectX500Principal(), forgerKeyPair.getPrivate(), BigInteger.TWO,
+                        BigInteger.TWO),
+                Map.of(cert.getSerialNumber(), CRLReason.removeFromCRL));
+        stubCrlPoint(deltaPath, forgedDeltaCrl.getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    void keepsBaseCrlRevocation_whenDeltaCrlIsUnreachable() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String unansweredDeltaPath = "/delta-missing-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMissing-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + unansweredDeltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                        createEmptyCRL(cert, issuerKeyPair.getPrivate()),
+                        Map.of(cert.getSerialNumber(), CRLReason.keyCompromise)).getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
     }
 
     private Certificate createTrustedCertEntity(X509Certificate cert) {
@@ -822,30 +933,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                                 .withHeader("Set-Cookie", "split_test_group=B")
                                 .withHeader("Cache-Control", "no-cache")
                                 .withBody(body)));
-    }
-
-    private X509Certificate createSelfSignedCertificateWithCrl(String commonName, List<String> crlUrls,
-            List<String> deltaCrlUrls, BigInteger serialNumber)
-            throws CertIOException, NoSuchAlgorithmException, OperatorCreationException, CertificateException {
-        KeyPairGenerator keyPairGen = KeyPairGenerator.getInstance("RSA");
-        keyPairGen.initialize(2048);
-        KeyPair pair = keyPairGen.generateKeyPair();
-        SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo.getInstance(pair.getPublic().getEncoded());
-
-        X500Name x500Name = new X500Name("CN=" + commonName);
-        X509v3CertificateBuilder certificateBuilder = new X509v3CertificateBuilder(x500Name, serialNumber, new Date(0),
-                Date.from(Instant.parse("9999-12-31T23:59:59Z")), x500Name, subjectPublicKeyInfo);
-        CRLDistPoint crlDistPoint = new CRLDistPoint(createCrlDistributionPoints(crlUrls));
-        certificateBuilder.addExtension(Extension.cRLDistributionPoints, false, crlDistPoint);
-        if (deltaCrlUrls != null) {
-            CRLDistPoint deltaCrlDistPoint = new CRLDistPoint(createCrlDistributionPoints(deltaCrlUrls));
-            certificateBuilder.addExtension(Extension.freshestCRL, false, deltaCrlDistPoint);
-        }
-        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption").build(pair.getPrivate());
-        X509CertificateHolder holder = certificateBuilder.build(signer);
-        JcaX509CertificateConverter converter = new JcaX509CertificateConverter();
-        converter.setProvider(new BouncyCastleProvider());
-        return converter.getCertificate(holder);
     }
 
     private int getNumberOfCertificatesInPkcs7(String content) throws CMSException {
@@ -924,17 +1011,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         JcaX509CRLConverter converter = new JcaX509CRLConverter().setProvider("BC");
 
         return converter.getCRL(crlGen.build(signer));
-    }
-
-    private DistributionPoint[] createCrlDistributionPoints(List<String> urls) {
-        List<DistributionPoint> list = new ArrayList<>();
-        for (String url : urls) {
-            DERIA5String deria5String = new DERIA5String(url);
-            GeneralName generalName = new GeneralName(GeneralName.uniformResourceIdentifier, deria5String);
-            DistributionPointName distributionPointName = new DistributionPointName(new GeneralNames(generalName));
-            list.add(new DistributionPoint(distributionPointName, null, null));
-        }
-        return list.toArray(new DistributionPoint[0]);
     }
 
     @Test
@@ -1075,49 +1151,26 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testVerifyAlt() throws IOException, NoSuchAlgorithmException, InvalidKeySpecException, InvalidKeyException,
-            SignatureException, CertificateEncodingException {
+    void testVerifyAlt() throws Exception {
         String certificateString = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSVc3VENDRmRXZ0F3SUJBZ0lVTjJMQllaSHNHeTg5LzBOdkdVemtGTjVKMkRZd0RRWUpLb1pJaHZjTkFRRUwKQlFBd0lERWVNQndHQTFVRUF3d1ZTSGxpY21sa1pVTmxjblJwWm1sallYUmxJRU5CTUI0WERUSTFNRFV5TXpFeApNell4TVZvWERUSTNNRFV5TXpFeE16WXhNRm93RnpFVk1CTUdBMVVFQXd3TWFIbGljbWxrSUdWcVltTmhNSUlICnNqQUxCZ2xnaGtnQlpRTUVBeElEZ2dlaEFMZ0FpMnEycWFoWFFIUUJyVnZzOENhaFRBdDVZcmsrSU4rRHo5aWYKYzQ0SEQySEh3SGNpN3FQa1FGbFhJTXJVa3EzbnBDS0h4NEJONnFjRUxOalIxRkgrbFpPMHFVMDA5azdLTWNKRApoV2kxYmNKNGdraHZKZmIxaE92NDVjNklxcExQQmJRbmFVSFFQY2lHdWtwZnR1UjBqRTRLZi9FNW9sRGtuNUlPCnY4MmdUaEhYTVpNV2ZKaDkzTVVRSHU3K2ZkQjAxSmNJcmJRTUFRVnpEbmVlcldLcTdaT1JQcjBTdVhMUUlDUnYKY1B2UnFMMDdWaXYxaHd4MllXSU11M0VRcndDbGNDR2R6Wm1TYkdwaHUvMVFoSm5BUzlHTm1pVDl0VGUzdnJEYgpJaTJzZUthdkFsMjErM1FHTHl6N1BBb29YV0luZytoOENNeUVkK1B5dXJ2Y0dYNjdBbGdWNktBUU9pQTQwalBoClU4aDFnUU1xVVVFcE5HWTNxaEEzaE9HcHpPSGJFcUxESk5oZUM0azJORWpWY0ZQN0hacSs1QXpUcWJvNlRzN2MKSngraG0xak1hOXNrOEErbnFUdkRhVDEza1hZWlhFS2FuSnlrVW80SzY1TnJrcVlEcXMzYkgxTEJDMWlBUW5DUQptTzY3NW04aEhMZUhLaGdMenB2M21TZGx3dVprMHhtb1VadDFRUlNWM3BmT0ViTFYyR2VDSzFIdEtTellRZDU2CjFhZlpnaHZ3WFYyRVg4OFlnVTBaR1BwdUtMTW0rL3hYNHpHYlU3Qk50Z2FtalJWaldLd1Z5VFJ2WTJldzZkWU0KeFBGSmUrYlpvckhvbDdXaG1mVEdhalI0aWgxVE5JTEtuODNlY2hqcWJuaEh4dXRwOG5oU3o1VlBjSTJkS0RVaAo4Y2kra2VJUzNtKzFkTjRRUHlYWEdKNFFkSjltL0lQOXo4UU9QY3FESlB4NTlhQ1NRdjhvUGNCOG5wRUVveit4CkdEVk1lS09kWkVBaE1MN2ZNbGEzSDRpNFh2ZTRLWGkrTU1KbXo1V0hTY1gxb0hGcGh0ZGEvcG9FU3FUbmI1WC8KRE8zSUlkOEJPazAxcEpnYWNOM0VQWHB6ODBkbWR6NS91cDdpRFJPMW5uWXl2Vmd6czhCQ2N4a1hKMnFtalcxRwpUV2x5b2NqZnlJbXVua2JnaHJmTmxkVGlsNDZHcXhiMEUvYWtJTWFlUUhhVHFnUks1dE9EeEdudzRLWEhjNXFiCmFOS1JhVkNlWjlEb0ZreXMvZS82VVpGMHpIRjBld1FpWHpraUgrRUR2TGNXQlB2aUt5ei8zNk1ReUFlaXFKOHUKRHVUTjZMcEErU2ZOZk5FeE02VGZtS2FPcE1wczdDQzZUQ3dCOHdkT3JXRjRJRVFXQnFYbzRuMWF3SEdIckZxZgpjcDV2S2tCbHg5RmkvL0FzRWJWTWFtTkdpT2JVcDIvZmhBUVAvd2ZHd0I1eXRPYWx4aVpXZ0tJbVF5NjhJNkJZClhxRVBNcjJwalFOK1BzMyttWGRiYTlNc3VOcCs0S3dOdS9YQjJmZDVocW5aVUliTjcra2lLVytUeHl1THJ4SWoKanpoZU1DWTV3ekVadnpQU0JZenFZU0lxZUFLT2RWb3ltM3pQL2xEeUcwbnpEcHd5V2IwSmVuWUYzS1dvNUQwKwpkSmlVVTVhVk5ua3c4M29IM1FZczF3YlF1MENwbUQzMDhxYU9SRkdsWTZabENXeHRxdkZZR3pmaHNIWWZkTXZyCm9zbUYzdThHM29zMDFjRmE1SlNOT2JxSU43Uy9YVXVwcEtWcEIyUHRBNDJIMGpHSEZaOUcwbUVrYWZHUTRzUTQKQ0tEUmxYVmNwTkZUQVhRZkt0bUJkamVtbFJaSGc5TzJsZWg4V2I2bWVncWJSUWljRDU2SGx5TW9kTTJGdk5UawpETWFaSC8vb3dHUFJwc3NpbnhKcGVSM25GNUZHTStHSngxS3Q4YWcxTjRPcWExQ1ZJT1NMNXdhVTAxRjBFMnVCClFiYmEwcEVLYlp3bDNhSTJxc3hxZ1drT1NFT2tMOC84OUl4Nkxqa29pbVdKa0xHSmxaaUF4djUybHJ4bmpUcWMKcGpydDJyeDhaS3VuM1laZ2NURU0yY3NRUmFJVXBVSEdwaTNmOHpKNE5JcmZHRWlrWkNLZTM1RS91Zng5ZUFBVgpJMnBrZmM5eG82MUtpVnZMQjdrZXMrSXlFb1NodVZCcDJZUmE0cG1VNnI5Y1QzNDhQNE1LMjJUODkwVnJFM2NYCmR3dWJBSjg2M0Y2eFVhZ1E2ZkxweXVJZUo4NUgyQXBQamNjYWdETDY2SUlwaGZHZlVBbG9JZnhmK0R0Z0xrdTgKTVVwRXhmK01nakVFMXVEdHhhcml6RElwWU9xRzBSbWlHWDJWK01mTlZsNmwwZXVaYitlMFV0dHp0clk3VjJEQwoxbmxYTTlZQ1pMREx0SEt1QVlpaVk1QURueFd2dmYxUmQ5YUpQeC9UT1ZQQTA0TWJ3NStVTW9BMTdxN3dPRlNECndxMmN2azNZUHFTak43cW4xYm1JanJQdTU5R3k4NktoMHJQd051YWZWYnRTQThVditxVmJhWmlYQndNSDUyenUKYmpwbksxSVVTZTJMSDdIVkZyck1nNnBQZXArcHE4LzM2NjB2NG5KV0x0dC9MMzM0cWNEMHVoU3NwRFl3elB6Mwpza2pwNzdSV0VBaGNWTHRNVWNLa2w3ckovcUppR29aNVhwY3lmdUgrQkxKbWlXVE5zc1JmYTV1Yk0vVkI1dHlzCmF3ZU01L1JHbWc0NktpYXBicy8xZldpc2UybWFXUUpWU2N2TkZ5TDFjMnVNRjdadTFjMlpLb3NuZ1NaSzBkTWwKcHFYd1UvY2ZySysvSllvZE0wV1VNdk44eUJBQ0JTUyt5SmdseU9hSlpReXBCbUZCZHVXVnZTQnQwaFEzMGQwVwp6WU1XSFpHU0xIeUF2SGhlUm0zQStWdTRKUmJhOXBvSkpMcnlTdkh2NC9GbDNTeUVhUitrVDEzK3JoQ1J5V3YxCkdDOCtoZGZEbU91ZG5icG9KaGVIL0kya2o3aGZHWDY2SWlYbE9lcmNhdkJtaThwNkE1amhoaVppSUozWGQyZ0gKcEJBWFlCN3ZNRUh5cEFGbFBMc3Z6T3NjSzNwWGkyUU80SHlxVFliRWJFalZkS1p2UGZ6WDFIUTZLNzZHU2hWSQpuY1NBTnZiYXJEWGxpWWVFWUFTOWtBUUZJSFRnK1kvWDJDN3owSUlYZUZNTnBZVjZ4bUliM0JhZHdZa3k1R3NXCjY2MldKSHU4U3FjblpmaHJtQ1B2TzE2NmpOaVBPVnV1K0VvRnVEbVprZ01Cb0NGZXlUMTBQdWJxTjBpODZhWGkKd3VBUzdadHJqRkI1bjg1aHBKRExrUFBpbHdqMEV0cmdQSU81Q1FlSStIZCt3UDFTcy9ERWZzd3VJQXdiUUhFVApGeXFLbzRJTmxqQ0NEWkl3REFZRFZSMFRBUUgvQkFJd0FEQWZCZ05WSFNNRUdEQVdnQlNXbzFXaTRKeHpLRVdiCks4N1lYNEE4T0ZvY3RqQWRCZ05WSFNVRUZqQVVCZ2dyQmdFRkJRY0RBZ1lJS3dZQkJRVUhBd1F3SFFZRFZSME8KQkJZRUZDK2g3ZU9CWnNUdGlDZDF1NzNVeitWQmhWWnBNQTRHQTFVZER3RUIvd1FFQXdJRjREQVVCZ05WSFVrRQpEVEFMQmdsZ2hrZ0JaUU1FQXhJd2dnejdCZ05WSFVvRWdnenlBNElNN2dCZHpUUjZZQzNkYWdFZzNXSFV1UVBOClFFV3NPeTJkZ1F1ZFNHNEtpMjduT0NkOERKNWRRTUsxMzJvNUdCNWVUS2s4c1V6eVFVLzZoR3F4V25qZVhyd0gKblRRNXdoSDJLVGhWMy95WEJScGVNRXBUcnNKQ2ZZYllWTENqTGo1ZDE0MThLMk0rNGxiUCtTL1lORXFSaThNRApTWDRlbDUzNVkyQTluWFZuaDlFY2NsNThhVzRIcm9naHpmbTRweWhrWlpkWnVrMHI2VXNaR2pQV3lONkQxVHpUCmpZNG5Zcm1TandTallJbGFBcUU0bnBGK1ZvS3V2c0M2RWlDQ3VVUDhQdnJCTzFNcUtHcndheGd1SFpXM1BTcHYKVm83WmhPMUhvZjl5QkIrSEpBQitXUkE0Q0c5UUo3c2VBZ1RsNlplMndLSXYwaUdNRlNLelV2d3pQRHZpTHdvTwpDUUd4Wnd4dmRtY1BBenRPU2R2ak5VR2hOQU04YWFhSktyZnVzbi9lazF5dWVFcGJQa2YrZUdtZnU2OWdITTJYCnVvRG5leVB2MTJzSVJmSGFJOWQzYjlGbXVYUC9QWWNNSGs2YlhHT1gzN0l2eU5mckR4U3pqU21tdnE0TWpFa0oKeEZRcDRFelIyMWxWY3NUM3hhR2MvTkJzZUZXMjMzMnFPTjlPbCtaM3ZBNVdkbklwUlNrUnV4MEd5NXRTOGNyUgoya3dudUFkMm13c3RTNkZiaFNuNlB0WmZ4d1VDUmVza21iMkdEV3dGOVc0WDU3aXhNNXhmaFo0NGZYZy9tNkg0CndOQ3FzQVkvdzdZVC8rTkZ0elhDYkV5L2VJTEh1bWJmQ3RwcE5EaHEwSE41LzlEc0wzY2lOS0ZzOGV5OUJmcmgKSzdGRi81cDUrc1g5QkJaM3Bwb2JZdGw3MjY3aDYvdjRnN1NYMXgzSUpTRnRZczdZVXZMTnpNcjN5azFBSzF0MwprVVZnR3dJdHliSGMwWVlZTEdkK0hFMzNYKzhyb0NrYld0Q1dGK0Nsek5HbytZSzZZaFhGZjJLUzAvUXpVSlJWCmFJeUM4NzR5akxyamxQZ3JFbnBDNmdlR1VFNWNPRGRvNVhsTGUyb2M4VWY3QW16bkJzTzNBK1VrTFVkQUIvbWkKYmhWV1g1YVNqTVVaU25ITDA1d2xicXVDNnRtc2JZQXphM3ZJNzIwaFJqYTlvcGRiTWo2WXQ3Rm51MVpDMStWUgpiZUk4NU1KVUhqRDFWcjJjVUhiMzBGT2hjZGxhYmdVVzg1U1FuOEhWQUhRcU9oNG10WUpMbTdFdjNBeE4zK0dmCmVmMlFBUkZ0NVRadFM0dHU1dEViY0xvRXF6Mk1rL2Rsekp2ZUFzZ3dGdjBzZTNocy9mYUJ1ekwyUlI0WW1GRWUKd3o3ek85UVY1dDUzekNlWC9EbGRSZ3p0QnZOdnltRWsrUnhySmI3UHJHSFhtNWh1a3d3c0gyTHl5THVTKzJDOApsdFByKzFSREk4UlQ1WW5qS2EzWHAvUWxsbmkrNW9hL2FjR2J2K0l6SlZtVmcxb3dHR2o0ZDh3MmRpNk9oU0dFCjJZTFZES09rV0xVeWRZNUNkdnYrNUN4a21CKzhCdzhremdJbmtEUm1oYWg2QmhjMGtoWGlhM0Fxb1A5ZkdxeHIKMjlJMlJrQ25pS2tlSkJIYTlkM2hkdEtKQWE0NXlyd3JtYko2ZmhFV0pFMk9tUkhKRitINllINit6QmlsUTlZeQoxL3ZYVEMvdGxmU3NMbkRhN3VWLzNpK3hhV1V0S1RXRWlHWWp2TGE2RkR6aGZuSlJvZTZ3Vmg4OUdVMGZmS3pyCncySFZzM3owSjNhcER2bFNkQkpkbjNRWjBHQVpoVGIyWDBpZmI4TEFSVmlBY3BJL0ZlcEhFOXRXVkZPNDlXV3cKamdXelAxL3BUbkNvQmNGV215Z1YvZjlBeTFWMFdpVk9rdzBocUJ3WnJQNy9WMDNocjh3OXh0bk9Fbkc1Z1IybAo1eDh0dkRsNUZDQ2dUcjkrTGlPUU1RUmUxZ3J2NjF6YWZ1N1NZdlBpclJMUEdQVWF5UWx6NmdFOTcxdkJ4NVp5CitDRlg1NmVzWDkrODBYcG1BamRLeHNsWU5rcVhUbzE2V3Y5b1RPQk1nVmQ3R2hqbUhuY2JKOHhVZERCS2dVY1EKMWF4TWtqUythT0NzOEMveEZmSzY2YkE4eHlFS2owcmh3TU4xWjd3RTM2eGRzTUVaVTF4L3VsVjVsMUp1NDl5ZQpFU3VNb0U3eXFnczd3eU52cWdFVytvZmpHbjNURnNJbTZnOE85UE9nMnlUWExxZEM2UW9aTVlQN3JmaC8wWFRYCnREZjByV2V6QmtBMjFtM0pJSUVVSEl2SVEvcmRiOGpoMTQwSFkvLzhWRUNUZDlhOW9wN1NlMVM2aTErb0NFa3AKL3VoWDl2dkdVOWlScWFTdHpJUEdiMHZMWUwrbnNSU1l0Z3U0SEZ2SEpRQ1MwdENWSktHY0JRUDVmZWV0enBSNAptOWVCQ3pXSVZzbXFFQ3ZOQmxkcTJaMU1QR3MzSkkxMHAyTmM0Qk1VZ2xDOHZSUkNKK1VTb2RRcG5wTHB3VlJsClZ4VjlmenBINlBQQ0RGbFlLSVRTcDAvTDhva1kvVmk0c280TkFpa2FLN0dQeng5Z0R2OFc3NDVNNXhkRXBIaHYKR3JEVFdjOWgvdGYwcTFPeWxGemgwNyt2WVh0WjhIdjVwdjZHWndHVE1mQ1ZpbXpCblBkeEphbjFWSzU4cUltdwo3dGZQVG5sb1pVaHE2bjhXNDZ0R2J6NWJiSURNYWppR1RBNHBlenRET096VDBnRTVDRktHS2dIUGV5V0gxcEZHCkRJelVabGVjTmhSMHJRV3JDbGRrZS8xWlV4cU1wZ2xqa0RvWDJ5ZDMzOXUrd0phOTdRa0tsbFlFdHdxdXpkY2UKdHBzbURNOHZlazJwRDc0MkxlcmdtVlk3TUo2THU4Y0dHdmFOWlFuYkhWUjRwRk90Y2tDb2NtRzRITGl3QTN6OAp2OWpML0VYRFBWVmZFY0ViNHptaUFkQWtJNG1qekVHcEhkSXVya2lmd00zTnM4VFByYU9SaUJCZXlReENkSVBwCm5oVTcvaC81VXJzWS83NkhYckNFVlo4Zm9ncjMxelpHbTBQT1VKbFJ5bWI0QXV1eXlZWktDbE5EbTZwM1ZtU3gKUFpadUEzbTZlTWt5a09GSnp3WFVBOUFqa2YyZGdlQW9sRC81aTVrMytKZUFEVytDM0NPanpadFRFSUJId2JBUQpqeEdJR25FeHdoUVZtOXlob0Q0ZTY4dmYwYlV6aXpTQ1ZoV2pIZDhvaG9yeWhCdjUvb3FvYzFnVU5xYXlwZlVUCmhaZGFrZXQwb3JpblYzM2EwbVZ2dzhZR2xXWUViMjFiT1lJK01UQzRqR0RxL1F1UVJIQ09jbWRIUE1adTQyU3oKUktYMmVlZHVtUjNJOUhhTHVybFBXQTVEWEV0aHFONUF6ZHJBTklTS3h3MC9FdWc1YnZSa2d5UTQ4N1JpTHR2NApUNzJva2cySnQ3QmJYbXpEU1BUamxnWHY1ZGdIaTlnNjdzL2lJRzdaaUUzYVM5RkJGUUM1d2VabFBYWEp4Y1BYCmE2eE5aV0J3Vy9DZE9yZGdSOXozMlIxZFY3UGxCUElSdm5wOFgzdkZqUVN2amE0emRWTmdoN2pBbFAvd1VqNFQKams4akVWSjFWUW51TWxydlJhTU9tRklDRFQ2aE9xbElpNFdRRk1lRFNNTTB2dEV6RlVrc0o4ejBkWENWbzFhegpldWZsMGE4Q1FVTHN1akFQUXQrZEpNNjJKVkNndnY5ektjU05RSWxML2kxQ2xZN2o3SkQyeWgreTBQUjVQdjZYCnZUa0dGWHBEa3BZV2djSkMzc1lPUENGOE03bmJOWkNRNXdGbk9nbCs3SU9aNkZNMFlZd2E0eTZ5bW8yM0xQN08KWEJDcU92cWk0KzdlQzlSd3oyMnR2WjAyZy90NEdSTHdhVGtXR3RHemJmM0ZOMVJIREZKblIwV2NySzFhdlRKUwpuS1NkWHNJUWwwVFdCSXNNUUNZK0h3ZDd2Y2ZORVZJZXdyQk9zbm0xQ0cwRjhia3BWVjR0SlRxS002M09IQy9OCjlvSUhFZVRhbUMwMlNhWHlsTC9hb2JxZjVJYVQxRmlXb3R4UXAzOFdPV3hlQk8zZkI4WDhIcDlLc0QyZ21NOGIKUHI1RjMxRktJd3VtVTFPMzhndHR3RUtDeDg3VXdoZFUwSk43aExybVNuaWZyYnRGWkE3K05BVjM5YUlPcUtEaQprMjR3NCtCWS9FZmtnS1JTVjVvVXk4RG9veE9sNFhkUUZlVnBWRWNudnpSN2MxUlQrWjc0QTd5Y3dHNkxmZUhRCldLU05mZWZ6cDg4NFUvbXVFYkkxak55U2pUbEs3NDdtL294aWxsTUpTOStTZ0JKb2FiVGt3Sk45VWdmRmZ6dEsKakI4WDQ1NUlxL09ZYW5mSHF1MzBVNjU3UFR4cWs2VFdwd3FUTlRzOUlLVG1TMWpuanJ0ZllpUEw0U2FuTmlGaApYZG8rNnM5dkNZcXhQWXlJWWpnQ0E0cE54UGVSQkJESlJJWnBXN1ovNERJd1c3ZGdLSk5DenBaRmdWYjZ3WkRGCmNpTXlnSHBlUklzUWF3NStBOGN4cHlmZHpBSTBYSlp2SkNIZTdDK3Y5ekNkalA1K3J4Vk1raTNqWlB3RG16NkcKM1pkaHVQZHY2NGJsQUpKWXZTWDIrL2tsQzZ0Szg1OGFNR3p3TW1LeG80OHhmVlNmV3JOSGtzMi9Xa0FOSEpMUgpBcTlKMTFOeERpMU9McS9raS8yTm9ucWNXZ1J2cU9BcXlHTzFvV2xuS3hDMk5HU0dhRlluRlAvOGFCMHA3dGN0CkFVU3VONkhka1FCbS9mVCtuQVVPdWNRN01scVlSZzg4RUpraWoxdE9nNTNGdzBUTDdDanlHcmduUmNvb1dVSHUKZWdkNFZqQ1g5SW5VSnFvMDE5Wi92N2pjaXNKbkx6TVNUdnV2WkMyRlNhUGU1Q3FsY3dYOGZVcmN0YnV3MW00RgpkMWZPc1A4SXFmcFkyVU1zMDU2RUlCME9IbmVlSGlFZTFoV0FjOW5tRUozZ2NrREhJcVNzS2c5MEM1SVVEdGZrCnVONCtxSWJKclFUY282M3JkYWRxaktDTzk4OG9ucnlaZUM2NVRmSU1Bb1lrbThXSk1hMmtqK0dOV1Rnb1J4eTcKVVg1UzNzREw4dlQyM21tUHdqd0s0eWpBTUl3Z05PVmNuQ1lmUjNVdXY4a0Irc0ZnVmtSRHR1T1BLNlh2a1U0eAo5dUtYN1RXbVUwUnRRSnVVTUdnZ3BmUHBVSmxaWllISTdmWXI5YldtdkhEdkpkRHRJUHNtbmRDRE9lMjlwRnhQCit5T1ZNcFBLZHZueTVrd1BvYjh3UnNTcDlnS0JhLzFBQ2o5RVdZcjNGb3p6VHpaNjd3cStMa2twNlo0bWFaZDMKYjM3SnlDSjR0Mm9INGdVeGhCSTkzSW0wZUx0UGFhbVE4MnRtYk1MZXRweHNDclA5N1h6SkgyTUU4cDlxVXpCMgpSaHU5ejR2eU9aK21xMDNmVy9oajg2ajBBYm0wb3N4YXFEWTRMOFg3cjZBang2dExwSXBUeWVzZm0raUk1R1R6Cm5MQUFMSWFTWTRCTUZhUlNadHZOYmgwaUVkZmpXbjBCOVNoOHh1VzJwU3dnWGIzWE9MK1FhK2tCa0E4bE5VWkUKZUtKQjFnUUZ6dTR4Q3lDUi9SRTBGSmExeE9UMUZSb2JXbDFqYm0rUjE5N3ZBQUVPSENsWG5jUVdJREZCMFBzSwpFSUcxMkFBZVYzKzR5OWJtQUFBQUFBQUFBQUFBQUFBRkVSa2ZKQ3d3RFFZSktvWklodmNOQVFFTEJRQURnZ0VCCkFEZjdzM09kTzZqdHBSZmltd2NHdzMxQk5MS1V1L2o4UUExMERhVXl5S0Z1U09rUU5Ocm5jSU9lUFYwNEdScXcKcWtqT1dtVjFSSjBMUGY4RUtDZ0dMYTJmWHo1VVVGcHhiRXY4RE1sN25YT3lIQmhUdVQrcEoyazhQaXhsUG5aSApSZEZDVDhkTVBWSWkxZzRmQW93cU1QQzZ4TVZ4cmZZWXVVU2xWOVRNc09ndnhBU09oWld6TThVZWpuWEp0Skh1CjVsMFB4ZjJKakV2YjhwVjRBMU9NL0JQeWJpN1NQVjRVK1NPZlZSajVYNDdLQXQvbmRYbDRxZmJFa1FwSTcvZUMKdStBckcwcGJzZDQ0UXRERXhidi9VaCtBUVE1K0NCa2hjUXBqcS9zcFcrZE5qZUdlSDdpbldTc25jYkpDemR4dwpGMHlEalFBWTRUWStNbDdCR0c1Rk9MTT0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=";
-        X509Certificate x509Certificate = CertificateUtil.parseUploadedCertificateContent(certificateString);
         String issuerCertString = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSVlEVENDRnZXZ0F3SUJBZ0lVSWhGc3h0YjVESHFOZzNMNkpKZHlVV0lKTGdJd0RRWUpLb1pJaHZjTkFRRUwKQlFBd0lERWVNQndHQTFVRUF3d1ZTSGxpY21sa1pVTmxjblJwWm1sallYUmxJRU5CTUI0WERUSTFNRFV4TmpFdwpNRFEwTkZvWERUTTFNRFV4TkRFd01EUTBNMW93SURFZU1Cd0dBMVVFQXd3VlNIbGljbWxrWlVObGNuUnBabWxqCllYUmxJRU5CTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUEwWENhakNkWDZ6SUsKL3lHY0IxYkVhb2RBZjFPWVZmSFFVVy9iUlpGdy9VeTFjdUhicFlZTnFXNEcvU1QvUlJJdERVajkyUFM0YjBPSApaSFRqR0FCWGExL1oyaFpOSVpFcE5MMzFkNDNLKzJMemJNLzhCZkdQT1RFbmMzTWdoWnFtVnlqUWdKV2FFV3FMClVOMjZIRzFsL0QzN0R1MElFRm9nV1lsaVBrWU5HcTVOcU9Hd2trWGVUTkZiK3JPay9SUDJDS2NYclZOV2Vpcm4KV2lXMXZ2WEJlZ2pqK2pFRmZNUHJtN2Y3RXB2ZU5jNm1FVUZlNkxkcHRXaUFNVklxdlo2MUNSZWhEZ0lMWHRnWApQNEZpOFErMlR5djNzd1lMenRCcm1EMENJbE9lbFluUkhVVkMxakVTL05pSVRLR1N6c3lZZmhvbmk2TlJIbnlKCjdOeUsxRWFyQXdJREFRQUJvNElWUFRDQ0ZUa3dEd1lEVlIwVEFRSC9CQVV3QXdFQi96QWZCZ05WSFNNRUdEQVcKZ0JTV28xV2k0Snh6S0VXYks4N1lYNEE4T0ZvY3RqQWRCZ05WSFE0RUZnUVVscU5Wb3VDY2N5aEZteXZPMkYrQQpQRGhhSExZd0RnWURWUjBQQVFIL0JBUURBZ0dHTUlJSHZ3WURWUjFJQklJSHRqQ0NCN0l3Q3dZSllJWklBV1VECkJBTVNBNElIb1FBc2ZNUExWTTFHRnB1ZElma2hPdnRseloxdUxrZ1JUSGJLd1dYU2dMKzFVOTM4bnI1MlVVNWMKaG1qK1RKMGZrdEZFZzJPbndMeDJ2ekY2ZnRQT0c3alYva21ydDJlTVhwS1FMa01PL2ZrbW5xQ1dxTkVpYU9YZwovY3pPNXlUNkRIWlg5RVNpZlJZTGdacXdUY0M0SVd5WC8zWWlseUlwUW03T2hTd2hONlU0aHJBR1hxb0VVTWN3CjlZL0lNdWRTK0lNcFo3T29YdjA1aWloTUdDZ0c4QWEzYWtIcnRUQ3BXVU1MUzM4TFZJenU1UVhOd0Rmdjg2bW8KMnBjRjltQzdTSnNTRE9Ja1VYTjlIbDc2amkrQUduU3BTa3BLSlB2aGllSUJ2czMwbERBd3BmMXlXd3MrUWZrcApCOFVEN2MzRjZDcXNvRTFPbjA3MUpkb1A3Q2tBWlpmUEVKZ1ZMVjNHRStod1lnMHFESVM4enRtNGVxTzc3RnUwCjdOeWJQOFJPWDIrQVpQNWJhSklydTdYR0oxTVJrWG9jOVJIWmxPdWNjdW9aWXFrU0VLM3JtNk1JcGdYbSt3M3YKanJ1c1hybnZWSnZTdGNZRTErNlcrNWt1VzBCMnVBTXJabkZ5cWtJUkRQMU5kaktPWStvZG4wQlA3R2hkRkxOOAowRndvditkV0t2QTRRUmhjbWdUUEIvUW9tNnZlVzdNcHdJZ25OWlZxVHovakRKRmluSnlOSU92bFZaWUtEQ0dDCjlOWmZocWNrUkhlTFN5ZnUxc3E5aXMyWmRSbTc2eEZmcFJnU2hHdmFHcGVYMzcvc09MbzdzeU1OdHAyMERiQUcKdk85LzhYRnRwc25TL0doVC9UOVBsb0FEOXZoK2FxSjBJdkltVTZGOXY1a0VhcnY4em5MeENLOUliMm95SGpNSQpRYzhPWGVVaWt3WEpLejZZTklXMUdFOFJwUFhRNUF2NlJDWUxabnpLNlpPZlBjZXZKdFZhZ3lSNmZpMUVWT010Ckp4RHpaMHVXVjJRZG9kUDdUZ3Z2OVdIYlBER1Q1eHFsTkZHWFA0QmFwNDl3OXpQLy9LZit4VG1ZRmJyUWVCaUUKTjcxMkd0MUE4OWFkM0FYTUhFSmNhaDBtWmI4ZFlTZHJKNUhLVDFQMDhKL2Ryd3FuREd6V2tOQlQxei8yK2NybAozb3Q1WGRjSWRoa2dsUzZJbzRROHZqckRkU24yY1M0VExRWjFmYzZQc2t0YlJLVU1PMG1QWXJxVzhUajFSREVSCmFSY1lEcFZxTDg1V0s3RzdJZUJ1Rll4REtRSktJOUM3VTFES3A1TmJrN2s1WTdLMENPeDB2YUlFOUN5OW5RWFoKdVBZQjZYM3BZUzlzdml1VmtSdGNvc0pheHdGM0E3d3owZTI1T2tyTmVocW5ad0FDTnZRZEd4aGxUYS8xdDFxQQpkK2ZXOGtMaEtSQnNpVW9aREpSdDB2N3ZPRk84aFlUT2VqU2lZWU1jNnNYcUhpdjVOUThQZldMOFhCcW5JNXh2CkhacCtvT2dEU2hIRlFvWi9kM3ZKOUlZN3MwaEtENTBjOWorZ0F6VWY2cFFyaGlqbkRITVNSaGtWRzB4cHNEbGcKUFg3Nm8vK0NOMnZtUFRFbHdwTFV5UmFtVHd0bDU0eW1YcVlsTXU1dDU3T2wyeUZVZzNXcE1XMmNSM2dvU0hFegpSTDRvZzFhY2U5NzBUdnprZHZ3ajJCRGhVL0tZaU0rMnNrT1pHaENvM29mSk9kNlRtVjJXbnJNMXpaaWhOVi9CClY3QlQ2Tm83emdIZVkxQnFabG1WNWw4NEowRk9PR0ZKY3RjMlVBK3YrNkxsakJDMjI2WVVKblg4ck1vb3UxbkIKSWxBQzcySG84R2JhSzNGUUNWMHVGanZjQ0Q1UDNqRkNxTThxMTFXWUdOWTNwR0gwZzhVQlNaamhoM1VHZWxtMQpFUEU3TlNPTmdSMGhnRGZPT25jUzBkVUdyQkZTWGJqcndlNGFreHoxRzAvb1ZBeXVnUnNESm1la3RtNkREUEpPCnltQUpyd2NNdzl0QWF5OXgrdDBXY05ZWVVuZGFNbkVkQjl1RGN1S0dyZk9vRVJDeDFDdm92Y1l1bit1OVpxaXAKYk9YUUZlaEIvSjJOajA1MVRVaktwZ1ZsR2k5MHhDSjNEY0JsNTZiNWh0THk5dUFKVnVoL2tFSzZWOGRvbm5BeAorK2NGYlYyL0M4MUwxcDFVQUc1UUJKeGJEOUdndjBrSVRIWFRLRVFQMEVjSmNEVzhhbXprMnc0RGZTZCtyY0gvCkVLaXpqN0R2WmVvRENiSEVaa2NGQk16ZVV2cG9oMXZLN1paMFVBZjgxVGRHMS91ejBHMGk1c1c5ZjRSRDU3SjcKRzd0RDZXMnZEQ2Nic1lmZ1pEOFZoOFhJMXFhRzZOSVdDVHhsMHZPWmdzUDY1b3B6WUZhNWx1MXNvZFBXVHBYcApKcy9EWkRJbG1QUHlqNUdjREZNRWZ0KzZ6LzRUSzBnQzhyZ3RZbzF4OVErU0ZvN1l1eGwxcUNlS2Q0RWd5UnlmCndnOERxZDhGWStlWDM1QmtLbEZURGdHOWVuZFJqd0t6SjFjMlUvZHMzS1Z1TDRLNHBtbTR4ajUyaUhEcGZhZzYKaWZUeFNTaW9ycFVyZEdVNGhjTFpTMVJNT1pab3NXYnVuSGo1NzdpNTViYzV2d0piMDRyMWh1eWtBZmpsVTg0Mwo1cTFaQzA4K0tBaGdnZkVyOFM4UmxBWXhHQWpXWm14TEFnSGhxazB5OFdNQlpXak9nd3BsVmIydkJFUFR5QmluClRrM202c1R4bGZaQm54U0xTWTFYcnJsZE9Hak9sRnFnNnQ4ZmFxWmFtWGRsUFcwZFpIL2tsRlB1VjRnUWE2UTMKN3hHWTJ3M3JSL3ZPS1psd05yU1FWMmZtMnVsSERHcnpQemo5TXQxSWRrZUZ3NXJCRFBuZndwZjhzYmd5b2tnSQpOdkRaVzdpM0ovTllpNVZqWit4RERMeVVtZ3UxcEVoUklMTEZnVGlIbkhzZEJTNkdhVEhLRlR6WkM5QnE1aFlHCjhCUlVuajYyTW9NQmV4ZEV6bWJKWlpPMUs3cUlwS1NORVhxZm44QlJBZmJXMDl2OGRHK3M2YlRoWHY2WVYrY04KZ0VQQ0hmWEdDNEdpSmlQakxBRjE1M3VhYlZrZEJmKzVLZG93R0RqRlJMRVFlSlRnZW5FOFVwLzI1NXdkK0xrVwo1VG9NMDY3eXFybXAxTlFMMkt0dFNUOFZNRHBlNUUyTEZ0Mi9JTEUyNmVKQ1NPNUFuZm8yY05BU3BDY1puZGllCmFJSXl6ZUVhUmpsNHRvV1doeVBGeUxYMTdkZk84cnZiUzFWQk5SZHI5azlnNXAvZ2h4RUw5TWlYKytkZlArc1MKTHAwbDBQQ2ZSSSs5Qm1CVEFVbUU1U1BHYXlpUGRTeU5oTUo1dzRid3h5a2NXRCt3S08zK1JEQVVCZ05WSFVrRQpEVEFMQmdsZ2hrZ0JaUU1FQXhJd2dnejdCZ05WSFVvRWdnenlBNElNN2dCMHBkVVlseDdXQUJETGgyQWlEZGRFCjdGTU94cDZoVkxDNk9BTUxvREpaQTl1SjJaa3ZjbVppejV3b2RpaXRnRmJsKzUyUmZHd2JWUm9FeU9QOU5iRUEKQ08xRTRiVlZJYjBiSjc2dm9hMEVvVjNjTVFZcWpmNks5bkhBTTExZ3VNOVpRS2JucEJDckIxbEVaaWlTa3lrRQpYQkZaZDArQUVCb0N3Qno3TlY2akpVTDJvcmJrV3F6WWRHQlg5MnpDS2dCWnZVbms1NnBFMWhBU1lhZXYvenNXCnBTNHdLQi81U3c4S2lGaGhjemlBWHU4MmEvM0xnZDNiNXd3dGRnUjJtb2FERU1VUmpqU2Y5b1JLdER4ZUZKcDYKS2VnaURydzdmTTZrMEdtZExyemdlUzdRdUNkdXlIODFQNWY4MXpRM0cvakJDeXE0d1QzRjNESXl4ajVPTDFxbgozaytPY3Z1VWxwNk5oZzZIV0pOY3VCNW1mM2JEcFFVYlRmR0kxeHJhTVVIRGRqVHRmYVFvbktBeWRMN1pVK3NXCktGc043U0tZS0dBNEVnVFU3SGs5WkhzTTFoTzRlVVRQUG1EYVhkekVORkhqWlpkeCtJK2gzODVHVWplN3VPUjAKckw4VjJWeE9aMnd6b2U2ZXZQRWtsUTcreUE0bWNXRmtXcExMU0ZIejRxSnljUUxkcTNDUFUrMUNxbjUyRFNiawpVTFNjcFBNd1VaNFkvUGhtelFUZ2JwMWNPVHp0RzV5STVTNVNGbDMrc1FLZDBCaE1Eb0QyelVSWWpVT0plR3BDCmRaanROQloreDZYSG1mYWdydjVLSThTY2lyZ3VOb1ZZYTIxbnN1d3YvdUI5VStXMkJQeEIvbGQvYlhXS3EraXkKZ25VL1B6cjlPbERvQjhZNkMvckFyVUJmdTVlS285b1pKZm1iSFRDOW50dFgyZWFRVWhHVU9WT253cXJnVXVKbgowMGNnWGZ5b3U4TENKaHRzcEdVRW5tQUlQVTlscEdLSElRVzRJWVc2eTNmVUtkWk5OUVZRVitsV1NBejNOM2pMCkdLczVCVVEreVQybzdrQmhLZ2l2UVczaEdqY1RIZzlsVUdUQXlXMkpIbnQxY0VZamlLbjVJK0MvN3pRRkkwaFoKMGdaKytBb2xXK2J6SVdGQU9kcnVraForME1qNXdsMnVnTUVIZ3BKcTk2eFA4dnc5Vkt2b3JPMDNqbnZiV3BQZwpwV3phMmFMSndWOUlhYjErYzdGbU05SjZOclBzMzQyaVVLVXhlL3pMcWMrcjY4UVRHKzd6Z3F2U1dib0swOERBCk5sZU1vMUl5NGZTWTB1Rmk3NEVlbVhxZHZhcmhuQ1BZRmJpRk1kcHFPOTFUMkJobEd0cG1PTDdiVHQ0NXJubUkKbU9sbytGbmlWY1NHZHdWMlY3bVdVN2dPTS94VmR1enZsZVc1VjQrbko5UXhUQmNWQXROMXhLdXVINWRNL0IyTQpVRUlmd2E4NG9JWFJYS2pFTkU4aWExWGJPOU1tQXZoSDlNN2lWMm9SdVF1ckM3N0xhb3RLNWtQTXhnZUM1dkdhCkdyTkRWeVRLaFN2TVdZMXRwLzdWZzM3OXZHbWJnOVNVUUFXK2Z0b05PSmNMQVg3bWg5TnpnZTBMQXpyeCsyNXgKaXBCT2dPUDd5NTBEekE3eEVjOFR4TENsYmhSMjZNY1BaVUpaZis3NlpSMlhQbU5CQVJYY3VwZmNLOUIvMENxQQp2OVVsdEZEV3lpazRmdnRNZXp6ZGtwQWhhK2QyUVVoRi9mVUs4WDFRRjFnbnliUDhEb3U5cmEwN0hLaU5BN2NGCkM1dlJrV0NNRVAxYW9FbFR4b1VPcm0zTmdqTjM4UmFFcHhiaHlCLzZMNlUrNDhMNlpRckN0c21MeTZublFVSVcKaWRTdEFRQXNuNTNqQU5oSll1TllHdndnbXdKbnBtRFFyVjhiUGNOcTBpZFFtQVdRMXVsU1RBVklFM2tuQnVzZQpZTXpOVFNtMG5QR2xrY2F5cDBJK1l3amZSR0dOQk9MMmE5cDFSeFdrc1l6Y2VpOGdjZFZXQkxKQVlHVFdCM2JVCkVLR3pBcjdRVGJxNy9YUFVJMUVBaUVaV2UzSFgzMFlBMWJrRUZKNDJGVnJNMHkvQmNZbi8rSzZRSmJaVFdZVWsKbHY3dTF0bDI2WnliRG5ibDdiZjlJbmVtUkZZQ1BBbTUwdDJiOEVpQVQwSCsvTkxmZXNDdmpBdEVRREhUL1pndgp6QUM2V3orZmE2WnIwOXFrMUtkSlVmNUpXa3hMKzdndERWd09DUVpmNjNjVnJjeG5NYVl1Q3o0d3ZzNGRsbk5JClhMZTgvODQyMHdsY3dtejdUVmdOblUrN2IxdGxnNHNTanlNMGhxelVNWldaZ29rZmwxUm1xQStVbFNDN1pDeXUKd0EwVVdNOFVHWlREdjNoK1ovY01VSklaVENuQ3dvekxTb3hLUmgrZ1dnWWZGcVBCTXMraDNoNDB2WEEreUhJegpMNlVyWTBqbnZhYU5lVjBmM0x3NWNJc2lWSzh2TmNIUTYwWkVBeTVCK0dZNTN0d2Iyb2tJMG0ycVAyOExUZEg2CjdRNlpLNlpSKzVQQ0d3THg3L2NYMXpEMUtxQnFrTGx0NitmVFZFa053OW9lcWZXQWZLVUdENVlHSXNnVUZXRXoKTmt3Y0R2YkUwS3lFY09vbjdPS3U1SXhkSm5YUmxyVmlraUFxN3Jac3pQN24ybGJLZmh4VEF5eVJYQXl4aG5zRgpUWE1QeFZzeWJsUjRQaFBXeDQwVHdYdlZ1VWxCa1dDV0cySVovTHdEbTQrQkRXMjdwTlB5eW12K1YzYmVsWEJ4CjFOVjhMQnY3Q0lzdmh1aFFOYWVpTm1mcWR0eGsxeWdKbEhON25XUCtiT3E5TUxSYW1mM3g3VFNmYzdBVWNkODUKNE9ORHpDeXVxTHF4bXpZaGd4TTF3dVh5V1RlUktQU3FwVFV6OWZ5ZUhZWlBLazRaQlBwL0ZJYUhkZGdSQUgrawpmem5lMGgzOXdVb2YxQyt3L3RVTGg1RFo1UlVyWkM1WloweS9sSXVVclZFeFdZWkx1M0RQQkV6TmhQR0huQU1jCnJZS1VTZ3BsU2J3TWJOMFU3M0hnQTNqNDc3RHJOWm5aNHpSRU96Qy8wT0NyTE5RTGpQdkVkRDFodUo5VURZV1YKWXNaSWt2c0l2MEtHUGZscDlKeSs5SUFhc2ZyODIvNUFUdEZmMHRGc1ROYWI3SU0xTmxZb1NRRCtvMEw5d0REUQpZcmo3cEFVZGRLVlgvOFFBSmQ2T1dTOEF2WmI3bkpGcVl5dUFnaEw1THExcGpoTkNqL244TVFSWjhDTDE3UlBOClQzOUp4NlZhN3VYSmRaN1hIYjBQTFBnQUxoeGZUOXZRY3VHTFMrcmJiblBWcGpxVGQ3ZERKZk1NVzgxUDJwaVYKcDRaRXAxMURER1dyM1licWRzU1c2UG5YU1I4ZDF0Nm5Qc2trdXlBZFFVN3J3RjhwRUxxalF6R2Rpb3E0aVJ0TgpsK2E4MmhuZVRWald1a3d3ZnZGa3FpWjRiaXRKdkNZMlFUN2pDZ0VlcUhCS2RFWi90OEYwc0NsRlVlSTdDbVRHCkFjcVVvMHdmTDViZ0lTbmhydjJZR1JrR3BWVGt6QUNBU2kzNHhkckVicDl6VW5RYWJRQXFLdXlTcGN4RzhhT0QKU2tZVHh2bHhZWldoWlJDRUFyNGxmd0U4cys5RC9NKzlBNGNCd29BTE5wM0g3Z1gzeDRKSmtEMTdZZVNQSkg0cAo4QTQrQzRIOXBwNy9qVFhpc3AwTGJtODgvSWl6Nk9BN1E2blBUSUdtTFk5WFQrcUlFRHJua1ZwWWV4ejNEZ0RoCis2eDYzelQzOGJZT0duSEpNa3gzY1lpTS9YQWRRaTZGR2VhK3R1MFZJVktoenplNVNUMDBZZStTOGFzbGt1UEUKakthZXN0Y0N2RjBvQWQrY01nRm1YZUl6TTRvK0pJL3lQTDdEM0RwcnUxUkVqK1BjK2NXQTEvQmFvQ2Q2cHFnaApQNWwzUFh2MjYyZXhvanZGa0pTRWQ4L3dEVnNLYmhGb1pYOENSZjJZTFVEUWc2bDZ5WnBiSFJ6ZGFObXl0ZmFSCjYwMCtuaXYyNDc3NWwwQ1ZoUmVIWlBBS2pFNlFQcTR4S3FTQm43SHNNNjdOUGRFMDhxSVNIbUdWOWNKNURiTEkKZHFoVjRMOEdrQXV3Ymo2U1hzaUFBeFh5cjloclA0eTFqbUtaQmVZRHBzenZoUUFqbWpnVUwrTC9tSXU3bS9ZVwpjUTQwYmN2TjFLb0pWMkhOQVR0NjluZ1FjYmIxZzBkanhpVVNNTHJOVUJXb1ljckgxMW5lQko4aFY3VHM4T3JhCk9MSUF5WnBYZ0lEUWEwdFNpSEtvK3FCaTVNZmUwcEQ2NVJuQWNPRFFrSHRXSHR3RUpaM3V2L2paUm5SV3lrVWcKOTBJYis3bUlSNkliajBPZHJZRXBjNmVIeXR4UVQ1MFM1VFZoSlNaVWwxQlRiU1IzTVlmRjdaSkN6T1hXWGxaVApOOEJBZk9EQzREdFk0NnFvTUFtYnNQTXljV0V6VUxVQ2thcGtoRGpKNDBUOXo4ZnQ4WDJLQXV6REkzek03cXVICkdNSWRud1JCdWRCRy9vUjZXVHlUcWVFZ1Nvb1hKa2ZiL1V6NHJnWlphYlhlbjNiMXpURWp5Y0t2dWNjR3FVbksKY1NhTnMvNkhMK3BjZXJ4cHh4em80QlIvWGpiSHFiNlU4bDgzaFljdWw4cFRCbFlyb2hwRjNncm9qb01pWW5DUAo0ZU15dGpnTXBFS0NtSWxrbis5ZjU1RVZpTUljMml5QzVCaFF2VGkxWW9SL3VFSlhncDFTV2NaeEU3eGJvYk0xCmVmU0FYSlk3aWhqK2cwaEdHWjdsVy9UMVlIdXJHZWZ0VWNORFNobjZ0Z2JVTzQreW1yc1JtdnpGUUtLYWZsd0YKcTRaVHQrWlJ4dFhSUG5YdzJkOGhib2ZYWFVBTDMvcWNPc0ZyWjRtT1BYZDlSdDV2RmVYNjRYMCsrb2hBR210dgo0bTB3QjhOL0tjclUrekszK1k5RW9yZHRlN0NrZTkzTG4xeXpZZTNLOU5leDZ2M1luVTdsbXNxMlg5cndWVGowCm5HK3dzREhWU1NFQmhBWmtVcDZzVnBUbGtsS0V6RVdwSVJTK0UrU2FsMkQzcUhzSEZyWkVMRmhnalBwWEUvdTgKQTM3a25OMURxYjRVNkoxeFA1cEx1dWlGbWdSRVNxN1JPYXE2cGFZYUwvNndCTnQ3UDNlcjRqaGJyOHdmclhZdwpmQjBqWTd2QkFhZTl1MnVFZVZsb2NUN3lkRjJmV0g2RzFsTlJaUGtUUTF1R0hERHFJeVFTNTBhdHJkb3JBb1hsCjdWL0Vna0Z1RCtvbTFHVjVkNDZqVEVRc3dxaGpJSWNYUDl6SmdQV1NOK2t0RnI4d2VLSXBMRUk3T1U5WXF4MXMKbU4xUDJhcHg1VmJxZFNyT1JUbTlFUGMzaEV2dEp2cFovVy9hT29sYVAyaUk0SlFkWFoyUklaYUtDU3prVzkrbgpOaDRraERoUXRDT1djcnZ6QWovQ0xzRDFDQk9GL1grYTZwMGNNek8yODJJY0duTDVMNXFzRnB6TkdxVnJ2Y3UrCmN2RE16cVV0ejliVUtkSzVuOWZwb3lsSFliWXNtL2ZnYUJOeFRLY3hwVUlNQzAvcHljYXhhdWg0ODAxZlRpZ20KMExLdlViSkUzSEp5MTZ3Rk40Zyt0bE4wZTRTRnFmNEhDeEVVUzRQRDQvb01WYVd6RHhOVWROYmhJVFpBUTRXTwpwNm5GSWorVG5xS2x3TWZPQUFBQUFBQUFBQUFBQUFBSEVCUWFJeXd3RFFZSktvWklodmNOQVFFTEJRQURnZ0VCCkFCWEtTbWIxalB0bHpEVEg4dFRUemRxVHRIQVBHeTRieFdINEJ0UkNPNGVoOUhMTFNnQXFmZmU5RnpWZDl5aHMKdzhnc0dHQUxUTlh5WEswc3FuelgzN0ZhSzNTS2ZhZ0gxL1NyUFIxZGVzaEo0M3VZTjRRSEl4QXFQNGczNDFTRgo0bThsWGdXcTZ3S3dBbzMwK08vMnRxWHlGUWwrU3BVcExUbnNBZ3NIdVhma1dDdk93MUtiN0tOdjQwVXhRUVE0CmVsbVdyNHJrbHUxTGdZbWdsd1FxWXhoQ2dGdldLZkw2YWdkcHdZOG5OQUVNK1VsSmZpbmxQc0UzUzRtNUN2elMKNE01K1dIaGtHQkNuTGdocmRUa0Znc0lmdEVyK0ttUFdYdGVQRWhWLzBmcjNFYmJsT0FDc3B5VjM0NC9iSUE0UQpmaXhCRVhzN290WmRXZGtJVTAvRlo0cz0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=";
-        X509Certificate issuerCertificate = CertificateUtil.parseUploadedCertificateContent(issuerCertString);
-        byte[] altCertificateSignature = CertificateUtil
-                .getAltSignatureValue(x509Certificate.getExtensionValue(Extension.altSignatureValue.getId()));
-        Signature signature = Signature
-                .getInstance(CertificateUtil
-                        .getAlternativeSignatureAlgorithm(
-                                x509Certificate.getExtensionValue(Extension.altSignatureAlgorithm.getId())));
-        signature
-                .initVerify(CertificateUtil
-                        .getAltPublicKey(
-                                issuerCertificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId())));
-        X509CertificateHolder holder = new JcaX509CertificateHolder(x509Certificate);
+        uploadCertificate(derBase64(issuerCertString));
+        Certificate hybridCertificate = uploadCertificate(derBase64(certificateString));
 
-        TBSCertificate tbsCert = holder.toASN1Structure().getTBSCertificate();
+        CertificateValidationCheckDto signatureCheck = certificateService
+                .getCertificateValidationResult(hybridCertificate.getSecuredUuid())
+                .getValidationChecks()
+                .get(CertificateValidationCheck.SIGNATURE_VERIFICATION);
 
-        // Step 2: Modify extensions
-        Extensions extensions = tbsCert.getExtensions();
-        ExtensionsGenerator newExtensionsGen = new ExtensionsGenerator();
+        Assertions.assertEquals(CertificateValidationStatus.VALID, signatureCheck.getStatus());
+        Assertions
+                .assertEquals("Signature verification successful. Alternative signature verification successful.",
+                        signatureCheck.getMessage());
+    }
 
-        if (extensions != null) {
-            Enumeration<?> oids = extensions.oids();
-            while (oids.hasMoreElements()) {
-                ASN1ObjectIdentifier oid = (ASN1ObjectIdentifier) oids.nextElement();
-                if (!oid.equals(Extension.altSignatureValue)) { // AuthorityInfoAccess (example alt signature extension)
-                    Extension ext = extensions.getExtension(oid);
-                    newExtensionsGen.addExtension(oid, ext.isCritical(), ext.getParsedValue());
-                }
-            }
-        }
-
-        // Step 3: Reconstruct TBSCertificate
-        TBSCertificate newTbsCert = new TBSCertificate(tbsCert.getVersion(), tbsCert.getSerialNumber(),
-                tbsCert.getSignature(), tbsCert.getIssuer(), tbsCert.getValidity(), tbsCert.getSubject(),
-                tbsCert.getSubjectPublicKeyInfo(), tbsCert.getIssuerUniqueId(), tbsCert.getSubjectUniqueId(),
-                newExtensionsGen.generate());
-
-        signature.update(newTbsCert.getEncoded());
-        signature.verify(altCertificateSignature);
+    private static String derBase64(String base64Pem) throws CertificateException {
+        X509Certificate certificate = CertificateUtil.parseUploadedCertificateContent(base64Pem);
+        return Base64.getEncoder().encodeToString(certificate.getEncoded());
     }
 
     @Test
@@ -1177,5 +1230,581 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         mockServer.resetRequests();
         certificateService.validate(eeEntity);
         mockServer.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo(caIssuersPath)));
+    }
+
+    // ── OcspAnswerTrust ───────────────────────────────────────────────────────
+
+    @Nested
+    class OcspAnswerTrust {
+
+        private final OcspResponder ocspResponder = new OcspResponder();
+
+        private WireMockServer ocspServer;
+
+        private String ocspUrl;
+
+        private CertificateGeneratorHelper.CertificateChainInfo chain;
+
+        private Certificate endEntity;
+
+        @BeforeEach
+        void uploadChainCheckedByOcspResponder() throws Exception {
+            ocspServer = LoopbackWireMock.start(ocspResponder);
+            ocspServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathEqualTo("/ocsp"))
+                            .willReturn(aResponse()
+                                    .withStatus(200)
+                                    .withHeader("Content-Type", "application/ocsp-response")));
+            ocspUrl = LoopbackWireMock.url(ocspServer) + "/ocsp";
+            chain = CertificateGeneratorHelper
+                    .generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Ocsp-Trust-Ca", "CN=Ocsp-Trust-EndEntity",
+                            ocspUrl);
+            uploadCertificate(chain.getCaCertificateBase64Encoded());
+            endEntity = uploadCertificate(chain.getEndEntityCertificateBase64Encoded());
+        }
+
+        @AfterEach
+        void stopOcspResponder() {
+            ocspServer.stop();
+        }
+
+        @Test
+        void reportsValid_whenIssuerSignsGoodAnswer() throws Exception {
+            // given
+            ocspResponder.answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair()).build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsRevoked_whenIssuerSignsRevocation() throws Exception {
+            // given
+            var revocation = new RevokedStatus(new Date(), CRLReason.keyCompromise);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withStatus(revocation)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.REVOKED);
+        }
+
+        @Test
+        void reportsValid_whenAuthorizedResponderSignsAnswer() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            X509Certificate authorizedResponder = issueResponderCertificate(responderKeyPair,
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(authorizedResponder)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsValid_whenAuthorizedResponderUsesAnotherKeyAlgorithmThanIssuer() throws Exception {
+            // given
+            KeyPair ecResponderKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.ECDSA, null);
+            X509Certificate authorizedResponder = issueResponderCertificate(ecResponderKeyPair,
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, ecResponderKeyPair)
+                            .withSignerCertificate(authorizedResponder)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsValid_whenAuthorizedResponderHasNoKeyUsage() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            KeyUsage noKeyUsage = null;
+            X509Certificate responderWithoutKeyUsage = issueResponderCertificate(responderKeyPair, noKeyUsage,
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(responderWithoutKeyUsage)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsValid_whenAnswerExpiredWithinClockSkew() throws Exception {
+            // given
+            Date justPassedNextUpdate = Date.from(Instant.now().minus(Duration.ofMinutes(1)));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(calculateDate(-1))
+                            .withNextUpdate(justPassedNextUpdate)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsValid_whenAnswerStartsWithinClockSkew() throws Exception {
+            // given
+            Date slightlyFutureThisUpdate = Date.from(Instant.now().plus(Duration.ofMinutes(1)));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(slightlyFutureThisUpdate)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        @ExtendWith(OutputCaptureExtension.class)
+        void reportsFailed_whenAnswerIsSignedByUnrelatedKey(CapturedOutput output) throws Exception {
+            // given
+            KeyPair unrelatedKeyPair = freshRsaKeyPair();
+            ocspResponder.answerWith(request -> anOcspResponse(request, unrelatedKeyPair).build());
+
+            // when
+            CertificateValidationCheckDto ocspCheck = checkOcsp();
+
+            // then
+            assertThat(ocspCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+            assertThat(ocspCheck.getMessage())
+                    .contains("signed by neither the issuer nor an OCSP responder the issuer authorized");
+            assertThat(
+                    output.getOut().lines().filter(line -> line.contains("Ignoring the OCSP response from " + ocspUrl)))
+                    .isNotEmpty()
+                    .allSatisfy(line -> assertThat(line).contains("WARN"));
+        }
+
+        @Test
+        void reportsFailed_whenRevocationIsSignedByUnrelatedKey() throws Exception {
+            // given
+            KeyPair unrelatedKeyPair = freshRsaKeyPair();
+            var revocation = new RevokedStatus(new Date(), CRLReason.keyCompromise);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, unrelatedKeyPair).withStatus(revocation).build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAuthorizedResponderCertificateDidNotSignTheAnswer() throws Exception {
+            // given
+            X509Certificate authorizedResponder = issueResponderCertificate(freshRsaKeyPair(),
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            KeyPair unrelatedKeyPair = freshRsaKeyPair();
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, unrelatedKeyPair)
+                            .withSignerCertificate(authorizedResponder)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderLacksOcspSigningUsage() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            X509Certificate clientAuthCertificate = issueResponderCertificate(responderKeyPair,
+                    KeyPurposeId.id_kp_clientAuth, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(clientAuthCertificate)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderIsIssuedByAnotherCaOfTheSameName() throws Exception {
+            // given
+            KeyPair otherCaKeyPair = freshRsaKeyPair();
+            X509Certificate otherCaOfTheSameName = CertificateGeneratorHelper
+                    .generateCACertificate(otherCaKeyPair,
+                            chain.getCaCertificate().getSubjectX500Principal().getName());
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            X509Certificate responderOfOtherCa = CertificateGeneratorHelper
+                    .generateOcspResponderCertificate(otherCaKeyPair, otherCaOfTheSameName, responderKeyPair,
+                            KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(responderOfOtherCa)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderIsIssuedByAnotherCaSharingTheIssuerKey() throws Exception {
+            // given
+            X509Certificate otherCaSharingTheKey = CertificateGeneratorHelper
+                    .generateCACertificate(chain.getCaCertificateKeyPair(), "CN=Ocsp-Trust-Other-Ca");
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            X509Certificate responderOfOtherCa = CertificateGeneratorHelper
+                    .generateOcspResponderCertificate(chain.getCaCertificateKeyPair(), otherCaSharingTheKey,
+                            responderKeyPair, KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(responderOfOtherCa)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderKeyUsageForbidsSigning() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            var keyEnciphermentOnly = new KeyUsage(KeyUsage.keyEncipherment);
+            X509Certificate responderThatMayNotSign = issueResponderCertificate(responderKeyPair, keyEnciphermentOnly,
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(responderThatMayNotSign)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderCertificateLacksOcspNoCheck() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            boolean noCheckExtension = false;
+            X509Certificate responderNeedingRevocationCheck = CertificateGeneratorHelper
+                    .generateOcspResponderCertificate(chain.getCaCertificateKeyPair(), chain.getCaCertificate(),
+                            responderKeyPair, new KeyUsage(KeyUsage.digitalSignature), KeyPurposeId.id_kp_OCSPSigning,
+                            noCheckExtension, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(responderNeedingRevocationCheck)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderCertificateHasExpired() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            Date expiredAMinuteAgo = Date.from(Instant.now().minus(Duration.ofMinutes(1)));
+            X509Certificate expiredResponder = issueResponderCertificate(responderKeyPair,
+                    KeyPurposeId.id_kp_OCSPSigning, expiredAMinuteAgo);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(expiredResponder)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsForAnotherSerialNumber() throws Exception {
+            // given
+            BigInteger anotherSerialNumber = chain.getEndEntityCertificate().getSerialNumber().add(BigInteger.ONE);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withSerialNumber(anotherSerialNumber)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsForAnotherIssuer() throws Exception {
+            // given
+            X509Certificate anotherIssuer = CertificateGeneratorHelper
+                    .generateCACertificate(freshRsaKeyPair(), "CN=Another-Ca");
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withIssuer(anotherIssuer)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsForAnotherIssuerOfTheSameName() throws Exception {
+            // given
+            X509Certificate anotherIssuerOfTheSameName = CertificateGeneratorHelper
+                    .generateCACertificate(freshRsaKeyPair(),
+                            chain.getCaCertificate().getSubjectX500Principal().getName());
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withIssuer(anotherIssuerOfTheSameName)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerLabelsIssuerHashesWithAnotherAlgorithm() throws Exception {
+            // given
+            var unsupportedHashAlgorithm = new ASN1ObjectIdentifier("1.2.3.4.5");
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withHashAlgorithm(unsupportedHashAlgorithm)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerWithoutNextUpdateIsOld() throws Exception {
+            // given
+            Date thisUpdateAnHourAgo = calculateDate(-1);
+            byte[] noNonce = null;
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(thisUpdateAnHourAgo)
+                            .withNonce(noNonce)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsStale() throws Exception {
+            // given
+            Date passedNextUpdate = calculateDate(-1);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(calculateDate(-2))
+                            .withNextUpdate(passedNextUpdate)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsNotYetValid() throws Exception {
+            // given
+            Date futureThisUpdate = calculateDate(1);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withThisUpdate(futureThisUpdate)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenNonceDiffersFromRequest() throws Exception {
+            // given
+            byte[] nonceOfAnotherRequest = "another request".getBytes(StandardCharsets.US_ASCII);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withNonce(nonceOfAnotherRequest)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private CertificateValidationStatus checkOcspStatus() throws NotFoundException {
+            return checkOcsp().getStatus();
+        }
+
+        private CertificateValidationCheckDto checkOcsp() throws NotFoundException {
+            return certificateService
+                    .getCertificateValidationResult(endEntity.getSecuredUuid())
+                    .getValidationChecks()
+                    .get(CertificateValidationCheck.OCSP_VERIFICATION);
+        }
+
+        private X509Certificate issueResponderCertificate(KeyPair responderKeyPair, KeyPurposeId purpose, Date notAfter)
+                throws Exception {
+            return issueResponderCertificate(responderKeyPair, new KeyUsage(KeyUsage.digitalSignature), purpose,
+                    notAfter);
+        }
+
+        private X509Certificate issueResponderCertificate(KeyPair responderKeyPair, KeyUsage keyUsage,
+                KeyPurposeId purpose, Date notAfter) throws Exception {
+            return CertificateGeneratorHelper
+                    .generateOcspResponderCertificate(chain.getCaCertificateKeyPair(), chain.getCaCertificate(),
+                            responderKeyPair, keyUsage, purpose, true, notAfter);
+        }
+
+        /** Answers each OCSP request with what the test's answer function makes of it, as a real responder does. */
+        private static final class OcspResponder implements ResponseDefinitionTransformerV2 {
+
+            private final AtomicReference<Function<OCSPReq, OCSPResp>> answer = new AtomicReference<>();
+
+            void answerWith(Function<OCSPReq, OCSPResp> ocspAnswer) {
+                answer.set(ocspAnswer);
+            }
+
+            @Override
+            public ResponseDefinition transform(ServeEvent serveEvent) {
+                Function<OCSPReq, OCSPResp> ocspAnswer = answer.get();
+                if (ocspAnswer == null) {
+                    return serveEvent.getResponseDefinition();
+                }
+                try {
+                    OCSPReq request = new OCSPReq(serveEvent.getRequest().getBody());
+                    return ResponseDefinitionBuilder
+                            .like(serveEvent.getResponseDefinition())
+                            .withBody(ocspAnswer.apply(request).getEncoded())
+                            .build();
+                } catch (IOException e) {
+                    throw new UncheckedIOException("The test OCSP responder could not answer the request", e);
+                }
+            }
+
+            @Override
+            public String getName() {
+                return "ocsp-responder";
+            }
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static X509Certificate createSelfSignedCertificateWithCrl(String commonName, List<String> crlUrls,
+            List<String> deltaCrlUrls, BigInteger serialNumber)
+            throws CertIOException, NoSuchAlgorithmException, OperatorCreationException, CertificateException {
+        return createSelfSignedCertificateWithCrl(freshRsaKeyPair(), commonName, crlUrls, deltaCrlUrls, serialNumber);
+    }
+
+    private static X509Certificate createSelfSignedCertificateWithCrl(KeyPair pair, String commonName,
+            List<String> crlUrls, List<String> deltaCrlUrls, BigInteger serialNumber)
+            throws CertIOException, OperatorCreationException, CertificateException {
+        SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo.getInstance(pair.getPublic().getEncoded());
+
+        X500Name x500Name = new X500Name("CN=" + commonName);
+        X509v3CertificateBuilder certificateBuilder = new X509v3CertificateBuilder(x500Name, serialNumber, new Date(0),
+                Date.from(Instant.parse("9999-12-31T23:59:59Z")), x500Name, subjectPublicKeyInfo);
+        CRLDistPoint crlDistPoint = new CRLDistPoint(createCrlDistributionPoints(crlUrls));
+        certificateBuilder.addExtension(Extension.cRLDistributionPoints, false, crlDistPoint);
+        if (deltaCrlUrls != null) {
+            CRLDistPoint deltaCrlDistPoint = new CRLDistPoint(createCrlDistributionPoints(deltaCrlUrls));
+            certificateBuilder.addExtension(Extension.freshestCRL, false, deltaCrlDistPoint);
+        }
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption").build(pair.getPrivate());
+        X509CertificateHolder holder = certificateBuilder.build(signer);
+        JcaX509CertificateConverter converter = new JcaX509CertificateConverter();
+        converter.setProvider(new BouncyCastleProvider());
+        return converter.getCertificate(holder);
+    }
+
+    private static DistributionPoint[] createCrlDistributionPoints(List<String> urls) {
+        List<DistributionPoint> list = new ArrayList<>();
+        for (String url : urls) {
+            DERIA5String deria5String = new DERIA5String(url);
+            GeneralName generalName = new GeneralName(GeneralName.uniformResourceIdentifier, deria5String);
+            DistributionPointName distributionPointName = new DistributionPointName(new GeneralNames(generalName));
+            list.add(new DistributionPoint(distributionPointName, null, null));
+        }
+        return list.toArray(new DistributionPoint[0]);
+    }
+
+    private static CertificateValidationStatus readCrlStatus(CertificateValidationResultDto result) {
+        return result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus();
+    }
+
+    private Optional<Crl> findStoredCrl(X509Certificate selfSignedIssuer) {
+        String issuerDn = X500Name
+                .getInstance(new PlatformX500NameStyle(true), selfSignedIssuer.getSubjectX500Principal().getEncoded())
+                .toString();
+        return crlRepository.findByIssuerDnAndSerialNumber(issuerDn, selfSignedIssuer.getSerialNumber().toString(16));
+    }
+
+    private Optional<CrlEntry> findStoredCrlEntry(X509Certificate selfSignedIssuer, BigInteger serialNumber) {
+        return findStoredCrl(selfSignedIssuer)
+                .flatMap(crl -> crlEntryRepository.findById(new CrlEntryId(crl.getUuid(), serialNumber.toString(16))));
     }
 }

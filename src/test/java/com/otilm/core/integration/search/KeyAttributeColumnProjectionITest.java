@@ -19,7 +19,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
-import com.otilm.api.model.core.cryptography.key.KeyItemDto;
+import com.otilm.api.model.core.cryptography.key.KeyItemListDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -174,7 +174,7 @@ class KeyAttributeColumnProjectionITest extends BaseSpringBootTest {
         return attributeName + "|" + contentType.name();
     }
 
-    private List<KeyItemDto> list() {
+    private List<KeyItemListDto> list() {
         SearchRequestDto request = new SearchRequestDto();
         request
                 .setColumns(List
@@ -187,7 +187,7 @@ class KeyAttributeColumnProjectionITest extends BaseSpringBootTest {
         return response.getCryptographicKeys();
     }
 
-    private KeyItemDto entry(List<KeyItemDto> items, CryptographicKeyItem keyItem) {
+    private KeyItemListDto entry(List<KeyItemListDto> items, CryptographicKeyItem keyItem) {
         return items
                 .stream()
                 .filter(item -> item.getUuid().equals(keyItem.getUuid().toString()))
@@ -195,7 +195,7 @@ class KeyAttributeColumnProjectionITest extends BaseSpringBootTest {
                 .orElseThrow(() -> new AssertionError("Key item %s is not on the page".formatted(keyItem.getUuid())));
     }
 
-    private static Object value(KeyItemDto item, FilterFieldSource source, String fieldIdentifier) {
+    private static Object value(KeyItemListDto item, FilterFieldSource source, String fieldIdentifier) {
         Map<String, List<BaseAttributeContentV3<?>>> bySource = item.getAttributeValues().get(source);
         Assertions.assertNotNull(bySource, "no %s values on %s".formatted(source, item.getUuid()));
         List<BaseAttributeContentV3<?>> values = bySource.get(fieldIdentifier);
@@ -206,7 +206,7 @@ class KeyAttributeColumnProjectionITest extends BaseSpringBootTest {
 
     @Test
     void aKeysOwnAttributeIsProjectedOntoEveryItemThatSharesIt() {
-        List<KeyItemDto> items = list();
+        List<KeyItemListDto> items = list();
 
         String environment = fieldIdentifier(ENVIRONMENT, AttributeContentType.TEXT);
         Assertions
@@ -217,7 +217,7 @@ class KeyAttributeColumnProjectionITest extends BaseSpringBootTest {
 
     @Test
     void eachItemsMetadataIsProjectedOntoThatItemAlone() {
-        List<KeyItemDto> items = list();
+        List<KeyItemListDto> items = list();
 
         // Resolved from the item uuid rather than the key's: a value belonging to one item must not land on a sibling
         // that shares the key with it.
@@ -230,7 +230,7 @@ class KeyAttributeColumnProjectionITest extends BaseSpringBootTest {
     void bothSourcesLandOnTheSameEntry() {
         // The two sources resolve from different uuids, so they are collected in two passes; the second must add to
         // what the first found rather than replace it.
-        KeyItemDto item = entry(list(), privateKeyItem);
+        KeyItemListDto item = entry(list(), privateKeyItem);
 
         Assertions
                 .assertEquals("production",

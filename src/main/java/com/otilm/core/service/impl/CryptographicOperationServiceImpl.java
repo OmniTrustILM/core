@@ -49,6 +49,7 @@ import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.KeyProviderV1Adapter;
 import com.otilm.core.service.handler.token.TokenProviderAdapterFactory;
 import com.otilm.core.util.CertificateRequestUtils;
+import com.otilm.core.util.CryptographyUtil;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.security.NoSuchAlgorithmException;
@@ -179,7 +180,7 @@ public class CryptographicOperationServiceImpl
         logger.info("Requesting to list encryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
-        KeyProviderAdapter adapter = adapterFor(keyItem);
+        KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return adapter.listEncryptAttributes(keyItem);
     }
 
@@ -193,7 +194,7 @@ public class CryptographicOperationServiceImpl
         logger.info("Requesting to list decryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
-        KeyProviderAdapter adapter = adapterFor(keyItem);
+        KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return adapter.listDecryptAttributes(keyItem);
     }
 
@@ -212,7 +213,7 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
         }
         requireUsage(keyItem, KeyUsage.ENCRYPT);
-        KeyProviderAdapter adapter = adapterFor(keyItem);
+        KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return recordEvent(keyItem, KeyEvent.ENCRYPT, "Encryption of data success ", "Encryption of data failed ",
                 () -> adapter.encryptData(keyItem, request));
     }
@@ -232,7 +233,7 @@ public class CryptographicOperationServiceImpl
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
         }
         requireUsage(keyItem, KeyUsage.DECRYPT);
-        KeyProviderAdapter adapter = adapterFor(keyItem);
+        KeyProviderAdapter adapter = adapterInUnchangedScopeFor(keyItem);
         return recordEvent(keyItem, KeyEvent.DECRYPT, "Decryption of data success ", "Decryption of data failed ",
                 () -> adapter.decryptData(keyItem, request));
     }
@@ -351,7 +352,6 @@ public class CryptographicOperationServiceImpl
 
     /**
      * Rejects request paths outside the loaded item's key, token and profile before state checks or event recording.
-     * The adapter separately checks whether the loaded association still matches the current scope.
      */
     private static void requirePathAssociation(CryptographicKeyItemOperationModel keyItem, UUID tokenInstanceUuid,
             UUID tokenProfileUuid, UUID keyUuid) {
@@ -363,6 +363,15 @@ public class CryptographicOperationServiceImpl
 
     private KeyProviderAdapter adapterFor(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
         return keyProviderAdapterFactory.forKeyItem(keyItem);
+    }
+
+    /**
+     * Encryption and decryption pay a read of the key's row to refuse a moved key at once; signing and verification
+     * take the scope from the cached item.
+     */
+    private KeyProviderAdapter adapterInUnchangedScopeFor(CryptographicKeyItemOperationModel keyItem)
+            throws NotFoundException {
+        return keyProviderAdapterFactory.forKeyItemInUnchangedScope(keyItem);
     }
 
     @Override
@@ -590,8 +599,7 @@ public class CryptographicOperationServiceImpl
             List<RequestAttribute> signatureAttributes, CsrKeyPair altKeyPair,
             List<RequestAttribute> altSignatureAttributes)
             throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, NotFoundException {
-        var publicKey = CertificateRequestUtils
-                .publicKeyObjectFromString(keyPair.publicKey(), keyPair.publicKeyItem().keyAlgorithm().getCode());
+        var publicKey = CryptographyUtil.decodePublicKey(Base64.getDecoder().decode(keyPair.publicKey()));
         PKCS10CertificationRequestBuilder p10Builder = new JcaPKCS10CertificationRequestBuilder(subject, publicKey);
 
         if (altKeyPair != null) {

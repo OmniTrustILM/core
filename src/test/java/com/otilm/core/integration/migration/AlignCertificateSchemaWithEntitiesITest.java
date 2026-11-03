@@ -77,9 +77,7 @@ class AlignCertificateSchemaWithEntitiesITest extends BaseMigrationTest {
         Assertions.assertTrue(certificateWithValues.isHybridCertificate());
         Assertions.assertTrue(certificateWithValues.isArchived());
 
-        certificateRequest = certificateRequestRepository
-                .findByFingerprint(certificateRequest.getFingerprint())
-                .orElseThrow();
+        certificateRequest = certificateRequestRepository.findByUuid(certificateRequest.getUuid()).orElseThrow();
         Assertions.assertEquals(0, certificateRequest.getKeyUsage());
     }
 

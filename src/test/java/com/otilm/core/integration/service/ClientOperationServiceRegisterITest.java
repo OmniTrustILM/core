@@ -60,6 +60,7 @@ import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.entity.CertificateRegistration;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.CertificateRelation;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.RaProfile;
@@ -71,6 +72,9 @@ import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationReposit
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -108,6 +112,9 @@ import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.cert.CertificateException;
@@ -179,6 +186,12 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     private CertificateContentRepository certificateContentRepository;
     @Autowired
     private CertificateEventHistoryRepository eventHistoryRepository;
+    @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
+    @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
     // Spied so most tests exercise the real copy while the compensation tests stub copyToSuccessor to fail.
     @MockitoSpyBean
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
@@ -718,9 +731,8 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void issuingTwoRegisteredCertsWithTheSameCsrSharesOneCertificateRequest() throws Exception {
-        // Get-or-create by fingerprint: an identical CSR attached to two registered placeholders must be
-        // shared, not duplicated (matching the canonical CSR-attach path).
+    void issuingTwoRegisteredCertsWithTheSameCsrStoresARequestForEach() throws Exception {
+        // Each placeholder's request carries the compliance result checked for that placeholder's RA profile.
         String csr = generateCsrBase64();
         UUID first = UUID.fromString(registerSyncRegistered());
         UUID second = UUID.fromString(registerSyncRegistered());
@@ -735,9 +747,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         UUID firstReq = certificateRepository.findByUuid(first).orElseThrow().getCertificateRequestUuid();
         UUID secondReq = certificateRepository.findByUuid(second).orElseThrow().getCertificateRequestUuid();
         Assertions.assertNotNull(firstReq);
-        Assertions
-                .assertEquals(firstReq, secondReq,
-                        "an identical CSR must be shared across registered placeholders, not duplicated");
+        Assertions.assertNotEquals(firstReq, secondReq);
     }
 
     @Test
@@ -2180,6 +2190,33 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .assertEquals(RegistrationState.ACTIVE, auth.getState(),
                         "the authorization stays ACTIVE so the holder can retry the issue");
         Assertions.assertEquals(1, authorizationRepository.count());
+    }
+
+    @Test
+    void approvalRejectedDeletesTheRequestItDetaches() throws Exception {
+        UUID certUuid = UUID.fromString(registerWithSecret(null));
+        clientOperationInternalService.approvalCreatedAction(certUuid);
+        String subjectDn = "CN=rejectedRequest";
+        CertificateRequestEntity request = certificateRequestRepository
+                .saveAndFlush(CertificateRequestEntityBuilder
+                        .aCertificateRequest()
+                        .withContent(Base64.getEncoder().encodeToString(subjectDn.getBytes(StandardCharsets.UTF_8)))
+                        .withSubjectDn(subjectDn)
+                        .build());
+        Certificate placeholder = certificateRepository.findByUuid(certUuid).orElseThrow();
+        placeholder.setCertificateRequest(request);
+        placeholder.setCertificateRequestUuid(request.getUuid());
+        certificateRepository.saveAndFlush(placeholder);
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.CERTIFICATE_REQUEST, request.getUuid());
+
+        clientOperationInternalService.issueCertificateRejectedAction(certUuid);
+
+        Assertions.assertFalse(certificateRequestRepository.existsById(request.getUuid()));
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, List.of(request.getUuid())));
     }
 
     @Test

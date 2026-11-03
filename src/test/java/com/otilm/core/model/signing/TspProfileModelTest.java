@@ -12,7 +12,7 @@ class TspProfileModelTest {
     @Test
     void carriesMethodsAndCredentialRefs() {
         // given
-        var cred = new TspProfileModel.BasicCredentialRef("svc", UUID.randomUUID(), UUID.randomUUID(), "fp");
+        var cred = new TspProfileModel.BasicCredentialRef("svc", UUID.randomUUID(), "fp");
 
         // when
         TspProfileModel model = new TspProfileModel(UUID.randomUUID(), "p", null, true, null, null, List.of(),

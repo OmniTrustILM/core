@@ -8,7 +8,6 @@ import com.otilm.core.auth.oauth2.PlatformJwtDecoder;
 import com.otilm.core.auth.oauth2.PlatformLogoutSuccessHandler;
 import com.otilm.core.auth.oauth2.PlatformOAuth2FailureHandler;
 import com.otilm.core.security.authn.PlatformAuthenticationFilter;
-import com.otilm.core.security.authn.client.CredentialVerificationCache;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.security.authn.tsp.BasicPasswordAuthenticator;
 import com.otilm.core.security.authn.tsp.BearerTokenAuthenticator;
@@ -69,8 +68,6 @@ public class SecurityConfig {
     private SigningProfileInternalService signingProfileService;
 
     private PlatformJwtDecoder platformJwtDecoder;
-
-    private CredentialVerificationCache credentialVerificationCache;
 
     private AuthHelper authHelper;
 
@@ -158,7 +155,7 @@ public class SecurityConfig {
                 .of(new ClientCertificateAuthenticator(authenticationClient,
                         environment.getProperty(CERTIFICATE_HEADER_NAME), contextWriter),
                         new BearerTokenAuthenticator(platformJwtDecoder, authenticationClient, contextWriter),
-                        new BasicPasswordAuthenticator(credentialVerificationCache, contextWriter));
+                        new BasicPasswordAuthenticator(contextWriter));
         return new TspAuthenticationFilter(new TspRouteResolver(tspProfileService, signingProfileService),
                 authenticators, new TspChallengeWriter());
     }
@@ -223,11 +220,6 @@ public class SecurityConfig {
     @Autowired
     public void setPlatformJwtDecoder(PlatformJwtDecoder platformJwtDecoder) {
         this.platformJwtDecoder = platformJwtDecoder;
-    }
-
-    @Autowired
-    public void setCredentialVerificationCache(CredentialVerificationCache credentialVerificationCache) {
-        this.credentialVerificationCache = credentialVerificationCache;
     }
 
     @Autowired

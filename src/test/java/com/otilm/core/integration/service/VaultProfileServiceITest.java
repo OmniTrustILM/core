@@ -34,6 +34,8 @@ import com.otilm.core.dao.entity.Secret2SyncVaultProfileId;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.Secret2SyncVaultProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
@@ -49,12 +51,17 @@ import com.otilm.core.service.VaultProfileExternalService;
 import com.otilm.core.service.VaultProfileInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 class VaultProfileServiceITest extends BaseSpringBootTest {
@@ -81,6 +88,10 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
     private Secret2SyncVaultProfileRepository secret2SyncVaultProfileRepository;
     @Autowired
     private ConnectorRepository connectorRepository;
+    @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
 
     private VaultProfile vaultProfile;
     private VaultInstance vaultInstance;
@@ -211,6 +222,21 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
                         ((List<AttributeContent>) detailDto.getCustomAttributes().getFirst().getContent())
                                 .getFirst()
                                 .getData());
+    }
+
+    @Test
+    void deleteVaultProfile_removesItsComplianceProfileAssociations() throws NotFoundException {
+        ComplianceProfileFixtures
+                .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                        Resource.VAULT_PROFILE, vaultProfile.getUuid());
+
+        vaultProfileService
+                .deleteVaultProfile(SecuredParentUUID.fromUUID(vaultInstance.getUuid()),
+                        SecuredUUID.fromUUID(vaultProfile.getUuid()));
+
+        Assertions
+                .assertFalse(complianceProfileAssociationRepository
+                        .existsByResourceAndObjectUuidIn(Resource.VAULT_PROFILE, List.of(vaultProfile.getUuid())));
     }
 
     @Test
@@ -409,6 +435,49 @@ class VaultProfileServiceITest extends BaseSpringBootTest {
                         .getSearchFieldData()
                         .stream()
                         .anyMatch(f -> f.getFieldIdentifier().equals(FilterField.VAULT_PROFILE_VAULT_INSTANCE.name())));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("vaultScopedCalls")
+    void testVaultScopedCall_refusesAVaultProfileUnderAnotherVault(String endpoint, VaultScopedCall call) {
+        VaultInstance otherVault = new VaultInstance();
+        otherVault.setName("otherInstance");
+        SecuredParentUUID otherVaultUuid = SecuredParentUUID
+                .fromUUID(vaultInstanceRepository.save(otherVault).getUuid());
+        SecuredUUID vaultProfileUuid = SecuredUUID.fromUUID(vaultProfile.getUuid());
+
+        NotFoundException refusal = Assertions
+                .assertThrows(NotFoundException.class,
+                        () -> call.call(vaultProfileService, otherVaultUuid, vaultProfileUuid));
+
+        Assertions
+                .assertTrue(refusal.getMessage().contains(vaultProfile.getUuid().toString()),
+                        endpoint + ": " + refusal.getMessage());
+        VaultProfile unchanged = vaultProfileRepository.findByUuid(vaultProfileUuid).orElseThrow();
+        Assertions.assertFalse(unchanged.isEnabled());
+        Assertions.assertNull(unchanged.getDescription());
+        Assertions.assertEquals(vaultInstance.getUuid(), unchanged.getVaultInstanceUuid());
+    }
+
+    @FunctionalInterface
+    private interface VaultScopedCall {
+        void call(VaultProfileExternalService service, SecuredParentUUID vaultUuid, SecuredUUID vaultProfileUuid)
+                throws Exception;
+    }
+
+    private static Stream<Arguments> vaultScopedCalls() {
+        VaultProfileUpdateRequestDto update = new VaultProfileUpdateRequestDto();
+        update.setDescription("changed");
+        return Stream
+                .of(call("get", VaultProfileExternalService::getVaultProfileDetails),
+                        call("update", (service, vault, profile) -> service.updateVaultProfile(vault, profile, update)),
+                        call("delete", VaultProfileExternalService::deleteVaultProfile),
+                        call("enable", VaultProfileExternalService::enableVaultProfile),
+                        call("disable", VaultProfileExternalService::disableVaultProfile));
+    }
+
+    private static Arguments call(String endpoint, VaultScopedCall call) {
+        return Arguments.of(endpoint, call);
     }
 
 }

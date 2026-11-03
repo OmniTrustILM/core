@@ -20,6 +20,7 @@ import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.service.CommentInternalService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,11 +39,15 @@ public class TokenProfileWriter {
     private final CryptographicKeyRepository cryptographicKeyRepository;
     private final SigningProfileVersionRepository signingProfileVersionRepository;
     private final EntityManager entityManager;
+    private final ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private final KeyOperationCache keyOperationCache;
 
     public TokenProfileWriter(TokenProfileRepository tokenProfileRepository,
             TokenInstanceReferenceRepository tokenInstanceReferenceRepository, AttributeEngine attributeEngine,
             CommentInternalService commentService, CryptographicKeyRepository cryptographicKeyRepository,
-            SigningProfileVersionRepository signingProfileVersionRepository, EntityManager entityManager) {
+            SigningProfileVersionRepository signingProfileVersionRepository, EntityManager entityManager,
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter,
+            KeyOperationCache keyOperationCache) {
         this.tokenProfileRepository = tokenProfileRepository;
         this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.attributeEngine = attributeEngine;
@@ -50,6 +55,8 @@ public class TokenProfileWriter {
         this.cryptographicKeyRepository = cryptographicKeyRepository;
         this.signingProfileVersionRepository = signingProfileVersionRepository;
         this.entityManager = entityManager;
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
+        this.keyOperationCache = keyOperationCache;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -148,6 +155,7 @@ public class TokenProfileWriter {
                         .builder(Resource.TOKEN_PROFILE, profileUuid)
                         .connector(connectorUuid)
                         .build(), attributes);
+        keyOperationCache.forgetAttributesOf(Resource.TOKEN_PROFILE, profileUuid, connectorUuid);
     }
 
     private TokenProfile findLocked(UUID profileUuid) throws NotFoundException {
@@ -180,6 +188,7 @@ public class TokenProfileWriter {
         String profileName = profile.getName();
         attributeEngine.deleteObjectAttributeContent(Resource.TOKEN_PROFILE, profile.getUuid());
         commentService.removeObjectComments(Resource.TOKEN_PROFILE, profile.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.TOKEN_PROFILE, profile.getUuid());
         try {
             tokenProfileRepository.delete(profile);
             // Force the DELETE to execute here; without the flush it runs at commit,

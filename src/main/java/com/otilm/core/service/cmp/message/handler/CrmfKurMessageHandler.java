@@ -25,7 +25,9 @@ import com.otilm.core.service.cmp.registration.CmpRegistrationIdentityVerifier;
 import com.otilm.core.service.cmp.registration.CmpRegistrationResolver;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.CryptographyUtil;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
@@ -44,9 +46,7 @@ import org.bouncycastle.asn1.crmf.CertId;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.bouncycastle.asn1.crmf.CertRequest;
 import org.bouncycastle.asn1.crmf.Controls;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import org.bouncycastle.openssl.PEMException;
-import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -170,20 +170,17 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
     }
 
     private PublicKey getPublicKey(ASN1OctetString tid, CertRequest certRequest) throws CmpProcessingException {
-        PublicKey publicKey;
-        try {
-            publicKey = new JcaPEMKeyConverter()
-                    .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                    .getPublicKey(certRequest.getCertTemplate().getPublicKey());
-        } catch (PEMException e) {
-            throw new CmpProcessingException(tid, PKIFailureInfo.badMessageCheck,
-                    "re-key operation failed: public key from request cannot be parsed");
-        }
-        if (publicKey == null) {
+        SubjectPublicKeyInfo publicKeyInfo = certRequest.getCertTemplate().getPublicKey();
+        if (publicKeyInfo == null) {
             throw new CmpProcessingException(tid, PKIFailureInfo.badMessageCheck,
                     "re-key operation failed: public key from request not found");
         }
-        return publicKey;
+        try {
+            return CryptographyUtil.decodePublicKey(publicKeyInfo);
+        } catch (GeneralSecurityException e) {
+            throw new CmpProcessingException(tid, PKIFailureInfo.badMessageCheck,
+                    "re-key operation failed: public key from request cannot be parsed");
+        }
     }
 
     private Certificate getCertificate(ASN1OctetString tid, CertRequest certRequest) throws CmpProcessingException {

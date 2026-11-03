@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <ol>
  * <li>Validate (from, to) pair against {@link CertificateStateTransition} table — throw on miss</li>
  * <li>Mutate cert.state + persist via repository</li>
+ * <li>Clear the pending-issue claim stamp when a certificate leaves {@code PENDING_ISSUE}</li>
  * <li>Write audit history entry via {@link CertificateEventHistoryInternalService}</li>
  * </ol>
  *
@@ -146,6 +147,9 @@ public class CertificateStateMachine {
                         () -> new InvalidTransitionException(Resource.CERTIFICATE, cert.getUuid(), fromState, toState));
 
         cert.setState(toState);
+        if (fromState == CertificateState.PENDING_ISSUE && toState != CertificateState.PENDING_ISSUE) {
+            cert.setPendingIssueClaimedAt(null);
+        }
         certificateRepository.save(cert);
         return row;
     }

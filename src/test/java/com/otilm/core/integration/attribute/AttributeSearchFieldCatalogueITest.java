@@ -1,6 +1,6 @@
 package com.otilm.core.integration.attribute;
 
-import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.custom.CustomAttributeCreateRequestDto;
@@ -35,6 +35,7 @@ import com.otilm.core.attribute.engine.AttributeSearchFieldCatalogue;
 import com.otilm.core.attribute.engine.NamedField;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.config.cache.CacheConfig;
+import com.otilm.core.config.cache.ReadThroughCache;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
@@ -48,9 +49,9 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.SqlCapture;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
@@ -586,17 +587,14 @@ class AttributeSearchFieldCatalogueITest extends BaseSpringBootTest {
 
     /** Makes a change as another replica would: afterwards this one holds exactly the entries it held before. */
     private <T> T onAnotherReplica(Callable<T> change) throws Exception {
-        Map<Object, Object> entriesBeforeTheChange = Map.copyOf(nativeCache().asMap());
+        Map<Object, CompletableFuture<Object>> entriesBeforeTheChange = Map.copyOf(nativeCache().asMap());
         T changed = change.call();
-        nativeCache().invalidateAll();
-        nativeCache().putAll(entriesBeforeTheChange);
+        nativeCache().synchronous().invalidateAll();
+        nativeCache().asMap().putAll(entriesBeforeTheChange);
         return changed;
     }
 
-    @SuppressWarnings("unchecked")
-    private Cache<Object, Object> nativeCache() {
-        return (Cache<Object, Object>) Objects
-                .requireNonNull(cacheManager.getCache(CacheConfig.ATTRIBUTE_SEARCH_FIELDS_CACHE))
-                .getNativeCache();
+    private AsyncCache<Object, Object> nativeCache() {
+        return ReadThroughCache.from(cacheManager, CacheConfig.ATTRIBUTE_SEARCH_FIELDS_CACHE).getNativeCache();
     }
 }

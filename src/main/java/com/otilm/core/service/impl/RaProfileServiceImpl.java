@@ -66,6 +66,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.v2.ComplianceProfileExternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.ValidatorUtil;
@@ -74,7 +75,9 @@ import jakarta.transaction.Transactional;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.apache.commons.lang3.StringUtils;
@@ -85,6 +88,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service(Resource.Codes.RA_PROFILE)
 @Transactional
@@ -109,6 +115,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     private CertificateContentRepository certificateContentRepository;
     private ApprovalProfileExternalService approvalProfileService;
     private AuthorityProviderAdapterFactory authorityProviderAdapterFactory;
+    private TransactionTemplate separateReadOnlyTransactions;
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.LIST,
@@ -207,6 +214,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
 
         RaProfileDto dto = raProfile.mapToDto();
         if (raProfile.getAuthorityInstanceReference() != null
@@ -233,6 +241,8 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
+        UUID authorityLeftUuid = raProfile.getAuthorityInstanceReferenceUuid();
+        requireDetailOfAuthorityLeft(authorityLeftUuid, authorityInstanceUuid);
 
         AuthorityInstanceReference authorityInstanceRef = authorityInstanceReferenceRepository
                 .findByUuid(authorityInstanceUuid)
@@ -243,6 +253,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
         updateRaProfile(raProfile, authorityInstanceRef, request);
         raProfileRepository.save(raProfile);
+        requireAuthorityLeftUnchanged(raProfile.getUuid(), authorityLeftUuid);
 
         RaProfileDto raProfileDto = raProfile.mapToDto();
         raProfileDto
@@ -266,6 +277,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             SecuredUUID raProfileUuid, RaProfileCertificateValidationSettingsUpdateDto request)
             throws NotFoundException {
         RaProfile raProfile = getRaProfileEntity(raProfileUuid);
+        requireUnderAuthority(raProfile, authorityUuid, raProfileUuid);
         raProfile.setValidationEnabled(request.getEnabled());
         if (Boolean.TRUE.equals(request.getEnabled())) {
             raProfile.setValidationFrequency(request.getFrequency());
@@ -285,6 +297,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             SecuredUUID raProfileUuid, RaProfileCertificateRequestAttributesUpdateDto request)
             throws NotFoundException {
         RaProfile raProfile = getRaProfileEntity(raProfileUuid);
+        requireUnderAuthority(raProfile, authorityUuid, raProfileUuid);
         requestAttributeService.updateConfiguration(raProfile, request);
         RaProfileDto dto = raProfile.mapToDto();
         dto.setCertificateRequestAttributes(requestAttributeService.getConfiguration(raProfile));
@@ -295,6 +308,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DELETE,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public void deleteRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException {
+        requireUnderAuthority(getRaProfileEntity(uuid), authorityUuid, uuid);
         deleteRaProfileInt(uuid);
     }
 
@@ -311,6 +325,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile entity = raProfileRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
+        requireUnderAuthority(entity, authorityUuid, uuid);
 
         entity.setEnabled(true);
         raProfileRepository.save(entity);
@@ -323,6 +338,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile entity = raProfileRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
+        requireUnderAuthority(entity, authorityUuid, uuid);
 
         entity.setEnabled(false);
         raProfileRepository.save(entity);
@@ -331,7 +347,9 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DELETE)
     public void bulkDeleteRaProfile(List<SecuredUUID> uuids) {
-        for (SecuredUUID uuid : uuids) {
+        // UUID order, as the compliance profile associate takes them, so their per-object locks cannot deadlock
+        List<SecuredUUID> orderedUuids = uuids.stream().sorted(Comparator.comparing(SecuredUUID::getValue)).toList();
+        for (SecuredUUID uuid : orderedUuids) {
             try {
                 deleteRaProfile(uuid);
             } catch (NotFoundException e) {
@@ -397,7 +415,9 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     // TODO - use acme service to obtain ACME profile
     public RaProfileAcmeDetailResponseDto getAcmeForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws NotFoundException {
-        return getRaProfileEntity(uuid).mapToAcmeDto();
+        RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
+        return raProfile.mapToAcmeDto();
     }
 
     @Override
@@ -407,6 +427,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             SecuredUUID acmeProfileUuid, ActivateAcmeForRaProfileRequestDto request)
             throws ConnectorException, ValidationException, AttributeException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         if (ValidatorUtil.containsUnreservedCharacters(raProfile.getName())) {
             throw new ValidationException(ValidationError
                     .create("RA Profile name can contain only unreserved URI characters (alphanumeric, hyphen, period, underscore, and tilde)"));
@@ -451,6 +472,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public void deactivateAcmeForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         raProfile.setAcmeProfile(null);
         RaProfileProtocolAttribute raProfileProtocolAttribute = raProfile.getProtocolAttribute();
         raProfileProtocolAttribute.setAcmeRevokeCertificateAttributes(null);
@@ -466,6 +488,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             SecuredUUID scepProfileUuid, ActivateScepForRaProfileRequestDto request)
             throws ConnectorException, ValidationException, AttributeException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         ScepProfile scepProfile = scepProfileRepository
                 .findByUuid(scepProfileUuid)
                 .orElseThrow(() -> new NotFoundException(ScepProfile.class, scepProfileUuid));
@@ -500,6 +523,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public void deactivateScepForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         raProfile.setScepProfile(null);
         RaProfileProtocolAttribute raProfileProtocolAttribute = raProfile.getProtocolAttribute();
         raProfileProtocolAttribute.setScepIssueCertificateAttributes(null);
@@ -518,7 +542,9 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public RaProfileCmpDetailResponseDto getCmpForRaProfile(SecuredParentUUID authorityInstanceUuid,
             SecuredUUID raProfileUuid) throws NotFoundException {
-        return getRaProfileEntity(raProfileUuid).mapToCmpDto();
+        RaProfile raProfile = getRaProfileEntity(raProfileUuid);
+        requireUnderAuthority(raProfile, authorityInstanceUuid, raProfileUuid);
+        return raProfile.mapToCmpDto();
     }
 
     @Override
@@ -528,6 +554,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             SecuredUUID cmpProfileUuid, ActivateCmpForRaProfileRequestDto request)
             throws ConnectorException, ValidationException, AttributeException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         CmpProfile cmpProfile = cmpProfileRepository
                 .findByUuid(cmpProfileUuid)
                 .orElseThrow(() -> new NotFoundException(CmpProfile.class, cmpProfileUuid));
@@ -569,6 +596,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public void deactivateCmpForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         raProfile.setCmpProfile(null);
         RaProfileProtocolAttribute raProfileProtocolAttribute = raProfile.getProtocolAttribute();
         raProfileProtocolAttribute.setCmpRevokeCertificateAttributes(null);
@@ -598,6 +626,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     public List<BaseAttribute> listRevokeCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         return extendedAttributeService.listRevokeCertificateAttributes(raProfile);
     }
 
@@ -607,6 +636,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     public List<BaseAttribute> listIssueCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         return extendedAttributeService.listIssueCertificateAttributes(raProfile);
     }
 
@@ -616,6 +646,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     public List<BaseAttribute> listRenewCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         return extendedAttributeService.listRenewCertificateAttributes(raProfile);
     }
 
@@ -625,6 +656,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     public List<BaseAttribute> listIdentifyCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
         return extendedAttributeService.listIdentifyCertificateAttributes(raProfile);
     }
 
@@ -695,7 +727,9 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
     public RaProfileScepDetailResponseDto getScepForRaProfile(SecuredParentUUID authorityInstanceUuid,
             SecuredUUID raProfileUuid) throws NotFoundException {
-        return getRaProfileEntity(raProfileUuid).mapToScepDto();
+        RaProfile raProfile = getRaProfileEntity(raProfileUuid);
+        requireUnderAuthority(raProfile, authorityInstanceUuid, raProfileUuid);
+        return raProfile.mapToScepDto();
     }
 
     @Override
@@ -799,6 +833,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     public List<CertificateDetailDto> getAuthorityCertificateChain(SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(raProfileUuid);
+        requireUnderAuthority(raProfile, authorityUuid, raProfileUuid);
         AuthorityInstanceReference authorityInstanceReference = authorityInstanceReferenceRepository
                 .findByUuid(authorityUuid)
                 .orElseThrow(() -> new NotFoundException(AuthorityInstanceReference.class, authorityUuid));
@@ -878,6 +913,34 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         return entity;
     }
 
+    /**
+     * An edit through another authority moves the RA Profile there. The caller was authorized on the authority the URL
+     * names, so the authority the RA Profile leaves is checked as well.
+     */
+    private void requireDetailOfAuthorityLeft(UUID authorityLeftUuid, SecuredParentUUID authorityUuid) {
+        if (authorityLeftUuid != null && !authorityLeftUuid.equals(authorityUuid.getValue())) {
+            authorizationEnforcer
+                    .enforce(Resource.AUTHORITY, ResourceAction.DETAIL, SecuredUUID.fromUUID(authorityLeftUuid));
+        }
+    }
+
+    /**
+     * Holds the RA Profile's row lock until commit, so the authority read here, in a transaction of its own, is the one
+     * this edit replaces. If another request moved the RA Profile after this edit checked the authority it leaves, the
+     * edit is refused instead of taking the RA Profile out of an authority it was not checked against.
+     */
+    private void requireAuthorityLeftUnchanged(UUID raProfileUuid, UUID authorityLeftUuid) {
+        raProfileRepository.findWithLockByUuid(raProfileUuid);
+        UUID committedAuthorityUuid = separateReadOnlyTransactions
+                .execute(status -> raProfileRepository
+                        .findAuthorityInstanceReferenceUuidByUuid(raProfileUuid)
+                        .orElse(null));
+        if (!Objects.equals(committedAuthorityUuid, authorityLeftUuid)) {
+            throw new ValidationException(ValidationError
+                    .create("RA Profile was moved to another authority while it was being edited. Load it again and retry."));
+        }
+    }
+
     private void updateRaProfile(RaProfile entity, AuthorityInstanceReference authorityInstanceRef,
             EditRaProfileRequestDto dto) {
         entity.setDescription(dto.getDescription());
@@ -908,7 +971,28 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
         attributeEngine.deleteObjectAttributeContent(Resource.RA_PROFILE, raProfile.getUuid());
         commentService.removeObjectComments(Resource.RA_PROFILE, raProfile.getUuid());
+        complianceProfileAssociationWriter.deleteAllForObject(Resource.RA_PROFILE, raProfile.getUuid());
         raProfileRepository.delete(raProfile);
+    }
+
+    /**
+     * The caller was authorized on the authority the URL names, so an RA Profile under another authority, or under
+     * none, is not found there, in the words used for one that does not exist: the caller learns nothing of where it
+     * is.
+     */
+    private static void requireUnderAuthority(RaProfile raProfile, SecuredParentUUID authorityUuid, SecuredUUID uuid)
+            throws NotFoundException {
+        if (!isUnderAuthority(raProfile, authorityUuid)) {
+            throw new NotFoundException(RaProfile.class, uuid);
+        }
+    }
+
+    private static boolean isUnderAuthority(RaProfile raProfile, SecuredParentUUID authorityUuid) {
+        if (authorityUuid.getValue().equals(raProfile.getAuthorityInstanceReferenceUuid())) {
+            return true;
+        }
+        logger.debug("RA Profile {} is not under authority {}", raProfile.getUuid(), authorityUuid);
+        return false;
     }
 
     private void setAuthorityCertificates(AuthorityInstanceReference authorityInstanceRef, RaProfile raProfile) {
@@ -933,10 +1017,17 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     // SETTERs
 
     private CommentInternalService commentService;
+    private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
         this.commentService = commentService;
+    }
+
+    @Autowired
+    public void setComplianceProfileAssociationWriter(
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+        this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
     }
 
     @Autowired
@@ -1025,5 +1116,12 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Autowired
     public void setAuthorityProviderAdapterFactory(AuthorityProviderAdapterFactory authorityProviderAdapterFactory) {
         this.authorityProviderAdapterFactory = authorityProviderAdapterFactory;
+    }
+
+    @Autowired
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        separateReadOnlyTransactions = new TransactionTemplate(transactionManager);
+        separateReadOnlyTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        separateReadOnlyTransactions.setReadOnly(true);
     }
 }

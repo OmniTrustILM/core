@@ -3,13 +3,10 @@ package com.otilm.core.model.request;
 import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.util.CertificateUtil;
-import java.io.IOException;
-import java.security.InvalidKeyException;
-import java.security.KeyFactory;
+import com.otilm.core.util.CryptographyUtil;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.List;
 import java.util.Map;
 import lombok.Getter;
@@ -53,8 +50,8 @@ public class Pkcs10CertificateRequest implements CertificateRequest {
     @Override
     public PublicKey getPublicKey() throws NoSuchAlgorithmException, CertificateRequestException {
         try {
-            return jcaObject.getPublicKey();
-        } catch (InvalidKeyException e) {
+            return CryptographyUtil.decodePublicKey(jcaObject.getSubjectPublicKeyInfo());
+        } catch (InvalidKeySpecException e) {
             throw new CertificateRequestException("Cannot get public key from certificate request.", e);
         }
     }
@@ -66,13 +63,9 @@ public class Pkcs10CertificateRequest implements CertificateRequest {
             if (Extension.subjectAltPublicKeyInfo.equals(attribute.getAttrType())) {
                 SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo
                         .getInstance(attribute.getAttributeValues()[0]);
-                final AlgorithmIdentifier keyAlgorithm = subjectPublicKeyInfo.getAlgorithm();
-                X509EncodedKeySpec x509EncodedKeySpec;
                 try {
-                    x509EncodedKeySpec = new X509EncodedKeySpec(subjectPublicKeyInfo.getEncoded());
-                    KeyFactory keyFactory = KeyFactory.getInstance(keyAlgorithm.getAlgorithm().getId());
-                    return keyFactory.generatePublic(x509EncodedKeySpec);
-                } catch (IOException | InvalidKeySpecException e) {
+                    return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo);
+                } catch (InvalidKeySpecException e) {
                     throw new CertificateRequestException("Could not extract alternative public key.", e);
                 }
             }

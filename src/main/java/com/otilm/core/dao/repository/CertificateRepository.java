@@ -144,6 +144,11 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
 
     Optional<Certificate> findByFingerprint(String fingerprint);
 
+    boolean existsByCertificateRequestUuid(UUID certificateRequestUuid);
+
+    @Query("SELECT c.uuid FROM Certificate c WHERE c.certificateRequestUuid = :certificateRequestUuid")
+    List<UUID> findUuidsByCertificateRequestUuid(@Param("certificateRequestUuid") UUID certificateRequestUuid);
+
     List<Certificate> findByRaProfile(RaProfile raProfile);
 
     @EntityGraph(attributePaths = {"certificateContent", "certificateRequestEntity"})
@@ -218,17 +223,30 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             @Param("skipStatuses") List<CertificateValidationStatus> skipStatuses,
             @Param("platformEnabled") boolean platformEnabled, Pageable pageable);
 
-    // Orphaned-PENDING_ISSUE reaper: certificates with no certificate-status-poll row (a crashed
-    // synchronous issue). Staleness uses the last-modified timestamp — a safe over-approximation of
-    // entry time, since a later write only delays reaping, never triggers it early.
+    // Pending-issue reaper: stale claims, i.e. synchronous connector calls that never returned. The poll-row condition
+    // leaves a pollable 202 whose claim clear failed to the poller.
     @Query("""
             SELECT c.uuid FROM Certificate c
                 WHERE c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
-                    AND c.updated < :threshold
+                    AND c.pendingIssueClaimedAt IS NOT NULL
+                    AND c.pendingIssueClaimedAt < :threshold
                     AND NOT EXISTS (SELECT 1 FROM CertificateStatusPoll p WHERE p.certificateUuid = c.uuid)
-                ORDER BY c.updated ASC
+                ORDER BY c.pendingIssueClaimedAt ASC
             """)
-    List<UUID> findStalePendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold, Pageable pageable);
+    List<UUID> findStaleClaimedPendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold,
+            Pageable pageable);
+
+    /**
+     * Clears the pending-issue claim stamp of a certificate still in {@code PENDING_ISSUE}. Returns the number of rows
+     * updated (0 once it left {@code PENDING_ISSUE}).
+     */
+    @Modifying
+    @Query("""
+            UPDATE Certificate c SET c.pendingIssueClaimedAt = NULL, c.updated = CURRENT_TIMESTAMP
+                WHERE c.uuid = :uuid
+                    AND c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
+            """)
+    int clearPendingIssueClaim(@Param("uuid") UUID uuid);
 
     /**
      * The pre-registrations a protocol enrolment presenting the given normalized subject can complete under the RA

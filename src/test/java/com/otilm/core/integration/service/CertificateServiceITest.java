@@ -65,6 +65,7 @@ import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.config.cache.CacheConfig;
+import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -89,6 +90,7 @@ import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
+import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
@@ -96,6 +98,8 @@ import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationReposit
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
+import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
+import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CrlRepository;
@@ -134,6 +138,7 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
+import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -283,6 +288,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
     private CertificateRequestRepository certificateRequestRepository;
 
     @Autowired
+    private ComplianceProfileRepository complianceProfileRepository;
+
+    @Autowired
+    private ComplianceProfileAssociationRepository complianceProfileAssociationRepository;
+
+    @Autowired
     private AuthenticationCache authenticationCache;
 
     @MockitoBean
@@ -295,6 +306,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
     private CacheManager cacheManager;
 
     private AttributeEngine attributeEngine;
+
+    @Autowired
+    private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
 
     private Certificate certificate;
 
@@ -1187,6 +1201,140 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void removesComplianceProfileAssociations_whenDeletingCertificate() throws NotFoundException {
+            // given
+            ComplianceProfileFixtures
+                    .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                            Resource.CERTIFICATE, certificate.getUuid());
+
+            // when
+            certificateService.deleteCertificate(certificate.getSecuredUuid());
+
+            // then
+            assertThat(complianceProfileAssociationRepository
+                    .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE, List.of(certificate.getUuid()))).isFalse();
+        }
+
+        @Test
+        void removesComplianceProfileAssociations_whenBulkDeletingCertificates() {
+            // given
+            ComplianceProfileFixtures
+                    .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                            Resource.CERTIFICATE, certificate.getUuid());
+            RemoveCertificateDto request = new RemoveCertificateDto();
+            request.setUuids(List.of(certificate.getUuid().toString()));
+
+            // when
+            certificateService.bulkDeleteCertificate(SecurityFilter.create(), request);
+
+            // then
+            assertThat(complianceProfileAssociationRepository
+                    .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE, List.of(certificate.getUuid()))).isFalse();
+        }
+
+        @Test
+        void deletesItsRequest_whenDeletingTheCertificate() throws Exception {
+            // given
+            CertificateRequestEntity request = newCertificateRequest("CN=deletedRequest");
+            Certificate issued = newCertificateOf(request);
+            mapAttributeValueTo(request, issued);
+            ComplianceProfileFixtures
+                    .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                            Resource.CERTIFICATE_REQUEST, request.getUuid());
+
+            // when
+            certificateService.deleteCertificate(issued.getSecuredUuid());
+
+            // then
+            assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
+            assertThat(hasRequestAssociation(request)).isFalse();
+            assertThat(attributeContent2ObjectRepository
+                    .findByObjectTypeAndObjectUuid(Resource.CERTIFICATE_REQUEST, request.getUuid())).isEmpty();
+        }
+
+        @Test
+        void keepsASharedRequest_untilItsLastCertificateIsDeleted() throws NotFoundException {
+            // given — two certificates an earlier release pointed at one request
+            CertificateRequestEntity request = newCertificateRequest("CN=sharedRequest");
+            Certificate first = newCertificateOf(request);
+            Certificate second = newCertificateOf(request);
+            ComplianceProfileFixtures
+                    .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                            Resource.CERTIFICATE_REQUEST, request.getUuid());
+
+            // when
+            certificateService.deleteCertificate(first.getSecuredUuid());
+
+            // then
+            assertThat(certificateRequestRepository.existsById(request.getUuid())).isTrue();
+            assertThat(hasRequestAssociation(request)).isTrue();
+
+            // when
+            certificateService.deleteCertificate(second.getSecuredUuid());
+
+            // then
+            assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
+            assertThat(hasRequestAssociation(request)).isFalse();
+        }
+
+        @Test
+        void deletesItsRequest_whenBulkDeletingTheCertificate() {
+            // given
+            CertificateRequestEntity request = newCertificateRequest("CN=bulkDeletedRequest");
+            Certificate issued = newCertificateOf(request);
+            ComplianceProfileFixtures
+                    .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
+                            Resource.CERTIFICATE_REQUEST, request.getUuid());
+            RemoveCertificateDto removal = new RemoveCertificateDto();
+            removal.setUuids(List.of(issued.getUuid().toString()));
+
+            // when
+            certificateService.bulkDeleteCertificate(SecurityFilter.create(), removal);
+
+            // then
+            assertThat(certificateRequestRepository.existsById(request.getUuid())).isFalse();
+            assertThat(hasRequestAssociation(request)).isFalse();
+        }
+
+        private CertificateRequestEntity newCertificateRequest(String subjectDn) {
+            return certificateRequestRepository
+                    .saveAndFlush(aCertificateRequest()
+                            .withContent(Base64.getEncoder().encodeToString(subjectDn.getBytes(StandardCharsets.UTF_8)))
+                            .withSubjectDn(subjectDn)
+                            .build());
+        }
+
+        private Certificate newCertificateOf(CertificateRequestEntity request) {
+            return certificateRepository
+                    .saveAndFlush(aCertificate()
+                            .withSerialNumber(UUID.randomUUID().toString())
+                            .withFingerprint(UUID.randomUUID().toString())
+                            .withCertificateRequest(request)
+                            .withCertificateRequestUuid(request.getUuid())
+                            .build());
+        }
+
+        private void mapAttributeValueTo(CertificateRequestEntity request, Certificate owner) throws Exception {
+            attributeEngine
+                    .updateObjectCustomAttributesContent(Resource.CERTIFICATE, owner.getUuid(),
+                            List.of(getRequestAttribute()));
+            AttributeContent2Object mapping = new AttributeContent2Object();
+            mapping
+                    .setAttributeContentItemUuid(attributeContent2ObjectRepository
+                            .findByObjectTypeAndObjectUuid(Resource.CERTIFICATE, owner.getUuid())
+                            .getFirst()
+                            .getAttributeContentItemUuid());
+            mapping.setObjectType(Resource.CERTIFICATE_REQUEST);
+            mapping.setObjectUuid(request.getUuid());
+            attributeContent2ObjectRepository.save(mapping);
+        }
+
+        private boolean hasRequestAssociation(CertificateRequestEntity request) {
+            return complianceProfileAssociationRepository
+                    .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, List.of(request.getUuid()));
+        }
+
+        @Test
         void downloadsCertificate_inAllFormatsAndEncodings()
                 throws NotFoundException, CertificateException, IOException {
             // given
@@ -1371,6 +1519,26 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(attributeEngine
                     .getObjectCustomAttributesContent(Resource.CERTIFICATE, certificateToBeIssued.getUuid()))
                     .isNotNull();
+        }
+
+        @Test
+        void storesARequestOfItsOwn_whenSubmittingAnIdenticalCsrAgain() throws Exception {
+            // given
+            CertificateDetailDto first = certificateService
+                    .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+
+            // when
+            CertificateDetailDto second = certificateService
+                    .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
+                            List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
+
+            // then
+            assertThat(second.getCertificateRequest().getUuid()).isNotEqualTo(first.getCertificateRequest().getUuid());
+            assertThat(certificateRequestRepository
+                    .findByUuid(second.getCertificateRequest().getUuid())
+                    .orElseThrow()
+                    .getContent()).isEqualTo(SAMPLE_PKCS10);
         }
     }
 
@@ -2344,15 +2512,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when
-            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+            UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — content and fingerprint are derived from the normalized DER
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository
-                    .findByFingerprint(expectedFingerprint)
-                    .orElseThrow();
+            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
+            assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
 
         @Test
@@ -2367,17 +2534,16 @@ class CertificateServiceITest extends BaseSpringBootTest {
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when
-            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+            UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — the PEM armor must not leak into the stored content/fingerprint; both are derived
             // from the normalized DER that createCertificateRequest actually parsed, matching what would
             // have been stored for the equivalent plain base64(DER) input
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository
-                    .findByFingerprint(expectedFingerprint)
-                    .orElseThrow();
+            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
+            assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
 
         @Test
@@ -2394,15 +2560,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when
-            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+            UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — the double encoding must not leak into the stored content/fingerprint
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository
-                    .findByFingerprint(expectedFingerprint)
-                    .orElseThrow();
+            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
+            assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
 
         @Test
@@ -2420,13 +2585,10 @@ class CertificateServiceITest extends BaseSpringBootTest {
             issueRequest.setFormat(CertificateRequestFormat.PKCS10);
 
             // when
-            certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
+            UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — identity and format come from the CSR, not the placeholder
-            String expectedFingerprint = CertificateUtil.getThumbprint(Base64.getDecoder().decode(SAMPLE_PKCS10));
-            CertificateRequestEntity stored = certificateRequestRepository
-                    .findByFingerprint(expectedFingerprint)
-                    .orElseThrow();
+            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
             assertThat(stored.getCommonName()).isEqualTo("new_cert");
             assertThat(stored.getSubjectDn()).isEqualTo("CN=new_cert");
             assertThat(stored.getCertificateRequestFormat()).isEqualTo(CertificateRequestFormat.PKCS10);

@@ -122,6 +122,8 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
+import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
@@ -151,6 +153,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import javax.security.auth.x500.X500Principal;
 import org.apache.commons.lang3.StringUtils;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -160,7 +163,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
@@ -217,6 +224,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
     private CertificateStatusPollWriter pollWriter;
+    private CertificatePendingIssueClaimWriter pendingIssueClaimWriter;
     private CertificateRegistrationWriter certificateRegistrationWriter;
     private CertificateRegistrationRepository certificateRegistrationRepository;
     private CertificateLocationRepository certificateLocationRepository;
@@ -230,10 +238,16 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private CertificateRegistrationAuthorizationWriter registrationAuthorizationWriter;
     private ResourceObjectAssociationService objectAssociationService;
+    private CertificateRequestWriter certificateRequestWriter;
 
     @Autowired
     public void setObjectAssociationService(ResourceObjectAssociationService objectAssociationService) {
         this.objectAssociationService = objectAssociationService;
+    }
+
+    @Autowired
+    public void setCertificateRequestWriter(CertificateRequestWriter certificateRequestWriter) {
+        this.certificateRequestWriter = certificateRequestWriter;
     }
 
     @Autowired
@@ -272,6 +286,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
         this.pollWriter = pollWriter;
+    }
+
+    @Autowired
+    public void setPendingIssueClaimWriter(CertificatePendingIssueClaimWriter pendingIssueClaimWriter) {
+        this.pendingIssueClaimWriter = pendingIssueClaimWriter;
     }
 
     @Autowired
@@ -406,6 +425,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listIssueCertificateAttributes(raProfile);
     }
 
@@ -417,6 +437,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listRegisterCertificateAttributes(raProfile);
     }
 
@@ -428,6 +449,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listRenewCertificateAttributes(raProfile);
     }
 
@@ -439,6 +461,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listIdentifyCertificateAttributes(raProfile);
     }
 
@@ -450,6 +473,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         extendedAttributeService.validateIssueCertificateAttributes(raProfile, attributes);
     }
 
@@ -573,7 +597,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo) throws NotFoundException, CertificateException,
             NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
-        return submitAndQueueIssue(raProfileUuid, request, protocolInfo, null);
+        return submitAndQueueIssue(authorityUuid, raProfileUuid, request, protocolInfo, null);
     }
 
     @Override
@@ -584,16 +608,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch) throws NotFoundException,
             CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
-        return submitAndQueueIssue(raProfileUuid, request, protocolInfo, beforeDispatch);
+        return submitAndQueueIssue(authorityUuid, raProfileUuid, request, protocolInfo, beforeDispatch);
     }
 
-    private ClientCertificateDataResponseDto submitAndQueueIssue(final SecuredUUID raProfileUuid,
-            final ClientCertificateIssueRequestDto request, final CertificateProtocolInfo protocolInfo,
-            final Consumer<UUID> beforeDispatch) throws NotFoundException, CertificateOperationException {
+    private ClientCertificateDataResponseDto submitAndQueueIssue(final SecuredParentUUID authorityUuid,
+            final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
+            final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch)
+            throws NotFoundException, CertificateOperationException {
         // validate RA profile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
 
         if (Boolean.FALSE.equals(raProfile.getEnabled())) {
             throw new ValidationException(String
@@ -1009,7 +1035,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * {@code issueExistingCertificate} (NOT_SUPPORTED), so it runs outside the CSR-attach row lock: the resolve — which
      * can reach the connector for a non-STATIC_ONLY profile — and each attribute-engine write execute in their own
      * transaction, so an invalid attribute or an unreachable connector is skipped (WARN) without failing the completed
-     * certificate. Write-if-empty so a fingerprint-shared CSR's attributes are not clobbered.
+     * certificate.
      */
     private void persistCompletionRequestValues(RaProfile raProfile, UUID certificateRequestUuid,
             ClientCertificateIssueRequestDto request) {
@@ -1024,10 +1050,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 .builder(Resource.CERTIFICATE_REQUEST, certificateRequestUuid)
                 .build();
         try {
-            var existing = attributeEngine.getObjectDataAttributesContent(info);
-            if (existing != null && !existing.isEmpty()) {
-                return;
-            }
             attributeEngine
                     .validateUpdateDataAttributes(null, null, issuanceDefinitionResolver.resolve(raProfile),
                             csrAttributes);
@@ -1392,8 +1414,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
-            // state via the state machine. The sync path creates no poll row, so a crash before the
-            // terminal transition leaves the cert in PENDING_ISSUE until PendingIssueReaper reaps it.
+            // state via the state machine.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -1412,12 +1434,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private void callConnectorAndFinalizeIssue(final UUID certificateUuid, Certificate certificate,
             ClientCertificateIssueRequestDto req, AuthorityInstanceReference authority)
-            throws CertificateOperationException, NotFoundException {
+            throws CertificateOperationException {
         AdapterOperationResult result;
         try {
             result = adapterFactory.forAuthority(authority).issue(certificate, req);
         } catch (ConnectorAcceptedButLocalFailureException e) {
             // Connector accepted (v3 acceptance guard) but a local step failed: honour the state-divergence rule.
+            clearPendingIssueClaimBestEffort(certificate);
             String pendingIssueLabel = CertificateState.PENDING_ISSUE.getLabel();
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
@@ -1437,9 +1460,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             + safeMessage(e, "issuance failed"));
         }
 
+        boolean issuedSynchronously;
         try {
-            finalizeIssuance(certificateUuid, certificate, result);
+            issuedSynchronously = finalizeIssuance(certificateUuid, certificate, result);
         } catch (CertificateOperationException e) {
+            clearPendingIssueClaimBestEffort(certificate);
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                             "Certificate was issued by the authority but completing local state failed; reconcile manually. Cause: "
@@ -1447,13 +1472,23 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             "");
             throw e;
         }
+        if (issuedSynchronously) {
+            afterSynchronousIssue(certificateUuid);
+        }
     }
 
-    private void finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result)
-            throws CertificateOperationException, NotFoundException {
+    /**
+     * Records the authority's answer to an issue: parks the certificate on an asynchronous acceptance, or records the
+     * certificate it returned. The caller runs the post-issue steps after its own failure handling, so their failure is
+     * never reported as a failed issuance.
+     *
+     * @return {@code true} when the certificate was issued synchronously
+     */
+    private boolean finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result)
+            throws CertificateOperationException {
         if (result.isAsync() || result.outcome() == AdapterOperationOutcome.SYNC_NO_CONTENT) {
             onAsyncAccepted(certificate, result.meta(), ResourceAction.ISSUE);
-            return;
+            return false;
         }
         if (result.certificateData() == null || result.certificateData().isEmpty()) {
             throw new CertificateOperationException(
@@ -1472,7 +1507,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Certificate %s was issued by the authority but completing local state failed; reconcile manually. Cause: "
                             .formatted(certificateUuid) + safeMessage(e, "issuance completion failed"));
         }
-        afterSynchronousIssue(certificateUuid);
+        return true;
     }
 
     /** Re-reads the claimed cert under a short row lock and transitions PENDING_ISSUE -> FAILED. */
@@ -1556,6 +1591,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)
                             ? RegisterWireBuilder.buildIdentityContent(certificate.getSubjectDn())
                             : null;
+            managed.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(managed, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -1579,6 +1615,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             return registerCapability.issueRegistered(certificate, replay.replayMeta(), replay.identityContent());
         } catch (ConnectorAcceptedButLocalFailureException e) {
+            clearPendingIssueClaimBestEffort(certificate);
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but a local adapter step failed; "
                             + "left {} for reconciliation", certUuid, pendingIssueLabel, e);
@@ -1605,9 +1642,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void completeAcceptedRegisterBoundIssue(Certificate certificate, AdapterOperationResult result)
             throws CertificateOperationException {
         final UUID certUuid = certificate.getUuid();
+        boolean issuedSynchronously;
         try {
-            finalizeIssuance(certUuid, certificate, result);
+            issuedSynchronously = finalizeIssuance(certUuid, certificate, result);
         } catch (Exception e) {
+            clearPendingIssueClaimBestEffort(certificate);
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but completing local state failed; "
                             + "reconcile manually", certUuid, e);
@@ -1619,6 +1658,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new CertificateOperationException(
                     "Connector accepted the register-bound issue for certificate %s but completing local state failed; reconcile manually."
                             .formatted(certUuid));
+        }
+        if (issuedSynchronously) {
+            afterSynchronousIssue(certUuid);
         }
     }
 
@@ -1731,7 +1773,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * Records the connector's async acceptance ({@code 202}) of an issue/renew/rekey: persists returned metadata,
-     * schedules the status poll, raises the action-performed event, and writes the event-log entry. The cert is already
+     * schedules the status poll, clears the pending-issue claim, raises the action-performed event, and writes the
+     * event-log entry. The claim is cleared only after the poll is scheduled, so a crash in between leaves a claimed
+     * certificate with a poll row, which the poller owns, rather than one nothing will ever touch. The cert is already
      * in {@code PENDING_ISSUE}, so the state is unchanged; {@code originatingAction} drives
      * {@code CERTIFICATE_ACTION_PERFORMED} so subscribers see the actual operation.
      */
@@ -1754,17 +1798,26 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 logger
                         .warn("Failed to persist metadata from 202 response for cert {}: {}", certificate.getUuid(),
                                 metaEx.getMessage(), metaEx);
-                certificateEventHistoryService
-                        .addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
-                                "Failed to persist connector metadata returned with HTTP 202; "
-                                        + "cancellation of this pending operation may be limited if "
-                                        + "the connector requires the original metadata. Cause: "
-                                        + safeMessage(metaEx, INTERNAL_ERROR),
-                                "");
+                try {
+                    certificateEventHistoryService
+                            .addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE,
+                                    CertificateEventStatus.FAILED,
+                                    "Failed to persist connector metadata returned with HTTP 202; "
+                                            + "cancellation of this pending operation may be limited if "
+                                            + "the connector requires the original metadata. Cause: "
+                                            + safeMessage(metaEx, INTERNAL_ERROR),
+                                    "");
+                } catch (RuntimeException historyEx) {
+                    // The poll and the claim clear below must still run for an accepted operation.
+                    logger
+                            .warn("Failed to record the metadata failure of cert {}: {}", certificate.getUuid(),
+                                    historyEx.getMessage(), historyEx);
+                }
             }
         }
 
         scheduleStatusPoll(certificate, pollOperationFor(originatingAction));
+        clearPendingIssueClaimBestEffort(certificate);
 
         eventProducer
                 .produceMessage(CertificateActionPerformedEventHandler
@@ -1785,7 +1838,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * authorityInstanceReferenceUuid is an eager column, so this is safe to call with no transaction held.
      */
     private static void assertRaProfileUnderAuthority(RaProfile raProfile, SecuredParentUUID authorityUuid) {
-        if (!authorityUuid.getValue().equals(raProfile.getAuthorityInstanceReferenceUuid())) {
+        if (!Objects.equals(authorityUuid.getValue(), raProfile.getAuthorityInstanceReferenceUuid())) {
             throw new ValidationException(
                     String.format("RA profile %s does not belong to the requested authority.", raProfile.getName()));
         }
@@ -2066,6 +2119,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // request attached" stays reserved for a completion in flight — the invariant
             // addCertificateRequestToExisting
             // relies on. A never-completed placeholder carries no request, so this is a no-op for it.
+            UUID detachedRequestUuid = certificate.getCertificateRequestUuid();
             certificate.setCertificateRequest(null);
             certificate.setCertificateRequestUuid(null);
             certificate.setKeyUuid(null);
@@ -2073,6 +2127,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     .transition(certificate, CertificateState.REGISTERED, CertificateEvent.APPROVAL_CLOSE,
                             "Issuance approval was rejected; certificate restored to "
                                     + CertificateState.REGISTERED.getLabel() + ".");
+            certificateRequestWriter.deleteUnreferenced(Stream.ofNullable(detachedRequestUuid).toList());
             return;
         }
         handleFailedOrRejectedEvent(certificate, null, CertificateState.REJECTED, null, null, null);
@@ -2086,7 +2141,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             String certificateUuid, ClientCertificateRenewRequestDto request) throws NotFoundException,
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
-                ResourceAction.RENEW);
+                ResourceAction.RENEW, authorityUuid);
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
         // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
@@ -2201,6 +2256,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
             // uniform PENDING_ISSUE state via the state machine.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -2242,6 +2298,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // record the failure against the predecessor and surface it. (state-divergence rule)
             logger.error("Failed to renew certificate {}", certificateUuid, e);
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                clearPendingIssueClaimBestEffort(certificate);
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
                                 CertificateEventStatus.FAILED,
@@ -2288,7 +2345,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throws NotFoundException, CertificateException, CertificateOperationException, CertificateRequestException,
             ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
-                ResourceAction.REKEY);
+                ResourceAction.REKEY, authorityUuid);
 
         // Self-service gate, symmetric with renew: a certificate with a live registration authorization rekeys
         // only against its challenge, and a verified challenge lets the authorization follow the successor.
@@ -2458,6 +2515,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
             // uniform PENDING_ISSUE state via the state machine.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -2505,6 +2563,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // record the failure against the predecessor and surface it. (state-divergence rule)
             logger.error("Failed to rekey certificate {}", certificateUuid, e);
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                clearPendingIssueClaimBestEffort(certificate);
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
                                 CertificateEventStatus.FAILED,
@@ -2539,7 +2598,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     public void revokeCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, String certificateUuid,
             ClientCertificateRevocationDto request) throws ConnectorException, AttributeException, NotFoundException {
         Certificate certificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
-                ResourceAction.REVOKE);
+                ResourceAction.REVOKE, authorityUuid);
 
         // validate revoke attributes
         extendedAttributeService.mergeAndValidateRevokeAttributes(certificate.getRaProfile(), request.getAttributes());
@@ -2757,6 +2816,46 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
+     * Retries a claim clear that met a transient database error, each attempt in a transaction of its own: for an
+     * authority that cannot be polled, the clear is the only record that the authority accepted.
+     */
+    private static final RetryTemplate CLAIM_CLEAR_RETRY = RetryTemplate
+            .builder()
+            .maxAttempts(3)
+            .exponentialBackoff(200, 2, 1000)
+            .retryOn(List
+                    .of(TransientDataAccessException.class, RecoverableDataAccessException.class,
+                            CannotCreateTransactionException.class))
+            .traversingCauses()
+            .build();
+
+    /**
+     * Clears the claim stamp of a certificate the authority answered but that stays in {@code PENDING_ISSUE} (accepted
+     * asynchronously, or parked after a local failure), on the held instance too so a later save cannot write it back.
+     * Best-effort: the authority has accepted, so a failure is logged and leaves the certificate to the reaper.
+     */
+    private void clearPendingIssueClaimBestEffort(Certificate certificate) {
+        certificate.setPendingIssueClaimedAt(null);
+        try {
+            if (CLAIM_CLEAR_RETRY.execute(retry -> pendingIssueClaimWriter.clear(certificate.getUuid())) == 0
+                    && certificateRepository
+                            .findStateByUuid(certificate.getUuid())
+                            .orElse(null) != CertificateState.ISSUED) {
+                // The certificate left PENDING_ISSUE without being issued while the call was in flight (reaped or
+                // cancelled), so the platform has ended an operation the authority accepted.
+                logger
+                        .warn("Certificate {} was no longer {} when the authority's acceptance was recorded; "
+                                + "the authority may still complete it", certificate.getUuid(),
+                                CertificateState.PENDING_ISSUE.getLabel());
+            }
+        } catch (RuntimeException e) {
+            logger
+                    .warn("Failed to clear the pending-issue claim of certificate {}; the reaper may fail it: {}",
+                            certificate.getUuid(), e.getMessage(), e);
+        }
+    }
+
+    /**
      * Schedules an async status poll, reloading the certificate with the polling entity graph — for callers whose own
      * load did not fetch the authority's connector interface (issue/renew/rekey/revoke).
      *
@@ -2834,10 +2933,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     private Certificate validateOldCertificateForOperation(String certificateUuid, String raProfileUuid,
-            ResourceAction action) throws NotFoundException {
+            ResourceAction action, SecuredParentUUID authorityUuid) throws NotFoundException {
         Certificate oldCertificate = certificateRepository
                 .findByUuid(UUID.fromString(certificateUuid))
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        if (oldCertificate.getRaProfileUuid() == null
+                || !oldCertificate.getRaProfileUuid().toString().equals(raProfileUuid)) {
+            throw new ValidationException(String
+                    .format("Cannot perform operation %s on certificate. Existing Certificate RA profile is different than RA profile of request. Certificate: %s",
+                            action.getCode(), certificateUuid));
+        }
+        assertRaProfileUnderAuthority(oldCertificate.getRaProfile(), authorityUuid);
         if (oldCertificate.isArchived()) {
             throw new ValidationException("Cannot perform operation %s on archived certificate. Certificate: %s"
                     .formatted(action.getCode(), oldCertificate.toStringShort()));
@@ -2855,12 +2961,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(String
                     .format("Cannot perform operation %s on certificate in state %s. Certificate: %s", action.getCode(),
                             oldCertificate.getState().getLabel(), oldCertificate));
-        }
-        if (oldCertificate.getRaProfileUuid() == null
-                || !oldCertificate.getRaProfileUuid().toString().equals(raProfileUuid)) {
-            throw new ValidationException(String
-                    .format("Cannot perform operation %s on certificate. Existing Certificate RA profile is different than RA profile of request. Certificate: %s",
-                            action.getCode(), oldCertificate));
         }
         if (Boolean.FALSE.equals(oldCertificate.getRaProfile().getEnabled())) {
             throw new ValidationException(String
@@ -2914,6 +3014,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listRevokeCertificateAttributes(raProfile);
     }
 
@@ -2925,6 +3026,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         extendedAttributeService.validateRevokeCertificateAttributes(raProfile, attributes);
     }
 
