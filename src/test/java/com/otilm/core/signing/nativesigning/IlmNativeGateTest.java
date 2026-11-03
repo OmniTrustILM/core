@@ -18,8 +18,9 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
-import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 class IlmNativeGateTest {
 
@@ -47,11 +48,11 @@ class IlmNativeGateTest {
         SigningProfileModel<?, ?> ilmNativeRaw = buildManagedRawModel(List.of(SigningProtocol.ILM_NATIVE));
 
         // when
-        ThrowingCallable requireForHashSigning = () -> IlmNativeGate
-                .require(ilmNativeRaw, PROFILE, NativeOperation.SIGN_HASH);
+        Throwable failure = catchThrowable(
+                () -> IlmNativeGate.require(ilmNativeRaw, PROFILE, NativeOperation.SIGN_HASH));
 
         // then
-        assertThatCode(requireForHashSigning).doesNotThrowAnyException();
+        assertThat(failure).isNull();
     }
 
     @Test
@@ -153,11 +154,11 @@ class IlmNativeGateTest {
                 .build();
 
         // when
-        ThrowingCallable requireForDocumentSigning = () -> IlmNativeGate
-                .require(content, PROFILE, NativeOperation.SIGN_DOCUMENT);
+        Throwable failure = catchThrowable(
+                () -> IlmNativeGate.require(content, PROFILE, NativeOperation.SIGN_DOCUMENT));
 
         // then
-        assertThatCode(requireForDocumentSigning).doesNotThrowAnyException();
+        assertThat(failure).isNull();
     }
 
     @Test
@@ -269,11 +270,10 @@ class IlmNativeGateTest {
                 SigningScheme.MANAGED);
 
         // when
-        ThrowingCallable requireForDocumentSigning = () -> IlmNativeGate
-                .require(managedContent, NativeOperation.SIGN_DOCUMENT);
+        Throwable failure = catchThrowable(() -> IlmNativeGate.require(managedContent, NativeOperation.SIGN_DOCUMENT));
 
         // then
-        assertThatCode(requireForDocumentSigning).doesNotThrowAnyException();
+        assertThat(failure).isNull();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

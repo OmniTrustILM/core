@@ -170,8 +170,8 @@ import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aToken
 import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenProfileRequest;
 import static com.otilm.core.util.builders.TspProfileRequestDtoBuilder.aTspProfileRequest;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -2724,10 +2724,10 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
 
             // when
-            ThrowableAssert.ThrowingCallable deactivate = () -> signingProfileService.deactivateIlmNative(uuid);
+            Throwable failure = catchThrowable(() -> signingProfileService.deactivateIlmNative(uuid));
 
             // then
-            assertThatCode(deactivate).doesNotThrowAnyException();
+            assertThat(failure).isNull();
             assertThat(readEnabledProtocols(uuid)).doesNotContain(SigningProtocol.ILM_NATIVE);
         }
 
