@@ -1571,7 +1571,7 @@ public class AttributeEngine {
             UUID objectUuid) {
         List<ObjectAttributeContent> objectContents = attributeContent2ObjectRepository
                 .getObjectCustomAttributesContent(AttributeType.CUSTOM, objectType, objectUuid, null, null);
-        return getResponseAttributes(objectContents);
+        return AttributeVersionHelper.toResponseAttributes(objectContents);
     }
 
     public List<ResponseAttribute> getObjectCustomAttributesContent(Resource objectType, UUID objectUuid,
@@ -1581,7 +1581,7 @@ public class AttributeEngine {
         List<ObjectAttributeContent> objectContents = attributeContent2ObjectRepository
                 .getObjectCustomAttributesContent(AttributeType.CUSTOM, objectType, objectUuid,
                         contentFilter.allowedDefinitionUuids(), contentFilter.forbiddenDefinitionUuids());
-        return getResponseAttributes(objectContents);
+        return AttributeVersionHelper.toResponseAttributes(objectContents);
     }
 
     /**
@@ -1639,7 +1639,7 @@ public class AttributeEngine {
     public List<ResponseAttribute> getObjectDataAttributesContentUnversioned(Resource objectType, UUID objectUuid) {
         List<ObjectAttributeContent> objectContents = attributeContent2ObjectRepository
                 .getObjectDataAttributesContentUnversioned(objectType, objectUuid);
-        return getResponseAttributes(objectContents);
+        return AttributeVersionHelper.toResponseAttributes(objectContents);
     }
 
     public List<ResponseAttribute> getObjectDataAttributesContent(ObjectAttributeContentInfo info) {
@@ -1648,7 +1648,7 @@ public class AttributeEngine {
                         info.objectType().getLabel(), info.objectUuid(), info.connectorUuid(), info.operation(),
                         info.purpose(), info.objectVersion());
         List<ObjectAttributeContent> objectContents = loadDataAttributesContent(info);
-        return getResponseAttributes(objectContents);
+        return AttributeVersionHelper.toResponseAttributes(objectContents);
     }
 
     public List<RequestAttribute> getRequestObjectDataAttributesContent(ObjectAttributeContentInfo info) {
@@ -1657,7 +1657,15 @@ public class AttributeEngine {
                         info.objectType().getLabel(), info.objectUuid(), info.connectorUuid(), info.operation(),
                         info.objectVersion());
         List<ObjectAttributeContent> objectContents = loadDataAttributesContent(info);
-        return getRequestAttributes(objectContents);
+        return AttributeVersionHelper.toRequestAttributes(objectContents);
+    }
+
+    /**
+     * Secret content stays encrypted in these rows. A caller that keeps them maps them with
+     * {@link AttributeVersionHelper#toRequestAttributes} for each request.
+     */
+    public List<ObjectAttributeContent> getStoredObjectDataAttributesContent(ObjectAttributeContentInfo info) {
+        return List.copyOf(loadDataAttributesContent(info));
     }
 
     /**
@@ -1665,12 +1673,12 @@ public class AttributeEngine {
      * content stays readable after the object that named the owner, such as a key, is gone.
      */
     public List<ResponseAttribute> getOperationDataAttributesContent(ObjectAttributeContentInfo info) {
-        return getResponseAttributes(loadOperationDataAttributesContent(info));
+        return AttributeVersionHelper.toResponseAttributes(loadOperationDataAttributesContent(info));
     }
 
     /** Same as {@link #getOperationDataAttributesContent}, as request attributes to submit again. */
     public List<RequestAttribute> getRequestOperationDataAttributesContent(ObjectAttributeContentInfo info) {
-        return getRequestAttributes(loadOperationDataAttributesContent(info));
+        return AttributeVersionHelper.toRequestAttributes(loadOperationDataAttributesContent(info));
     }
 
     private List<ObjectAttributeContent> loadOperationDataAttributesContent(ObjectAttributeContentInfo info) {
@@ -1722,44 +1730,6 @@ public class AttributeEngine {
         }
 
         return objectContents;
-    }
-
-    private List<RequestAttribute> getRequestAttributes(List<ObjectAttributeContent> objectContents) {
-        Map<String, RequestAttribute> mapping = new HashMap<>();
-        for (ObjectAttributeContent objectContent : objectContents) {
-            String uuid = objectContent.uuid().toString();
-            RequestAttribute requestAttribute;
-
-            if ((requestAttribute = mapping.get(uuid)) == null) {
-                requestAttribute = AttributeVersionHelper
-                        .getRequestAttribute(objectContent.uuid(), objectContent.name(), new ArrayList<>(),
-                                objectContent.contentType(), objectContent.version());
-                mapping.put(uuid, requestAttribute);
-            }
-            AttributeVersionHelper.addRequestAttributeContent(requestAttribute, objectContent);
-        }
-
-        return mapping.values().stream().toList();
-    }
-
-    private List<ResponseAttribute> getResponseAttributes(List<ObjectAttributeContent> objectContents) {
-        Map<String, ResponseAttribute> mapping = new HashMap<>();
-        for (ObjectAttributeContent objectContent : objectContents) {
-            String uuid = objectContent.uuid().toString();
-            ResponseAttribute responseAttribute;
-            if ((mapping.get(uuid)) == null) {
-                responseAttribute = AttributeVersionHelper
-                        .getResponseAttribute(objectContent.uuid(), objectContent.name(), objectContent.label(),
-                                new ArrayList<>(), objectContent.contentType(), objectContent.type(),
-                                objectContent.version());
-                mapping.put(uuid, responseAttribute);
-            } else {
-                responseAttribute = mapping.get(uuid);
-            }
-            AttributeVersionHelper.addResponseAttributeContent(responseAttribute, objectContent);
-        }
-
-        return mapping.values().stream().toList();
     }
 
     public List<ResponseAttribute> updateObjectDataAttributesContent(ObjectAttributeContentInfo info,

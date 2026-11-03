@@ -147,8 +147,9 @@ class PlatformProviderTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void stubAdapterWithEmptyAlgorithmAttributes() throws Exception {
         when(factory.forKeyItem(any())).thenReturn(adapter);
+        when(factory.forKeyItemInUnchangedScope(any())).thenReturn(adapter);
         when(adapter.signatureAttributesFor(anyString())).thenReturn(List.of());
         when(adapter.cipherAttributesFor(anyString())).thenReturn(List.of());
     }

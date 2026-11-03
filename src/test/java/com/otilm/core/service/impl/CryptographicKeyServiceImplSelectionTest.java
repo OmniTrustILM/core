@@ -19,6 +19,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationRow;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import java.util.List;
@@ -58,13 +59,14 @@ class CryptographicKeyServiceImplSelectionTest {
     private final List<KeyUsage> usages = List.of(KeyUsage.SIGN);
 
     @BeforeEach
-    void setUp() {
+    void wireServiceWithParent() {
         service.setCryptographicKeyRepository(repository);
         service.setCryptographicKeyItemRepository(itemRepository);
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapters);
         service.setKeyEventHistoryService(history);
         service.setCacheEvictor(cache);
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         loadParent();
     }
 
