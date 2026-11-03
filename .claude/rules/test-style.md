@@ -34,7 +34,7 @@ void throwsUnsupported_whenListingTheWholeToken() {
 
 - A test body has `// given`, `// when` and `// then` blocks separated by blank lines. With nothing to arrange, `// given — <the state that exists or is absent>` names what the test relies on.
 - An exception test binds the call to a `ThrowingCallable` named after it in `// when` and asserts it with `assertThatThrownBy` in `// then`, which may go on to check interactions or state.
-- Assertions use AssertJ through static imports of `assertThat` and `assertThatThrownBy`. A message check uses `hasMessageContaining`, and other exception state, such as an error code, is checked inside `.satisfies(...)`.
+- Assertions use AssertJ through static imports of `assertThat` and `assertThatThrownBy`. A message check uses `hasMessageContaining`, and other exception state, such as an error code, is checked inside `isInstanceOfSatisfying(...)`, which hands the check the exception as its own type.
 - The result under test keeps its explicit type; arrange-side locals may use `var` where the right-hand side shows the type.
 - The value that drives the scenario is bound to a local named for why it matters (`tooShortForSha256`, `unknownDigestOid`), and `// then` asserts against that local. A multi-KB literal (base64, PEM) becomes a `private static final` constant.
 - A test method declares `throws Exception` when its body makes checked calls and omits the clause otherwise.
@@ -61,12 +61,12 @@ void throwsUnsupported_whenListingTheWholeToken() {
   ```
 
 - A helper that touches only its parameters is `private static`, and one that calls injected beans is `private`. Helpers are named as verb phrases (`verifyRequest(...)`). A multi-line check that several tests share becomes a `private static void assertXxx(...)` named after the expected state.
-- A `@MethodSource` case whose bare value leaves its purpose unclear is wrapped as `named("private key may be exported", KeyType.PRIVATE_KEY)`.
+- A `@MethodSource` factory sits with the helpers but is named for the cases it returns (`invalidSelections()`), and a case whose bare value leaves its purpose unclear is wrapped as `named("private key may be exported", KeyType.PRIVATE_KEY)`.
 
 ## Spring and Mockito
 
 - A test that needs the application context extends `BaseSpringBootTest`, directly or through a base such as `BaseComplianceTest`, and takes its `@SpringBootTest` from there. Its `@Import` brings in modules from `util/mockbeans`; "The cost of a new test-context combination" in CLAUDE.md says when a module fits and when a `@MockitoBean` does.
-- A test without the context uses `@ExtendWith(MockitoExtension.class)` and `@Mock`.
+- A test class without the context uses `@ExtendWith(MockitoExtension.class)` and `@Mock`; an existing class that builds its mocks with `mock()` switches only in a restyle of the whole class, since the extension's strict stubbing reaches every test in it.
 - `@InjectMocks` is for a class whose collaborators are all mocks, since it passes null for any it cannot match. With real collaborators, a named `@BeforeEach` calls the constructor.
 
 ## Test data
