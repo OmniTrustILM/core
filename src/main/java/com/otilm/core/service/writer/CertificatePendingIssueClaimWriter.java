@@ -2,7 +2,7 @@ package com.otilm.core.service.writer;
 
 import com.otilm.core.dao.repository.CertificateRepository;
 import java.util.UUID;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
  * caller holds none after the connector call, and this write must not be able to roll back work the caller already
  * committed.
  */
-@Service
+@Component
 public class CertificatePendingIssueClaimWriter {
 
     private final CertificateRepository certificateRepository;
