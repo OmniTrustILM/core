@@ -683,6 +683,20 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
+        void readsTheTokenAndProfileRowsAgain_afterTheConnectorReconnects() throws Exception {
+            // given
+            stubSigning();
+            signWithoutEventHistory();
+            connectorService.reconnect(connector.getSecuredUuid());
+
+            // when
+            SqlCapture.Captured<SignDataResponseDto> signature = SqlCapture.during(this::signWithoutEventHistory);
+
+            // then
+            assertThat(signature.statements()).filteredOn(sql -> sql.contains("attribute_content_2_object")).hasSize(2);
+        }
+
+        @Test
         void sendsUpdatedTokenAttributes_onceTheTokenWriterCommits() throws Exception {
             // given
             stubSigning();

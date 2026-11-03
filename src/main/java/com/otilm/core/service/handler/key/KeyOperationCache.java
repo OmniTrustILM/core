@@ -16,7 +16,10 @@ import java.util.UUID;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Component;
 
-/** Caches attributes required for crypto v2 signing operations. */
+/**
+ * Caches the stored token and token-profile rows that every v2 key operation reads, and each key item's sign attribute
+ * definitions.
+ */
 @Component
 public class KeyOperationCache {
 
@@ -82,8 +85,8 @@ public class KeyOperationCache {
     }
 
     /**
-     * It must ask its entry's connector with the attributes resolved from its entry's rows, so each answer matches its
-     * key.
+     * Loads an entry's sign definitions and must ask the entry's connector with the attributes resolved from the
+     * entry's rows, so the answer matches the entry's key.
      */
     @FunctionalInterface
     public interface DefinitionsLoader {
@@ -98,7 +101,7 @@ public class KeyOperationCache {
             Snapshot tokenRows, Snapshot tokenProfileRows) {
     }
 
-    /** Matches one cached value by identity, which is cheap and changes on every reload of the value. */
+    /** Matches one cached value by identity, which is cheap and differs between loads of different content. */
     private record Snapshot(Object value) {
 
         @Override
