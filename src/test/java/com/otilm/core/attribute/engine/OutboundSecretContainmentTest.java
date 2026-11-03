@@ -7,7 +7,10 @@ import com.otilm.api.model.client.attribute.ResponseAttributeV2;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.CodeBlockAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.ProgrammingLanguageEnum;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
@@ -23,6 +26,7 @@ import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleConten
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
+import java.io.Serializable;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -92,6 +96,40 @@ class OutboundSecretContainmentTest {
 
         // then
         assertThat(expandedSecrets).containsExactly(tokenPin);
+    }
+
+    @Test
+    void recordsTheFileBody_ofAFileStoredEncrypted() {
+        // given
+        var keystoreBody = "MIIKPAIBAzCCCfYGCSqGSIb3DQEHAaCC";
+        var storedRows = List.of(storedRow("token-keystore", SEALED));
+        var resolved = List
+                .of(resolvedAttribute("token-keystore",
+                        decryptedContent(fileData(keystoreBody, "token.p12", "application/x-pkcs12"))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(keystoreBody);
+    }
+
+    @Test
+    void recordsTheCode_ofACodeBlockStoredEncrypted() {
+        // given
+        var unlockScript = "ZWNobyAkVE9LRU5fUElO";
+        var storedRows = List.of(storedRow("unlock-script", SEALED));
+        var resolved = List
+                .of(resolvedAttribute("unlock-script", decryptedContent(
+                        new CodeBlockAttributeContentData(ProgrammingLanguageEnum.BASH, unlockScript))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(unlockScript);
     }
 
     @Test
@@ -329,6 +367,19 @@ class OutboundSecretContainmentTest {
     private static ObjectAttributeContent storedRow(String name, String encryptedContent) {
         return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
                 AttributeContentType.STRING, new StringAttributeContentV2(), 2, encryptedContent);
+    }
+
+    /** Decryption returns a protected row's data in a base content, whatever the content type. */
+    private static BaseAttributeContentV2<Serializable> decryptedContent(Serializable data) {
+        return new BaseAttributeContentV2<>(null, data);
+    }
+
+    private static FileAttributeContentData fileData(String content, String fileName, String mimeType) {
+        FileAttributeContentData data = new FileAttributeContentData();
+        data.setContent(content);
+        data.setFileName(fileName);
+        data.setMimeType(mimeType);
+        return data;
     }
 
     private static RequestAttribute resolvedAttribute(String name, BaseAttributeContentV2<?> content) {

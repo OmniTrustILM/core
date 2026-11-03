@@ -184,7 +184,7 @@ class KeyProviderAdapterFactoryTest {
             KeyProviderAdapter adapter = factory.forKeyItem(item);
 
             // then
-            assertInstanceOf(KeyProviderV1Adapter.class, adapter);
+            assertThat(adapter).isInstanceOf(KeyProviderV1Adapter.class);
             verify(clients).getKeyManagementApiClient(connector);
         }
 
@@ -197,7 +197,7 @@ class KeyProviderAdapterFactoryTest {
             KeyProviderAdapter adapter = factory.forKeyItem(item);
 
             // then
-            assertInstanceOf(KeyProviderV2Adapter.class, adapter);
+            assertThat(adapter).isInstanceOf(KeyProviderV2Adapter.class);
             verify(v2Clients).getKeyManagementApiClient(connector);
         }
 
@@ -246,10 +246,10 @@ class KeyProviderAdapterFactoryTest {
             CryptographicKeyItemOperationModel item = keyItem(code, version);
 
             // when
-            Executable select = () -> factory.forKeyItem(item);
+            ThrowingCallable select = () -> factory.forKeyItem(item);
 
             // then
-            assertThrows(UnsupportedCryptographyProviderVersionException.class, select);
+            assertThatThrownBy(select).isInstanceOf(UnsupportedCryptographyProviderVersionException.class);
             verifyNoInteractions(clients);
         }
     }

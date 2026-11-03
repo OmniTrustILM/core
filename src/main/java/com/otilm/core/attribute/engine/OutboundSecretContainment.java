@@ -8,7 +8,9 @@ import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.content.data.CodeBlockAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
@@ -102,9 +104,9 @@ public class OutboundSecretContainment {
     }
 
     /**
-     * Record the text values of the resolved attributes whose stored rows are encrypted, since resolution sends them as
-     * plain content that {@link #recordExpandedSecretsFromRequest} cannot tell from a public value. A number or flag is
-     * left out, as it would match benign content.
+     * Record the text, file body or code of each resolved attribute whose stored row is encrypted, since resolution
+     * sends it as plain content that {@link #recordExpandedSecretsFromRequest} cannot tell from a public value. A
+     * number, flag, file name or language is left out, as it would match benign content.
      */
     public void recordProtectedValuesFromRequest(List<ObjectAttributeContent> storedRows,
             List<RequestAttribute> resolved, Set<String> expandedSecrets) {
@@ -116,13 +118,18 @@ public class OutboundSecretContainment {
         for (RequestAttribute attribute : resolved) {
             List<? extends AttributeContent> content = attribute.getContent();
             if (protectedNames.contains(attribute.getName()) && content != null) {
-                content.forEach(item -> {
-                    if (item.getData() instanceof String text) {
-                        addIfPresent(text, expandedSecrets);
-                    }
-                });
+                content.forEach(item -> addIfPresent(protectedText(item.getData()), expandedSecrets));
             }
         }
+    }
+
+    private static String protectedText(Object data) {
+        return switch (data) {
+            case String text -> text;
+            case FileAttributeContentData file -> file.getContent();
+            case CodeBlockAttributeContentData codeBlock -> codeBlock.getCode();
+            case null, default -> null;
+        };
     }
 
     private void recordIfSecretLeaf(Object node, Set<String> sink) {

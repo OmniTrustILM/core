@@ -30,11 +30,13 @@ import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.FileAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
@@ -341,6 +343,17 @@ class KeyProviderV2AdapterTest {
         RequestAttributeV2 attribute = new RequestAttributeV2();
         attribute.setName(name);
         attribute.setContent(List.of(new StringAttributeContentV2(value)));
+        return attribute;
+    }
+
+    private static RequestAttribute fileAttribute(String name, String body) {
+        FileAttributeContentData file = new FileAttributeContentData();
+        file.setContent(body);
+        file.setFileName(name + ".p12");
+        file.setMimeType("application/x-pkcs12");
+        RequestAttributeV2 attribute = new RequestAttributeV2();
+        attribute.setName(name);
+        attribute.setContent(List.of(new FileAttributeContentV2(null, file)));
         return attribute;
     }
 
@@ -2437,6 +2450,24 @@ class KeyProviderV2AdapterTest {
             stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
                     List.of(sealedRow("token-pin", tokenPin)), List.of(stringAttribute("token-pin", tokenPin)));
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(tokenPin));
+            CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
+
+            // when
+            ThrowingCallable sign = () -> adapter.signData(keyItem, signRequest(List.of()));
+
+            // then
+            assertThatThrownBy(sign).isInstanceOf(OutboundSecretLeakException.class);
+            verify(operationsClient, never()).signData(any(), any());
+        }
+
+        @Test
+        void refusesSignDefinitions_echoingATokenFileStoredEncrypted() throws Exception {
+            // given
+            var keystoreBody = "MIIKPAIBAzCCCfYGCSqGSIb3DQEHAaCC";
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
+                    List.of(sealedRow("token-keystore", keystoreBody)),
+                    List.of(fileAttribute("token-keystore", keystoreBody)));
+            when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(keystoreBody));
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
 
             // when
