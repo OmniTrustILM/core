@@ -11,6 +11,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.notifications.NotificationProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
+import com.otilm.core.dao.entity.notifications.PendingNotification;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileRepository;
@@ -18,13 +19,16 @@ import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRep
 import com.otilm.core.dao.repository.notifications.PendingNotificationRepository;
 import com.otilm.core.service.writer.PendingNotificationWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.builders.CertificateBuilder;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class NonCompliantReminderSweepITest extends BaseSpringBootTest {
 
@@ -44,107 +48,136 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
     private PendingNotificationWriter pendingNotificationWriter;
 
     @Test
-    void selectsOnlyNonCompliantCertificatesWhoseProfileReminds() {
-        UUID reminding = remindingProfile(Duration.ofDays(1), 3);
-        UUID once = remindingProfile(null, null);
+    void selectsEligibleCertificates_whenProfilesEnableReminders() {
+        // given
+        UUID reminding = createReminderProfile(Duration.ofDays(1), 3);
+        UUID notifyingOnce = createReminderProfile(null, null);
 
-        Certificate selected = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        Certificate withoutReminders = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        Certificate compliant = certificate(ComplianceStatus.OK, CertificateState.ISSUED, false);
-        Certificate archived = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, true);
-        Certificate revoked = certificate(ComplianceStatus.NOK, CertificateState.REVOKED, false);
-        Certificate exhausted = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        Certificate expired = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        expired.setValidationStatus(CertificateValidationStatus.EXPIRED);
-        certificateRepository.save(expired);
+        Certificate eligible = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.NOK));
+        Certificate profileWithoutReminders = createCertificate(
+                aCertificate().withComplianceStatus(ComplianceStatus.NOK));
+        Certificate compliant = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.OK));
+        Certificate archived = createCertificate(
+                aCertificate().withComplianceStatus(ComplianceStatus.NOK).withArchived(true));
+        Certificate revoked = createCertificate(
+                aCertificate().withComplianceStatus(ComplianceStatus.NOK).withState(CertificateState.REVOKED));
+        Certificate expired = createCertificate(aCertificate()
+                .withComplianceStatus(ComplianceStatus.NOK)
+                .withValidationStatus(CertificateValidationStatus.EXPIRED));
+        Certificate exhausted = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.NOK));
 
-        sent(reminding, selected, 1);
-        sent(once, withoutReminders, 1);
-        sent(reminding, compliant, 1);
-        sent(reminding, archived, 1);
-        sent(reminding, revoked, 1);
-        sent(reminding, exhausted, 3);
-        sent(reminding, expired, 1);
+        recordSends(reminding, eligible, 1);
+        recordSends(notifyingOnce, profileWithoutReminders, 1);
+        recordSends(reminding, compliant, 1);
+        recordSends(reminding, archived, 1);
+        recordSends(reminding, revoked, 1);
+        recordSends(reminding, expired, 1);
+        recordSends(reminding, exhausted, 3);
 
-        List<UUID> due = due(selected, withoutReminders, compliant, archived, revoked, exhausted, expired);
+        // when
+        List<UUID> due = findDueCertificates(eligible, profileWithoutReminders, compliant, archived, revoked, expired,
+                exhausted);
 
-        Assertions.assertEquals(List.of(selected.getUuid()), due);
+        // then
+        assertThat(due).containsExactly(eligible.getUuid());
     }
 
     @Test
-    void skipsCertificatesWithAnIssuedRenewalButNotWithAFailedOne() {
-        UUID reminding = remindingProfile(null, 5);
-        Certificate renewed = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        Certificate failedRenewal = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        sent(reminding, renewed, 1);
-        sent(reminding, failedRenewal, 1);
+    void excludesCertificatesWithIssuedRenewal_whenSelectingReminders() {
+        // given
+        UUID reminding = createReminderProfile(null, 5);
+        Certificate renewed = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.NOK));
+        Certificate failedRenewal = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.NOK));
+        recordSends(reminding, renewed, 1);
+        recordSends(reminding, failedRenewal, 1);
+        linkRenewal(renewed, createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.OK)));
+        linkRenewal(failedRenewal, createCertificate(
+                aCertificate().withComplianceStatus(ComplianceStatus.OK).withState(CertificateState.FAILED)));
 
-        relate(renewed, certificate(ComplianceStatus.OK, CertificateState.ISSUED, false));
-        relate(failedRenewal, certificate(ComplianceStatus.OK, CertificateState.FAILED, false));
+        // when
+        List<UUID> due = findDueCertificates(renewed, failedRenewal);
 
-        List<UUID> due = due(renewed, failedRenewal);
-
-        Assertions.assertEquals(List.of(failedRenewal.getUuid()), due);
+        // then
+        assertThat(due).containsExactly(failedRenewal.getUuid());
     }
 
     @Test
-    void resetRemovesOnlyTheRowsOfThatObjectAndEvent() {
-        UUID profile = remindingProfile(null, 5);
-        Certificate target = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        Certificate other = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        sent(profile, target, 1);
-        sent(profile, other, 1);
-        pendingNotificationWriter
-                .recordSent(profile, Resource.CERTIFICATE, target.getUuid(), ResourceEvent.CERTIFICATE_EXPIRING, 1);
+    void deletesOnlyMatchingRows_whenResettingAnObjectEvent() {
+        // given
+        UUID profile = createReminderProfile(null, 5);
+        Certificate target = createCertificate(aCertificate());
+        Certificate other = createCertificate(aCertificate());
+        recordSends(profile, target, 1);
+        recordSends(profile, other, 1);
+        recordSend(profile, target, ResourceEvent.CERTIFICATE_EXPIRING);
 
+        // when
         pendingNotificationWriter.deleteForObjectAndEvent(Resource.CERTIFICATE, target.getUuid(), EVENT);
 
-        Assertions
-                .assertNull(pendingNotificationRepository
-                        .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(profile, Resource.CERTIFICATE,
-                                target.getUuid(), EVENT));
-        Assertions
-                .assertNotNull(pendingNotificationRepository
-                        .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(profile, Resource.CERTIFICATE,
-                                target.getUuid(), ResourceEvent.CERTIFICATE_EXPIRING));
-        Assertions
-                .assertNotNull(pendingNotificationRepository
-                        .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(profile, Resource.CERTIFICATE,
-                                other.getUuid(), EVENT));
+        // then
+        assertThat(findRow(profile, target, EVENT)).isNull();
+        assertThat(findRow(profile, target, ResourceEvent.CERTIFICATE_EXPIRING)).isNotNull();
+        assertThat(findRow(profile, other, EVENT)).isNotNull();
     }
 
     @Test
-    void deletingObjectsRemovesTheirRowsForEveryEvent() {
-        UUID profile = remindingProfile(null, 5);
-        Certificate first = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        Certificate second = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        Certificate kept = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
-        for (Certificate certificate : List.of(first, second, kept)) {
-            sent(profile, certificate, 1);
-            pendingNotificationWriter
-                    .recordSent(profile, Resource.CERTIFICATE, certificate.getUuid(),
-                            ResourceEvent.CERTIFICATE_EXPIRING, 1);
-        }
+    void deletesRowsOfEveryEvent_whenDeletingForAnObject() {
+        // given
+        UUID profile = createReminderProfile(null, 5);
+        Certificate deleted = createCertificate(aCertificate());
+        Certificate kept = createCertificate(aCertificate());
+        recordRowsForEveryEvent(profile, deleted, kept);
 
-        pendingNotificationWriter.deleteForObject(Resource.CERTIFICATE, first.getUuid());
-        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, List.of(second.getUuid()));
-        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, List.of());
+        // when
+        pendingNotificationWriter.deleteForObject(Resource.CERTIFICATE, deleted.getUuid());
 
-        Assertions
-                .assertNull(pendingNotificationRepository
-                        .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(profile, Resource.CERTIFICATE,
-                                second.getUuid(), ResourceEvent.CERTIFICATE_EXPIRING));
-        Assertions
-                .assertNotNull(pendingNotificationRepository
-                        .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(profile, Resource.CERTIFICATE,
-                                kept.getUuid(), ResourceEvent.CERTIFICATE_EXPIRING));
-        Assertions
-                .assertNotNull(pendingNotificationRepository
-                        .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(profile, Resource.CERTIFICATE,
-                                kept.getUuid(), EVENT));
+        // then
+        assertThat(findRow(profile, deleted, EVENT)).isNull();
+        assertThat(findRow(profile, deleted, ResourceEvent.CERTIFICATE_EXPIRING)).isNull();
+        assertThat(findRow(profile, kept, EVENT)).isNotNull();
+        assertThat(findRow(profile, kept, ResourceEvent.CERTIFICATE_EXPIRING)).isNotNull();
     }
 
-    private List<UUID> due(Certificate... candidates) {
+    @Test
+    void deletesRowsOfEveryEvent_whenDeletingForSeveralObjects() {
+        // given
+        UUID profile = createReminderProfile(null, 5);
+        Certificate firstDeleted = createCertificate(aCertificate());
+        Certificate secondDeleted = createCertificate(aCertificate());
+        Certificate kept = createCertificate(aCertificate());
+        recordRowsForEveryEvent(profile, firstDeleted, secondDeleted, kept);
+
+        // when
+        pendingNotificationWriter
+                .deleteForObjects(Resource.CERTIFICATE, List.of(firstDeleted.getUuid(), secondDeleted.getUuid()));
+
+        // then
+        for (Certificate deleted : List.of(firstDeleted, secondDeleted)) {
+            assertThat(findRow(profile, deleted, EVENT)).isNull();
+            assertThat(findRow(profile, deleted, ResourceEvent.CERTIFICATE_EXPIRING)).isNull();
+        }
+        assertThat(findRow(profile, kept, EVENT)).isNotNull();
+        assertThat(findRow(profile, kept, ResourceEvent.CERTIFICATE_EXPIRING)).isNotNull();
+    }
+
+    @Test
+    void deletesNothing_whenDeletingForNoObjects() {
+        // given
+        UUID profile = createReminderProfile(null, 5);
+        Certificate certificate = createCertificate(aCertificate());
+        recordRowsForEveryEvent(profile, certificate);
+
+        // when
+        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, List.of());
+
+        // then
+        assertThat(findRow(profile, certificate, EVENT)).isNotNull();
+        assertThat(findRow(profile, certificate, ResourceEvent.CERTIFICATE_EXPIRING)).isNotNull();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private List<UUID> findDueCertificates(Certificate... candidates) {
         List<UUID> candidateUuids = Arrays.stream(candidates).map(Certificate::getUuid).toList();
         return certificateRepository
                 .findNonCompliantCertificatesWithReminders()
@@ -153,7 +186,7 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
                 .toList();
     }
 
-    private UUID remindingProfile(Duration frequency, Integer repetitions) {
+    private UUID createReminderProfile(Duration frequency, Integer repetitions) {
         NotificationProfile profile = new NotificationProfile();
         profile.setName("reminder-profile-" + UUID.randomUUID());
         profile = notificationProfileRepository.save(profile);
@@ -169,24 +202,42 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
         return profile.getUuid();
     }
 
-    private Certificate certificate(ComplianceStatus compliance, CertificateState state, boolean archived) {
-        Certificate certificate = new Certificate();
-        certificate.setSubjectDn("CN=" + UUID.randomUUID());
-        certificate.setIssuerDn("CN=issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString());
-        certificate.setComplianceStatus(compliance);
-        certificate.setState(state);
-        certificate.setArchived(archived);
+    private Certificate createCertificate(CertificateBuilder builder) {
+        Certificate certificate = builder
+                .withSubjectDn("CN=" + UUID.randomUUID())
+                .withIssuerDn("CN=issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .build();
+        if (certificate.getState() == null) {
+            certificate.setState(CertificateState.ISSUED);
+        }
         return certificateRepository.save(certificate);
     }
 
-    private void sent(UUID profileUuid, Certificate certificate, int repetitions) {
-        for (int i = 0; i < repetitions; i++) {
-            pendingNotificationWriter.recordSent(profileUuid, Resource.CERTIFICATE, certificate.getUuid(), EVENT, 1);
+    private void recordSends(UUID profileUuid, Certificate certificate, int count) {
+        for (int i = 0; i < count; i++) {
+            recordSend(profileUuid, certificate, EVENT);
         }
     }
 
-    private void relate(Certificate predecessor, Certificate successor) {
+    private void recordSend(UUID profileUuid, Certificate certificate, ResourceEvent event) {
+        pendingNotificationWriter.recordSent(profileUuid, Resource.CERTIFICATE, certificate.getUuid(), event, 1);
+    }
+
+    private void recordRowsForEveryEvent(UUID profileUuid, Certificate... certificates) {
+        for (Certificate certificate : certificates) {
+            recordSend(profileUuid, certificate, EVENT);
+            recordSend(profileUuid, certificate, ResourceEvent.CERTIFICATE_EXPIRING);
+        }
+    }
+
+    private PendingNotification findRow(UUID profileUuid, Certificate certificate, ResourceEvent event) {
+        return pendingNotificationRepository
+                .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(profileUuid, Resource.CERTIFICATE,
+                        certificate.getUuid(), event);
+    }
+
+    private void linkRenewal(Certificate predecessor, Certificate successor) {
         CertificateRelation relation = new CertificateRelation();
         relation.setPredecessorCertificate(predecessor);
         relation.setSuccessorCertificate(successor);
