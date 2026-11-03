@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -254,6 +255,61 @@ class CryptographicOperationServiceSignerTest {
 
             // then
             assertThat(out).containsExactly(SIG_A);
+        }
+
+        @Test
+        void throwsSignerFault_whenMultiItemResultHasNoData() throws Exception {
+            // given
+            var failedIdentifier = "1";
+            var connectorDetails = "Signature failed: boom";
+            var failedResult = new SignatureResponseData(null, failedIdentifier, connectorDetails);
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(signatures(result("0", SIG_A), failedResult));
+            var twoItems = List.of(DTBS_0, DTBS_1);
+
+            // when
+            ThrowingCallable signTwoItems = () -> signer.signAll(twoItems);
+
+            // then
+            assertThatThrownBy(signTwoItems)
+                    .isInstanceOf(SigningEngineException.class)
+                    .hasMessageNotContaining(connectorDetails)
+                    .satisfies(ex -> {
+                        SigningEngineException failure = (SigningEngineException) ex;
+                        assertThat(failure.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT);
+                        assertThat(failure.operatorMessage()).contains("item " + failedIdentifier, connectorDetails);
+                    });
+        }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        void throwsSignerFault_whenSingleResultHasNoData(String missingData) throws Exception {
+            // given
+            var resultWithoutSignature = new SignatureResponseData(missingData, "0", null);
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(signatures(resultWithoutSignature));
+            var oneItem = List.of(DTBS_0);
+
+            // when
+            ThrowingCallable signOneItem = () -> signer.signAll(oneItem);
+
+            // then
+            assertSignerFault(signOneItem);
+        }
+
+        @Test
+        void throwsSignerFault_whenOneItemIsAnsweredByTwoSignatures() throws Exception {
+            // given
+            var surplusResult = result("1", SIG_B);
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(signatures(result("0", SIG_A), surplusResult));
+            var oneItem = List.of(DTBS_0);
+
+            // when
+            ThrowingCallable signOneItem = () -> signer.signAll(oneItem);
+
+            // then
+            assertSignerFault(signOneItem);
         }
 
         @Test

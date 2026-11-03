@@ -100,7 +100,7 @@ public class CryptographicOperationServiceSigner implements Signer {
         }
         if (expected == 1) {
             // A lone item cannot be mismatched, so its identifier is not checked.
-            return List.of(Base64.getDecoder().decode(results.getFirst().getData()));
+            return List.of(decodeSignature(results.getFirst(), 0));
         }
         byte[][] ordered = new byte[expected][];
         for (SignatureResponseData result : results) {
@@ -108,7 +108,7 @@ public class CryptographicOperationServiceSigner implements Signer {
             if (ordered[index] != null) {
                 throw signerFault("Signing operation returned a repeated identifier: " + result.getIdentifier());
             }
-            ordered[index] = Base64.getDecoder().decode(result.getData());
+            ordered[index] = decodeSignature(result, index);
         }
         return Arrays.asList(ordered);
     }
@@ -128,6 +128,15 @@ public class CryptographicOperationServiceSigner implements Signer {
             // A non-numeric identifier is unknown.
         }
         throw signerFault("Signing operation returned an unknown identifier: " + identifier);
+    }
+
+    // A v1 connector reports a failed item as a result without data and gives the reason in its details.
+    private static byte[] decodeSignature(SignatureResponseData result, int index) throws SigningEngineException {
+        String data = result.getData();
+        if (data == null || data.isEmpty()) {
+            throw signerFault("Signing operation returned no signature for item " + index + ": " + result.getDetails());
+        }
+        return Base64.getDecoder().decode(data);
     }
 
     private static SigningEngineException signerFault(String message) {
