@@ -24,8 +24,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>
  * The poll phase owns only scheduling; the listener owns the async poll flow's state transitions and deletes the row on
- * a terminal outcome or timeout. As a final phase the sweep also reaps certificates orphaned in {@code PENDING_ISSUE}
- * with no poll row (see {@link PendingIssueReaper}).
+ * a terminal outcome or timeout. As a final phase the sweep also reaps {@code PENDING_ISSUE} certificates whose
+ * synchronous connector call never returned (see {@link PendingIssueReaper}).
  * </p>
  */
 @Component

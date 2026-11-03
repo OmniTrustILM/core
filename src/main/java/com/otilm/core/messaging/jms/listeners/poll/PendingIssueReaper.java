@@ -69,7 +69,7 @@ public class PendingIssueReaper {
     /**
      * Selects one bounded batch of stale, claimed, poll-less PENDING_ISSUE certificates under the shared advisory lock,
      * then fails each in its own transaction outside the lock. One batch per sweep is sufficient: the sweep cadence
-     * drains any backlog, and a certificate is not a candidate until it has been stuck for {@code stale-after}.
+     * drains any backlog, and a certificate is not a candidate until its claim is older than {@code reap-stale-after}.
      */
     public void reapStaleOrphans() {
         List<UUID> candidates = transactionHandler.runInNewTransaction(() -> {

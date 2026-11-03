@@ -238,8 +238,8 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             Pageable pageable);
 
     /**
-     * Clears the pending-issue claim stamp of a certificate still in {@code PENDING_ISSUE}: the authority has answered
-     * but the certificate stays pending. Returns the number of rows updated (0 once it left {@code PENDING_ISSUE}).
+     * Clears the pending-issue claim stamp of a certificate still in {@code PENDING_ISSUE}. Returns the number of rows
+     * updated (0 once it left {@code PENDING_ISSUE}).
      */
     @Modifying
     @Query("""

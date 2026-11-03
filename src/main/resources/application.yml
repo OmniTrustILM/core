@@ -156,9 +156,9 @@ provider:
     sweep-interval-ms: ${PROVIDER_STATUS_POLL_SWEEP_INTERVAL_MS:10000}
     sweep-batch-size: ${PROVIDER_STATUS_POLL_SWEEP_BATCH_SIZE:200}
     sweep-max-batches-per-run: ${PROVIDER_STATUS_POLL_SWEEP_MAX_BATCHES_PER_RUN:10}
-    # Longest a synchronous issue/renew/rekey call to the authority may take: a certificate whose
-    # call never returned (a crash) is failed after this. Certificates the authority answered are
-    # never failed by it. Must exceed any legitimate synchronous issue duration.
+    # How long a synchronous issue/renew/rekey call to the authority may stay unanswered (a crash)
+    # before the reaper fails its certificate; certificates the authority answered are never reaped.
+    # Must exceed any legitimate synchronous call duration.
     reap-stale-after: ${PROVIDER_STATUS_POLL_REAP_STALE_AFTER:PT30M}
     defaults:
       delays:

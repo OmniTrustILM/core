@@ -1403,9 +1403,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
-            // state via the state machine. The claim stamp commits with the move and is cleared once
-            // the authority's answer is recorded; PendingIssueReaper fails only a stamp that goes
-            // stale, i.e. a call interrupted by a crash.
+            // state via the state machine. The claim stamp commits with the move.
             certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
