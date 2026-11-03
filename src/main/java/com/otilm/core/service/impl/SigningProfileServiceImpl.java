@@ -139,7 +139,9 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
      * reach belong here.
      */
     private static final Map<SigningWorkflowType, Set<SigningProtocol>> SUPPORTED_PROTOCOLS = Map
-            .of(SigningWorkflowType.TIMESTAMPING, EnumSet.of(SigningProtocol.TSP));
+            .of(SigningWorkflowType.TIMESTAMPING, EnumSet.of(SigningProtocol.TSP), SigningWorkflowType.CONTENT_SIGNING,
+                    EnumSet.of(SigningProtocol.ILM_NATIVE), SigningWorkflowType.RAW_SIGNING,
+                    EnumSet.of(SigningProtocol.ILM_NATIVE));
 
     private SigningProfileServiceImpl self;
     private CryptographicOperationInternalService cryptographicOperationService;
@@ -772,6 +774,33 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         profile.setTspProfile(null);
         signingProfileRepository.save(profile);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(profile.getName());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
+    @Transactional
+    public void activateIlmNative(SecuredUUID uuid) throws NotFoundException {
+        SigningProfile profile = findByUuid(uuid);
+        validateSupportedProtocol(profile.getWorkflowType(), SigningProtocol.ILM_NATIVE);
+        if (profile.getWorkflowType() == SigningWorkflowType.CONTENT_SIGNING
+                && profile.getSigningScheme() == SigningScheme.DELEGATED) {
+            throw new ValidationException(
+                    "Signing profile '%s' uses delegated signing; ILM_NATIVE needs a key ILM signs with."
+                            .formatted(profile.getName()));
+        }
+        profile.setIlmNativeEnabled(true);
+        signingProfileRepository.save(profile);
+        evictSigningProfileCache(profile.getName());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
+    @Transactional
+    public void deactivateIlmNative(SecuredUUID uuid) throws NotFoundException {
+        SigningProfile profile = findByUuid(uuid);
+        profile.setIlmNativeEnabled(false);
+        signingProfileRepository.save(profile);
         evictSigningProfileCache(profile.getName());
     }
 

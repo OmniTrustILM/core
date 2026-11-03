@@ -2615,6 +2615,123 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     @Nested
+    class IlmNativeProtocol {
+
+        @Test
+        void activate_onContentSigningProfile_addsIlmNative()
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a managed profile, since a delegated content-signing profile is refused
+            SigningProfileDto managedContent = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("managed-content-signing-profile")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .build());
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+
+            // when
+            signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertTrue(signingProfileService
+                    .getSigningProfile(uuid, null)
+                    .getEnabledProtocols()
+                    .contains(SigningProtocol.ILM_NATIVE));
+        }
+
+        @Test
+        void activate_onRawSigningProfile_addsIlmNative() throws NotFoundException {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+
+            // when
+            signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertTrue(signingProfileService
+                    .getSigningProfile(uuid, null)
+                    .getEnabledProtocols()
+                    .contains(SigningProtocol.ILM_NATIVE));
+        }
+
+        @Test
+        void activate_onDelegatedContentSigningProfile_throwsValidationException() throws NotFoundException {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultContentSigningProfile.getUuid());
+
+            // when
+            Executable activate = () -> signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThrows(ValidationException.class, activate);
+            assertFalse(signingProfileService
+                    .getSigningProfile(uuid, null)
+                    .getEnabledProtocols()
+                    .contains(SigningProtocol.ILM_NATIVE));
+        }
+
+        @Test
+        void activate_onTimestampingProfile_throwsValidationException() throws NotFoundException {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
+
+            // when
+            Executable activate = () -> signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThrows(ValidationException.class, activate);
+            assertFalse(signingProfileService
+                    .getSigningProfile(uuid, null)
+                    .getEnabledProtocols()
+                    .contains(SigningProtocol.ILM_NATIVE));
+        }
+
+        @Test
+        void activate_unknownProfile_throwsNotFoundException() {
+            // given
+            SecuredUUID unknown = SecuredUUID.fromString("00000000-0000-0000-0000-000000000003");
+
+            // when
+            Executable activate = () -> signingProfileService.activateIlmNative(unknown);
+
+            // then
+            assertThrows(NotFoundException.class, activate);
+        }
+
+        @Test
+        void deactivate_removesIlmNative() throws NotFoundException {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+
+            // when
+            signingProfileService.deactivateIlmNative(uuid);
+
+            // then
+            assertFalse(signingProfileService
+                    .getSigningProfile(uuid, null)
+                    .getEnabledProtocols()
+                    .contains(SigningProtocol.ILM_NATIVE));
+        }
+
+        @Test
+        void deactivate_whenNotActive_isIdempotent() throws NotFoundException {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+
+            // when
+            Executable deactivate = () -> signingProfileService.deactivateIlmNative(uuid);
+
+            // then
+            assertDoesNotThrow(deactivate);
+            assertFalse(signingProfileService
+                    .getSigningProfile(uuid, null)
+                    .getEnabledProtocols()
+                    .contains(SigningProtocol.ILM_NATIVE));
+        }
+    }
+
+    @Nested
     class SigningOpAttrs {
 
         @Test

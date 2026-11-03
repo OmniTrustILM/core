@@ -39,4 +39,11 @@ class SigningProfileSupportedProtocolsTest {
         // when / then
         assertThat(service.listSupportedProtocols(workflowType)).containsExactly(SigningProtocol.TSP);
     }
+
+    @ParameterizedTest
+    @EnumSource(value = SigningWorkflowType.class, names = {"CONTENT_SIGNING", "RAW_SIGNING"})
+    void offersIlmNativeForContentAndRawSigningProfiles(SigningWorkflowType workflowType) {
+        // when / then
+        assertThat(service.listSupportedProtocols(workflowType)).containsExactly(SigningProtocol.ILM_NATIVE);
+    }
 }
