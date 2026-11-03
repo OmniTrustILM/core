@@ -724,8 +724,8 @@ public class ComplianceProfileServiceImpl
     }
 
     /**
-     * A certificate request has no lookup of its own, so it is read with DETAIL on a certificate issued from it. A
-     * request no certificate refers to is treated as gone.
+     * A certificate request has no lookup of its own, so it is read with DETAIL on the certificate it was submitted
+     * for. A request no certificate refers to is treated as gone.
      */
     private ResourceObjectDto getAssociatedCertificateRequest(UUID certificateRequestUuid) throws NotFoundException {
         CertificateRequestEntity certificateRequest = certificateRequestRepository

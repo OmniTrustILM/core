@@ -321,6 +321,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuid(locationUuid)
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
         LocationDto dto = mapLocationToDto(location);
         dto
                 .setMetadata(attributeEngine
@@ -354,6 +355,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuid(locationUuid)
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireDetailOfEntityLeft(location, entityUuid);
 
         EntityInstanceReference entityInstanceRef = entityInstanceReferenceRepository
                 .findByUuid(entityUuid)
@@ -411,6 +413,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuid(locationUuid)
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         certificateLocationRepository.deleteAll(location.getCertificates());
         attributeEngine.deleteObjectAttributeContent(Resource.LOCATION, location.getUuid());
@@ -427,6 +430,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuid(locationUuid)
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         location.setEnabled(true);
         locationRepository.save(location);
@@ -441,6 +445,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuid(locationUuid)
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         location.setEnabled(false);
         locationRepository.save(location);
@@ -456,6 +461,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         try {
             ApiClientConnectorInfo connectorDto = connectorService
@@ -481,6 +487,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         try {
             ApiClientConnectorInfo connectorDto = connectorService
@@ -506,6 +513,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
 
@@ -618,6 +626,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
 
@@ -774,6 +783,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         if (!location.isSupportKeyManagement()) {
             logger.debug("Location {}, {} does not support key management", location.getName(), location.getUuid());
@@ -884,6 +894,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         EntityInstanceReference entityInstanceRef = location.getEntityInstanceReference();
 
@@ -955,6 +966,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         Location location = locationRepository
                 .findByUuidAndEnabledIsTrue(locationUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(Location.class, locationUuid));
+        requireUnderEntity(location, entityUuid, locationUuid);
 
         CertificateLocation certificateLocation = getCertificateLocation(locationUuid.toString(), certificateUuid);
 
@@ -1157,12 +1169,36 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         }
         // Parent Permission evaluation - Entity Instance
         authorizationEnforcer
-                .enforce(Resource.AUTHORITY, ResourceAction.DETAIL,
+                .enforce(Resource.ENTITY, ResourceAction.DETAIL,
                         location.getEntityInstanceReference().getSecuredUuid());
 
     }
 
     // PRIVATE METHODS
+
+    /**
+     * The caller was authorized on the entity the URL names, so a location under another entity, or under none, is not
+     * found there, in the words used for one that does not exist.
+     */
+    private static void requireUnderEntity(Location location, SecuredParentUUID entityUuid, SecuredUUID locationUuid)
+            throws NotFoundException {
+        if (!entityUuid.getValue().equals(location.getEntityInstanceReferenceUuid())) {
+            logger.debug("Location {} is not under entity {}", location.getUuid(), entityUuid);
+            throw new NotFoundException(Location.class, locationUuid);
+        }
+    }
+
+    /**
+     * An edit through another entity moves the location there. The caller was authorized on the entity the URL names,
+     * so the entity the location leaves is checked as well.
+     */
+    private void requireDetailOfEntityLeft(Location location, SecuredParentUUID entityUuid) {
+        UUID currentEntityUuid = location.getEntityInstanceReferenceUuid();
+        if (currentEntityUuid != null && !currentEntityUuid.equals(entityUuid.getValue())) {
+            authorizationEnforcer
+                    .enforce(Resource.ENTITY, ResourceAction.DETAIL, SecuredUUID.fromUUID(currentEntityUuid));
+        }
+    }
 
     private GenerateCsrResponseDto generateCsrLocation(Location location, List<RequestAttribute> csrAttributes,
             Boolean isRenewalRequest) throws LocationException, NotFoundException {

@@ -296,9 +296,8 @@ public interface CertificateInternalService extends ResourceExtensionService {
     void updateCertificateKeys(UUID keyUuid, String publicKeyFingerprint);
 
     /**
-     * Returns the keys {@link #submitCertificateRequest} stores the request's signature attributes under: the keys a
-     * stored request with this content was first submitted with, else the given ones, else the inventory keys its
-     * public keys match.
+     * Returns the keys {@link #submitCertificateRequest} stores the request's signature attributes under: the given
+     * ones, else the inventory keys its public keys match.
      *
      * @param csr Base64-encoded certificate request, as passed to {@link #submitCertificateRequest}
      */
