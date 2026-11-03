@@ -150,6 +150,7 @@ public class CrlServiceImpl implements CrlService {
         List<String> crlUrls = CrlUtil.getCDPFromCertificate(crlDistributionPointsEncoded);
 
         boolean failedToRead = false;
+        boolean failedToVerify = false;
         for (String crlUrl : crlUrls) {
             X509CRL x509CRL;
             try {
@@ -160,6 +161,7 @@ public class CrlServiceImpl implements CrlService {
             }
             if (x509CRL == null || !isSignedByIssuer(x509CRL, issuerPublicKey, crlUrl)) {
                 failedToRead = true;
+                failedToVerify |= x509CRL != null;
                 continue;
             }
 
@@ -200,7 +202,10 @@ public class CrlServiceImpl implements CrlService {
         }
 
         if (failedToRead) {
-            throw new IOException("Failed to read CRL from %d available URL(s)".formatted(crlUrls.size()));
+            String problem = failedToVerify
+                    ? "Failed to read a CRL whose signature verifies with the issuer's public key"
+                    : "Failed to read CRL";
+            throw new IOException("%s from %d available URL(s)".formatted(problem, crlUrls.size()));
         }
 
         return null;

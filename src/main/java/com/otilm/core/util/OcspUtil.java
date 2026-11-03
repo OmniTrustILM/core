@@ -157,9 +157,7 @@ public class OcspUtil {
         BasicOCSPResp basicResponse = (BasicOCSPResp) ocspResponse.getResponseObject();
         SingleResp[] responses = (basicResponse == null) ? null : basicResponse.getResponses();
         if (responses != null && responses.length == 1) {
-            if (!isTrustworthy(basicResponse, request, certificate, issuer, serviceUrl)) {
-                return CertificateValidationStatus.FAILED;
-            }
+            requireTrustworthy(basicResponse, request, certificate, issuer, serviceUrl);
             SingleResp resp = responses[0];
             Object status = resp.getCertStatus();
             if (status == org.bouncycastle.cert.ocsp.CertificateStatus.GOOD) {
@@ -176,9 +174,12 @@ public class OcspUtil {
         return CertificateValidationStatus.FAILED;
     }
 
-    /** Tells whether the response's single answer can be trusted, and logs the reason at WARN when it cannot. */
-    private static boolean isTrustworthy(BasicOCSPResp response, OCSPReq request, X509Certificate certificate,
-            X509Certificate issuer, String serviceUrl) {
+    /**
+     * Throws, after logging the reason at WARN, when the response's single answer cannot be trusted, so the caller
+     * reports the revocation status as unavailable with that reason.
+     */
+    private static void requireTrustworthy(BasicOCSPResp response, OCSPReq request, X509Certificate certificate,
+            X509Certificate issuer, String serviceUrl) throws OCSPException {
         SingleResp answer = response.getResponses()[0];
         String reason;
         if (!isSignedByIssuerOrResponder(response, issuer)) {
@@ -191,11 +192,11 @@ public class OcspUtil {
         } else if (!nonceMatches(response, request)) {
             reason = "its nonce differs from the request nonce";
         } else {
-            return true;
+            return;
         }
         String serialNumber = certificate.getSerialNumber().toString(16);
         logger.warn("Ignoring the OCSP response from {} for serial number {}: {}", serviceUrl, serialNumber, reason);
-        return false;
+        throw new OCSPException("The OCSP response cannot be trusted: " + reason);
     }
 
     private static boolean isSignedByIssuerOrResponder(BasicOCSPResp response, X509Certificate issuer) {

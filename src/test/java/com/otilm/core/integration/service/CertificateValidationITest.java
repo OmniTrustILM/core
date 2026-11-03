@@ -791,7 +791,11 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 .getCertificateValidationResult(entity.getSecuredUuid());
 
         // then
-        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.FAILED);
+        CertificateValidationCheckDto crlCheck = result
+                .getValidationChecks()
+                .get(CertificateValidationCheck.CRL_VERIFICATION);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("signature verifies with the issuer's public key");
         assertThat(findStoredCrl(cert)).isEmpty();
         assertThat(output.getOut().lines().filter(line -> line.contains("Ignoring the CRL from " + crlUrl)))
                 .isNotEmpty()
@@ -1389,10 +1393,12 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             ocspResponder.answerWith(request -> anOcspResponse(request, unrelatedKeyPair).build());
 
             // when
-            CertificateValidationStatus status = checkOcspStatus();
+            CertificateValidationCheckDto ocspCheck = checkOcsp();
 
             // then
-            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+            assertThat(ocspCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+            assertThat(ocspCheck.getMessage())
+                    .contains("signed by neither the issuer nor an OCSP responder the issuer authorized");
             assertThat(
                     output.getOut().lines().filter(line -> line.contains("Ignoring the OCSP response from " + ocspUrl)))
                     .isNotEmpty()
@@ -1406,6 +1412,24 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             var revocation = new RevokedStatus(new Date(), CRLReason.keyCompromise);
             ocspResponder
                     .answerWith(request -> anOcspResponse(request, unrelatedKeyPair).withStatus(revocation).build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAuthorizedResponderCertificateDidNotSignTheAnswer() throws Exception {
+            // given
+            X509Certificate authorizedResponder = issueResponderCertificate(freshRsaKeyPair(),
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            KeyPair unrelatedKeyPair = freshRsaKeyPair();
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, unrelatedKeyPair)
+                            .withSignerCertificate(authorizedResponder)
+                            .build());
 
             // when
             CertificateValidationStatus status = checkOcspStatus();
@@ -1672,11 +1696,14 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private CertificateValidationStatus checkOcspStatus() throws NotFoundException {
+            return checkOcsp().getStatus();
+        }
+
+        private CertificateValidationCheckDto checkOcsp() throws NotFoundException {
             return certificateService
                     .getCertificateValidationResult(endEntity.getSecuredUuid())
                     .getValidationChecks()
-                    .get(CertificateValidationCheck.OCSP_VERIFICATION)
-                    .getStatus();
+                    .get(CertificateValidationCheck.OCSP_VERIFICATION);
         }
 
         private X509Certificate issueResponderCertificate(KeyPair responderKeyPair, KeyPurposeId purpose, Date notAfter)
