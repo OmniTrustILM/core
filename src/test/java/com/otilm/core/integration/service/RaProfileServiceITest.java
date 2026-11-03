@@ -79,6 +79,7 @@ import com.otilm.core.service.ApprovalProfileExternalService;
 import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
+import com.otilm.core.util.LockContention;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.WireMockResponseGate;
@@ -102,8 +103,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.concurrent.DelegatingSecurityContextCallable;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.awaitility.Awaitility.await;
 
@@ -144,6 +148,10 @@ class RaProfileServiceITest extends ApprovalProfileData {
     private CmpProfileRepository cmpProfileRepository;
     @Autowired
     private RaProfileProtocolAttributeRepository raProfileProtocolAttributeRepository;
+    @Autowired
+    private LockContention lockContention;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
@@ -962,6 +970,31 @@ class RaProfileServiceITest extends ApprovalProfileData {
         }
 
         Assertions.assertEquals(movedTo.getUuid(), reloadedRaProfile().getAuthorityInstanceReferenceUuid());
+    }
+
+    @Test
+    void testEditRaProfile_waitsForTheRowLockAndRefusesTheEditWhenTheHolderMovesTheRaProfile() {
+        stubRaProfileAttributeValidation();
+        UUID movedTo = authority("3l").getUuid();
+        SecuredParentUUID ownAuthorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        EditRaProfileRequestDto unchangedColumns = new EditRaProfileRequestDto();
+        unchangedColumns.setAttributes(List.of());
+
+        Future<RaProfileDto> edit = lockContention
+                .callBlockedBy(
+                        () -> jdbcTemplate
+                                .update("UPDATE ra_profile SET authority_instance_ref_uuid = ? WHERE uuid = ?", movedTo,
+                                        raProfile.getUuid()),
+                        DelegatingSecurityContextCallable
+                                .create(() -> raProfileService
+                                        .editRaProfile(ownAuthorityUuid, raProfileUuid, unchangedColumns),
+                                        SecurityContextHolder.getContext()));
+
+        ExecutionException failure = Assertions
+                .assertThrows(ExecutionException.class, () -> edit.get(10, TimeUnit.SECONDS));
+        Assertions.assertInstanceOf(ValidationException.class, failure.getCause());
+        Assertions.assertEquals(movedTo, reloadedRaProfile().getAuthorityInstanceReferenceUuid());
     }
 
     @Test

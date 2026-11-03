@@ -252,7 +252,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         mergeAndValidateAttributes(authorityInstanceRef, request.getAttributes());
 
         updateRaProfile(raProfile, authorityInstanceRef, request);
-        raProfileRepository.saveAndFlush(raProfile);
+        raProfileRepository.save(raProfile);
         requireAuthorityLeftUnchanged(raProfile.getUuid(), authorityLeftUuid);
 
         RaProfileDto raProfileDto = raProfile.mapToDto();
@@ -925,12 +925,12 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     }
 
     /**
-     * The flush before this holds the RA Profile's row lock until commit, so the authority read here, in a transaction
-     * of its own, is the one this edit replaces. If another request moved the RA Profile after this edit checked the
-     * authority it leaves, the edit is refused instead of taking the RA Profile out of an authority it was not checked
-     * against.
+     * Holds the RA Profile's row lock until commit, so the authority read here, in a transaction of its own, is the one
+     * this edit replaces. If another request moved the RA Profile after this edit checked the authority it leaves, the
+     * edit is refused instead of taking the RA Profile out of an authority it was not checked against.
      */
     private void requireAuthorityLeftUnchanged(UUID raProfileUuid, UUID authorityLeftUuid) {
+        raProfileRepository.findWithLockByUuid(raProfileUuid);
         UUID committedAuthorityUuid = separateReadOnlyTransactions
                 .execute(status -> raProfileRepository
                         .findAuthorityInstanceReferenceUuidByUuid(raProfileUuid)
