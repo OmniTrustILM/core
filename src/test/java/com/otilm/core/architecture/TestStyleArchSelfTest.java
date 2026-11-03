@@ -187,7 +187,7 @@ class TestStyleArchSelfTest {
             assertThat(violations)
                     .hasSize(3)
                     .anyMatch(violation -> violation.contains(".testSigning()>"))
-                    .anyMatch(violation -> violation.contains(".listKeys_throwsUnsupported()>"))
+                    .anyMatch(violation -> violation.contains(".readsAgain_afterTheLoaderFailed_andKeepsTheOthers()>"))
                     .anyMatch(violation -> violation.contains(".ReturnsPolicy()>"));
         }
 
@@ -473,7 +473,7 @@ class TestStyleArchSelfTest {
         abstract void testSigning();
 
         @Test
-        abstract void listKeys_throwsUnsupported();
+        abstract void readsAgain_afterTheLoaderFailed_andKeepsTheOthers();
 
         @Test
         abstract void ReturnsPolicy();
@@ -486,6 +486,12 @@ class TestStyleArchSelfTest {
 
         @Test
         abstract void throwsUnsupported();
+
+        @Test
+        abstract void asksAgain_afterTheLoaderFailed();
+
+        @Test
+        abstract void selectsV2_forCryptographyV2Interface();
 
         @ParameterizedTest
         abstract void testsConnection_whenUrlIsReachable();

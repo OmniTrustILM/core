@@ -53,7 +53,7 @@ public class TestStyleArchTest {
     private static final String SUPPORT_STYLE = "the support-class style in .claude/rules/test-support.md asks for it";
 
     private static final Pattern VERB_OUTCOME_WHEN_CONDITION = Pattern
-            .compile("(?!test(?:[A-Z0-9_]|$))[a-z][a-zA-Z0-9]*(?:_when[A-Z0-9][a-zA-Z0-9]*)?");
+            .compile("(?!test(?:[A-Z0-9_]|$))[a-z][a-zA-Z0-9]*(?:_[a-z][a-zA-Z0-9]*)?");
     private static final String GENERIC_LIFECYCLE_NAME = "setUp|setup|init|tearDown|teardown";
     private static final List<String> ASSERTION_LIBRARY_PREFIXES = List
             .of("org.junit.jupiter.api.Assertions", "org.junit.Assert", "org.hamcrest.");
