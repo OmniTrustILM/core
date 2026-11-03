@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
 import com.otilm.core.service.CommentInternalService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -29,14 +30,16 @@ public class TokenInstanceReferenceWriter {
     private final AttributeEngine attributeEngine;
     private final CommentInternalService commentService;
     private final KeyTransferCapabilityWriter keyTransferCapabilityWriter;
+    private final KeyOperationCache keyOperationCache;
 
     public TokenInstanceReferenceWriter(TokenInstanceReferenceRepository tokenInstanceReferenceRepository,
             AttributeEngine attributeEngine, CommentInternalService commentService,
-            KeyTransferCapabilityWriter keyTransferCapabilityWriter) {
+            KeyTransferCapabilityWriter keyTransferCapabilityWriter, KeyOperationCache keyOperationCache) {
         this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.attributeEngine = attributeEngine;
         this.commentService = commentService;
         this.keyTransferCapabilityWriter = keyTransferCapabilityWriter;
+        this.keyOperationCache = keyOperationCache;
     }
 
     @Transactional
@@ -84,6 +87,7 @@ public class TokenInstanceReferenceWriter {
                         dataAttributes);
         // Every profile's import and export answers were given for the old token attributes.
         keyTransferCapabilityWriter.forgetForToken(tokenUuid);
+        keyOperationCache.forgetAttributesOf(Resource.TOKEN, tokenUuid, connectorUuid);
     }
 
     @Transactional

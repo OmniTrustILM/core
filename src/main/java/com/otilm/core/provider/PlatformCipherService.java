@@ -35,7 +35,7 @@ public class PlatformCipherService {
         try {
             CryptographicKeyItemOperationModel keyItem = privateKey.keyItem();
             KeyOperationValidator.requireAllowed(keyItem, KeyUsage.DECRYPT);
-            KeyProviderAdapter adapter = adapterFactory.forKeyItem(keyItem);
+            KeyProviderAdapter adapter = adapterFactory.forKeyItemInUnchangedScope(keyItem);
 
             CipherRequestData data = new CipherRequestData();
             data.setData(Base64.getEncoder().encodeToString(encryptedData));

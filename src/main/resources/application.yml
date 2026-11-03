@@ -25,10 +25,11 @@ caching:
   signing-certs:
     ttl-minutes: ${SIGNING_CERTS_CACHE_TTL_MINUTES:5}
     max-size: ${SIGNING_CERTS_CACHE_MAX_SIZE:1000}
-  # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
+  # Cryptographic key caches hold key items, the stored attributes of their tokens and profiles, and the sign
+  # attribute definitions returned by connectors.
   crypto-keys:
-    ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
-    max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
+    ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached entry is considered valid
+    max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of entries in each cache
   # TSP Profile cache caches TSP Profile for the timestamping hot path, keyed by both name (protocol path) and UUID (signing-profile path)
   tsp-profiles:
     ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid

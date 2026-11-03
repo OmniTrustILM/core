@@ -20,6 +20,7 @@ import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.KeyImportGates;
 import com.otilm.core.service.handler.KeyListGates;
 import com.otilm.core.service.handler.KeyRemovalGates;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import com.otilm.core.util.builders.CryptographicKeyFullModelBuilder;
@@ -73,6 +74,7 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapters);
         service.setCacheEvictor(cache);
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         service.setAuthorizationEnforcer(authorization);
         service
                 .setKeyRemovalGates(new KeyRemovalGates(
