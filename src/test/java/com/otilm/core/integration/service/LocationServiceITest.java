@@ -1260,6 +1260,24 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .isInstanceOf(AccessDeniedException.class);
     }
 
+    @Test
+    void evaluatePermissionChain_refusesWithoutDetailOnTheOwningEntity() {
+        denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL, entityInstanceReference.getUuid());
+        SecuredUUID locationUuid = location.getSecuredUuid();
+
+        Assertions
+                .assertThrows(AccessDeniedException.class,
+                        () -> locationInternalService.evaluatePermissionChain(locationUuid));
+    }
+
+    @Test
+    void evaluatePermissionChain_needsNoAuthorityDetail() {
+        denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL, entityInstanceReference.getUuid());
+        SecuredUUID locationUuid = location.getSecuredUuid();
+
+        Assertions.assertDoesNotThrow(() -> locationInternalService.evaluatePermissionChain(locationUuid));
+    }
+
     private RaProfile getRaProfile() {
         RaProfile raProfile = new RaProfile();
         raProfile.setEnabled(true);

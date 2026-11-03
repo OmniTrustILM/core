@@ -72,8 +72,9 @@ public interface CryptographicOperationInternalService {
      * @return Signed Data {@link SignDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
-    SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID,
-            UUID uuid, UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException;
+    SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUUID,
+            SecuredUUID uuid, UUID keyItemUuid, SignDataRequestDto request)
+            throws ConnectorException, NotFoundException;
 
     /**
      * Generate the CSR with the key and token profile and CSR parameters

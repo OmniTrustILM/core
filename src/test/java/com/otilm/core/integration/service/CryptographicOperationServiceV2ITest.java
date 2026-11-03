@@ -161,7 +161,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         SignDataResponseDto response = operationService
-                .signData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), privateKey.getUuid(),
+                .signData(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(), privateKey.getUuid(),
                         signRequest());
 
         // then
@@ -180,7 +180,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         Executable sign = () -> operationService
-                .signData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), privateKey.getUuid(),
+                .signData(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(), privateKey.getUuid(),
                         signRequest());
 
         // then
@@ -195,7 +195,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         Executable sign = () -> operationService
-                .signData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), privateKey.getUuid(),
+                .signData(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(), privateKey.getUuid(),
                         signRequest());
 
         // then
@@ -216,7 +216,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         Executable sign = () -> operationService
-                .signData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), privateKey.getUuid(),
+                .signData(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(), privateKey.getUuid(),
                         request);
 
         // then
@@ -231,7 +231,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         Executable sign = () -> operationService
-                .signData(token.getSecuredParentUuid(), otherProfile.getSecuredUuid(), key.getUuid(),
+                .signData(token.getSecuredParentUuid(), otherProfile.getUuid(), key.getSecuredUuid(),
                         privateKey.getUuid(), signRequest());
 
         // then
@@ -246,7 +246,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         Executable sign = () -> operationService
-                .signData(otherToken.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                .signData(otherToken.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(),
                         privateKey.getUuid(), signRequest());
 
         // then
@@ -269,7 +269,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         VerifyDataResponseDto response = operationService
-                .verifyData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), privateKey.getUuid(),
+                .verifyData(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(), privateKey.getUuid(),
                         request);
 
         // then
@@ -290,7 +290,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         EncryptDataResponseDto encrypted = operationService
-                .encryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                .encryptData(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(),
                         privateKey.getUuid(), cipherRequest());
 
         // then
@@ -308,7 +308,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         DecryptDataResponseDto decrypted = operationService
-                .decryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                .decryptData(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(),
                         privateKey.getUuid(), cipherRequest());
 
         // then
@@ -345,7 +345,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         List<BaseAttribute> schema = operationService
-                .listSignAttributes(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                .listSignAttributes(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(),
                         privateKey.getUuid());
 
         // then
@@ -362,7 +362,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     void listSignatureAttributes_deprecated_rejectsV2Key() {
         // when
         Executable list = () -> operationService
-                .listSignatureAttributes(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                .listSignatureAttributes(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(),
                         privateKey.getUuid(), KeyAlgorithm.RSA);
 
         // then
@@ -526,7 +526,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
 
         // when
         SignDataResponseDto response = internalOperationService
-                .signDataWithoutEventHistory(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                .signDataWithoutEventHistory(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(),
                         privateKey.getUuid(), signRequest());
 
         // then

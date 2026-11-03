@@ -30,8 +30,8 @@ public interface CryptographicOperationExternalService {
      * @return List of attributes for Cipher Attributes
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
-    List<BaseAttribute> listCipherAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID,
-            UUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws ConnectorException, NotFoundException;
+    List<BaseAttribute> listCipherAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUUID,
+            SecuredUUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws ConnectorException, NotFoundException;
 
     /**
      * @param tokenInstanceUuid UUID of the token instance
@@ -42,7 +42,7 @@ public interface CryptographicOperationExternalService {
      * @return Encrypted data response {@link EncryptDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
-    EncryptDataResponseDto encryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID, UUID uuid,
+    EncryptDataResponseDto encryptData(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUUID, SecuredUUID uuid,
             UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException;
 
     /**
@@ -54,7 +54,7 @@ public interface CryptographicOperationExternalService {
      * @return Decrypted data response {@link DecryptDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
-    DecryptDataResponseDto decryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID, UUID uuid,
+    DecryptDataResponseDto decryptData(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUUID, SecuredUUID uuid,
             UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException;
 
     /**
@@ -66,8 +66,8 @@ public interface CryptographicOperationExternalService {
      * @return List of attributes for the Signature Algorithm
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
-    List<BaseAttribute> listSignatureAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID,
-            UUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws ConnectorException, NotFoundException;
+    List<BaseAttribute> listSignatureAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUUID,
+            SecuredUUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws ConnectorException, NotFoundException;
 
     /**
      * @param tokenInstanceUuid UUID of the token instance
@@ -78,7 +78,7 @@ public interface CryptographicOperationExternalService {
      * @return Signed Data {@link SignDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
-    SignDataResponseDto signData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID, UUID uuid,
+    SignDataResponseDto signData(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUUID, SecuredUUID uuid,
             UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException;
 
     /**
@@ -90,7 +90,7 @@ public interface CryptographicOperationExternalService {
      * @return Verification result {@link VerifyDataResponseDto}
      * @throws NotFoundException when the token instance with the specified UUID is not found
      */
-    VerifyDataResponseDto verifyData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID, UUID uuid,
+    VerifyDataResponseDto verifyData(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUUID, SecuredUUID uuid,
             UUID keyItemUuid, VerifyDataRequestDto request) throws ConnectorException, NotFoundException;
 
     /**
@@ -118,8 +118,8 @@ public interface CryptographicOperationExternalService {
      * @return List of attributes for encryption
      * @throws NotFoundException when the key item with the specified UUID is not found
      */
-    List<BaseAttribute> listEncryptAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
+    List<BaseAttribute> listEncryptAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
 
     /**
      * @param tokenInstanceUuid UUID of the token instance
@@ -129,8 +129,8 @@ public interface CryptographicOperationExternalService {
      * @return List of attributes for decryption
      * @throws NotFoundException when the key item with the specified UUID is not found
      */
-    List<BaseAttribute> listDecryptAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
+    List<BaseAttribute> listDecryptAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
 
     /**
      * @param tokenInstanceUuid UUID of the token instance
@@ -140,7 +140,7 @@ public interface CryptographicOperationExternalService {
      * @return List of attributes for signing
      * @throws NotFoundException when the key item with the specified UUID is not found
      */
-    List<BaseAttribute> listSignAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid,
+    List<BaseAttribute> listSignAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid, SecuredUUID uuid,
             UUID keyItemUuid) throws ConnectorException, NotFoundException;
 
     /**
@@ -151,8 +151,8 @@ public interface CryptographicOperationExternalService {
      * @return List of attributes for verification
      * @throws NotFoundException when the key item with the specified UUID is not found
      */
-    List<BaseAttribute> listVerifyAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
+    List<BaseAttribute> listVerifyAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException;
 
     /**
      * @param tokenInstanceUuid UUID of the token instance

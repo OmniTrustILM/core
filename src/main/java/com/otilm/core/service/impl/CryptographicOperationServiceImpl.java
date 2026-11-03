@@ -160,12 +160,13 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BaseAttribute> listCipherAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public List<BaseAttribute> listCipherAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm)
+            throws ConnectorException, NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Requesting to list cipher attributes for Key: {} and Algorithm {}", keyItemUuid, keyAlgorithm);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         requireLegacyProvider(keyItem);
         return KeyProviderV1Adapter.cipherAttributes(keyAlgorithm);
     }
@@ -174,12 +175,12 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BaseAttribute> listEncryptAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public List<BaseAttribute> listEncryptAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Requesting to list encryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return adapter.listEncryptAttributes(keyItem);
     }
@@ -188,12 +189,12 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BaseAttribute> listDecryptAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public List<BaseAttribute> listDecryptAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Requesting to list decryption attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return adapter.listDecryptAttributes(keyItem);
     }
@@ -202,12 +203,13 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ENCRYPT,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public EncryptDataResponseDto encryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public EncryptDataResponseDto encryptData(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid, CipherDataRequestDto request)
+            throws ConnectorException, NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Request to encrypt data using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         requireActive(keyItem);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot encrypt null data"));
@@ -222,12 +224,13 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.DECRYPT,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public DecryptDataResponseDto decryptData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid, CipherDataRequestDto request) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public DecryptDataResponseDto decryptData(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid, CipherDataRequestDto request)
+            throws ConnectorException, NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Decrypting using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         requireActive(keyItem);
         if (request.getCipherData() == null) {
             throw new ValidationException(ValidationError.create("Cannot decrypt null data"));
@@ -242,15 +245,14 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BaseAttribute> listSignatureAttributes(SecuredParentUUID tokenInstanceUuid,
-            SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm)
-            throws NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public List<BaseAttribute> listSignatureAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid, KeyAlgorithm keyAlgorithm) throws NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger
                 .info("Requesting to list the Signature Attributes for key: {} and Algorithm: {}", keyItemUuid,
                         keyAlgorithm);
         CryptographicKeyItemOperationModel key = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(key, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(key, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         requireLegacyProvider(key);
         return KeyProviderV1Adapter.signatureAttributes(key.keyAlgorithm());
     }
@@ -266,12 +268,12 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BaseAttribute> listSignAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public List<BaseAttribute> listSignAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Requesting to list signing attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return adapter.listSignAttributes(keyItem);
     }
@@ -280,12 +282,12 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.ANY,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public List<BaseAttribute> listVerifyAttributes(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public List<BaseAttribute> listVerifyAttributes(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid) throws ConnectorException, NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Requesting to list verification attributes for Key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return adapter.listVerifyAttributes(keyItem);
     }
@@ -294,12 +296,12 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.SIGN,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public SignDataResponseDto signData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID uuid,
+    public SignDataResponseDto signData(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid, SecuredUUID uuid,
             UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Signing data using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return recordEvent(keyItem, KeyEvent.SIGN, "Signing data success ", "Signing of data failed ",
                 () -> executeSignData(adapter, keyItem, request));
@@ -309,13 +311,13 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.SIGN,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid,
-            SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request)
+    public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid, SignDataRequestDto request)
             throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Signing data (no event history) using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return executeSignData(adapter, keyItem, request);
     }
@@ -334,12 +336,13 @@ public class CryptographicOperationServiceImpl
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.VERIFY,
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public VerifyDataResponseDto verifyData(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid,
-            UUID uuid, UUID keyItemUuid, VerifyDataRequestDto request) throws ConnectorException, NotFoundException {
-        authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
+    public VerifyDataResponseDto verifyData(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid,
+            SecuredUUID uuid, UUID keyItemUuid, VerifyDataRequestDto request)
+            throws ConnectorException, NotFoundException {
+        requireTokenAndProfileDetail(tokenInstanceUuid, tokenProfileUuid);
         logger.info("Request to verify data for key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
-        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid, uuid.getValue());
         requireActive(keyItem);
         if (request.getSignatures() == null) {
             throw new ValidationException(ValidationError.create("Cannot verify empty data"));
@@ -348,6 +351,16 @@ public class CryptographicOperationServiceImpl
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return recordEvent(keyItem, KeyEvent.VERIFY, "Verification of data completed ", "Verification of data failed ",
                 () -> adapter.verifyData(keyItem, request));
+    }
+
+    /**
+     * Owning the key satisfies the method's own check even when the token is denied, so the token and the profile the
+     * key is used through are checked here on their own.
+     */
+    private void requireTokenAndProfileDetail(SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid) {
+        authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, tokenInstanceUuid);
+        authorizationEnforcer
+                .enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, SecuredUUID.fromUUID(tokenProfileUuid));
     }
 
     /**

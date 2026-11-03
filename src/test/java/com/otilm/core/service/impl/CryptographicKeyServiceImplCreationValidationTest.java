@@ -30,6 +30,7 @@ import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.KeyMaterial;
 import com.otilm.core.model.crypto.ProviderKeyItem;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
@@ -100,6 +101,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         service.setKeyProviderAdapterFactory(adapters);
         service.setAttributeEngine(attributeEngine);
         service.setConnectorCapabilityService(new ConnectorCapabilityService());
+        service.setAuthorizationEnforcer(mock(AuthorizationEnforcer.class));
         when(keyTransfer.exportableKeyTypes(any()))
                 .thenAnswer(invocation -> Optional
                         .ofNullable(invocation.<TokenProfileFullModel>getArgument(0).exportableKeyTypes()));

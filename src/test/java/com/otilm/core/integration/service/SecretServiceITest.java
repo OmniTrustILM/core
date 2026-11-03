@@ -71,7 +71,6 @@ import com.otilm.core.messaging.model.SecretActionData;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.reference.ObjectRef;
 import com.otilm.core.security.authz.SecuredParentUUID;
-import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AttributeExternalService;
 import com.otilm.core.service.SecretExternalService;
@@ -100,12 +99,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
@@ -300,20 +302,20 @@ class SecretServiceITest extends BaseSpringBootTest {
     void testCreateSecret() throws NotFoundException, AttributeException, AlreadyExistException, ConnectorException {
         SecretRequestDto request = new SecretRequestDto();
         request.setName(secret.getName());
+        SecuredParentUUID vaultUuid = vaultInstance.getSecuredParentUuid();
+        UUID vaultProfileUuid = vaultProfile.getUuid();
         Assertions
-                .assertThrows(AlreadyExistException.class, () -> secretService
-                        .createSecret(request, vaultInstance.getSecuredParentUuid(), vaultProfile.getSecuredUuid()));
+                .assertThrows(AlreadyExistException.class,
+                        () -> secretService.createSecret(request, vaultUuid, vaultProfileUuid));
         request.setName("newSecret");
+        UUID missingVaultProfileUuid = UUID.randomUUID();
         Assertions
                 .assertThrows(NotFoundException.class,
-                        () -> secretService
-                                .createSecret(request, SecuredParentUUID.fromUUID(UUID.randomUUID()),
-                                        vaultInstance.getSecuredUuid()));
-        SecuredUUID securedUUID = SecuredUUID.fromUUID(UUID.randomUUID());
-        SecuredParentUUID vaultProfileSecuredParentUuid = vaultProfile.getSecuredParentUuid();
+                        () -> secretService.createSecret(request, vaultUuid, missingVaultProfileUuid));
+        SecuredParentUUID otherVaultUuid = SecuredParentUUID.fromUUID(UUID.randomUUID());
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> secretService.createSecret(request, vaultProfileSecuredParentUuid, securedUUID));
+                        () -> secretService.createSecret(request, otherVaultUuid, vaultProfileUuid));
 
         request.setDescription("Test secret description");
         BasicAuthSecretContent secretContent = new BasicAuthSecretContent();
@@ -325,8 +327,7 @@ class SecretServiceITest extends BaseSpringBootTest {
         attribute.setContent(List.of(new StringAttributeContentV3("ref", "data")));
         request.setCustomAttributes(List.of(attribute));
 
-        SecretDetailDto secretDetailDto = secretService
-                .createSecret(request, vaultProfileSecuredParentUuid, vaultInstance.getSecuredUuid());
+        SecretDetailDto secretDetailDto = secretService.createSecret(request, vaultUuid, vaultProfileUuid);
         Assertions.assertNotNull(secretDetailDto);
         Assertions.assertEquals(request.getName(), secretDetailDto.getName());
         Assertions.assertNotNull(secretDetailDto.getUuid());
@@ -380,7 +381,7 @@ class SecretServiceITest extends BaseSpringBootTest {
         request.setName("newSecret");
         request.setSecret(new BasicAuthSecretContent());
         SecretDetailDto secretDetailDto = secretService
-                .createSecret(request, vaultProfile.getSecuredParentUuid(), vaultInstance.getSecuredUuid());
+                .createSecret(request, vaultInstance.getSecuredParentUuid(), vaultProfile.getUuid());
         ActionMessage actionMessage = new ActionMessage();
         actionMessage.setResourceUuid(UUID.fromString(secretDetailDto.getUuid()));
         actionMessage.setResourceAction(ResourceAction.CREATE);
@@ -439,6 +440,86 @@ class SecretServiceITest extends BaseSpringBootTest {
                         () -> secretInternalService.processSecretAction(actionMessage, true, true));
         secretReloaded = secretRepository.findWithAssociationsByUuid(secret.getUuid()).orElseThrow();
         Assertions.assertEquals(originalState, secretReloaded.getState());
+    }
+
+    @Test
+    void createSecret_refusesWithoutDetailOnTheVault() {
+        SecretRequestDto request = new SecretRequestDto();
+        request.setName("refusedSecret");
+        request.setSecret(new BasicAuthSecretContent());
+        SecuredParentUUID vaultUuid = vaultInstance.getSecuredParentUuid();
+        UUID vaultProfileUuid = vaultProfile.getUuid();
+        denyResourceAccess(Resource.VAULT, ResourceAction.DETAIL, vaultInstance.getUuid());
+
+        Assertions
+                .assertThrows(AccessDeniedException.class,
+                        () -> secretService.createSecret(request, vaultUuid, vaultProfileUuid));
+
+        Assertions.assertFalse(secretRepository.existsByName(request.getName()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ResourceAction.class, names = {"CREATE", "UPDATE", "UPDATE_SOURCE_VAULT_PROFILE", "DELETE"})
+    void processSecretAction_refusesWithoutThePermission_whenNoApprovalWasNeeded(ResourceAction action)
+            throws JsonProcessingException {
+        ActionMessage actionMessage = new ActionMessage();
+        actionMessage.setResourceUuid(secret.getUuid());
+        actionMessage.setResourceAction(action);
+        actionMessage
+                .setData(SecretActionData
+                        .builder()
+                        .name(secret.getName())
+                        .originalState(secret.getState())
+                        .updatedSourceVaultProfileUuid(vaultProfile.getUuid())
+                        .encryptedContent(SecretsUtil
+                                .encryptAndEncodeSecretString(
+                                        new ObjectMapper().writeValueAsString(new BasicAuthSecretContent()),
+                                        SecretEncodingVersion.V1))
+                        .deleteInVault(Boolean.FALSE)
+                        .build());
+        ResourceAction secretAction = action == ResourceAction.UPDATE_SOURCE_VAULT_PROFILE
+                ? ResourceAction.UPDATE
+                : action;
+        denyResourceAccess(Resource.SECRET, secretAction);
+
+        Assertions
+                .assertThrows(AccessDeniedException.class,
+                        () -> secretInternalService.processSecretAction(actionMessage, false, false));
+
+        Secret unchanged = secretRepository.findWithAssociationsByUuid(secret.getUuid()).orElseThrow();
+        Assertions.assertEquals(secret.getState(), unchanged.getState());
+        Assertions.assertEquals(vaultProfile.getUuid(), unchanged.getSourceVaultProfileUuid());
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void processSecretAction_createsTheSecret_whenNoApprovalWasNeeded() throws Exception {
+        Mockito.doNothing().when(actionProducer).produceMessage(any());
+        SecretRequestDto request = new SecretRequestDto();
+        request.setName("unapprovedSecret");
+        request.setSecret(new BasicAuthSecretContent());
+        SecretDetailDto created = secretService
+                .createSecret(request, vaultInstance.getSecuredParentUuid(), vaultProfile.getUuid());
+        ActionMessage actionMessage = new ActionMessage();
+        actionMessage.setResourceUuid(UUID.fromString(created.getUuid()));
+        actionMessage.setResourceAction(ResourceAction.CREATE);
+        actionMessage
+                .setData(SecretActionData
+                        .builder()
+                        .name(request.getName())
+                        .attributes(List.of())
+                        .encryptedContent(SecretsUtil
+                                .encryptAndEncodeSecretString(
+                                        new ObjectMapper().writeValueAsString(request.getSecret()),
+                                        SecretEncodingVersion.V1))
+                        .build());
+
+        secretInternalService.processSecretAction(actionMessage, false, false);
+
+        Secret createdSecret = secretRepository
+                .findWithAssociationsByUuid(UUID.fromString(created.getUuid()))
+                .orElseThrow();
+        Assertions.assertEquals(SecretState.ACTIVE, createdSecret.getState());
     }
 
     @Test
@@ -1136,7 +1217,7 @@ class SecretServiceITest extends BaseSpringBootTest {
         request.setName("afterCommitSecret");
         request.setSecret(new BasicAuthSecretContent());
 
-        secretService.createSecret(request, vaultProfile.getSecuredParentUuid(), vaultInstance.getSecuredUuid());
+        secretService.createSecret(request, vaultInstance.getSecuredParentUuid(), vaultProfile.getUuid());
 
         assertThat(secretVisibleFromSeparateTransaction.get())
                 .as("action message must be published only after the creating transaction commits")

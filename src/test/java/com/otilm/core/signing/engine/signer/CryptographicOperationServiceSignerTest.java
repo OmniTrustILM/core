@@ -36,8 +36,9 @@ class CryptographicOperationServiceSignerTest {
     @BeforeEach
     void createSigner() {
         signer = new CryptographicOperationServiceSigner(cryptographicOperationService,
-                SecuredParentUUID.fromUUID(UUID.randomUUID()), SecuredUUID.fromUUID(UUID.randomUUID()),
-                UUID.randomUUID(), UUID.randomUUID(), List.of(), SignatureAlgorithm.SHA256_WITH_RSA);
+                SecuredParentUUID.fromUUID(UUID.randomUUID()), UUID.randomUUID(),
+                SecuredUUID.fromUUID(UUID.randomUUID()), UUID.randomUUID(), List.of(),
+                SignatureAlgorithm.SHA256_WITH_RSA);
     }
 
     // ── Sign ──────────────────────────────────────────────────────────────────
