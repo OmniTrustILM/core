@@ -566,6 +566,22 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         assertNoKeyWasCreated(request.getName());
     }
 
+    @Test
+    void refusesKeyCreationAttributes_whenTokenDetailIsDenied() {
+        // given
+        UUID tokenUuid = tokenInstanceReference.getUuid();
+        SecuredParentUUID tokenProfileUuid = tokenProfile.getSecuredParentUuid();
+        denyResourceAccess(Resource.TOKEN, ResourceAction.DETAIL, tokenUuid);
+
+        // when
+        ThrowingCallable listCreateKeyAttributes = () -> cryptographicKeyService
+                .listCreateKeyAttributes(tokenUuid, tokenProfileUuid, KeyRequestType.KEY_PAIR);
+
+        // then
+        assertThatThrownBy(listCreateKeyAttributes).isInstanceOf(AccessDeniedException.class);
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void createKeyWithItems_persistsParentAndAllItems(boolean discovered) throws AttributeException {
