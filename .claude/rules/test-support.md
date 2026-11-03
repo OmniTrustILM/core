@@ -49,7 +49,7 @@ public final class SigningProfileModelBuilder {
 
 ## Fixtures
 
-- An `XxxFixtures` class is `public final` with a private constructor and a class Javadoc, and its static factories are named after what they return: `PqcKeyFixtures.keyPair()`, `ExportEnvelopeFixtures.pinnedEnvelope(key, passphrase)`.
+- A fixture class is named `XxxFixtures` and is `public final` with a private constructor and a class Javadoc, and its static factories are named after what they return: `PqcKeyFixtures.keyPair()`, `ExportEnvelopeFixtures.pinnedEnvelope(key, passphrase)`.
 - A parameter that tests depend on is a named constant such as `PINNED_ITERATIONS`.
 - Fixtures shared across packages live under `util/`, and fixtures for one package sit next to its tests.
 
