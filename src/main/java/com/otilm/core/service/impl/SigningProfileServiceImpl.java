@@ -40,6 +40,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.SignatureParameterGroup;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -888,6 +889,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setDocumentSizeCap(null);
         version.setRequireNonRepudiation(false);
         version.setRequiredExtendedKeyUsageOids(new ArrayList<>());
+        version.setAllowedRequestParameterGroups(new ArrayList<>());
+        version.setDefaultSignatureParameters(null);
         version.setQualifiedTimestamp(null);
         version.setDefaultPolicyId(null);
         version.setAllowedPolicyIds(new ArrayList<>());
@@ -951,6 +954,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         if (request.getSigningScheme().getSigningScheme() != SigningScheme.MANAGED) {
             requireNoSignatureFormattingConnector(w);
             requireNoLevelLadder(w);
+            requireNoSignatureParameters(w);
             return;
         }
         requireStaticKeyManagedSigning(request.getSigningScheme());
@@ -995,6 +999,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setTimestampSourceProfileUuid(TimestampSourceRequests.internalProfileUuid(w.getTimestampSource()));
         version.setRequireNonRepudiation(Boolean.TRUE.equals(w.getRequireNonRepudiation()));
         version.setRequiredExtendedKeyUsageOids(new ArrayList<>(safeOids(w)));
+        version.setAllowedRequestParameterGroups(new ArrayList<>(safeGroupCodes(w)));
+        version.setDefaultSignatureParameters(w.getDefaultSignatureParameters());
     }
 
     /**
@@ -1026,8 +1032,23 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         }
     }
 
+    private static void requireNoSignatureParameters(ContentSigningWorkflowRequestDto w) {
+        boolean groups = w.getAllowedRequestParameterGroups() != null
+                && !w.getAllowedRequestParameterGroups().isEmpty();
+        if (groups || w.getDefaultSignatureParameters() != null) {
+            throw new ValidationException(
+                    "allowedRequestParameterGroups and defaultSignatureParameters must be omitted for delegated content signing: the signer connector applies its own parameters");
+        }
+    }
+
     private static Set<String> safeOids(ContentSigningWorkflowRequestDto w) {
         return w.getRequiredExtendedKeyUsageOids() == null ? Set.of() : w.getRequiredExtendedKeyUsageOids();
+    }
+
+    private static List<String> safeGroupCodes(ContentSigningWorkflowRequestDto w) {
+        return w.getAllowedRequestParameterGroups() == null
+                ? List.of()
+                : w.getAllowedRequestParameterGroups().stream().map(SignatureParameterGroup::getCode).toList();
     }
 
     private static String notEligibleMessage(Certificate certificate, SigningWorkflowType workflowType,
