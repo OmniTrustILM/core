@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -124,7 +125,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void createServiceWithMockedCollaborators() throws Exception {
         certificateRepository = mock(CertificateRepository.class);
         certificateRegistrationRepository = mock(CertificateRegistrationRepository.class);
         certificateRegistrationWriter = mock(CertificateRegistrationWriter.class);
@@ -272,20 +273,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         RegisterCapability adapter = registerCapableAdapter();
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
-        AtomicReference<OffsetDateTime> stampAtClaim = new AtomicReference<>();
-        Mockito.doAnswer(inv -> {
-            stampAtClaim.set(inv.<Certificate>getArgument(0).getPendingIssueClaimedAt());
-            return null;
-        })
-                .when(stateMachine)
-                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
-                        ArgumentMatchers.any(), ArgumentMatchers.anyString());
 
         issue();
-
-        assertThat(stampAtClaim.get())
-                .as("the claim is stamped in the same save as the move to PENDING_ISSUE")
-                .isNotNull();
 
         InOrder inOrder = Mockito.inOrder(stateMachine, adapter);
         inOrder
@@ -522,6 +511,110 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         verify(certificateRegistrationRepository, never()).findAndLockByCertificateUuid(ArgumentMatchers.any());
     }
 
+    @Test
+    void stampsClaim_whenClaimingTheRegisteredPlaceholder() throws Exception {
+        // given — the mocked state machine records the stamp the placeholder carries at the moment it is claimed
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        AtomicReference<OffsetDateTime> stampAtClaim = new AtomicReference<>();
+        Mockito.doAnswer(inv -> {
+            stampAtClaim.set(inv.<Certificate>getArgument(0).getPendingIssueClaimedAt());
+            return null;
+        })
+                .when(stateMachine)
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                        ArgumentMatchers.any(), ArgumentMatchers.anyString());
+
+        // when
+        issue();
+
+        // then
+        assertThat(stampAtClaim.get()).isNotNull();
+    }
+
+    @Test
+    void clearsClaim_whenAuthorityAcceptsAsynchronously() throws Exception {
+        // given
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+
+        // when
+        issue();
+
+        // then
+        assertClaimCleared();
+    }
+
+    @Test
+    void clearsClaim_whenConnectorAcceptsButALocalAdapterStepFails() throws Exception {
+        // given
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted upstream, local step failed",
+                        new RuntimeException("boom")));
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertClaimCleared();
+    }
+
+    @Test
+    void clearsClaim_whenCompletingTheIssuedCertificateFails() throws Exception {
+        // given
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        doThrow(new IllegalStateException("persist failed"))
+                .when(certificateService)
+                .issueRequestedCertificate(certUuid, "cert-data", List.of());
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertClaimCleared();
+    }
+
+    @Test
+    void clearsClaim_whenSyncResultHasAnEmptyBody() throws Exception {
+        // given
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("", List.of(), CertificateType.X509));
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertClaimCleared();
+    }
+
+    @Test
+    void leavesClaimToTheStateMachine_whenConnectorRejectsTheRequest() throws Exception {
+        // given — the exit to FAILED goes through the state machine, which clears the stamp itself
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new ConnectorException("upstream refused"));
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED)))
+                .thenReturn(true);
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(claimWriter, never()).clear(ArgumentMatchers.any());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private static MetadataAttribute caHandle(String name, String value) {
         MetadataAttributeV2 attribute = new MetadataAttributeV2();
         attribute.setUuid(UUID.randomUUID().toString());
@@ -530,68 +623,6 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         attribute.setContentType(AttributeContentType.STRING);
         attribute.setContent(List.of(new StringAttributeContentV2(value)));
         return attribute;
-    }
-
-    @Test
-    void asyncAcceptClearsTheClaim() throws Exception {
-        RegisterCapability adapter = registerCapableAdapter();
-        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
-
-        issue();
-
-        assertClaimCleared();
-    }
-
-    @Test
-    void connectorAcceptedButLocalFailureClearsTheClaim() throws Exception {
-        RegisterCapability adapter = registerCapableAdapter();
-        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted upstream, local step failed",
-                        new RuntimeException("boom")));
-
-        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
-
-        assertClaimCleared();
-    }
-
-    @Test
-    void syncOkButLocalCompletionFailureClearsTheClaim() throws Exception {
-        RegisterCapability adapter = registerCapableAdapter();
-        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
-        doThrow(new IllegalStateException("persist failed"))
-                .when(certificateService)
-                .issueRequestedCertificate(certUuid, "cert-data", List.of());
-
-        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
-
-        assertClaimCleared();
-    }
-
-    @Test
-    void syncOkWithEmptyBodyClearsTheClaim() throws Exception {
-        RegisterCapability adapter = registerCapableAdapter();
-        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(AdapterOperationResult.syncOk("", List.of(), CertificateType.X509));
-
-        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
-
-        assertClaimCleared();
-    }
-
-    @Test
-    void preAcceptanceConnectorFailureDoesNotClearTheClaim() throws Exception {
-        // the exit to FAILED goes through the state machine, which clears the stamp itself
-        RegisterCapability adapter = registerCapableAdapter();
-        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenThrow(new ConnectorException("upstream refused"));
-        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED)))
-                .thenReturn(true);
-
-        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
-
-        verify(claimWriter, never()).clear(ArgumentMatchers.any());
     }
 
     /** The claim was cleared both in the database and on the instance the caller holds. */
