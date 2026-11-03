@@ -613,6 +613,27 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         verify(claimWriter, never()).clear(ArgumentMatchers.any());
     }
 
+    @Test
+    void writesNoReconcileEntry_whenRaisingTheEventFailsAfterIssue() throws Exception {
+        // given — the placeholder is issued and recorded; only the action event after it fails (broker down)
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        IllegalStateException brokerDown = new IllegalStateException("broker down");
+        doThrow(brokerDown).when(eventProducer).produceMessage(ArgumentMatchers.any());
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isSameAs(brokerDown);
+        verify(certificateEventHistoryService, never())
+                .addEventHistory(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED), ArgumentMatchers.anyString(),
+                        ArgumentMatchers.anyString());
+        verify(claimWriter, never()).clear(ArgumentMatchers.any());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static MetadataAttribute caHandle(String name, String value) {

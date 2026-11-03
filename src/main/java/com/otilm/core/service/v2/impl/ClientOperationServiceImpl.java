@@ -1460,10 +1460,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             + safeMessage(e, "issuance failed"));
         }
 
+        boolean issuedSynchronously;
         try {
-            finalizeIssuance(certificateUuid, certificate, result);
-        } catch (CertificateOperationException | RuntimeException e) {
-            // The authority has accepted: any local failure from here on parks the certificate.
+            issuedSynchronously = finalizeIssuance(certificateUuid, certificate, result);
+        } catch (CertificateOperationException e) {
             clearPendingIssueClaimBestEffort(certificate);
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
@@ -1472,13 +1472,23 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             "");
             throw e;
         }
+        if (issuedSynchronously) {
+            afterSynchronousIssue(certificateUuid);
+        }
     }
 
-    private void finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result)
-            throws CertificateOperationException, NotFoundException {
+    /**
+     * Records the authority's answer to an issue: parks the certificate on an asynchronous acceptance, or records the
+     * certificate it returned. Steps that follow a recorded certificate are the caller's, after its accepted-failure
+     * handling, so a failure there is never reported as a failure to complete issuance.
+     *
+     * @return {@code true} when the certificate was issued synchronously
+     */
+    private boolean finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result)
+            throws CertificateOperationException {
         if (result.isAsync() || result.outcome() == AdapterOperationOutcome.SYNC_NO_CONTENT) {
             onAsyncAccepted(certificate, result.meta(), ResourceAction.ISSUE);
-            return;
+            return false;
         }
         if (result.certificateData() == null || result.certificateData().isEmpty()) {
             throw new CertificateOperationException(
@@ -1497,7 +1507,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Certificate %s was issued by the authority but completing local state failed; reconcile manually. Cause: "
                             .formatted(certificateUuid) + safeMessage(e, "issuance completion failed"));
         }
-        afterSynchronousIssue(certificateUuid);
+        return true;
     }
 
     /** Re-reads the claimed cert under a short row lock and transitions PENDING_ISSUE -> FAILED. */
@@ -1632,8 +1642,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void completeAcceptedRegisterBoundIssue(Certificate certificate, AdapterOperationResult result)
             throws CertificateOperationException {
         final UUID certUuid = certificate.getUuid();
+        boolean issuedSynchronously;
         try {
-            finalizeIssuance(certUuid, certificate, result);
+            issuedSynchronously = finalizeIssuance(certUuid, certificate, result);
         } catch (Exception e) {
             clearPendingIssueClaimBestEffort(certificate);
             logger
@@ -1647,6 +1658,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new CertificateOperationException(
                     "Connector accepted the register-bound issue for certificate %s but completing local state failed; reconcile manually."
                             .formatted(certUuid));
+        }
+        if (issuedSynchronously) {
+            afterSynchronousIssue(certUuid);
         }
     }
 
@@ -1784,13 +1798,21 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 logger
                         .warn("Failed to persist metadata from 202 response for cert {}: {}", certificate.getUuid(),
                                 metaEx.getMessage(), metaEx);
-                certificateEventHistoryService
-                        .addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
-                                "Failed to persist connector metadata returned with HTTP 202; "
-                                        + "cancellation of this pending operation may be limited if "
-                                        + "the connector requires the original metadata. Cause: "
-                                        + safeMessage(metaEx, INTERNAL_ERROR),
-                                "");
+                try {
+                    certificateEventHistoryService
+                            .addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE,
+                                    CertificateEventStatus.FAILED,
+                                    "Failed to persist connector metadata returned with HTTP 202; "
+                                            + "cancellation of this pending operation may be limited if "
+                                            + "the connector requires the original metadata. Cause: "
+                                            + safeMessage(metaEx, INTERNAL_ERROR),
+                                    "");
+                } catch (RuntimeException historyEx) {
+                    // The poll and the claim clear below must still run for an accepted operation.
+                    logger
+                            .warn("Failed to record the metadata failure of cert {}: {}", certificate.getUuid(),
+                                    historyEx.getMessage(), historyEx);
+                }
             }
         }
 
@@ -2816,9 +2838,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void clearPendingIssueClaimBestEffort(Certificate certificate) {
         certificate.setPendingIssueClaimedAt(null);
         try {
-            if (CLAIM_CLEAR_RETRY.execute(retry -> pendingIssueClaimWriter.clear(certificate.getUuid())) == 0) {
-                // The certificate left PENDING_ISSUE while the call was in flight (reaped or cancelled), so the
-                // platform has ended an operation the authority accepted.
+            if (CLAIM_CLEAR_RETRY.execute(retry -> pendingIssueClaimWriter.clear(certificate.getUuid())) == 0
+                    && certificateRepository
+                            .findStateByUuid(certificate.getUuid())
+                            .orElse(null) != CertificateState.ISSUED) {
+                // The certificate left PENDING_ISSUE without being issued while the call was in flight (reaped or
+                // cancelled), so the platform has ended an operation the authority accepted.
                 logger
                         .warn("Certificate {} was no longer {} when the authority's acceptance was recorded; "
                                 + "the authority may still complete it", certificate.getUuid(),

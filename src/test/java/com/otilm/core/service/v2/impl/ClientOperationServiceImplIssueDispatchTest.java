@@ -512,6 +512,7 @@ class ClientOperationServiceImplIssueDispatchTest {
         when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
         when(claimWriter.clear(certUuid)).thenReturn(0);
+        when(certificateRepository.findStateByUuid(certUuid)).thenReturn(Optional.of(CertificateState.FAILED));
         ListAppender<ILoggingEvent> logged = captureServiceLogs();
 
         // when
@@ -593,11 +594,46 @@ class ClientOperationServiceImplIssueDispatchTest {
                         ArgumentMatchers.anyString(), ArgumentMatchers.anyString());
 
         // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        verify(claimWriter).clear(certUuid);
+    }
+
+    @Test
+    void writesNoReconcileEntry_whenRaisingTheEventFailsAfterIssue() throws Exception {
+        // given — the certificate is issued and recorded; only the action event after it fails (broker down)
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        IllegalStateException brokerDown = new IllegalStateException("broker down");
+        doThrow(brokerDown).when(eventProducer).produceMessage(ArgumentMatchers.any());
+
+        // when
         ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
 
         // then
-        assertThatThrownBy(issue).isInstanceOf(RuntimeException.class);
-        verify(claimWriter).clear(certUuid);
+        assertThatThrownBy(issue).isSameAs(brokerDown);
+        verify(certificateEventHistoryService, never())
+                .addEventHistory(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED), ArgumentMatchers.anyString(),
+                        ArgumentMatchers.anyString());
+        verify(claimWriter, never()).clear(ArgumentMatchers.any());
+    }
+
+    @Test
+    void logsNoDivergence_whenTheCertificateIsAlreadyIssued() throws Exception {
+        // given — the guarded clear updates nothing because the certificate already completed
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenReturn(0);
+        when(certificateRepository.findStateByUuid(certUuid)).thenReturn(Optional.of(CertificateState.ISSUED));
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThat(collectWarnings(logged)).noneSatisfy(message -> assertThat(message).contains("no longer"));
     }
 
     @AfterEach
