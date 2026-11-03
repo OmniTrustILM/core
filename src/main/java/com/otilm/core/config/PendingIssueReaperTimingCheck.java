@@ -8,16 +8,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Refuses at startup a pending-issue reap delay that the synchronous phase of a claimed certificate could outlast at
- * the connector timeouts configured: the reaper fails a certificate whose claim is that old, which must only ever mean
- * the synchronous call to the authority is gone, never that it is still running.
+ * Refuses at startup a pending-issue reap delay that a typical synchronous phase of a claimed certificate could outlast
+ * at the connector timeouts configured: the reaper fails a certificate whose claim is that old, which must only ever
+ * mean the synchronous call to the authority is gone, never that it is still running. This is a minimum, not a bound:
+ * each further secret reference adds a call, so a delay just above it can still fail a live issuance.
  */
 @Component
 public class PendingIssueReaperTimingCheck {
 
     /**
-     * The connector calls a claimed certificate can wait on: reads of the vault-backed secrets referenced by the
-     * authority and RA profile attributes, typically one each, then the request to the authority.
+     * The connector calls of a typical claimed phase: a read of one vault-backed secret referenced by the authority
+     * attributes and one referenced by the RA profile attributes, then the request to the authority. Each further
+     * secret reference adds a read this count leaves out.
      */
     private static final int CONNECTOR_CALLS = 3;
 

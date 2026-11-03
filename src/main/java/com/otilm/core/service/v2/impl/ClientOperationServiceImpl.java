@@ -1434,7 +1434,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private void callConnectorAndFinalizeIssue(final UUID certificateUuid, Certificate certificate,
             ClientCertificateIssueRequestDto req, AuthorityInstanceReference authority)
-            throws CertificateOperationException, NotFoundException {
+            throws CertificateOperationException {
         AdapterOperationResult result;
         try {
             result = adapterFactory.forAuthority(authority).issue(certificate, req);
