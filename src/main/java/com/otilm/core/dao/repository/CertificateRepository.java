@@ -236,6 +236,18 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
     List<UUID> findStalePendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold, Pageable pageable);
 
     /**
+     * Clears the pending-issue claim stamp of a certificate still in {@code PENDING_ISSUE}: the authority has answered
+     * but the certificate stays pending. Returns the number of rows updated (0 once it left {@code PENDING_ISSUE}).
+     */
+    @Modifying
+    @Query("""
+            UPDATE Certificate c SET c.pendingIssueClaimedAt = NULL
+                WHERE c.uuid = :uuid
+                    AND c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
+            """)
+    int clearPendingIssueClaim(@Param("uuid") UUID uuid);
+
+    /**
      * The pre-registrations a protocol enrolment presenting the given normalized subject can complete under the RA
      * profile: REGISTERED placeholders whose registration authorization is ACTIVE, prefiltered by the stored normalized
      * subject so the identity match receives only same-subject candidates. Registrations without a challenge have no
