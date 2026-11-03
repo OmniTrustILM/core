@@ -26,10 +26,10 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration coverage for {@link PendingIssueReaper}: a certificate stuck in PENDING_ISSUE with no status-poll row (a
- * crashed synchronous issue) is failed once it is stale, while fresh certificates, ones with an in-flight poll row (the
- * 202 async path), and non-PENDING_ISSUE certificates are left alone. Staleness is driven by the {@code i_upd} column,
- * which is back-dated directly since {@code @UpdateTimestamp} would otherwise stamp it to now on every save.
+ * Integration coverage for {@link PendingIssueReaper}: only a certificate whose synchronous connector call never
+ * returned - still in PENDING_ISSUE with a stale claim stamp and no status-poll row - is failed. Certificates the
+ * authority answered (no stamp), fresh claims, claims owned by the poller, and other states are left alone. The stamp
+ * and {@code i_upd} are written directly, since {@code @UpdateTimestamp} would otherwise stamp {@code i_upd} to now.
  */
 class PendingIssueReaperITest extends BaseSpringBootTest {
 
@@ -50,14 +50,15 @@ class PendingIssueReaperITest extends BaseSpringBootTest {
     private static final Duration STALE = Duration.ofDays(2);
 
     @Test
-    void reapsStalePendingIssueWithoutPollRow_toFailedWithAudit() {
+    void reapsStaleClaimedPendingIssue_toFailedWithAuditAndClearsTheClaim() {
         Certificate cert = certificateRepository.save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
-        backdateUpdated(cert.getUuid(), STALE);
+        claim(cert.getUuid(), STALE);
 
         reaper.reapStaleOrphans();
 
         Certificate reaped = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
         assertThat(reaped.getState()).isEqualTo(CertificateState.FAILED);
+        assertThat(reaped.getPendingIssueClaimedAt()).as("leaving PENDING_ISSUE clears the claim").isNull();
         assertThat(eventHistoryRepository.findByCertificateOrderByCreatedDesc(reaped))
                 .as("reaping must write an ISSUE/FAILED audit-history row")
                 .anyMatch(
@@ -65,9 +66,11 @@ class PendingIssueReaperITest extends BaseSpringBootTest {
     }
 
     @Test
-    void leavesFreshPendingIssueUntouched() {
-        // updated == now (not back-dated) → younger than the staleness threshold
+    void leavesStaleUnclaimedPendingIssueUntouched() {
+        // No stamp: the authority answered (out-of-band 202, or parked after a local failure), or the certificate was
+        // already waiting before this column existed. An old i_upd must not make it a candidate.
         Certificate cert = certificateRepository.save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
+        backdateUpdated(cert.getUuid(), STALE);
 
         reaper.reapStaleOrphans();
 
@@ -76,10 +79,22 @@ class PendingIssueReaperITest extends BaseSpringBootTest {
     }
 
     @Test
-    void leavesStalePendingIssueWithPollRowUntouched() {
-        // A stale cert that DOES have a poll row is the async (202) path — the poll sweep owns it.
+    void leavesFreshClaimedPendingIssueUntouched() {
+        // A synchronous call still within reap-stale-after
         Certificate cert = certificateRepository.save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
-        backdateUpdated(cert.getUuid(), STALE);
+        claim(cert.getUuid(), Duration.ZERO);
+
+        reaper.reapStaleOrphans();
+
+        assertThat(certificateRepository.findByUuid(cert.getUuid()).orElseThrow().getState())
+                .isEqualTo(CertificateState.PENDING_ISSUE);
+    }
+
+    @Test
+    void leavesStaleClaimedPendingIssueWithPollRowUntouched() {
+        // A pollable 202 whose best-effort claim clear failed: the poller owns it.
+        Certificate cert = certificateRepository.save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
+        claim(cert.getUuid(), STALE);
         savePollRow(cert.getUuid());
 
         reaper.reapStaleOrphans();
@@ -89,9 +104,9 @@ class PendingIssueReaperITest extends BaseSpringBootTest {
     }
 
     @Test
-    void leavesStaleNonPendingIssueUntouched() {
+    void leavesStaleClaimedNonPendingIssueUntouched() {
         Certificate cert = certificateRepository.save(aCertificate().withState(CertificateState.ISSUED).build());
-        backdateUpdated(cert.getUuid(), STALE);
+        claim(cert.getUuid(), STALE);
 
         reaper.reapStaleOrphans();
 
@@ -101,13 +116,13 @@ class PendingIssueReaperITest extends BaseSpringBootTest {
 
     @Test
     void reapingRenewRekeyOrphanDeletesDanglingPredecessorRelation() {
-        // A synchronous renew/rekey crash leaves an ISSUED predecessor linked to a stale PENDING_ISSUE
+        // A synchronous renew/rekey crash leaves an ISSUED predecessor linked to a stale claimed PENDING_ISSUE
         // successor by a PENDING relation (created in an earlier committed step). Reaping the successor
         // must drop that relation so the predecessor is not left linked to a now-FAILED certificate.
         Certificate predecessor = certificateRepository.save(aCertificate().withState(CertificateState.ISSUED).build());
         Certificate successor = certificateRepository
                 .save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
-        backdateUpdated(successor.getUuid(), STALE);
+        claim(successor.getUuid(), STALE);
         savePendingRelation(predecessor, successor);
 
         reaper.reapStaleOrphans();
@@ -140,6 +155,12 @@ class PendingIssueReaperITest extends BaseSpringBootTest {
         poll.setAttempt(0);
         poll.setNextPollAt(OffsetDateTime.now(ZoneOffset.UTC));
         pollRepository.save(poll);
+    }
+
+    private void claim(UUID uuid, Duration age) {
+        jdbcTemplate
+                .update("UPDATE certificate SET pending_issue_claimed_at = ? WHERE uuid = ?",
+                        OffsetDateTime.now(ZoneOffset.UTC).minus(age), uuid);
     }
 
     private void backdateUpdated(UUID uuid, Duration age) {

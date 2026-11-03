@@ -223,17 +223,19 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             @Param("skipStatuses") List<CertificateValidationStatus> skipStatuses,
             @Param("platformEnabled") boolean platformEnabled, Pageable pageable);
 
-    // Orphaned-PENDING_ISSUE reaper: certificates with no certificate-status-poll row (a crashed
-    // synchronous issue). Staleness uses the last-modified timestamp — a safe over-approximation of
-    // entry time, since a later write only delays reaping, never triggers it early.
+    // Pending-issue reaper: certificates whose synchronous connector call never returned — the claim stamp written
+    // with the move to PENDING_ISSUE was never cleared. The poll-row condition is a guard: a pollable 202 whose
+    // best-effort clear failed belongs to the poller.
     @Query("""
             SELECT c.uuid FROM Certificate c
                 WHERE c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
-                    AND c.updated < :threshold
+                    AND c.pendingIssueClaimedAt IS NOT NULL
+                    AND c.pendingIssueClaimedAt < :threshold
                     AND NOT EXISTS (SELECT 1 FROM CertificateStatusPoll p WHERE p.certificateUuid = c.uuid)
-                ORDER BY c.updated ASC
+                ORDER BY c.pendingIssueClaimedAt ASC
             """)
-    List<UUID> findStalePendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold, Pageable pageable);
+    List<UUID> findStaleClaimedPendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold,
+            Pageable pageable);
 
     /**
      * Clears the pending-issue claim stamp of a certificate still in {@code PENDING_ISSUE}: the authority has answered
