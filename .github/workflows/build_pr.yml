@@ -288,7 +288,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           MVNARG: ${{ needs.resolve-interfaces.outputs.mvnarg }}
-        run: mvn -B -U -ntp test -Ptest-${{ matrix.group }} -Dmaven.compiler.skip=true $MVNARG
+        run: mvn -B -U -ntp test -Ptest-${{ matrix.group }} -Dmaven.compiler.skip=true -Darchunit.freeze.store.default.allowStoreCreation=false -Darchunit.freeze.store.default.allowStoreUpdate=false $MVNARG
 
       - name: Upload coverage exec
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

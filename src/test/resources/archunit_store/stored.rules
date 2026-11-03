@@ -1,4 +1,12 @@
 #
-#Fri Jun 05 18:13:24 CEST 2026
+#Tue Nov 03 14:54:19 CET 2026
+classes\ should\ call\ no\ JUnit\ or\ Hamcrest\ assertions,\ because\ the\ test\ style\ in\ .claude/rules/test-style.md\ asks\ for\ it=989dd4f1-4f3c-4fa8-8726-26aeae76d8a8
+classes\ that\ are\ annotated\ with\ @Nested\ should\ not\ be\ nested\ in\ another\ @Nested\ class\ and\ should\ have\ name\ not\ matching\ '.*Tests?',\ because\ the\ test\ style\ in\ .claude/rules/test-style.md\ asks\ for\ it=b0d01f78-a504-41bc-8698-78cdf83f00e1
+classes\ that\ are\ annotated\ with\ @SpringBootTest\ should\ be\ a\ context-bearing\ base\ class,\ because\ the\ test\ style\ in\ .claude/rules/test-style.md\ asks\ for\ it=59c305e6-0dd4-47ef-a7fa-7267fe5afe35
+classes\ that\ are\ top\ level\ classes\ and\ have\ simple\ name\ ending\ with\ 'Builder'\ should\ be\ public\ and\ should\ have\ modifier\ FINAL\ and\ should\ not\ depend\ on\ a\ Repository\ or\ an\ EntityManager,\ because\ the\ support-class\ style\ in\ .claude/rules/test-support.md\ asks\ for\ it=e3507de6-14e7-41ba-9668-443d169bbfd8
+classes\ that\ have\ simple\ name\ ending\ with\ 'Fixtures'\ should\ be\ public\ and\ should\ have\ modifier\ FINAL\ and\ should\ have\ only\ private\ constructors,\ because\ the\ support-class\ style\ in\ .claude/rules/test-support.md\ asks\ for\ it=05e4f114-373d-4f74-8040-646de04f7bd8
+methods\ that\ are\ JUnit\ lifecycle\ methods\ should\ have\ name\ not\ matching\ 'setUp|setup|init|tearDown|teardown',\ because\ the\ test\ style\ in\ .claude/rules/test-style.md\ asks\ for\ it=37cbea4c-dafd-4e19-a793-276d689a24cb
+methods\ that\ are\ JUnit\ test\ methods\ should\ be\ named\ verb_outcome_whenCondition,\ because\ the\ test\ style\ in\ .claude/rules/test-style.md\ asks\ for\ it=d799962d-aa25-47b2-a594-80b47c24a02d
+methods\ that\ are\ JUnit\ test\ methods\ should\ declare\ no\ throws\ clause\ or\ throws\ Exception\ alone,\ because\ the\ test\ style\ in\ .claude/rules/test-style.md\ asks\ for\ it=50d27097-c0f6-4f49-902b-17941d3ae2e9
 methods\ that\ are\ annotated\ with\ @Modifying\ should\ only\ be\ called\ from\ classes\ in\ ..service.writer..=73ede010-447b-4223-95de-15077e7d1715
 no\ methods\ that\ are\ declared\ in\ classes\ that\ implement\ an\ *ExternalService\ interface\ should\ be\ annotated\ with\ @ExternalAuthorizationMissing=dc319b8f-4aa8-4995-960d-775b2144f2a2
