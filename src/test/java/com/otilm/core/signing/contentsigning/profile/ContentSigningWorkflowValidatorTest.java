@@ -60,12 +60,14 @@ class ContentSigningWorkflowValidatorTest {
                     Set.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED));
             UUID tsaProfileUuid = UUID.randomUUID();
             stubTimestampingProfile(tsaProfileUuid, SigningRecordPersistenceMode.DEFERRED_DURABLE, true);
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, tsaProfileUuid), connector,
                             null);
 
-            // when / then
-            assertThatCode(call).doesNotThrowAnyException();
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -73,11 +75,15 @@ class ContentSigningWorkflowValidatorTest {
             // given: the flag sits on the XAdES interface, the profile is PAdES
             Connector connector = connectorWith(ConnectorInterface.XADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.SIGNED, null), connector, null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("PAdES Formatting");
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("PAdES Formatting");
         }
 
         @Test
@@ -86,12 +92,14 @@ class ContentSigningWorkflowValidatorTest {
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING));
             UUID tsaProfileUuid = UUID.randomUUID();
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, tsaProfileUuid), connector,
                             null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("TIMESTAMPED");
+            // then
+            assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("TIMESTAMPED");
         }
 
         @Test
@@ -99,11 +107,13 @@ class ContentSigningWorkflowValidatorTest {
             // given: SIGNED needs no rung flag beyond contentSigning itself, and embeds no timestamp
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.SIGNED, null), connector, null);
 
-            // when / then
-            assertThatCode(call).doesNotThrowAnyException();
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         /** A ceiling the engine cannot execute must not be persisted, however far the connector reaches. */
@@ -113,12 +123,14 @@ class ContentSigningWorkflowValidatorTest {
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED, FeatureFlag.LEVEL_LONG_TERM));
             UUID tsaProfileUuid = UUID.randomUUID();
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.LONG_TERM, tsaProfileUuid), connector,
                             null);
 
-            // when / then
-            assertThatThrownBy(call)
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("LONG_TERM is not available yet")
                     .hasMessageContaining("TIMESTAMPED");
@@ -130,12 +142,14 @@ class ContentSigningWorkflowValidatorTest {
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED));
             UUID tsaProfileUuid = UUID.randomUUID();
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.LONG_TERM, tsaProfileUuid), connector,
                             null);
 
-            // when / then
-            assertThatThrownBy(call)
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("does not reach level LONG_TERM");
         }
@@ -148,11 +162,13 @@ class ContentSigningWorkflowValidatorTest {
                             .of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED, FeatureFlag.LEVEL_LONG_TERM,
                                     FeatureFlag.LEVEL_ARCHIVAL));
             UUID tsaProfileUuid = UUID.randomUUID();
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.ARCHIVAL, tsaProfileUuid), connector, null);
 
-            // when / then
-            assertThatThrownBy(call)
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("ARCHIVAL is not available yet");
         }
@@ -163,11 +179,13 @@ class ContentSigningWorkflowValidatorTest {
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED, FeatureFlag.LEVEL_LONG_TERM));
             UUID tsaProfileUuid = UUID.randomUUID();
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.ARCHIVAL, tsaProfileUuid), connector, null);
 
-            // when / then
-            assertThatThrownBy(call)
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("does not reach level ARCHIVAL");
         }
@@ -177,11 +195,13 @@ class ContentSigningWorkflowValidatorTest {
             // given
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(null, SignatureLevel.SIGNED, null), connector, null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("family");
+            // then
+            assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("family");
         }
 
         @Test
@@ -189,11 +209,13 @@ class ContentSigningWorkflowValidatorTest {
             // given
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, null, null), connector, null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("maxLevel");
+            // then
+            assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("maxLevel");
         }
     }
 
@@ -205,11 +227,13 @@ class ContentSigningWorkflowValidatorTest {
             // given
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, null), connector, null);
 
-            // when / then
-            assertThatThrownBy(call)
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("timestamp source is required");
         }
@@ -219,12 +243,14 @@ class ContentSigningWorkflowValidatorTest {
             // given
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.SIGNED, UUID.randomUUID()), connector,
                             null);
 
-            // when / then
-            assertThatThrownBy(call)
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("embeds no timestamp");
         }
@@ -242,11 +268,13 @@ class ContentSigningWorkflowValidatorTest {
             SigningProfileVersion version = timestampingVersion(SigningRecordPersistenceMode.IMMEDIATE, true);
             version.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
             when(versionRepository.findLatestByProfileUuid(referenced)).thenReturn(Optional.of(version));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, referenced), connector, null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("TIMESTAMPING");
+            // then
+            assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("TIMESTAMPING");
         }
 
         @Test
@@ -258,11 +286,15 @@ class ContentSigningWorkflowValidatorTest {
             SigningProfileVersion version = timestampingVersion(SigningRecordPersistenceMode.DEFERRED_DURABLE, true);
             version.setSigningScheme(SigningScheme.DELEGATED);
             when(versionRepository.findLatestByProfileUuid(referenced)).thenReturn(Optional.of(version));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, referenced), connector, null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("not ILM-managed");
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("not ILM-managed");
         }
 
         @Test
@@ -272,11 +304,13 @@ class ContentSigningWorkflowValidatorTest {
                     Set.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED));
             UUID referenced = UUID.randomUUID();
             stubTimestampingProfile(referenced, SigningRecordPersistenceMode.BEST_EFFORT, true);
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, referenced), connector, null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("BEST_EFFORT");
+            // then
+            assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("BEST_EFFORT");
         }
 
         @Test
@@ -288,11 +322,13 @@ class ContentSigningWorkflowValidatorTest {
             SigningProfileVersion version = timestampingVersion(SigningRecordPersistenceMode.DEFERRED_DURABLE, true);
             version.setManagedSigningType(ManagedSigningType.ONE_TIME_KEY);
             when(versionRepository.findLatestByProfileUuid(referenced)).thenReturn(Optional.of(version));
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, referenced), connector, null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("ONE_TIME_KEY");
+            // then
+            assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("ONE_TIME_KEY");
         }
 
         @Test
@@ -301,12 +337,16 @@ class ContentSigningWorkflowValidatorTest {
             Connector connector = connectorWith(ConnectorInterface.PADES_FORMATTING,
                     Set.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED));
             UUID targetProfileUuid = UUID.randomUUID();
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, targetProfileUuid), connector,
                             targetProfileUuid);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("cannot name itself");
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("cannot name itself");
         }
 
         @Test
@@ -316,11 +356,13 @@ class ContentSigningWorkflowValidatorTest {
                     Set.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED));
             UUID referenced = UUID.randomUUID();
             when(versionRepository.findLatestByProfileUuid(referenced)).thenReturn(Optional.empty());
-            ThrowingCallable call = () -> validator
+
+            // when
+            ThrowingCallable validate = () -> validator
                     .validate(request(SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, referenced), connector, null);
 
-            // when / then
-            assertThatThrownBy(call).isInstanceOf(ValidationException.class).hasMessageContaining("does not exist");
+            // then
+            assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("does not exist");
         }
     }
 
@@ -335,8 +377,11 @@ class ContentSigningWorkflowValidatorTest {
             ContentSigningWorkflowRequestDto request = request(SignatureFamily.PADES, SignatureLevel.SIGNED, null);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT));
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -347,8 +392,11 @@ class ContentSigningWorkflowValidatorTest {
             ContentSigningWorkflowRequestDto request = request(SignatureFamily.PADES, SignatureLevel.SIGNED, null);
             request.setAllowedRequestParameterGroups(null);
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -359,8 +407,11 @@ class ContentSigningWorkflowValidatorTest {
             ContentSigningWorkflowRequestDto request = request(SignatureFamily.XADES, SignatureLevel.SIGNED, null);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT));
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("signature_context")
                     .hasMessageContaining("XADES");
@@ -374,8 +425,11 @@ class ContentSigningWorkflowValidatorTest {
             ContentSigningWorkflowRequestDto request = request(SignatureFamily.XADES, SignatureLevel.SIGNED, null);
             request.setDefaultSignatureParameters(aPadesParameters().build());
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("PADES")
                     .hasMessageContaining("XADES");
@@ -394,8 +448,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT));
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("visibleSignature.placement.page")
                     .hasMessageContaining("visible_signature_placement");
@@ -416,8 +473,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT));
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("visibleSignature.placement.page")
                     .hasMessageContaining("visible_signature_placement");
@@ -435,8 +495,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT));
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("visibleSignature.placement.page")
                     .hasMessageContaining("visible_signature_placement");
@@ -455,8 +518,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT));
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -471,8 +537,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT));
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         /**
@@ -494,8 +563,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT));
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -511,8 +583,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT));
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("visible_signature_content");
         }
@@ -526,8 +601,11 @@ class ContentSigningWorkflowValidatorTest {
             ContentSigningWorkflowRequestDto request = request(SignatureFamily.PADES, SignatureLevel.SIGNED, null);
             request.setDefaultSignatureParameters(completeVisibleDefaults());
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -540,8 +618,11 @@ class ContentSigningWorkflowValidatorTest {
                     .setAllowedRequestParameterGroups(
                             Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT, SignatureParameterGroup.SIGNER_IDENTITY));
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("signature_context")
                     .hasMessageContaining("signer_identity");
@@ -559,8 +640,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT));
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("visible_signature_content");
         }
@@ -576,8 +660,11 @@ class ContentSigningWorkflowValidatorTest {
             request.setDefaultSignatureParameters(defaults);
             request.setAllowedRequestParameterGroups(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT));
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -592,8 +679,11 @@ class ContentSigningWorkflowValidatorTest {
             defaults.getVisibleSignature().setImageMimeType("image/png");
             request.setDefaultSignatureParameters(defaults);
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -607,8 +697,11 @@ class ContentSigningWorkflowValidatorTest {
                     .build();
             request.setDefaultSignatureParameters(defaults);
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         /** An empty placement is pruned at merge, so it cannot make an otherwise complete default unsatisfiable. */
@@ -624,8 +717,11 @@ class ContentSigningWorkflowValidatorTest {
                     .build();
             request.setDefaultSignatureParameters(defaults);
 
-            // when / then
-            assertThatCode(() -> validator.validate(request, connector, null)).doesNotThrowAnyException();
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatCode(validate).doesNotThrowAnyException();
         }
 
         @Test
@@ -639,8 +735,11 @@ class ContentSigningWorkflowValidatorTest {
                     .build();
             request.setDefaultSignatureParameters(defaults);
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("visible_signature_placement")
                     .hasMessageContaining("visible_signature_content");
@@ -657,8 +756,11 @@ class ContentSigningWorkflowValidatorTest {
             defaults.getVisibleSignature().getPlacement().setPage(null);
             request.setDefaultSignatureParameters(defaults);
 
-            // when / then
-            assertThatThrownBy(() -> validator.validate(request, connector, null))
+            // when
+            ThrowingCallable validate = () -> validator.validate(request, connector, null);
+
+            // then
+            assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("field visibleSignature.placement.page")
                     .hasMessageNotContaining("fields visibleSignature");

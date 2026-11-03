@@ -22,15 +22,23 @@ class SignatureParameterOverlayCoverageTest {
     void sweepsTheWholePadesTree() {
         // given — the leaf paths the sweeps below walk
 
-        // when / then
-        assertThat(paths()).isNotEmpty();
+        // when
+        List<String> paths = paths();
+
+        // then
+        assertThat(paths).isNotEmpty();
     }
 
     @Test
     void landsEveryRequestField_whenTheProfileSuppliesNothing() {
-        // given / when / then
-        sweep((defaults, requested, path) -> ParameterPaths.populate(requested, path, 1),
+        // given — empty profile defaults
+
+        // when
+        List<String> problems = sweep((defaults, requested, path) -> ParameterPaths.populate(requested, path, 1),
                 "is not overlaid onto empty defaults");
+
+        // then
+        assertThat(problems).isEmpty();
     }
 
     @Test
@@ -64,12 +72,17 @@ class SignatureParameterOverlayCoverageTest {
 
     @Test
     void keepsEveryProfileField_whenTheRequestIsAboutAnotherContainer() {
-        // given / when / then
-        sweep((defaults, requested, path) -> {
+        // given — a profile value and a request about another container
+
+        // when
+        List<String> problems = sweep((defaults, requested, path) -> {
             ParameterPaths.populate(defaults, path, 0);
             ParameterPaths.populate(requested, outerNeutralFor(path), 1);
             return ParameterPaths.read(defaults, path);
         }, "does not survive a request about another container");
+
+        // then
+        assertThat(problems).isEmpty();
     }
 
     /**
@@ -78,12 +91,18 @@ class SignatureParameterOverlayCoverageTest {
      */
     @Test
     void keepsEveryProfileField_whenTheRequestIsAboutASiblingField() {
-        // given / when / then
-        sweep(paths().stream().filter(path -> !NAMED_FIELD.equals(path)).toList(), (defaults, requested, path) -> {
-            ParameterPaths.populate(defaults, path, 0);
-            ParameterPaths.populate(requested, siblingNeutralFor(path), 1);
-            return ParameterPaths.read(defaults, path);
-        }, "does not survive a request about a sibling field");
+        // given — a profile value and a request about a sibling field
+
+        // when
+        List<String> problems = sweep(paths().stream().filter(path -> !NAMED_FIELD.equals(path)).toList(),
+                (defaults, requested, path) -> {
+                    ParameterPaths.populate(defaults, path, 0);
+                    ParameterPaths.populate(requested, siblingNeutralFor(path), 1);
+                    return ParameterPaths.read(defaults, path);
+                }, "does not survive a request about a sibling field");
+
+        // then
+        assertThat(problems).isEmpty();
     }
 
     @Test
@@ -158,11 +177,11 @@ class SignatureParameterOverlayCoverageTest {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private static void sweep(Arrangement arrange, String complaint) {
-        sweep(paths(), arrange, complaint);
+    private static List<String> sweep(Arrangement arrange, String complaint) {
+        return sweep(paths(), arrange, complaint);
     }
 
-    private static void sweep(List<String> paths, Arrangement arrange, String complaint) {
+    private static List<String> sweep(List<String> paths, Arrangement arrange, String complaint) {
         List<String> problems = new ArrayList<>();
         for (String path : paths) {
             PadesSignatureParametersDto defaults = aPadesParameters().build();
@@ -177,7 +196,7 @@ class SignatureParameterOverlayCoverageTest {
                                 + " but the effective parameters hold " + render(effective));
             }
         }
-        assertThat(problems).isEmpty();
+        return problems;
     }
 
     @FunctionalInterface

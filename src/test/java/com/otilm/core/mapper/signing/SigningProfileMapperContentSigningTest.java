@@ -30,31 +30,6 @@ class SigningProfileMapperContentSigningTest {
 
     private static final long DOCUMENT_SIZE_CAP = 5_242_880L;
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static SigningProfile aHeader() {
-        SigningProfile header = new SigningProfile();
-        header.setUuid(UUID.randomUUID());
-        header.setName("pades-profile");
-        header.setEnabled(true);
-        return header;
-    }
-
-    private static SigningProfileVersion aContentSigningVersion() {
-        SigningProfileVersion version = new SigningProfileVersion();
-        version.setVersion(3);
-        version.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
-        version.setSigningScheme(SigningScheme.MANAGED);
-        version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
-        version.setSignatureFormattingConnectorUuid(UUID.randomUUID());
-        version.setSignatureFamily(SignatureFamily.PADES);
-        version.setMaxSignatureLevel(SignatureLevel.TIMESTAMPED);
-        version.setDocumentSizeCap(DOCUMENT_SIZE_CAP);
-        version.setRequireNonRepudiation(true);
-        version.setRequiredExtendedKeyUsageOids(List.of(DOCUMENT_SIGNING_OID));
-        return version;
-    }
-
     // ── ToManagedContentSigningModel ──────────────────────────────────────────
 
     @Nested
@@ -229,5 +204,30 @@ class SigningProfileMapperContentSigningTest {
             assertThat(workflow.getAllowedRequestParameterGroups()).containsExactly(allowedGroup);
             assertThat(workflow.getDefaultSignatureParameters()).isInstanceOf(PadesSignatureParametersDto.class);
         }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static SigningProfile aHeader() {
+        SigningProfile header = new SigningProfile();
+        header.setUuid(UUID.randomUUID());
+        header.setName("pades-profile");
+        header.setEnabled(true);
+        return header;
+    }
+
+    private static SigningProfileVersion aContentSigningVersion() {
+        SigningProfileVersion version = new SigningProfileVersion();
+        version.setVersion(3);
+        version.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
+        version.setSigningScheme(SigningScheme.MANAGED);
+        version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
+        version.setSignatureFormattingConnectorUuid(UUID.randomUUID());
+        version.setSignatureFamily(SignatureFamily.PADES);
+        version.setMaxSignatureLevel(SignatureLevel.TIMESTAMPED);
+        version.setDocumentSizeCap(DOCUMENT_SIZE_CAP);
+        version.setRequireNonRepudiation(true);
+        version.setRequiredExtendedKeyUsageOids(List.of(DOCUMENT_SIGNING_OID));
+        return version;
     }
 }

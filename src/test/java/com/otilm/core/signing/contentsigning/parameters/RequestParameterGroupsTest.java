@@ -21,16 +21,22 @@ class RequestParameterGroupsTest {
         // given — parameters with nothing set
         PadesSignatureParametersDto parameters = aPadesParameters().build();
 
-        // when / then
-        assertThat(RequestParameterGroups.presentFieldsByGroup(parameters)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(parameters);
+
+        // then
+        assertThat(present).isEmpty();
     }
 
     @Test
     void presentsNoGroup_whenTheObjectIsAbsent() {
         // given — no parameters at all
 
-        // when / then
-        assertThat(RequestParameterGroups.presentFieldsByGroup(null)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(null);
+
+        // then
+        assertThat(present).isEmpty();
     }
 
     @Test
@@ -38,8 +44,11 @@ class RequestParameterGroupsTest {
         // given
         PadesSignatureParametersDto parameters = aPadesParameters().withReason("Contract approval").build();
 
-        // when / then
-        assertThat(RequestParameterGroups.presentFieldsByGroup(parameters))
+        // when
+        Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(parameters);
+
+        // then
+        assertThat(present)
                 .containsOnlyKeys(SignatureParameterGroup.SIGNATURE_CONTEXT)
                 .containsEntry(SignatureParameterGroup.SIGNATURE_CONTEXT, List.of("reason"));
     }
@@ -55,8 +64,11 @@ class RequestParameterGroupsTest {
                         .withStyle(aStyle().withDpi(300)))
                 .build();
 
-        // when / then
-        assertThat(RequestParameterGroups.presentFieldsByGroup(parameters))
+        // when
+        Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(parameters);
+
+        // then
+        assertThat(present)
                 .containsEntry(SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT, List.of("visibleSignature.visible"))
                 .containsEntry(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT,
                         List.of("visibleSignature.placement.page"))
@@ -69,8 +81,11 @@ class RequestParameterGroupsTest {
         // given
         PadesSignatureParametersDto parameters = aPadesParameters().withVisibleSignature(aVisibleSignature()).build();
 
-        // when / then
-        assertThat(RequestParameterGroups.presentFieldsByGroup(parameters)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(parameters);
+
+        // then
+        assertThat(present).isEmpty();
     }
 
     /** The discriminator is not a parameter, so setting it explicitly must never make a group look present. */
@@ -80,8 +95,11 @@ class RequestParameterGroupsTest {
         PadesSignatureParametersDto parameters = aPadesParameters().build();
         parameters.setFamily(SignatureFamily.PADES);
 
-        // when / then
-        assertThat(RequestParameterGroups.presentFieldsByGroup(parameters)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(parameters);
+
+        // then
+        assertThat(present).isEmpty();
     }
 
     @Test
@@ -89,8 +107,11 @@ class RequestParameterGroupsTest {
         // given
         PadesSignatureParametersDto parameters = aPadesParameters().withClaimedRoles().build();
 
-        // when / then
-        assertThat(RequestParameterGroups.presentFieldsByGroup(parameters)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(parameters);
+
+        // then
+        assertThat(present).isEmpty();
     }
 
     @Test
@@ -98,9 +119,11 @@ class RequestParameterGroupsTest {
         // given
         PadesSignatureParametersDto parameters = aPadesParameters().withClaimedRoles("approver").build();
 
-        // when / then
-        assertThat(RequestParameterGroups.presentFieldsByGroup(parameters))
-                .containsEntry(SignatureParameterGroup.SIGNED_ATTRIBUTES, List.of("claimedRoles"));
+        // when
+        Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(parameters);
+
+        // then
+        assertThat(present).containsEntry(SignatureParameterGroup.SIGNED_ATTRIBUTES, List.of("claimedRoles"));
     }
 
     @Test
@@ -126,16 +149,22 @@ class RequestParameterGroupsTest {
         // given
         PadesSignatureParametersDto requested = aPadesParameters().build();
 
-        // when / then
-        assertThat(RequestParameterGroups.suppliesNothing(requested)).isTrue();
+        // when
+        boolean suppliesNothing = RequestParameterGroups.suppliesNothing(requested);
+
+        // then
+        assertThat(suppliesNothing).isTrue();
     }
 
     @Test
     void suppliesNothing_whenTheRequestIsAbsent() {
         // given — no request at all
 
-        // when / then
-        assertThat(RequestParameterGroups.suppliesNothing(null)).isTrue();
+        // when
+        boolean suppliesNothing = RequestParameterGroups.suppliesNothing(null);
+
+        // then
+        assertThat(suppliesNothing).isTrue();
     }
 
     @Test
@@ -143,7 +172,10 @@ class RequestParameterGroupsTest {
         // given
         PadesSignatureParametersDto requested = aPadesParameters().withReason("Contract approval").build();
 
-        // when / then
-        assertThat(RequestParameterGroups.suppliesNothing(requested)).isFalse();
+        // when
+        boolean suppliesNothing = RequestParameterGroups.suppliesNothing(requested);
+
+        // then
+        assertThat(suppliesNothing).isFalse();
     }
 }

@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,6 +35,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -262,10 +264,15 @@ class InternalTimestampSourceTest {
                         List.of(), List.of(), null, null, null, null, CertificatePurposeRequirements.NONE,
                         SignatureParameterPolicy.DENY_ALL, null, null));
 
-        // when / then
-        SigningEngineException thrown = catchTimestamp();
-        assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-        assertThat(thrown.operatorMessage()).contains("not a managed timestamping profile");
+        // when
+        ThrowingCallable timestamp = () -> source.timestamp(IMPRINT, PROFILE_NAME, STEP);
+
+        // then
+        assertThatThrownBy(timestamp).isInstanceOf(SigningEngineException.class).satisfies(thrown -> {
+            var exception = (SigningEngineException) thrown;
+            assertThat(exception.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+            assertThat(exception.operatorMessage()).contains("not a managed timestamping profile");
+        });
     }
 
     @Test

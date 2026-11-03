@@ -55,6 +55,7 @@ import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -70,6 +71,7 @@ import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aP
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -232,12 +234,14 @@ class ManagedContentSigningEngineTest {
                             "no SignerCreator supports the scheme", "The system is misconfigured."));
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+            });
             verify(formattingClient, never()).computeDtbs(any(), any());
             verify(acquisitions, never()).signatureValue(any(), any());
         }
@@ -254,13 +258,15 @@ class ManagedContentSigningEngineTest {
             when(acquisitions.signatureAlgorithm(profile)).thenReturn(SignatureAlgorithm.SHA512_WITH_RSA);
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-            assertThat(thrown.operatorMessage()).contains("SHA512withRSA", "SHA-256");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(thrown.operatorMessage()).contains("SHA512withRSA", "SHA-256");
+            });
             verify(formattingClient, never()).computeDtbs(any(), any());
             verify(acquisitions, never()).signatureValue(any(), any());
         }
@@ -275,14 +281,16 @@ class ManagedContentSigningEngineTest {
                     .thenReturn(new SignedDocumentResponseDto());
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
-            assertThat(thrown.step()).isEqualTo("embedSignatureValue");
-            assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                assertThat(thrown.step()).isEqualTo("embedSignatureValue");
+                assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+            });
         }
 
         @Test
@@ -298,13 +306,15 @@ class ManagedContentSigningEngineTest {
                     .build();
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-            assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+            });
             verify(acquisitions, never()).signatureValue(any(), any());
         }
     }
@@ -456,15 +466,17 @@ class ManagedContentSigningEngineTest {
             stubSignatureTimestampImprint(null);
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
+            ThrowingCallable sign = () -> engine
                     .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
-            assertThat(thrown.step()).isEqualTo("computeSignatureTimestampImprint");
-            assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                assertThat(thrown.step()).isEqualTo("computeSignatureTimestampImprint");
+                assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+            });
             verify(acquisitions, never()).signatureTimestamp(any(), any(), any());
         }
 
@@ -478,14 +490,16 @@ class ManagedContentSigningEngineTest {
             stubSignatureTimestampImprint(new byte[32], null);
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
+            ThrowingCallable sign = () -> engine
                     .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
-            assertThat(thrown.step()).isEqualTo("computeSignatureTimestampImprint");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                assertThat(thrown.step()).isEqualTo("computeSignatureTimestampImprint");
+            });
             verify(acquisitions, never()).signatureTimestamp(any(), any(), any());
         }
 
@@ -501,15 +515,17 @@ class ManagedContentSigningEngineTest {
             when(formattingClient.embedSignatureTimestamp(any(), any())).thenReturn(new SignedDocumentResponseDto());
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
+            ThrowingCallable sign = () -> engine
                     .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
-            assertThat(thrown.step()).isEqualTo("embedSignatureTimestamp");
-            assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                assertThat(thrown.step()).isEqualTo("embedSignatureTimestamp");
+                assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+            });
         }
     }
 
@@ -561,14 +577,16 @@ class ManagedContentSigningEngineTest {
                     DigestAlgorithm.SHA_256);
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
+            ThrowingCallable sign = () -> engine
                     .sign(requestFor(SignatureLevel.SIGNED, digestOnly, null), aSigningProfile().build(),
-                            aSignedOnlyProfile(), SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            aSignedOnlyProfile(), SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-            assertThat(thrown).hasMessageContaining("PAdES signing needs the document itself");
+            assertThatThrownBy(sign)
+                    .isInstanceOf(SigningEngineException.class)
+                    .hasMessageContaining("PAdES signing needs the document itself")
+                    .satisfies(e -> assertThat(((SigningEngineException) e).failure())
+                            .isEqualTo(SigningEngineFailure.INVALID_INPUT));
             verifyNoInteractions(formattingClient);
         }
 
@@ -601,12 +619,14 @@ class ManagedContentSigningEngineTest {
             stubComputeDtbs(digestOf("another document".getBytes()));
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then: the binding violation is its own failure class, and no key was used
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.BINDING_VIOLATION);
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.BINDING_VIOLATION);
+            });
             verify(acquisitions, never()).signatureValue(any(), any());
             verify(formattingClient, never()).embedSignatureValue(any(), any());
         }
@@ -622,13 +642,15 @@ class ManagedContentSigningEngineTest {
             when(formattingClient.computeDtbs(any(), any())).thenReturn(incomplete);
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then: the connector broke its contract, and no key was used
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
-            assertThat(thrown.step()).isEqualTo("computeDtbs");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                assertThat(thrown.step()).isEqualTo("computeDtbs");
+            });
             verify(acquisitions, never()).signatureValue(any(), any());
             verify(formattingClient, never()).embedSignatureValue(any(), any());
         }
@@ -640,12 +662,14 @@ class ManagedContentSigningEngineTest {
             when(formattingClient.computeDtbs(any(), any())).thenReturn(null);
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+            });
             verify(acquisitions, never()).signatureValue(any(), any());
         }
 
@@ -660,12 +684,14 @@ class ManagedContentSigningEngineTest {
             when(formattingClient.computeDtbs(any(), any())).thenReturn(incomplete);
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+            });
             verify(acquisitions, never()).signatureValue(any(), any());
         }
 
@@ -675,14 +701,16 @@ class ManagedContentSigningEngineTest {
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
+            ThrowingCallable sign = () -> engine
                     .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-            assertThat(thrown.clientMessage()).contains("TIMESTAMPED");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(thrown.clientMessage()).contains("TIMESTAMPED");
+            });
             verify(formattingClient, never()).computeDtbs(any(), any());
         }
 
@@ -694,14 +722,16 @@ class ManagedContentSigningEngineTest {
                     .build();
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
+            ThrowingCallable sign = () -> engine
                     .sign(request(SignatureLevel.LONG_TERM), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-            assertThat(thrown.clientMessage()).contains("LONG_TERM");
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(thrown.clientMessage()).contains("LONG_TERM");
+            });
             verify(formattingClient, never()).computeDtbs(any(), any());
         }
 
@@ -774,13 +804,15 @@ class ManagedContentSigningEngineTest {
             ResolvedManagedContentSigningProfile profile = aTimestampingProfile();
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
+            ThrowingCallable augment = () -> engine
                     .augment(new AugmentationRequest(SignatureLevel.SIGNED, "foreign document".getBytes(), null),
-                            aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            assertThatThrownBy(augment).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            });
         }
 
         @Test
@@ -791,14 +823,15 @@ class ManagedContentSigningEngineTest {
                     .build();
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(
-                    () -> engine
-                            .augment(new AugmentationRequest(SignatureLevel.ARCHIVAL, "foreign document".getBytes(),
-                                    null), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable augment = () -> engine
+                    .augment(new AugmentationRequest(SignatureLevel.ARCHIVAL, "foreign document".getBytes(), null),
+                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            assertThatThrownBy(augment).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            });
         }
     }
 
@@ -820,15 +853,17 @@ class ManagedContentSigningEngineTest {
                     SigningCertificateBuilder.aContentSigningCertificate().state(CertificateState.REVOKED).build());
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-            assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
-            assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
-            assertThat(thrown.clientMessage()).doesNotContain(REFUSAL_DETAIL).doesNotContain(profile.name());
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
+                assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+                assertThat(thrown.clientMessage()).doesNotContain(REFUSAL_DETAIL).doesNotContain(profile.name());
+            });
         }
 
         @Test
@@ -838,15 +873,17 @@ class ManagedContentSigningEngineTest {
                     SigningCertificateBuilder.aContentSigningCertificate().archived(true).build());
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-            assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
-            assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
-            assertThat(thrown.clientMessage()).doesNotContain(REFUSAL_DETAIL).doesNotContain(profile.name());
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
+                assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+                assertThat(thrown.clientMessage()).doesNotContain(REFUSAL_DETAIL).doesNotContain(profile.name());
+            });
         }
 
         @Test
@@ -861,15 +898,17 @@ class ManagedContentSigningEngineTest {
                                     CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)));
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-            assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
-            assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
-            assertThat(thrown.clientMessage()).doesNotContain(REFUSAL_DETAIL).doesNotContain(profile.name());
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
+                assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+                assertThat(thrown.clientMessage()).doesNotContain(REFUSAL_DETAIL).doesNotContain(profile.name());
+            });
         }
 
         @Test
@@ -880,13 +919,15 @@ class ManagedContentSigningEngineTest {
                     new CertificatePurposeRequirements(true, Set.of()));
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-            assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
+            });
         }
 
         @Test
@@ -897,13 +938,15 @@ class ManagedContentSigningEngineTest {
                     new CertificatePurposeRequirements(false, Set.of(DOCUMENT_SIGNING_OID)));
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-            assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(thrown.operatorMessage()).contains(REFUSAL_DETAIL).contains(profile.name());
+            });
         }
 
         @Test
@@ -913,11 +956,11 @@ class ManagedContentSigningEngineTest {
                     SigningCertificateBuilder.aContentSigningCertificate().state(CertificateState.REVOKED).build());
 
             // when
-            catchThrowableOfType(() -> engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
             verify(acquisitions, never()).signatureValue(any(), any());
             verify(formattingClient, never()).computeDtbs(any(), any());
         }
@@ -954,12 +997,12 @@ class ManagedContentSigningEngineTest {
             when(formattingClient.embedSignatureTimestamp(any(), any())).thenReturn(new SignedDocumentResponseDto());
 
             // when
-            catchThrowableOfType(() -> engine
+            ThrowingCallable sign = () -> engine
                     .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            SigningProtocol.CSC_API);
 
             // then
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
             assertThat(messagesLoggedAt(Level.ERROR))
                     .anySatisfy(message -> assertThat(message)
                             .contains(profile.name())
@@ -1000,12 +1043,12 @@ class ManagedContentSigningEngineTest {
                     .thenThrow(new IllegalStateException("connector client lookup failed"));
 
             // when
-            catchThrowableOfType(() -> engine
+            ThrowingCallable sign = () -> engine
                     .sign(request(SignatureLevel.TIMESTAMPED), aSigningProfile().build(), profile,
-                            SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+                            SigningProtocol.CSC_API);
 
             // then
+            assertThatThrownBy(sign).isInstanceOf(SigningEngineException.class);
             assertThat(messagesLoggedAt(Level.ERROR))
                     .anySatisfy(message -> assertThat(message).contains(profile.name()).contains("2a"));
         }
@@ -1018,16 +1061,17 @@ class ManagedContentSigningEngineTest {
                     .thenThrow(new IllegalStateException("attribute cache is down"));
 
             // when
-            SigningEngineException thrown = catchThrowableOfType(
-                    () -> engine
-                            .augment(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "foreign document".getBytes(),
-                                    null), aSigningProfile().build(), profile, SigningProtocol.CSC_API),
-                    SigningEngineException.class);
+            ThrowingCallable augment = () -> engine
+                    .augment(new AugmentationRequest(SignatureLevel.TIMESTAMPED, "foreign document".getBytes(), null),
+                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.STEP_FAILED);
-            assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
-            assertThat(thrown.getCause()).hasMessage("attribute cache is down");
+            assertThatThrownBy(augment).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+                SigningEngineException thrown = (SigningEngineException) e;
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.STEP_FAILED);
+                assertThat(thrown.clientMessage()).isEqualTo("Internal error during signing");
+                assertThat(thrown.getCause()).hasMessage("attribute cache is down");
+            });
             assertThat(messagesLoggedAt(Level.ERROR)).isNotEmpty();
         }
 

@@ -1,11 +1,13 @@
 package com.otilm.core.signing.contentsigning.parameters;
 
+import com.otilm.api.model.common.signature.SignatureParameterGroup;
 import com.otilm.api.model.common.signature.parameters.pades.HorizontalAlignment;
 import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.common.signature.parameters.pades.VerticalAlignment;
 import com.otilm.core.util.builders.PadesVisibleSignatureDtoBuilder;
 import com.otilm.core.util.builders.PadesVisibleSignaturePlacementDtoBuilder;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.api.model.common.signature.SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT;
@@ -23,8 +25,11 @@ class PadesVisibleSignatureCompletenessTest {
     void needsNothing_whenTheEffectiveObjectIsAbsent() {
         // given — no effective parameters at all
 
-        // when / then
-        assertThat(missingFields(null)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(null);
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
@@ -32,8 +37,11 @@ class PadesVisibleSignatureCompletenessTest {
         // given
         PadesSignatureParametersDto parameters = aPadesParameters().build();
 
-        // when / then
-        assertThat(missingFields(parameters)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(parameters);
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
@@ -41,8 +49,11 @@ class PadesVisibleSignatureCompletenessTest {
         // given
         PadesSignatureParametersDto parameters = visible(false, null);
 
-        // when / then
-        assertThat(missingFields(parameters)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(parameters);
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
@@ -50,8 +61,11 @@ class PadesVisibleSignatureCompletenessTest {
         // given
         PadesVisibleSignaturePlacementDtoBuilder placement = completeCoordinates();
 
-        // when / then
-        assertThat(missingFields(visible(true, placement))).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, placement));
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
@@ -59,8 +73,11 @@ class PadesVisibleSignatureCompletenessTest {
         // given
         PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement().withOriginX(20f).withWidth(180f);
 
-        // when / then
-        assertThat(missingFields(visible(true, placement)))
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, placement));
+
+        // then
+        assertThat(missing)
                 .containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT,
                         List
                                 .of("visibleSignature.placement.page", "visibleSignature.placement.originY",
@@ -72,8 +89,11 @@ class PadesVisibleSignatureCompletenessTest {
         // given
         PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement().withFieldId("Signature1");
 
-        // when / then
-        assertThat(missingFields(visible(true, placement))).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, placement));
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
@@ -82,8 +102,11 @@ class PadesVisibleSignatureCompletenessTest {
         PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement()
                 .withAlignmentHorizontal(HorizontalAlignment.RIGHT);
 
-        // when / then
-        assertThat(missingFields(visible(true, placement)))
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, placement));
+
+        // then
+        assertThat(missing)
                 .containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT,
                         List.of("visibleSignature.placement.page", "visibleSignature.placement.alignmentVertical")));
     }
@@ -94,8 +117,11 @@ class PadesVisibleSignatureCompletenessTest {
         // given
         PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement().withZoom(150f);
 
-        // when / then
-        assertThat(missingFields(visible(true, placement)))
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, placement));
+
+        // then
+        assertThat(missing)
                 .containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT,
                         List
                                 .of("visibleSignature.placement.page", "visibleSignature.placement.alignmentHorizontal",
@@ -108,8 +134,11 @@ class PadesVisibleSignatureCompletenessTest {
         PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement()
                 .withAlignmentVertical(VerticalAlignment.BOTTOM);
 
-        // when / then
-        assertThat(missingFields(visible(true, placement)))
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, placement));
+
+        // then
+        assertThat(missing)
                 .containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT,
                         List.of("visibleSignature.placement.page", "visibleSignature.placement.alignmentHorizontal")));
     }
@@ -122,17 +151,22 @@ class PadesVisibleSignatureCompletenessTest {
                 .withAlignmentHorizontal(HorizontalAlignment.RIGHT)
                 .withAlignmentVertical(VerticalAlignment.BOTTOM);
 
-        // when / then
-        assertThat(missingFields(visible(true, placement))).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, placement));
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
     void namesThePlacementItself_whenADrawnSignatureHasNone() {
         // given — a signature marked drawn, carrying no placement
 
-        // when / then
-        assertThat(missingFields(visible(true, null)))
-                .containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT, List.of("visibleSignature.placement")));
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, null));
+
+        // then
+        assertThat(missing).containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT, List.of("visibleSignature.placement")));
     }
 
     @Test
@@ -140,8 +174,11 @@ class PadesVisibleSignatureCompletenessTest {
         // given
         PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement().withOriginX(20f).withWidth(180f);
 
-        // when / then
-        assertThat(missingFields(visible(null, placement)))
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(null, placement));
+
+        // then
+        assertThat(missing)
                 .containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT,
                         List
                                 .of("visibleSignature.placement.page", "visibleSignature.placement.originY",
@@ -153,8 +190,11 @@ class PadesVisibleSignatureCompletenessTest {
     void needsNothing_whenVisibleAndPlacementAreBothAbsent() {
         // given — a container that says neither whether to draw nor where
 
-        // when / then
-        assertThat(missingFields(visible(null, null))).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(null, null));
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     /**
@@ -166,8 +206,11 @@ class PadesVisibleSignatureCompletenessTest {
         // given
         PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement().withOriginX(20f);
 
-        // when / then
-        assertThat(missingFields(visible(false, placement)))
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(false, placement));
+
+        // then
+        assertThat(missing)
                 .containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT,
                         List
                                 .of("visibleSignature.placement.page", "visibleSignature.placement.originY",
@@ -181,8 +224,11 @@ class PadesVisibleSignatureCompletenessTest {
                 .withVisibleSignature(aVisibleSignature().withVisible(true).withPlacement(completeCoordinates()))
                 .build();
 
-        // when / then
-        assertThat(missingFields(parameters))
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(parameters);
+
+        // then
+        assertThat(missing)
                 .containsExactly(
                         entry(VISIBLE_SIGNATURE_CONTENT, List.of("visibleSignature.text or visibleSignature.image")));
     }
@@ -193,12 +239,16 @@ class PadesVisibleSignatureCompletenessTest {
         PadesSignatureParametersDto parameters = aPadesParameters()
                 .withVisibleSignature(aVisibleSignature()
                         .withVisible(true)
-                        .withImage(new byte[]{1, 2, 3}, "image/png")
+                        .withImage(new byte[]{1, 2, 3})
+                        .withImageMimeType("image/png")
                         .withPlacement(completeCoordinates()))
                 .build();
 
-        // when / then
-        assertThat(missingFields(parameters)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(parameters);
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
@@ -208,8 +258,11 @@ class PadesVisibleSignatureCompletenessTest {
                 .withVisibleSignature(aVisibleSignature().withPlacement(completeCoordinates()))
                 .build();
 
-        // when / then
-        assertThat(missingFields(parameters)).isEmpty();
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(parameters);
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
@@ -219,8 +272,11 @@ class PadesVisibleSignatureCompletenessTest {
                 .withVisibleSignature(aVisibleSignature().withVisible(true))
                 .build();
 
-        // when / then
-        assertThat(missingFields(parameters))
+        // when
+        Map<SignatureParameterGroup, List<String>> missing = missingFields(parameters);
+
+        // then
+        assertThat(missing)
                 .containsExactly(entry(VISIBLE_SIGNATURE_PLACEMENT, List.of("visibleSignature.placement")),
                         entry(VISIBLE_SIGNATURE_CONTENT, List.of("visibleSignature.text or visibleSignature.image")));
     }

@@ -12,6 +12,7 @@ import com.otilm.core.util.builders.PadesVisibleSignaturePlacementDtoBuilder;
 import jakarta.validation.Validation;
 import jakarta.validation.ValidatorFactory;
 import java.util.Set;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +22,6 @@ import static com.otilm.core.util.builders.PadesVisibleSignaturePlacementDtoBuil
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
 
 class SignatureParameterResolverTest {
 
@@ -60,8 +60,11 @@ class SignatureParameterResolverTest {
                 .withReason("Contract approval")
                 .build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(requested, profile(Set.of(), null)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver.effectiveParameters(requested, profile(Set.of(), null));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("signer_identity")
                 .hasMessageContaining("signerName")
@@ -78,9 +81,12 @@ class SignatureParameterResolverTest {
                 .withCommitmentType(CommitmentType.PROOF_OF_APPROVAL)
                 .build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver
-                .effectiveParameters(requested, profile(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT), null)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
+                .effectiveParameters(requested, profile(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT), null));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("signer_identity")
                 .hasMessageContaining("signed_attributes")
@@ -95,8 +101,12 @@ class SignatureParameterResolverTest {
         PadesSignatureParametersDto defaults = aPadesParameters().withSignerName(signerName).build();
         PadesSignatureParametersDto requested = aPadesParameters().withSignerName(signerName).build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(requested, profile(Set.of(), defaults)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
+                .effectiveParameters(requested, profile(Set.of(), defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("signer_identity");
     }
@@ -107,10 +117,11 @@ class SignatureParameterResolverTest {
         // given
         PadesSignatureParametersDto defaults = aPadesParameters().withReason("x".repeat(513)).build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(null, profile(Set.of(), defaults)))
-                .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("reason");
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver.effectiveParameters(null, profile(Set.of(), defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters).isInstanceOf(ValidationException.class).hasMessageContaining("reason");
     }
 
     @Test
@@ -122,8 +133,11 @@ class SignatureParameterResolverTest {
                         .withPlacement(aPlacement().withOriginX(20f).withOriginY(30f).withWidth(180f).withHeight(60f)))
                 .build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(null, profile(Set.of(), defaults)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver.effectiveParameters(null, profile(Set.of(), defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.placement.page");
     }
@@ -142,8 +156,11 @@ class SignatureParameterResolverTest {
                                 .withHeight(60f)))
                 .build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(null, profile(Set.of(), defaults)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver.effectiveParameters(null, profile(Set.of(), defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.text or visibleSignature.image");
     }
@@ -162,8 +179,12 @@ class SignatureParameterResolverTest {
                         aVisibleSignature().withText("Signed by Jane Doe").withPlacement(aPlacement().withPage(2)))
                 .build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(requested, profile(contentAndPlacement, defaults)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
+                .effectiveParameters(requested, profile(contentAndPlacement, defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.visible unset")
                 .hasMessageContaining("visibleSignature.text")
@@ -213,13 +234,13 @@ class SignatureParameterResolverTest {
                 .build();
 
         // when
-        Throwable overUndrawn = catchThrowable(
-                () -> resolver.effectiveParameters(requested, profile(Set.of(), undrawn)));
-        Throwable overNoDefaults = catchThrowable(
-                () -> resolver.effectiveParameters(requested, profile(Set.of(), null)));
+        ThrowingCallable overUndrawn = () -> resolver.effectiveParameters(requested, profile(Set.of(), undrawn));
+        ThrowingCallable overNoDefaults = () -> resolver.effectiveParameters(requested, profile(Set.of(), null));
 
         // then
-        assertThat(overUndrawn).isInstanceOf(ValidationException.class).hasMessage(overNoDefaults.getMessage());
+        assertThatThrownBy(overUndrawn)
+                .isInstanceOf(ValidationException.class)
+                .satisfies(refusal -> assertThatThrownBy(overNoDefaults).hasMessage(refusal.getMessage()));
     }
 
     /**
@@ -232,10 +253,13 @@ class SignatureParameterResolverTest {
         PadesSignatureParametersDto requested = placedBy(
                 aPlacement().withPage(1).withOriginX(20f).withOriginY(30f).withZoom(100f));
 
-        // when / then
-        assertThatThrownBy(() -> resolver
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
                 .effectiveParameters(requested,
-                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT), null)))
+                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT), null));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.placement")
                 .hasMessageContaining("one addressing mode only");
@@ -249,8 +273,11 @@ class SignatureParameterResolverTest {
                 .withVisibleSignature(aVisibleSignature().withImage(new byte[]{1, 2, 3, 4}))
                 .build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(null, profile(Set.of(), defaults)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver.effectiveParameters(null, profile(Set.of(), defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.imageMimeType")
                 .hasMessageContaining("must be supplied together");
@@ -263,10 +290,13 @@ class SignatureParameterResolverTest {
         PadesSignatureParametersDto profileDefaults = placedBy(aPlacement().withFieldId("Signature1"));
         PadesSignatureParametersDto requested = placedBy(aPlacement().withPage(2));
 
-        // when / then
-        assertThatThrownBy(() -> resolver
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
                 .effectiveParameters(requested,
-                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT), profileDefaults)))
+                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT), profileDefaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.placement.originX")
                 .hasMessageContaining("visibleSignature.placement.height");
@@ -278,10 +308,13 @@ class SignatureParameterResolverTest {
         // given
         PadesSignatureParametersDto requested = placedBy(aPlacement().withFieldId("Signature1").withPage(2));
 
-        // when / then
-        assertThatThrownBy(() -> resolver
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
                 .effectiveParameters(requested,
-                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT), null)))
+                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_PLACEMENT), null));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.placement.fieldId")
                 .hasMessageContaining("one addressing mode only");
@@ -291,8 +324,11 @@ class SignatureParameterResolverTest {
     void returnsNothing_whenThereAreNoDefaultsAndNoRequest() {
         // given — a profile carrying no defaults, and no request
 
-        // when / then
-        assertThat(resolver.effectiveParameters(null, profile(Set.of(), null))).isNull();
+        // when
+        SignatureParametersDto effective = resolver.effectiveParameters(null, profile(Set.of(), null));
+
+        // then
+        assertThat(effective).isNull();
     }
 
     @Test
@@ -300,8 +336,11 @@ class SignatureParameterResolverTest {
         // given — an envelope carrying only the discriminator, on a profile that allows nothing
         PadesSignatureParametersDto requested = aPadesParameters().build();
 
-        // when / then
-        assertThat(resolver.effectiveParameters(requested, profile(Set.of(), null))).isNull();
+        // when
+        SignatureParametersDto effective = resolver.effectiveParameters(requested, profile(Set.of(), null));
+
+        // then
+        assertThat(effective).isNull();
     }
 
     @Test
@@ -309,8 +348,11 @@ class SignatureParameterResolverTest {
         // given
         PadesSignatureParametersDto requested = aPadesParameters().withReason("Contract approval").build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(requested, profile(null, null)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver.effectiveParameters(requested, profile(null, null));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("signature_context");
     }
@@ -320,9 +362,12 @@ class SignatureParameterResolverTest {
         // given
         PadesSignatureParametersDto requested = aPadesParameters().withReason("Contract approval").build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver
-                .effectiveParameters(requested, aResolvedContentSigningProfile().withParameterPolicy(null).build()))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
+                .effectiveParameters(requested, aResolvedContentSigningProfile().withParameterPolicy(null).build());
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("signature_context");
     }
@@ -333,9 +378,12 @@ class SignatureParameterResolverTest {
         PadesSignatureParametersDto defaults = aPadesParameters().withClaimedRoles("Head of Legal").build();
         PadesSignatureParametersDto requested = aPadesParameters().withClaimedRoles("Auditor", null).build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver
-                .effectiveParameters(requested, profile(Set.of(SignatureParameterGroup.SIGNED_ATTRIBUTES), defaults)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
+                .effectiveParameters(requested, profile(Set.of(SignatureParameterGroup.SIGNED_ATTRIBUTES), defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("claimedRoles");
     }
@@ -347,9 +395,12 @@ class SignatureParameterResolverTest {
         PadesSignatureParametersDto defaults = aPadesParameters().withClaimedRoles("Head of Legal").build();
         PadesSignatureParametersDto requested = aPadesParameters().withClaimedRoles().build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver
-                .effectiveParameters(requested, profile(Set.of(SignatureParameterGroup.SIGNED_ATTRIBUTES), defaults)))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
+                .effectiveParameters(requested, profile(Set.of(SignatureParameterGroup.SIGNED_ATTRIBUTES), defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("claimedRoles");
     }
@@ -358,16 +409,20 @@ class SignatureParameterResolverTest {
     void refusesEmptyImage_whenTheRequestSendsOne() {
         // given
         PadesSignatureParametersDto defaults = aPadesParameters()
-                .withVisibleSignature(aVisibleSignature().withImage(new byte[]{1, 2, 3, 4}, "image/png"))
+                .withVisibleSignature(
+                        aVisibleSignature().withImage(new byte[]{1, 2, 3, 4}).withImageMimeType("image/png"))
                 .build();
         PadesSignatureParametersDto requested = aPadesParameters()
-                .withVisibleSignature(aVisibleSignature().withImage(new byte[0], "image/png"))
+                .withVisibleSignature(aVisibleSignature().withImage(new byte[0]).withImageMimeType("image/png"))
                 .build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
                 .effectiveParameters(requested,
-                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT), defaults)))
+                        profile(Set.of(SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT), defaults));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("visibleSignature.image: image must be between 1 and");
     }
@@ -378,9 +433,12 @@ class SignatureParameterResolverTest {
         // given — an XAdES profile allowing SIGNATURE_CONTEXT, and a PAdES request
         PadesSignatureParametersDto requested = aPadesParameters().withReason("Contract approval").build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver
-                .effectiveParameters(requested, xadesProfile(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT))))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver
+                .effectiveParameters(requested, xadesProfile(Set.of(SignatureParameterGroup.SIGNATURE_CONTEXT)));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("PADES")
                 .hasMessageContaining("XADES");
@@ -392,8 +450,11 @@ class SignatureParameterResolverTest {
         // given — a request touching a group the profile denies, on the wrong family
         PadesSignatureParametersDto requested = aPadesParameters().withSignerName("Jane Doe").build();
 
-        // when / then
-        assertThatThrownBy(() -> resolver.effectiveParameters(requested, xadesProfile(Set.of())))
+        // when
+        ThrowingCallable effectiveParameters = () -> resolver.effectiveParameters(requested, xadesProfile(Set.of()));
+
+        // then
+        assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("signer_identity")
                 .hasMessageContaining("XADES");

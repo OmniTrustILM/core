@@ -96,7 +96,7 @@ class SignatureParametersJsonColumnRoundTripTest {
     void travelsTheStampImageAsBase64() throws Exception {
         // given
         PadesSignatureParametersDto original = aPadesParameters()
-                .withVisibleSignature(aVisibleSignature().withImage(STAMP, "image/png"))
+                .withVisibleSignature(aVisibleSignature().withImage(STAMP).withImageMimeType("image/png"))
                 .build();
 
         // when
@@ -147,7 +147,8 @@ class SignatureParametersJsonColumnRoundTripTest {
                 .withVisibleSignature(aVisibleSignature()
                         .withVisible(true)
                         .withText("Signed by Jane Doe")
-                        .withImage(STAMP, "image/png")
+                        .withImage(STAMP)
+                        .withImageMimeType("image/png")
                         .withPlacement(aPlacement()
                                 .withPage(1)
                                 .withOriginX(20f)

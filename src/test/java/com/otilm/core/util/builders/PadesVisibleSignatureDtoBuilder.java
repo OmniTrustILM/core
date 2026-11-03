@@ -35,13 +35,6 @@ public final class PadesVisibleSignatureDtoBuilder {
         return this;
     }
 
-    /** The image and the media type that decodes it travel together, and the merge rules keep them one unit. */
-    public PadesVisibleSignatureDtoBuilder withImage(byte[] image, String imageMimeType) {
-        this.image = image;
-        this.imageMimeType = imageMimeType;
-        return this;
-    }
-
     public PadesVisibleSignatureDtoBuilder withImageMimeType(String imageMimeType) {
         this.imageMimeType = imageMimeType;
         return this;

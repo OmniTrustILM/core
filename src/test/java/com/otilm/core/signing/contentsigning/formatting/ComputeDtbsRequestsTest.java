@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -25,7 +26,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 class ComputeDtbsRequestsTest {
 
@@ -63,14 +63,16 @@ class ComputeDtbsRequestsTest {
         // given — a document offered as a digest alone
 
         // when
-        SigningEngineException refusal = catchThrowableOfType(SigningEngineException.class,
-                () -> ComputeDtbsRequests.forFamily(SignatureFamily.PADES, null, digestOnlyTransfer()));
+        ThrowingCallable forFamily = () -> ComputeDtbsRequests
+                .forFamily(SignatureFamily.PADES, null, digestOnlyTransfer());
 
         // then
-        assertThat(refusal).isNotNull();
-        assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-        assertThat(refusal.operatorMessage()).contains("digest-only document transfer");
-        assertThat(refusal.clientMessage()).contains("a digest alone cannot be signed into a PDF");
+        assertThatThrownBy(forFamily).isInstanceOf(SigningEngineException.class).satisfies(e -> {
+            SigningEngineException refusal = (SigningEngineException) e;
+            assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            assertThat(refusal.operatorMessage()).contains("digest-only document transfer");
+            assertThat(refusal.clientMessage()).contains("a digest alone cannot be signed into a PDF");
+        });
     }
 
     @ParameterizedTest
@@ -92,8 +94,11 @@ class ComputeDtbsRequestsTest {
         // given
         PadesSignatureParametersDto effective = aPadesParameters().withReason("Contract approval").build();
 
-        // when / then
-        assertThatThrownBy(() -> ComputeDtbsRequests.forFamily(family, effective, inlineTransfer()))
+        // when
+        ThrowingCallable forFamily = () -> ComputeDtbsRequests.forFamily(family, effective, inlineTransfer());
+
+        // then
+        assertThatThrownBy(forFamily)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("has no field for");
     }

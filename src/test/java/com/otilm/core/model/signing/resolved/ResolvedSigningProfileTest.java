@@ -73,12 +73,15 @@ class ResolvedSigningProfileTest {
 
     @Test
     void contentSigningProfileReportsItsWorkflowType() {
-        // given / when
+        // given
         ResolvedManagedContentSigningProfile profile = new ResolvedManagedContentSigningProfile(UUID.randomUUID(),
                 "docs", null, 3, true, List.of(), List.of(), null, null, null, null,
                 CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL, null, null);
 
+        // when
+        SigningWorkflowType workflowType = profile.workflowType();
+
         // then
-        assertThat(profile.workflowType()).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
+        assertThat(workflowType).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
     }
 }

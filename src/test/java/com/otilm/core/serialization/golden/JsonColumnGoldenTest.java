@@ -146,7 +146,8 @@ class JsonColumnGoldenTest {
                 .withVisibleSignature(aVisibleSignature()
                         .withVisible(true)
                         .withText("Signed by Jane Doe")
-                        .withImage(new byte[]{(byte) 0x89, 'P', 'N', 'G'}, "image/png")
+                        .withImage(new byte[]{(byte) 0x89, 'P', 'N', 'G'})
+                        .withImageMimeType("image/png")
                         .withPlacement(aPlacement()
                                 .withPage(3)
                                 .withOriginX(20f)
@@ -166,8 +167,12 @@ class JsonColumnGoldenTest {
                                 .withDpi(300)))
                 .build();
 
-        // when / then
-        assertColumnGoldenAndRoundTrip("column-signature-parameters", parameters, SignatureParametersDto.class);
+        // when
+        String serialized = column(parameters, SignatureParametersDto.class);
+        String reloaded = reloaded(serialized, SignatureParametersDto.class);
+
+        // then
+        assertGoldenAndRoundTrip("column-signature-parameters", serialized, reloaded, SignatureParametersDto.class);
     }
 
     /**
@@ -400,12 +405,22 @@ class JsonColumnGoldenTest {
     /** Compares a column payload against its golden and requires it to survive a load-and-save cycle. */
     private void assertColumnGoldenAndRoundTrip(String goldenName, Object value, Type declaredType) {
         String serialized = column(value, declaredType);
+        assertGoldenAndRoundTrip(goldenName, serialized, reloaded(serialized, declaredType), declaredType);
+    }
+
+    private static void assertGoldenAndRoundTrip(String goldenName, String serialized, String reloaded,
+            Type declaredType) {
         GoldenJson.assertCanonicalizedJsonMatchesGolden(goldenName, serialized);
 
-        assertThat(GoldenJson.canonicalize(column(columnMapper.fromString(serialized, declaredType), declaredType)))
+        assertThat(GoldenJson.canonicalize(reloaded))
                 .describedAs("round-tripping column golden '%s.json' as %s changed its JSON shape, so a stored row "
                         + "would mutate on every load-and-save", goldenName, declaredType.getTypeName())
                 .isEqualTo(GoldenJson.canonicalize(serialized));
+    }
+
+    /** Loads a column payload and saves it again, as every load-and-save of a stored row does. */
+    private String reloaded(String serialized, Type declaredType) {
+        return column(columnMapper.fromString(serialized, declaredType), declaredType);
     }
 
     /**

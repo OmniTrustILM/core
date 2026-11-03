@@ -86,7 +86,6 @@ import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aToken
 import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenProfileRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
  * End-to-end test of a managed content-signing run over a real Spring context and Postgres.
@@ -222,6 +221,304 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
         if (contentSigningFormattingMock != null) {
             contentSigningFormattingMock.stop();
+        }
+    }
+
+    // ── SignatureLevels ───────────────────────────────────────────────────────
+
+    @Nested
+    class SignatureLevels {
+
+        @ParameterizedTest
+        @EnumSource(SignatureFamily.class)
+        void signsToTimestampedLevel_andTracesToItsTimestampRecord(SignatureFamily family) throws Exception {
+            // given: a profile of this family whose ceiling is TIMESTAMPED, pointing at an ILM-managed TSA profile
+            SigningProfileDto tsaProfile = createTimestampingProfile("timestamped-run-tsa");
+            SigningProfileDto contentProfile = createContentSigningProfile(profileName("timestamped-run", family),
+                    family, SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
+            byte[] document = "a document to sign".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            SignedContent signed = engine
+                    .sign(signingRequest(SignatureLevel.TIMESTAMPED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then: the document came back timestamped, with a serial that names a real timestamp record
+            assertThat(signed.level()).isEqualTo(SignatureLevel.TIMESTAMPED);
+            assertThat(documentText(signed)).isEqualTo("timestamped-document");
+            assertThat(signed.timestampSerials()).hasSize(1);
+            String serialHex = signed.timestampSerials().getFirst().toString(16);
+            assertThat(recordsFor(tsaProfile.getName()))
+                    .anySatisfy(signingRecord -> assertThat(signingRecord.getName()).contains(serialHex));
+
+            // and: the join key survives whatever the record-policy toggles are set to
+            assertThat(recordEntitiesFor(contentProfile))
+                    .singleElement()
+                    .satisfies(signingRecord -> assertThat(signingRecord.getTimestampTokenSerialNumbers())
+                            .containsExactly(serialHex));
+            assertThat(recordEntitiesFor(tsaProfile))
+                    .anySatisfy(signingRecord -> assertThat(signingRecord.getTimestampTokenSerialNumbers())
+                            .containsExactly(serialHex));
+        }
+
+        @ParameterizedTest
+        @EnumSource(SignatureFamily.class)
+        void signsToSignedLevel_andLeavesARecord(SignatureFamily family) throws Exception {
+            // given: a profile of this family whose ceiling is SIGNED, which names no timestamp source
+            SigningProfileDto contentProfile = createContentSigningProfile(profileName("signed-run", family), family,
+                    SignatureLevel.SIGNED, null);
+            byte[] document = "a baseline document".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            SignedContent signed = engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then: the run stopped at SIGNED, embedded no timestamp, and still left its record
+            assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
+            assertThat(documentText(signed)).isEqualTo("signed-document");
+            assertThat(signed.timestampSerials()).isEmpty();
+            assertThat(recordsFor(contentProfile.getName())).hasSize(1);
+        }
+
+        @Test
+        void refusesTheRun_whenTheLevelIsAboveTheProfileCeiling() throws Exception {
+            // given: a profile whose ceiling is SIGNED
+            SigningProfileDto contentProfile = createContentSigningProfile("ceiling-pades", SignatureFamily.PADES,
+                    SignatureLevel.SIGNED, null);
+            byte[] document = "a document asked to be timestamped".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(signingRequest(SignatureLevel.TIMESTAMPED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then: the ceiling is checked before anything is asked of the connector
+            assertThatThrownBy(sign)
+                    .isInstanceOf(SigningEngineException.class)
+                    .hasMessageContaining("exceeds the maximum this Signing Profile permits")
+                    .satisfies(failure -> assertThat(((SigningEngineException) failure).failure())
+                            .isEqualTo(SigningEngineFailure.INVALID_INPUT));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+            assertThat(recordsFor(contentProfile.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesTheProfileSave_whenTheConnectorDoesNotReachTheRequestedCeiling() throws Exception {
+            // given: a connector advertising content signing but no rung above SIGNED
+            SigningProfileDto tsaProfile = createTimestampingProfile("unreachable-ceiling-tsa");
+            ContentSigningFormattingMock baselineOnlyMock = connectorMockFactory
+                    .startContentSigningFormatting()
+                    .stubPerOperationFormattingAttributes();
+            try {
+                ConnectorDetailDto baselineOnlyConnector = connectorService
+                        .createConnector(aV2ConnectorRequest()
+                                .withName("content-signing-formatting-baseline-only")
+                                .withUrl(baselineOnlyMock.getUrl())
+                                .build());
+
+                SigningProfileRequestDto request = aSigningProfileRequest()
+                        .withName("unreachable-ceiling-pades")
+                        .withStaticKeyManagedSigning(signingCertificate.getUuid())
+                        .withContentSigning(aContentSigningWorkflow()
+                                .withSignatureFormattingConnector(UUID.fromString(baselineOnlyConnector.getUuid()))
+                                .withFamily(SignatureFamily.PADES)
+                                .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                                .withInternalTimestampSource(UUID.fromString(tsaProfile.getUuid()))
+                                .build())
+                        .withRecordPolicy(recordingEverything())
+                        .build();
+
+                // when
+                ThrowingCallable createSigningProfile = () -> signingProfileService.createSigningProfile(request);
+
+                // then: a TIMESTAMPED ceiling is refused at save, not at signing time
+                assertThatThrownBy(createSigningProfile)
+                        .isInstanceOf(ValidationException.class)
+                        .hasMessageContaining("does not reach level TIMESTAMPED");
+            } finally {
+                baselineOnlyMock.stop();
+            }
+        }
+    }
+
+    // ── SignerAlgorithm ───────────────────────────────────────────────────────
+
+    @Nested
+    class SignerAlgorithm {
+
+        /** The unit test mocks the algorithm; here a real key and a real cryptographic provider resolve it. */
+        @Test
+        void tellsTheConnectorTheResolvedSignersAlgorithm_onBothHalvesOfThePair() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("algorithm-pades", SignatureFamily.PADES,
+                    SignatureLevel.SIGNED, null);
+            byte[] document = "a document signed with a resolved algorithm".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then
+            List<String> computed = contentSigningFormattingMock
+                    .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS);
+            List<String> embedded = contentSigningFormattingMock
+                    .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE);
+            assertThat(computed).containsExactly(SignatureAlgorithm.SHA256_WITH_RSA.getCode());
+            assertThat(embedded).isEqualTo(computed);
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("postQuantumKeys")
+        void tellsTheConnectorThePostQuantumParameterSet_ofTheResolvedSigner(PostQuantumKey postQuantumKey)
+                throws Exception {
+            // given: a profile over a key of this parameter set, authorized under the digest the row pins
+            SigningProfileDto contentProfile = createPostQuantumContentSigningProfile(postQuantumKey);
+            byte[] document = "a document signed with a post-quantum key".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document, postQuantumKey.expectedDigest()),
+                            modelOf(contentProfile), resolvedContentSigningProfile(contentProfile),
+                            SigningProtocol.CSC_API);
+
+            // then
+            List<String> computed = contentSigningFormattingMock
+                    .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS);
+            List<String> embedded = contentSigningFormattingMock
+                    .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE);
+            assertThat(computed).containsExactly(postQuantumKey.signatureAlgorithm().getCode());
+            assertThat(embedded).isEqualTo(computed);
+        }
+
+        static Stream<Named<PostQuantumKey>> postQuantumKeys() {
+            return POST_QUANTUM_KEYS.stream().map(key -> Named.of(key.signatureAlgorithm().getCode(), key));
+        }
+    }
+
+    // ── DigestBinding ─────────────────────────────────────────────────────────
+
+    @Nested
+    class DigestBinding {
+
+        @Test
+        void refusesToSign_whenTheConnectorEchoesADigestOfAnotherDocument() throws Exception {
+            // given: the connector commits to content other than the document that was authorized
+            SigningProfileDto contentProfile = createContentSigningProfile("foreign-echo-pades", SignatureFamily.PADES,
+                    SignatureLevel.SIGNED, null);
+            contentSigningFormattingMock.stubComputeDtbsEchoingForeignDigest();
+            byte[] document = "the authorized document".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then: the key was never released, so nothing was signed and nothing was recorded
+            assertThatThrownBy(sign)
+                    .isInstanceOf(SigningEngineException.class)
+                    .satisfies(failure -> assertThat(((SigningEngineException) failure).failure())
+                            .isEqualTo(SigningEngineFailure.BINDING_VIOLATION));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+            assertThat(recordsFor(contentProfile.getName())).isEmpty();
+        }
+    }
+
+    // ── SignatureParameters ───────────────────────────────────────────────────
+
+    @Nested
+    class SignatureParameters {
+
+        /** The whole parameter edge over a real context: the persisted allow-list and defaults reach the connector. */
+        @Test
+        void sendsTheRequestParameters_mergedOverThePersistedDefaults() throws Exception {
+            // given: a profile allowing the signature context, whose saved defaults name the location
+            var defaultLocation = "Prague";
+            var requestedReason = "Contract approval";
+            var defaults = aPadesParameters().withLocation(defaultLocation).build();
+            SigningProfileDto contentProfile = createPadesProfileWithParameters("parameters-pades", defaults,
+                    SignatureParameterGroup.SIGNATURE_CONTEXT);
+            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
+            var requested = aPadesParameters().withReason(requestedReason).build();
+            byte[] document = "a document signed with parameters".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            SignatureParametersDto effective = parameterResolver.effectiveParameters(requested, resolved);
+            engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document, effective), modelOf(contentProfile), resolved,
+                            SigningProtocol.CSC_API);
+
+            // then: the request won its own field and the profile supplied the one it left out
+            assertThat(contentSigningFormattingMock
+                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS))
+                    .singleElement()
+                    .satisfies(parameters -> {
+                        assertThat(parameters.path("reason").asText()).isEqualTo(requestedReason);
+                        assertThat(parameters.path("location").asText()).isEqualTo(defaultLocation);
+                        assertThat(parameters.path("family").asText()).isEqualTo(SignatureFamily.Codes.PADES);
+                    });
+        }
+
+        @Test
+        void refusesTheRun_whenTheSavedProfileDoesNotAllowTheRequestParameter() throws Exception {
+            // given: a profile allowing nothing at all
+            SigningProfileDto contentProfile = createPadesProfileWithParameters("no-parameters-pades", null);
+            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
+            var requested = aPadesParameters().withSignerName("Jane Doe").build();
+            byte[] document = "a document nobody may name a signer for".getBytes(StandardCharsets.UTF_8);
+
+            // when: resolve and then sign, as the protocol entry points do
+            ThrowingCallable resolveAndSign = () -> engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document,
+                            parameterResolver.effectiveParameters(requested, resolved)), modelOf(contentProfile),
+                            resolved, SigningProtocol.CSC_API);
+
+            // then: it stops at the refusal, and the run the resolver guards never happened
+            assertThatThrownBy(resolveAndSign)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signer_identity")
+                    .hasMessageContaining("signerName");
+            assertThat(contentSigningFormattingMock
+                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS)).isEmpty();
+            cryptographyProviderMock.verifyNoDataWasSigned();
+            assertThat(recordsFor(contentProfile.getName())).isEmpty();
+        }
+
+        /**
+         * An absent container is the only "no stamp" signal the connector reads, so an emptied one would still ask for
+         * a stamp. The dispatched JSON carries absence as an explicit {@code null}, which every deserializer reads as
+         * no container.
+         */
+        @Test
+        void sendsNoVisibleSignatureContainer_whenTheEffectiveSignatureIsNotDrawn() throws Exception {
+            // given: a profile whose saved default carries a stamp it explicitly does not draw
+            var defaultLocation = "Prague";
+            var defaults = aPadesParameters()
+                    .withLocation(defaultLocation)
+                    .withVisibleSignature(aVisibleSignature().withVisible(false).withText("Signed by Operator"))
+                    .build();
+            SigningProfileDto contentProfile = createPadesProfileWithParameters("invisible-pades", defaults);
+            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
+            byte[] document = "a document signed without a stamp".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            SignatureParametersDto effective = parameterResolver.effectiveParameters(null, resolved);
+            engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document, effective), modelOf(contentProfile), resolved,
+                            SigningProtocol.CSC_API);
+
+            // then: the container is gone, not emptied, and the rest of the effective object still travelled
+            assertThat(contentSigningFormattingMock
+                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS))
+                    .singleElement()
+                    .satisfies(parameters -> {
+                        assertThat(parameters.hasNonNull("visibleSignature"))
+                                .as("the connector was sent a visible-signature container: %s",
+                                        parameters.path("visibleSignature"))
+                                .isFalse();
+                        assertThat(parameters.path("location").asText()).isEqualTo(defaultLocation);
+                    });
         }
     }
 
@@ -379,296 +676,5 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                 .stream()
                 .filter(signingRecord -> signingProfileName.equals(signingRecord.getSigningProfile().getName()))
                 .toList();
-    }
-
-    // ── SignatureLevels ───────────────────────────────────────────────────────
-
-    @Nested
-    class SignatureLevels {
-
-        @ParameterizedTest
-        @EnumSource(SignatureFamily.class)
-        void signsToTimestampedLevel_andTracesToItsTimestampRecord(SignatureFamily family) throws Exception {
-            // given: a profile of this family whose ceiling is TIMESTAMPED, pointing at an ILM-managed TSA profile
-            SigningProfileDto tsaProfile = createTimestampingProfile("timestamped-run-tsa");
-            SigningProfileDto contentProfile = createContentSigningProfile(profileName("timestamped-run", family),
-                    family, SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
-            byte[] document = "a document to sign".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            SignedContent signed = engine
-                    .sign(signingRequest(SignatureLevel.TIMESTAMPED, document), modelOf(contentProfile),
-                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
-
-            // then: the document came back timestamped, with a serial that names a real timestamp record
-            assertThat(signed.level()).isEqualTo(SignatureLevel.TIMESTAMPED);
-            assertThat(documentText(signed)).isEqualTo("timestamped-document");
-            assertThat(signed.timestampSerials()).hasSize(1);
-            String serialHex = signed.timestampSerials().getFirst().toString(16);
-            assertThat(recordsFor(tsaProfile.getName()))
-                    .anySatisfy(signingRecord -> assertThat(signingRecord.getName()).contains(serialHex));
-
-            // and: the join key survives whatever the record-policy toggles are set to
-            assertThat(recordEntitiesFor(contentProfile))
-                    .singleElement()
-                    .satisfies(signingRecord -> assertThat(signingRecord.getTimestampTokenSerialNumbers())
-                            .containsExactly(serialHex));
-            assertThat(recordEntitiesFor(tsaProfile))
-                    .anySatisfy(signingRecord -> assertThat(signingRecord.getTimestampTokenSerialNumbers())
-                            .containsExactly(serialHex));
-        }
-
-        @ParameterizedTest
-        @EnumSource(SignatureFamily.class)
-        void signsToSignedLevel_andLeavesARecord(SignatureFamily family) throws Exception {
-            // given: a profile of this family whose ceiling is SIGNED, which names no timestamp source
-            SigningProfileDto contentProfile = createContentSigningProfile(profileName("signed-run", family), family,
-                    SignatureLevel.SIGNED, null);
-            byte[] document = "a baseline document".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            SignedContent signed = engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
-                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
-
-            // then: the run stopped at SIGNED, embedded no timestamp, and still left its record
-            assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
-            assertThat(documentText(signed)).isEqualTo("signed-document");
-            assertThat(signed.timestampSerials()).isEmpty();
-            assertThat(recordsFor(contentProfile.getName())).hasSize(1);
-        }
-
-        @Test
-        void refusesTheRun_whenTheLevelIsAboveTheProfileCeiling() throws Exception {
-            // given: a profile whose ceiling is SIGNED
-            SigningProfileDto contentProfile = createContentSigningProfile("ceiling-pades", SignatureFamily.PADES,
-                    SignatureLevel.SIGNED, null);
-            byte[] document = "a document asked to be timestamped".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            SigningEngineException failure = catchThrowableOfType(SigningEngineException.class,
-                    () -> engine
-                            .sign(signingRequest(SignatureLevel.TIMESTAMPED, document), modelOf(contentProfile),
-                                    resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API));
-
-            // then: the ceiling is checked before anything is asked of the connector
-            assertThat(failure.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-            assertThat(failure).hasMessageContaining("exceeds the maximum this Signing Profile permits");
-            cryptographyProviderMock.verifyNoDataWasSigned();
-            assertThat(recordsFor(contentProfile.getName())).isEmpty();
-        }
-
-        @Test
-        void refusesTheProfileSave_whenTheConnectorDoesNotReachTheRequestedCeiling() throws Exception {
-            // given: a connector advertising content signing but no rung above SIGNED
-            SigningProfileDto tsaProfile = createTimestampingProfile("unreachable-ceiling-tsa");
-            ContentSigningFormattingMock baselineOnlyMock = connectorMockFactory
-                    .startContentSigningFormatting()
-                    .stubPerOperationFormattingAttributes();
-            try {
-                ConnectorDetailDto baselineOnlyConnector = connectorService
-                        .createConnector(aV2ConnectorRequest()
-                                .withName("content-signing-formatting-baseline-only")
-                                .withUrl(baselineOnlyMock.getUrl())
-                                .build());
-
-                SigningProfileRequestDto request = aSigningProfileRequest()
-                        .withName("unreachable-ceiling-pades")
-                        .withStaticKeyManagedSigning(signingCertificate.getUuid())
-                        .withContentSigning(aContentSigningWorkflow()
-                                .withSignatureFormattingConnector(UUID.fromString(baselineOnlyConnector.getUuid()))
-                                .withFamily(SignatureFamily.PADES)
-                                .withMaxLevel(SignatureLevel.TIMESTAMPED)
-                                .withInternalTimestampSource(UUID.fromString(tsaProfile.getUuid()))
-                                .build())
-                        .withRecordPolicy(recordingEverything())
-                        .build();
-
-                // when / then: a TIMESTAMPED ceiling is refused at save, not at signing time
-                assertThatThrownBy(() -> signingProfileService.createSigningProfile(request))
-                        .isInstanceOf(ValidationException.class)
-                        .hasMessageContaining("does not reach level TIMESTAMPED");
-            } finally {
-                baselineOnlyMock.stop();
-            }
-        }
-    }
-
-    // ── SignerAlgorithm ───────────────────────────────────────────────────────
-
-    @Nested
-    class SignerAlgorithm {
-
-        /** The unit test mocks the algorithm; here a real key and a real cryptographic provider resolve it. */
-        @Test
-        void tellsTheConnectorTheResolvedSignersAlgorithm_onBothHalvesOfThePair() throws Exception {
-            // given
-            SigningProfileDto contentProfile = createContentSigningProfile("algorithm-pades", SignatureFamily.PADES,
-                    SignatureLevel.SIGNED, null);
-            byte[] document = "a document signed with a resolved algorithm".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
-                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
-
-            // then
-            List<String> computed = contentSigningFormattingMock
-                    .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS);
-            List<String> embedded = contentSigningFormattingMock
-                    .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE);
-            assertThat(computed).containsExactly(SignatureAlgorithm.SHA256_WITH_RSA.getCode());
-            assertThat(embedded).isEqualTo(computed);
-        }
-
-        @ParameterizedTest(name = "{0}")
-        @MethodSource("postQuantumKeys")
-        void tellsTheConnectorThePostQuantumParameterSet_ofTheResolvedSigner(PostQuantumKey postQuantumKey)
-                throws Exception {
-            // given: a profile over a key of this parameter set, authorized under the digest the row pins
-            SigningProfileDto contentProfile = createPostQuantumContentSigningProfile(postQuantumKey);
-            byte[] document = "a document signed with a post-quantum key".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document, postQuantumKey.expectedDigest()),
-                            modelOf(contentProfile), resolvedContentSigningProfile(contentProfile),
-                            SigningProtocol.CSC_API);
-
-            // then
-            List<String> computed = contentSigningFormattingMock
-                    .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS);
-            List<String> embedded = contentSigningFormattingMock
-                    .signatureAlgorithmsReceivedBy(ContentSigningFormattingOperation.EMBED_SIGNATURE_VALUE);
-            assertThat(computed).containsExactly(postQuantumKey.signatureAlgorithm().getCode());
-            assertThat(embedded).isEqualTo(computed);
-        }
-
-        static Stream<Named<PostQuantumKey>> postQuantumKeys() {
-            return POST_QUANTUM_KEYS.stream().map(key -> Named.of(key.signatureAlgorithm().getCode(), key));
-        }
-    }
-
-    // ── DigestBinding ─────────────────────────────────────────────────────────
-
-    @Nested
-    class DigestBinding {
-
-        @Test
-        void refusesToSign_whenTheConnectorEchoesADigestOfAnotherDocument() throws Exception {
-            // given: the connector commits to content other than the document that was authorized
-            SigningProfileDto contentProfile = createContentSigningProfile("foreign-echo-pades", SignatureFamily.PADES,
-                    SignatureLevel.SIGNED, null);
-            contentSigningFormattingMock.stubComputeDtbsEchoingForeignDigest();
-            byte[] document = "the authorized document".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            SigningEngineException failure = catchThrowableOfType(SigningEngineException.class,
-                    () -> engine
-                            .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
-                                    resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API));
-
-            // then: the key was never released, so nothing was signed and nothing was recorded
-            assertThat(failure.failure()).isEqualTo(SigningEngineFailure.BINDING_VIOLATION);
-            cryptographyProviderMock.verifyNoDataWasSigned();
-            assertThat(recordsFor(contentProfile.getName())).isEmpty();
-        }
-    }
-
-    // ── SignatureParameters ───────────────────────────────────────────────────
-
-    @Nested
-    class SignatureParameters {
-
-        /** The whole parameter edge over a real context: the persisted allow-list and defaults reach the connector. */
-        @Test
-        void sendsTheRequestParameters_mergedOverThePersistedDefaults() throws Exception {
-            // given: a profile allowing the signature context, whose saved defaults name the location
-            var defaultLocation = "Prague";
-            var requestedReason = "Contract approval";
-            var defaults = aPadesParameters().withLocation(defaultLocation).build();
-            SigningProfileDto contentProfile = createPadesProfileWithParameters("parameters-pades", defaults,
-                    SignatureParameterGroup.SIGNATURE_CONTEXT);
-            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
-            var requested = aPadesParameters().withReason(requestedReason).build();
-            byte[] document = "a document signed with parameters".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            SignatureParametersDto effective = parameterResolver.effectiveParameters(requested, resolved);
-            engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document, effective), modelOf(contentProfile), resolved,
-                            SigningProtocol.CSC_API);
-
-            // then: the request won its own field and the profile supplied the one it left out
-            assertThat(contentSigningFormattingMock
-                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .singleElement()
-                    .satisfies(parameters -> {
-                        assertThat(parameters.path("reason").asText()).isEqualTo(requestedReason);
-                        assertThat(parameters.path("location").asText()).isEqualTo(defaultLocation);
-                        assertThat(parameters.path("family").asText()).isEqualTo(SignatureFamily.Codes.PADES);
-                    });
-        }
-
-        @Test
-        void refusesTheRun_whenTheSavedProfileDoesNotAllowTheRequestParameter() throws Exception {
-            // given: a profile allowing nothing at all
-            SigningProfileDto contentProfile = createPadesProfileWithParameters("no-parameters-pades", null);
-            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
-            var requested = aPadesParameters().withSignerName("Jane Doe").build();
-            byte[] document = "a document nobody may name a signer for".getBytes(StandardCharsets.UTF_8);
-
-            // when: resolve and then sign, as the protocol entry points do
-            ThrowingCallable resolveAndSign = () -> engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document,
-                            parameterResolver.effectiveParameters(requested, resolved)), modelOf(contentProfile),
-                            resolved, SigningProtocol.CSC_API);
-
-            // then: it stops at the refusal, and the run the resolver guards never happened
-            assertThatThrownBy(resolveAndSign)
-                    .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("signer_identity")
-                    .hasMessageContaining("signerName");
-            assertThat(contentSigningFormattingMock
-                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS)).isEmpty();
-            cryptographyProviderMock.verifyNoDataWasSigned();
-            assertThat(recordsFor(contentProfile.getName())).isEmpty();
-        }
-
-        /**
-         * An absent container is the only "no stamp" signal the connector reads, so an emptied one would still ask for
-         * a stamp. The dispatched JSON carries absence as an explicit {@code null}, which every deserializer reads as
-         * no container.
-         */
-        @Test
-        void sendsNoVisibleSignatureContainer_whenTheEffectiveSignatureIsNotDrawn() throws Exception {
-            // given: a profile whose saved default carries a stamp it explicitly does not draw
-            var defaultLocation = "Prague";
-            var defaults = aPadesParameters()
-                    .withLocation(defaultLocation)
-                    .withVisibleSignature(aVisibleSignature().withVisible(false).withText("Signed by Operator"))
-                    .build();
-            SigningProfileDto contentProfile = createPadesProfileWithParameters("invisible-pades", defaults);
-            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
-            byte[] document = "a document signed without a stamp".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            SignatureParametersDto effective = parameterResolver.effectiveParameters(null, resolved);
-            engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document, effective), modelOf(contentProfile), resolved,
-                            SigningProtocol.CSC_API);
-
-            // then: the container is gone, not emptied, and the rest of the effective object still travelled
-            assertThat(contentSigningFormattingMock
-                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .singleElement()
-                    .satisfies(parameters -> {
-                        assertThat(parameters.hasNonNull("visibleSignature"))
-                                .as("the connector was sent a visible-signature container: %s",
-                                        parameters.path("visibleSignature"))
-                                .isFalse();
-                        assertThat(parameters.path("location").asText()).isEqualTo(defaultLocation);
-                    });
-        }
     }
 }

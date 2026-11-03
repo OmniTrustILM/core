@@ -1465,7 +1465,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             var stampMimeType = "image/png";
             var requestedDefaults = aPadesParameters()
                     .withVisibleSignature(aVisibleSignature()
-                            .withImage(Base64.getDecoder().decode(STAMP_IMAGE_BASE64), stampMimeType))
+                            .withImage(Base64.getDecoder().decode(STAMP_IMAGE_BASE64))
+                            .withImageMimeType(stampMimeType))
                     .build();
 
             SigningProfileDto created = signingProfileService
@@ -1615,15 +1616,18 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         void rejectsTheAllowList_whenTheContentSigningIsDelegated() {
             // given — a delegated profile request carrying an allow-list
 
-            // when / then
-            assertThatThrownBy(() -> signingProfileService
+            // when
+            ThrowableAssert.ThrowingCallable createSigningProfile = () -> signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("ct-delegated-content-with-parameter-groups")
                             .withDelegatedSigning(signerConnector.getUuid())
                             .withContentSigning(aContentSigningWorkflow()
                                     .withAllowedRequestParameterGroups(SignatureParameterGroup.SIGNATURE_CONTEXT)
                                     .build())
-                            .build()))
+                            .build());
+
+            // then
+            assertThatThrownBy(createSigningProfile)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("allowedRequestParameterGroups")
                     .hasMessageContaining("delegated");
@@ -1633,15 +1637,18 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         void rejectsTheDefaultParameters_whenTheContentSigningIsDelegated() {
             // given — a delegated profile request carrying default parameters
 
-            // when / then
-            assertThatThrownBy(() -> signingProfileService
+            // when
+            ThrowableAssert.ThrowingCallable createSigningProfile = () -> signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("ct-delegated-content-with-default-parameters")
                             .withDelegatedSigning(signerConnector.getUuid())
                             .withContentSigning(aContentSigningWorkflow()
                                     .withDefaultSignatureParameters(aPadesParameters().build())
                                     .build())
-                            .build()))
+                            .build());
+
+            // then
+            assertThatThrownBy(createSigningProfile)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("defaultSignatureParameters")
                     .hasMessageContaining("delegated");
@@ -1653,13 +1660,16 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             var workflow = aContentSigningWorkflow().withDefaultSignatureParameters(aPadesParameters().build()).build();
             workflow.setAllowedRequestParameterGroups(null);
 
-            // when / then
-            assertThatThrownBy(() -> signingProfileService
+            // when
+            ThrowableAssert.ThrowingCallable createSigningProfile = () -> signingProfileService
                     .createSigningProfile(aSigningProfileRequest()
                             .withName("ct-delegated-content-with-defaults-and-null-groups")
                             .withDelegatedSigning(signerConnector.getUuid())
                             .withContentSigning(workflow)
-                            .build()))
+                            .build());
+
+            // then
+            assertThatThrownBy(createSigningProfile)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("defaultSignatureParameters")
                     .hasMessageContaining("delegated");

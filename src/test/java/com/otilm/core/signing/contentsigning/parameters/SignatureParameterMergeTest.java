@@ -471,7 +471,8 @@ class SignatureParameterMergeTest {
                     .withVisibleSignature(aVisibleSignature()
                             .withVisible(true)
                             .withText("Signed by Jane Doe")
-                            .withImage(new byte[]{1, 2}, "image/png")
+                            .withImage(new byte[]{1, 2})
+                            .withImageMimeType("image/png")
                             .withPlacement(profileCoordinates()))
                     .build();
             PadesSignatureParametersDto requested = aPadesParameters()
@@ -492,8 +493,10 @@ class SignatureParameterMergeTest {
             // given
             var requestedReason = "Contract approval";
             PadesSignatureParametersDto defaults = aPadesParameters()
-                    .withVisibleSignature(
-                            aVisibleSignature().withVisible(false).withImage(new byte[]{1, 2}, "image/png"))
+                    .withVisibleSignature(aVisibleSignature()
+                            .withVisible(false)
+                            .withImage(new byte[]{1, 2})
+                            .withImageMimeType("image/png"))
                     .build();
             PadesSignatureParametersDto requested = aPadesParameters().withReason(requestedReason).build();
 
@@ -564,8 +567,11 @@ class SignatureParameterMergeTest {
         void returnsNothing_whenNeitherSideSpeaks() {
             // given — neither a profile default nor a request
 
-            // when / then
-            assertThat(SignatureParameterMerge.merge(null, null)).isNull();
+            // when
+            SignatureParametersDto merged = SignatureParameterMerge.merge(null, null);
+
+            // then
+            assertThat(merged).isNull();
         }
 
         /** The permission check reads an envelope carrying only the family as touching no group; so must the merge. */
@@ -587,8 +593,11 @@ class SignatureParameterMergeTest {
         void returnsNothing_whenEmptyEnvelopeMeetsNoDefaults() {
             // given — an envelope supplying nothing, and no profile defaults
 
-            // when / then
-            assertThat(SignatureParameterMerge.merge(null, aPadesParameters().build())).isNull();
+            // when
+            SignatureParametersDto merged = SignatureParameterMerge.merge(null, aPadesParameters().build());
+
+            // then
+            assertThat(merged).isNull();
         }
 
         /**
@@ -671,8 +680,11 @@ class SignatureParameterMergeTest {
                     .withVisibleSignature(aVisibleSignature().withVisible(false))
                     .build();
 
-            // when / then
-            assertThat(SignatureParameterMerge.merge(defaults, null)).isNull();
+            // when
+            SignatureParametersDto merged = SignatureParameterMerge.merge(defaults, null);
+
+            // then
+            assertThat(merged).isNull();
         }
     }
 
@@ -706,7 +718,8 @@ class SignatureParameterMergeTest {
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static PadesSignatureParametersDtoBuilder parametersWithImage(byte[] image, String mimeType) {
-        return aPadesParameters().withVisibleSignature(aVisibleSignature().withImage(image, mimeType));
+        return aPadesParameters()
+                .withVisibleSignature(aVisibleSignature().withImage(image).withImageMimeType(mimeType));
     }
 
     private static PadesSignatureParametersDtoBuilder parametersWithPlacement(
