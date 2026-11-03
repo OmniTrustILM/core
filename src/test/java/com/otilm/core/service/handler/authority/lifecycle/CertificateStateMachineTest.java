@@ -6,13 +6,18 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -179,6 +184,50 @@ class CertificateStateMachineTest {
         assertTrue(sm.canTransition(CertificateState.REGISTERED, CertificateState.PENDING_APPROVAL));
         assertFalse(sm.canTransition(CertificateState.REJECTED, CertificateState.REJECTED));
         assertFalse(sm.canTransition(CertificateState.REVOKED, CertificateState.ISSUED));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CertificateState.class, names = {"ISSUED", "FAILED"})
+    void leavingPendingIssueClearsTheClaimStamp(CertificateState target) {
+        Certificate cert = certWithState(CertificateState.PENDING_ISSUE);
+        cert.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
+
+        sm.transition(cert, target);
+
+        assertNull(cert.getPendingIssueClaimedAt());
+        verify(certificateRepository).save(cert);
+    }
+
+    @Test
+    void externallyAuditedExitFromPendingIssueClearsTheClaimStamp() {
+        Certificate cert = certWithState(CertificateState.PENDING_ISSUE);
+        cert.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
+
+        sm.transitionAuditedExternally(cert, CertificateState.FAILED);
+
+        assertNull(cert.getPendingIssueClaimedAt());
+    }
+
+    @Test
+    void enteringPendingIssueKeepsTheCallersClaimStamp() {
+        OffsetDateTime claimedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        Certificate cert = certWithState(CertificateState.REQUESTED);
+        cert.setPendingIssueClaimedAt(claimedAt);
+
+        sm.transition(cert, CertificateState.PENDING_ISSUE);
+
+        assertEquals(claimedAt, cert.getPendingIssueClaimedAt());
+    }
+
+    @Test
+    void transitionsNotLeavingPendingIssueDoNotTouchTheStamp() {
+        OffsetDateTime claimedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        Certificate cert = certWithState(CertificateState.PENDING_REVOKE);
+        cert.setPendingIssueClaimedAt(claimedAt);
+
+        sm.transition(cert, CertificateState.ISSUED);
+
+        assertEquals(claimedAt, cert.getPendingIssueClaimedAt());
     }
 
     private Certificate certWithState(CertificateState state) {

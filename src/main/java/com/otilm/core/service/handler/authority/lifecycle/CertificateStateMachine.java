@@ -146,6 +146,10 @@ public class CertificateStateMachine {
                         () -> new InvalidTransitionException(Resource.CERTIFICATE, cert.getUuid(), fromState, toState));
 
         cert.setState(toState);
+        if (fromState == CertificateState.PENDING_ISSUE && toState != CertificateState.PENDING_ISSUE) {
+            // The authority's answer is recorded with this transition; the claim stamp only marks an unanswered call.
+            cert.setPendingIssueClaimedAt(null);
+        }
         certificateRepository.save(cert);
         return row;
     }
