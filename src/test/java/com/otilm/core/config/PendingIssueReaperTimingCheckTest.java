@@ -40,10 +40,11 @@ class PendingIssueReaperTimingCheckTest {
 
     @Test
     void refuses_whenSecretReadsAndTheRequestCouldOutlastTheReapDelay() {
-        // given — at the default timeouts one connector call can take 48 s
-        Duration reapDelayForOneCall = Duration.ofMinutes(2);
+        // given — at the default timeouts one connector call can take 48 s; two secret reads of four vault calls each
+        // and the request make nine, which this delay covers only three of
+        Duration reapDelayShortOfNineCalls = Duration.ofMinutes(5);
         when(proxyProvider.getIfAvailable()).thenReturn(null);
-        PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(reapDelayForOneCall,
+        PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(reapDelayShortOfNineCalls,
                 createClient(Duration.ofSeconds(35)), proxyProvider);
 
         // when
@@ -52,8 +53,8 @@ class PendingIssueReaperTimingCheckTest {
         // then
         assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("reap-stale-after must be longer than PT2M24S")
-                .hasMessageContaining("was " + reapDelayForOneCall);
+                .hasMessageContaining("reap-stale-after must be longer than PT7M12S")
+                .hasMessageContaining("was " + reapDelayShortOfNineCalls);
     }
 
     @Test
@@ -71,7 +72,7 @@ class PendingIssueReaperTimingCheckTest {
         // then
         assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("reap-stale-after must be longer than PT6M24S")
+                .hasMessageContaining("reap-stale-after must be longer than PT19M12S")
                 .hasMessageContaining("was " + reapDelayForOneSlowCall);
     }
 
@@ -91,7 +92,7 @@ class PendingIssueReaperTimingCheckTest {
         // then
         assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("reap-stale-after must be longer than PT15M15S")
+                .hasMessageContaining("reap-stale-after must be longer than PT45M45S")
                 .hasMessageContaining("was " + reapDelayForOneProxyRequest);
     }
 
