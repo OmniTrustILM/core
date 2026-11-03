@@ -2,7 +2,10 @@ package com.otilm.core.signing.nativesigning;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.DelegatedSigning;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
@@ -138,5 +141,72 @@ class IlmNativeGateTest {
         assertThatThrownBy(() -> IlmNativeGate.require(delegated, PROFILE, NativeOperation.SIGN_DOCUMENT))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("is not a content_signing profile");
+    }
+
+    private static SigningProfile profileRecord(boolean ilmNativeEnabled, boolean enabled,
+            SigningWorkflowType workflowType, SigningScheme scheme) {
+        SigningProfile profile = new SigningProfile();
+        profile.setUuid(PROFILE);
+        profile.setName("invoices");
+        profile.setIlmNativeEnabled(ilmNativeEnabled);
+        profile.setEnabled(enabled);
+        profile.setWorkflowType(workflowType);
+        profile.setSigningScheme(scheme);
+        return profile;
+    }
+
+    @Test
+    void recordCheckRefusesAProfileWithoutIlmNative() {
+        SigningProfile profile = profileRecord(false, true, SigningWorkflowType.RAW_SIGNING, SigningScheme.MANAGED);
+
+        assertThatThrownBy(() -> IlmNativeGate.require(profile, NativeOperation.SIGN_HASH))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("Signing profile 'invoices' does not have the ILM_NATIVE protocol enabled.");
+    }
+
+    @Test
+    void recordCheckRefusesADisabledProfile() {
+        SigningProfile profile = profileRecord(true, false, SigningWorkflowType.RAW_SIGNING, SigningScheme.MANAGED);
+
+        assertThatThrownBy(() -> IlmNativeGate.require(profile, NativeOperation.SIGN_HASH))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("Signing profile 'invoices' is disabled.");
+    }
+
+    @Test
+    void recordCheckRefusesAWorkflowTheOperationDoesNotServe() {
+        SigningProfile profile = profileRecord(true, true, SigningWorkflowType.RAW_SIGNING, SigningScheme.MANAGED);
+
+        assertThatThrownBy(() -> IlmNativeGate.require(profile, NativeOperation.SIGN_DOCUMENT))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("Signing profile 'invoices' is not a content_signing profile.");
+    }
+
+    @Test
+    void recordCheckRefusesADelegatedScheme() {
+        SigningProfile profile = profileRecord(true, true, SigningWorkflowType.CONTENT_SIGNING,
+                SigningScheme.DELEGATED);
+
+        assertThatThrownBy(() -> IlmNativeGate.require(profile, NativeOperation.SIGN_DOCUMENT))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage(
+                        "Signing profile 'invoices' uses delegated signing; the native API signs only with keys ILM "
+                                + "manages.");
+    }
+
+    @Test
+    void recordCheckRunsTheIlmNativeCheckFirst() {
+        SigningProfile profile = profileRecord(false, false, SigningWorkflowType.TIMESTAMPING, SigningScheme.DELEGATED);
+
+        assertThatThrownBy(() -> IlmNativeGate.require(profile, NativeOperation.SIGN_DOCUMENT))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("does not have the ILM_NATIVE protocol enabled");
+    }
+
+    @Test
+    void recordCheckPassesAManagedProfileOfTheServedWorkflowWithIlmNative() {
+        SigningProfile profile = profileRecord(true, true, SigningWorkflowType.CONTENT_SIGNING, SigningScheme.MANAGED);
+
+        assertThatCode(() -> IlmNativeGate.require(profile, NativeOperation.SIGN_DOCUMENT)).doesNotThrowAnyException();
     }
 }

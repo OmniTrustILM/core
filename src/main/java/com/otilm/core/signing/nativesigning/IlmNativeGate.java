@@ -3,42 +3,58 @@ package com.otilm.core.signing.nativesigning;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.model.signing.SigningProfileModel;
 
 import java.util.UUID;
 
 /**
- * Stateless check run before every native signing operation dispatches. Checks run in this order: the requested UUID
- * matches the model, ILM_NATIVE is enabled, the profile is enabled, the workflow matches the operation, and the scheme
- * is not delegated.
+ * Stateless checks run before every native signing operation dispatches. {@link IlmNativeProfileResolver} is the only
+ * entry point: it runs the record check before the model loads, so a profile whose model cannot be built is still
+ * refused here, and the model check on the model it loads. Both run these checks in this order: ILM_NATIVE is enabled,
+ * the profile is enabled, the workflow matches the operation, and the scheme is not delegated. The model check first
+ * confirms the model is the requested profile.
  */
-public final class IlmNativeGate {
+final class IlmNativeGate {
 
     private IlmNativeGate() {
     }
 
-    public static void require(SigningProfileModel<?, ?> profile, UUID requestedUuid, NativeOperation operation)
+    static void require(SigningProfile profile, NativeOperation operation) {
+        requireServes(profile.getName(), profile.isIlmNativeEnabled(), profile.isEnabled(), profile.getWorkflowType(),
+                profile.getSigningScheme(), operation);
+    }
+
+    static void require(SigningProfileModel<?, ?> profile, UUID requestedUuid, NativeOperation operation)
             throws NotFoundException {
         // The model cache is keyed by name, so a rename between reads can return another profile.
         if (!profile.uuid().equals(requestedUuid)) {
             throw new NotFoundException("Signing Profile not found: " + requestedUuid);
         }
-        if (!profile.enabledProtocols().contains(SigningProtocol.ILM_NATIVE)) {
+        requireServes(profile.name(), profile.enabledProtocols().contains(SigningProtocol.ILM_NATIVE),
+                profile.enabled(), profile.workflow().getWorkflowType(), profile.signingScheme().getSchemeType(),
+                operation);
+    }
+
+    private static void requireServes(String name, boolean ilmNativeEnabled, boolean enabled,
+            SigningWorkflowType workflowType, SigningScheme scheme, NativeOperation operation) {
+        if (!ilmNativeEnabled) {
             throw new ValidationException(
-                    "Signing profile '%s' does not have the ILM_NATIVE protocol enabled.".formatted(profile.name()));
+                    "Signing profile '%s' does not have the ILM_NATIVE protocol enabled.".formatted(name));
         }
-        if (!profile.enabled()) {
-            throw new ValidationException("Signing profile '%s' is disabled.".formatted(profile.name()));
+        if (!enabled) {
+            throw new ValidationException("Signing profile '%s' is disabled.".formatted(name));
         }
-        if (profile.workflow().getWorkflowType() != operation.servedWorkflow()) {
-            throw new ValidationException("Signing profile '%s' is not a %s profile."
-                    .formatted(profile.name(), operation.servedWorkflow().getCode()));
+        if (workflowType != operation.servedWorkflow()) {
+            throw new ValidationException(
+                    "Signing profile '%s' is not a %s profile.".formatted(name, operation.servedWorkflow().getCode()));
         }
-        if (profile.signingScheme().getSchemeType() == SigningScheme.DELEGATED) {
+        if (scheme == SigningScheme.DELEGATED) {
             throw new ValidationException(
                     "Signing profile '%s' uses delegated signing; the native API signs only with keys ILM manages."
-                            .formatted(profile.name()));
+                            .formatted(name));
         }
     }
 }
