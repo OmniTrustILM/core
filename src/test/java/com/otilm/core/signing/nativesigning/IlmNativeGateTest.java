@@ -15,6 +15,7 @@ import com.otilm.core.model.signing.workflow.ManagedRawSigningWorkflow;
 import com.otilm.core.util.builders.SigningProfileModelBuilder;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -42,8 +43,15 @@ class IlmNativeGateTest {
 
     @Test
     void refusesAProfileWithoutIlmNative() {
-        assertThatThrownBy(() -> IlmNativeGate
-                .require(managedRaw(List.of(SigningProtocol.TSP)), PROFILE, NativeOperation.SIGN_HASH))
+        // given
+        SigningProfileModel<?, ?> tspOnly = managedRaw(List.of(SigningProtocol.TSP));
+
+        // when
+        ThrowingCallable requireForHashSigning = () -> IlmNativeGate
+                .require(tspOnly, PROFILE, NativeOperation.SIGN_HASH);
+
+        // then
+        assertThatThrownBy(requireForHashSigning)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("'invoices' does not have the ILM_NATIVE protocol enabled");
     }
@@ -65,8 +73,15 @@ class IlmNativeGateTest {
 
     @Test
     void refusesAWorkflowTheOperationDoesNotServe() {
-        assertThatThrownBy(() -> IlmNativeGate
-                .require(managedRaw(List.of(SigningProtocol.ILM_NATIVE)), PROFILE, NativeOperation.SIGN_DOCUMENT))
+        // given
+        SigningProfileModel<?, ?> rawProfile = managedRaw(List.of(SigningProtocol.ILM_NATIVE));
+
+        // when
+        ThrowingCallable requireForDocumentSigning = () -> IlmNativeGate
+                .require(rawProfile, PROFILE, NativeOperation.SIGN_DOCUMENT);
+
+        // then
+        assertThatThrownBy(requireForDocumentSigning)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("'invoices' is not a content_signing profile");
     }

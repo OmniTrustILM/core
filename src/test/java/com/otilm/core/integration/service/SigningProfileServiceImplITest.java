@@ -2800,7 +2800,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .build());
 
             // then
-            assertThat(updated.getEnabledProtocols()).doesNotContain(SigningProtocol.ILM_NATIVE);
+            assertThat(updated.getEnabledProtocols()).isEmpty();
             assertFalse(listsIlmNative(uuid));
         }
 
@@ -2821,7 +2821,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                                     .build());
 
             // then
-            assertThat(updated.getEnabledProtocols()).doesNotContain(SigningProtocol.ILM_NATIVE);
+            assertThat(updated.getEnabledProtocols()).isEmpty();
             assertFalse(listsIlmNative(uuid));
         }
 
