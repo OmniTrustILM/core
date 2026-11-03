@@ -679,7 +679,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             SigningProfile profile = null;
             try {
                 profile = findByUuid(uuid);
-                self.enableInOwnTransaction(profile);
+                self.enableInOwnTransaction(uuid);
             } catch (Exception e) {
                 log.error("Failed to enable Signing Profile {}", uuid, e);
                 messages
@@ -691,9 +691,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         return messages;
     }
 
+    /** Reads the profile in this transaction: the caller's copy may be detached, and saving it merges stale state. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    void enableInOwnTransaction(SigningProfile profile) {
-        enableSigningProfile(profile);
+    void enableInOwnTransaction(SecuredUUID uuid) throws NotFoundException {
+        enableSigningProfile(findByUuid(uuid));
     }
 
     private void enableSigningProfile(SigningProfile p) {
@@ -718,7 +719,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             SigningProfile profile = null;
             try {
                 profile = findByUuid(uuid);
-                self.disableInOwnTransaction(profile);
+                self.disableInOwnTransaction(uuid);
             } catch (Exception e) {
                 log.error("Failed to disable Signing Profile {}", uuid, e);
                 messages
@@ -730,9 +731,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         return messages;
     }
 
+    /** Reads the profile in this transaction: the caller's copy may be detached, and saving it merges stale state. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    void disableInOwnTransaction(SigningProfile profile) {
-        disableSigningProfile(profile);
+    void disableInOwnTransaction(SecuredUUID uuid) throws NotFoundException {
+        disableSigningProfile(findByUuid(uuid));
     }
 
     private void disableSigningProfile(SigningProfile p) {
@@ -832,8 +834,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * Serializes writers of one profile. The row is saved whole, so a writer that read it before another committed
-     * would save the values it read back.
+     * Serializes the writers of one profile that decide on what another may be changing: an update bumps the version it
+     * read, and the ILM_NATIVE switch is checked against the workflow and scheme an update sets.
      */
     private void lockProfile(SecuredUUID uuid) {
         clusterSynchronizer.lock("signing-profile:" + uuid.getValue());

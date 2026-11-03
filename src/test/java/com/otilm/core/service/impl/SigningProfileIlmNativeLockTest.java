@@ -22,8 +22,8 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 
 /**
- * The profile row is saved whole, so switching ILM_NATIVE must hold the lock a profile update holds, or a concurrent
- * update writes the flag it read back.
+ * Switching ILM_NATIVE must hold the lock a profile update holds, or the switch is decided on a workflow and scheme a
+ * concurrent update is replacing.
  */
 @ExtendWith(MockitoExtension.class)
 class SigningProfileIlmNativeLockTest {

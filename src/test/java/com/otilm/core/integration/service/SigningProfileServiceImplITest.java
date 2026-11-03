@@ -148,6 +148,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
@@ -280,6 +283,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     /**
      * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
@@ -2638,6 +2644,18 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             return signingProfileInternalService.getSigningProfileModel(name).enabledProtocols();
         }
 
+        private void deactivateInItsOwnTransaction(SecuredUUID uuid) {
+            TransactionTemplate deactivation = new TransactionTemplate(transactionManager);
+            deactivation.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            deactivation.executeWithoutResult(status -> {
+                try {
+                    signingProfileService.deactivateIlmNative(uuid);
+                } catch (NotFoundException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+        }
+
         @Test
         void activate_onContentSigningProfile_addsIlmNative()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
@@ -2843,6 +2861,27 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThat(updated.getEnabledProtocols()).contains(SigningProtocol.ILM_NATIVE);
             assertTrue(listsIlmNative(uuid));
+        }
+
+        @Test
+        void keepsIlmNativeDeactivated_whenAConcurrentEnableReadTheProfileFirst() throws NotFoundException {
+            // given: an activated profile that is still disabled
+            SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+            var enable = new TransactionTemplate(transactionManager);
+
+            // when: an enable that read the profile before a deactivation committed saves it afterwards
+            enable.executeWithoutResult(status -> {
+                SigningProfile readBeforeDeactivation = signingProfileRepository.findByUuid(uuid).orElseThrow();
+                deactivateInItsOwnTransaction(uuid);
+                readBeforeDeactivation.setEnabled(true);
+                signingProfileRepository.save(readBeforeDeactivation);
+            });
+
+            // then
+            SigningProfile stored = signingProfileRepository.findByUuid(uuid).orElseThrow();
+            assertThat(stored.isIlmNativeEnabled()).isFalse();
+            assertThat(stored.isEnabled()).isTrue();
         }
     }
 
