@@ -158,7 +158,7 @@ provider:
     sweep-max-batches-per-run: ${PROVIDER_STATUS_POLL_SWEEP_MAX_BATCHES_PER_RUN:10}
     # How long a synchronous issue/renew/rekey call to the authority may stay unanswered (a crash)
     # before the reaper fails its certificate; certificates the authority answered are never reaped.
-    # Must exceed any legitimate synchronous call duration.
+    # Must exceed one connector call at the connector timeouts configured (checked at startup).
     reap-stale-after: ${PROVIDER_STATUS_POLL_REAP_STALE_AFTER:PT30M}
     defaults:
       delays:
