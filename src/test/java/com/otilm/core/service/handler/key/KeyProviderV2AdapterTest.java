@@ -2506,6 +2506,30 @@ class KeyProviderV2AdapterTest {
             assertThat(failure).hasMessage("Connector returned an identifier that was not part of the request.");
         }
 
+        @ParameterizedTest
+        @MethodSource("positionOneNotSpelledAsSent")
+        void throwsConnectorException_whenIdentifierIsNotSpelledAsSent(String respelledPositionOne) throws Exception {
+            // given
+            when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body
+                    .setSignatures(List
+                            .of(new SignatureDataV2Dto(new byte[]{1}, "0"),
+                                    new SignatureDataV2Dto(new byte[]{2}, respelledPositionOne)));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+            SignDataRequestDto request = new SignDataRequestDto();
+            request.setSignatureAttributes(List.of());
+            request.setData(List.of(signatureItem("AQ==", "first"), signatureItem("Ag==", "second")));
+
+            // when
+            ThrowingCallable signTwoItems = () -> adapter.signData(v2KeyItem(metadata("handle")), request);
+
+            // then
+            assertThatThrownBy(signTwoItems)
+                    .isInstanceOf(ConnectorException.class)
+                    .hasMessageContaining("Connector returned an identifier that was not part of the request.");
+        }
+
         @Test
         void rejectsOperationSchemaEchoingAnExpandedSecret() throws Exception {
             // given
@@ -2557,6 +2581,12 @@ class KeyProviderV2AdapterTest {
 
             // then
             assertThatThrownBy(sign).isInstanceOf(ConnectorException.class);
+        }
+
+        private static Stream<Named<String>> positionOneNotSpelledAsSent() {
+            return Stream
+                    .of(named("leading zero", "01"), named("explicit plus sign", "+1"),
+                            named("Arabic-Indic digit one", "\u0661"));
         }
     }
 
