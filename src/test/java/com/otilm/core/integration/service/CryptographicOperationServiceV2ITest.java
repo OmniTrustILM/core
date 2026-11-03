@@ -344,26 +344,6 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         assertEquals(KeyEventStatus.SUCCESS, onlyEvent(KeyEvent.DECRYPT).getStatus());
     }
 
-    @Test
-    void encryptData_refusesAKeyMovedToAnotherProfile_behindTheCache() throws Exception {
-        // given
-        connectorMock
-                .stubOperationAttributes("encrypt", cipherSchema())
-                .stubOperation("encrypt",
-                        "{\"encryptedData\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
-        encryptInTheOriginalProfile();
-        moveKeyToAnotherProfileBehindTheCache();
-
-        // when
-        ThrowingCallable encrypt = this::encryptInTheOriginalProfile;
-
-        // then
-        assertThatThrownBy(encrypt)
-                .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("Key token or token profile association changed during the operation.");
-        connectorMock.verifyOperationRequestsContaining("encrypt", 1, cipherAlgorithmSelection());
-    }
-
     private static CipherDataRequestDto cipherRequest() {
         CipherDataRequestDto request = new CipherDataRequestDto();
         request.setCipherAttributes(List.of(EncryptionAlgorithmAttribute.request(CIPHER_ALGORITHM)));
@@ -562,6 +542,40 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         assertEquals("Random-data generation on a cryptography provider v2 token requires a token profile; use the "
                 + "token-profile form of this endpoint.", failure.getMessage());
         connectorMock.verifyNoOperationRequest("random");
+    }
+
+    // ── EncryptData ───────────────────────────────────────────────────────────
+
+    @Nested
+    class EncryptData {
+
+        @Test
+        void refusesTheKey_whenItMovesToAnotherProfileBehindTheCache() throws Exception {
+            // given
+            connectorMock
+                    .stubOperationAttributes("encrypt", cipherSchema())
+                    .stubOperation("encrypt",
+                            "{\"encryptedData\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
+            encryptInTheOriginalProfile();
+            moveKeyToAnotherProfileBehindTheCache();
+
+            // when
+            ThrowingCallable encrypt = this::encryptInTheOriginalProfile;
+
+            // then
+            assertThatThrownBy(encrypt)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Key token or token profile association changed during the operation.");
+            connectorMock.verifyOperationRequestsContaining("encrypt", 1, cipherAlgorithmSelection());
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private EncryptDataResponseDto encryptInTheOriginalProfile() throws Exception {
+            return operationService
+                    .encryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                            privateKey.getUuid(), cipherRequest());
+        }
     }
 
     // ── SignDataWithoutEventHistory ───────────────────────────────────────────
@@ -818,12 +832,6 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         value.setTokenProfile(profile);
         value.setTokenInstanceReference(token);
         return cryptographicKeyRepository.save(value);
-    }
-
-    private EncryptDataResponseDto encryptInTheOriginalProfile() throws Exception {
-        return operationService
-                .encryptData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
-                        privateKey.getUuid(), cipherRequest());
     }
 
     /** Moves the key as another node would, leaving this node's cached key item in place. */

@@ -372,7 +372,7 @@ class ReadThroughCacheTest {
     }
 
     @Test
-    void evictIfKeepsTheEntriesItDoesNotMatch() {
+    void keepsUnmatchedEntries_whenEvictingByPredicate() {
         // given
         var keptKey = "kept";
         cache.getOrLoad(KEY, this::load);
