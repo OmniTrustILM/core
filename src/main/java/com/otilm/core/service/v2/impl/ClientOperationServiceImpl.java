@@ -163,7 +163,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
@@ -2789,6 +2793,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /**
+     * Retries a claim clear that met a transient database error, each attempt in a transaction of its own: for an
+     * authority that cannot be polled, the clear is the only record that the authority accepted.
+     */
+    private static final RetryTemplate CLAIM_CLEAR_RETRY = RetryTemplate
+            .builder()
+            .maxAttempts(3)
+            .exponentialBackoff(200, 2, 1000)
+            .retryOn(List
+                    .of(TransientDataAccessException.class, RecoverableDataAccessException.class,
+                            CannotCreateTransactionException.class))
+            .traversingCauses()
+            .build();
+
+    /**
      * The authority has answered but the certificate stays in {@code PENDING_ISSUE} (accepted asynchronously, or parked
      * after a local failure), so its claim stamp must no longer mark an unanswered call. Nulls the stamp on the held
      * instance too, so a later save of it cannot write the stamp back. Best-effort: the authority has accepted, so a
@@ -2797,7 +2815,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void clearPendingIssueClaimBestEffort(Certificate certificate) {
         certificate.setPendingIssueClaimedAt(null);
         try {
-            if (pendingIssueClaimWriter.clear(certificate.getUuid()) == 0) {
+            if (CLAIM_CLEAR_RETRY.execute(retry -> pendingIssueClaimWriter.clear(certificate.getUuid())) == 0) {
                 // The certificate left PENDING_ISSUE while the call was in flight (reaped or cancelled), so the
                 // platform has ended an operation the authority accepted.
                 logger

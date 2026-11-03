@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
@@ -532,6 +533,44 @@ class ClientOperationServiceImplIssueDispatchTest {
         service.issueCertificateAction(certUuid, true);
 
         assertThat(warnings(logged)).noneSatisfy(message -> assertThat(message).contains("claim"));
+    }
+
+    @Test
+    void retriesAClearThatHitATransientDatabaseError() throws Exception {
+        // given — an authority that cannot be polled accepts; the first clear meets a database blip
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid))
+                .thenThrow(new TransientDataAccessResourceException("connection reset"))
+                .thenReturn(1);
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then — without the retry the stale claim would leave the accepted request to the reaper
+        verify(claimWriter, times(2)).clear(certUuid);
+    }
+
+    @Test
+    void givesUpOnTheClaimAfterThreeTransientFailures() throws Exception {
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenThrow(new TransientDataAccessResourceException("database down"));
+
+        assertThatCode(() -> service.issueCertificateAction(certUuid, true)).doesNotThrowAnyException();
+
+        verify(claimWriter, times(3)).clear(certUuid);
+    }
+
+    @Test
+    void doesNotRetryAClearThatFailedForAnotherReason() throws Exception {
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenThrow(new IllegalStateException("not a database blip"));
+
+        service.issueCertificateAction(certUuid, true);
+
+        verify(claimWriter, times(1)).clear(certUuid);
     }
 
     @AfterEach
