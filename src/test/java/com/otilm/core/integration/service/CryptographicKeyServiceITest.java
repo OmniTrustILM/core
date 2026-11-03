@@ -134,6 +134,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -155,7 +156,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
 import static com.otilm.core.util.builders.ProviderKeyItemBuilder.aProviderKeyItem;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.argThat;
@@ -547,6 +551,40 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(expectedOwner.getUsername(), dto.getOwner());
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertEquals(1, dto.getItems().size());
+    }
+
+    @Test
+    void refusesKeyCreation_whenTokenDetailIsDenied() {
+        // given
+        UUID tokenUuid = tokenInstanceReference.getUuid();
+        SecuredParentUUID tokenProfileUuid = tokenProfile.getSecuredParentUuid();
+        denyResourceAccess(Resource.TOKEN, ResourceAction.DETAIL, tokenUuid);
+        var request = aKeyPairRequest().withName("refusedKey").build();
+
+        // when
+        ThrowingCallable createKey = () -> cryptographicKeyService
+                .createKey(tokenUuid, tokenProfileUuid, KeyRequestType.KEY_PAIR, request);
+
+        // then
+        assertThatThrownBy(createKey).isInstanceOf(AccessDeniedException.class);
+        assertNoKeyWasCreated(request.getName());
+    }
+
+    @Test
+    void refusesKeyCreation_whenTokenProfileDetailIsDenied() {
+        // given
+        UUID tokenUuid = tokenInstanceReference.getUuid();
+        SecuredParentUUID tokenProfileUuid = tokenProfile.getSecuredParentUuid();
+        denyResourceAccess(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfile.getUuid());
+        var request = aKeyPairRequest().withName("refusedKey").build();
+
+        // when
+        ThrowingCallable createKey = () -> cryptographicKeyService
+                .createKey(tokenUuid, tokenProfileUuid, KeyRequestType.KEY_PAIR, request);
+
+        // then
+        assertThatThrownBy(createKey).isInstanceOf(AccessDeniedException.class);
+        assertNoKeyWasCreated(request.getName());
     }
 
     @ParameterizedTest
@@ -2944,5 +2982,10 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     /** The fixture's key as a request reads it. */
     private CryptographicKeyBasicModel keyAsRead() {
         return cryptographicKeyRepository.findBasicModelByUuid(key.getUuid()).orElseThrow();
+    }
+
+    private void assertNoKeyWasCreated(String keyName) {
+        assertThat(cryptographicKeyRepository.existsByName(keyName)).isFalse();
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
     }
 }
