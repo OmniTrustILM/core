@@ -16,12 +16,16 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -30,6 +34,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -135,26 +140,27 @@ class CryptographicOperationServiceSignerTest {
             // then
             assertThat(result).isEqualTo(rawSignature);
         }
-    }
 
-    // ── Sign as a batch of one ────────────────────────────────────────────────
+        @Test
+        void signsAsBatchOfOne_whenGivenOneItem() throws Exception {
+            // given
+            ArgumentCaptor<SignDataRequestDto> captor = ArgumentCaptor.forClass(SignDataRequestDto.class);
+            given(cryptographicOperationService
+                    .signDataWithoutEventHistory(any(), any(), any(), any(), captor.capture()))
+                    .willReturn(createSignatureResponse(createSignatureResult("0", SIG_A)));
 
-    @Test
-    void signIsABatchOfOne() throws Exception {
-        // given
-        ArgumentCaptor<SignDataRequestDto> captor = ArgumentCaptor.forClass(SignDataRequestDto.class);
-        given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), captor.capture()))
-                .willReturn(signatures(result("0", SIG_A)));
+            // when
+            byte[] signature = signer.sign(DTBS_0);
 
-        // when
-        byte[] out = signer.sign(DTBS_0);
-
-        // then
-        then(cryptographicOperationService)
-                .should(times(1))
-                .signDataWithoutEventHistory(any(), any(), any(), any(), any());
-        assertThat(captor.getValue().getData()).extracting(SignatureRequestData::getIdentifier).containsExactly("0");
-        assertThat(out).isEqualTo(SIG_A);
+            // then
+            then(cryptographicOperationService)
+                    .should(times(1))
+                    .signDataWithoutEventHistory(any(), any(), any(), any(), any());
+            assertThat(captor.getValue().getData())
+                    .extracting(SignatureRequestData::getIdentifier)
+                    .containsExactly("0");
+            assertThat(signature).isEqualTo(SIG_A);
+        }
     }
 
     // ── SignAll ───────────────────────────────────────────────────────────────
@@ -165,14 +171,16 @@ class CryptographicOperationServiceSignerTest {
         private final ArgumentCaptor<SignDataRequestDto> captor = ArgumentCaptor.forClass(SignDataRequestDto.class);
 
         @Test
-        void signsEveryItemInOneCallAndReturnsThemInRequestOrder() throws Exception {
-            // given — the provider answers "1" before "0"
+        void returnsSignaturesInRequestOrder_whenProviderAnswersOutOfOrder() throws Exception {
+            // given
+            var answeredOutOfOrder = createSignatureResponse(createSignatureResult("1", SIG_B),
+                    createSignatureResult("0", SIG_A));
             given(cryptographicOperationService
                     .signDataWithoutEventHistory(any(), any(), any(), any(), captor.capture()))
-                    .willReturn(signatures(result("1", SIG_B), result("0", SIG_A)));
+                    .willReturn(answeredOutOfOrder);
 
             // when
-            List<byte[]> out = signer.signAll(List.of(DTBS_0, DTBS_1));
+            List<byte[]> signatures = signer.signAll(List.of(DTBS_0, DTBS_1));
 
             // then
             then(cryptographicOperationService)
@@ -185,76 +193,101 @@ class CryptographicOperationServiceSignerTest {
                     .extracting(SignatureRequestData::getData)
                     .containsExactly(Base64.getEncoder().encodeToString(DTBS_0),
                             Base64.getEncoder().encodeToString(DTBS_1));
-            assertThat(out).containsExactly(SIG_A, SIG_B);
-        }
-
-        @Test
-        void refusesAResultCountThatDiffersFromTheBatch() throws Exception {
-            // given — fewer results, then more results, than items
-            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("0", SIG_A)))
-                    .willReturn(signatures(result("0", SIG_A), result("1", SIG_B), result("2", SIG_A)));
-
-            // when / then
-            assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
-            assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
+            assertThat(signatures).containsExactly(SIG_A, SIG_B);
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {"7", "-1", "x", "+1", "01", "١"})
-        void refusesAnUnknownResultIdentifier(String identifier) throws Exception {
+        @ValueSource(ints = {1, 3})
+        void throwsSignerFault_whenResultCountDiffersFromBatch(int returnedResultCount) throws Exception {
             // given
+            var miscountedResults = IntStream
+                    .range(0, returnedResultCount)
+                    .mapToObj(position -> createSignatureResult(Integer.toString(position), SIG_A))
+                    .toList();
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("0", SIG_A), result(identifier, SIG_B)));
-
-            // when / then
-            assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
-        }
-
-        @Test
-        void refusesARepeatedResultIdentifier() throws Exception {
-            // given
-            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("0", SIG_A), result("0", SIG_B)));
-
-            // when / then
-            assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
-        }
-
-        @Test
-        void refusesAnUnidentifiedResultInAMultiItemBatch() throws Exception {
-            // given
-            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("0", SIG_A), result(null, SIG_B)));
-
-            // when / then
-            assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
-        }
-
-        @Test
-        void acceptsAnUnidentifiedResultForASingleItem() throws Exception {
-            // given
-            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result(null, SIG_A)));
+                    .willReturn(new SignDataResponseDto(miscountedResults));
+            var twoItems = List.of(DTBS_0, DTBS_1);
 
             // when
-            List<byte[]> out = signer.signAll(List.of(DTBS_0));
+            ThrowingCallable signTwoItems = () -> signer.signAll(twoItems);
 
             // then
-            assertThat(out).containsExactly(SIG_A);
+            assertSignerFault(signTwoItems);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"7", "-1", "x", "+1", "01", "\u0661"})
+        void throwsSignerFault_whenResultIdentifierWasNotSent(String unsentIdentifier) throws Exception {
+            // given
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(createSignatureResponse(createSignatureResult("0", SIG_A),
+                            createSignatureResult(unsentIdentifier, SIG_B)));
+            var twoItems = List.of(DTBS_0, DTBS_1);
+
+            // when
+            ThrowingCallable signTwoItems = () -> signer.signAll(twoItems);
+
+            // then
+            assertSignerFault(signTwoItems);
         }
 
         @Test
-        void acceptsASingleResultWhateverItsIdentifier() throws Exception {
+        void throwsSignerFault_whenResultIdentifierRepeats() throws Exception {
             // given
+            var repeatedIdentifier = "0";
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("connector-own-id", SIG_A)));
+                    .willReturn(createSignatureResponse(createSignatureResult(repeatedIdentifier, SIG_A),
+                            createSignatureResult(repeatedIdentifier, SIG_B)));
+            var twoItems = List.of(DTBS_0, DTBS_1);
 
             // when
-            List<byte[]> out = signer.signAll(List.of(DTBS_0));
+            ThrowingCallable signTwoItems = () -> signer.signAll(twoItems);
 
             // then
-            assertThat(out).containsExactly(SIG_A);
+            assertSignerFault(signTwoItems);
+        }
+
+        @Test
+        void throwsSignerFault_whenMultiItemResultHasNoIdentifier() throws Exception {
+            // given
+            var unidentifiedResult = createSignatureResult(null, SIG_B);
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(createSignatureResponse(createSignatureResult("0", SIG_A), unidentifiedResult));
+            var twoItems = List.of(DTBS_0, DTBS_1);
+
+            // when
+            ThrowingCallable signTwoItems = () -> signer.signAll(twoItems);
+
+            // then
+            assertSignerFault(signTwoItems);
+        }
+
+        @Test
+        void returnsSignature_whenSingleResultHasNoIdentifier() throws Exception {
+            // given
+            var unidentifiedResult = createSignatureResult(null, SIG_A);
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(createSignatureResponse(unidentifiedResult));
+
+            // when
+            List<byte[]> signatures = signer.signAll(List.of(DTBS_0));
+
+            // then
+            assertThat(signatures).containsExactly(SIG_A);
+        }
+
+        @Test
+        void returnsSignature_whenSingleResultCarriesForeignIdentifier() throws Exception {
+            // given
+            var foreignIdentifier = "connector-own-id";
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(createSignatureResponse(createSignatureResult(foreignIdentifier, SIG_A)));
+
+            // when
+            List<byte[]> signatures = signer.signAll(List.of(DTBS_0));
+
+            // then
+            assertThat(signatures).containsExactly(SIG_A);
         }
 
         @Test
@@ -264,7 +297,7 @@ class CryptographicOperationServiceSignerTest {
             var connectorDetails = "Signature failed: boom";
             var failedResult = new SignatureResponseData(null, failedIdentifier, connectorDetails);
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("0", SIG_A), failedResult));
+                    .willReturn(createSignatureResponse(createSignatureResult("0", SIG_A), failedResult));
             var twoItems = List.of(DTBS_0, DTBS_1);
 
             // when
@@ -287,7 +320,7 @@ class CryptographicOperationServiceSignerTest {
             // given
             var resultWithoutSignature = new SignatureResponseData(missingData, "0", null);
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(resultWithoutSignature));
+                    .willReturn(createSignatureResponse(resultWithoutSignature));
             var oneItem = List.of(DTBS_0);
 
             // when
@@ -300,9 +333,9 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void throwsSignerFault_whenOneItemIsAnsweredByTwoSignatures() throws Exception {
             // given
-            var surplusResult = result("1", SIG_B);
+            var surplusResult = createSignatureResult("1", SIG_B);
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("0", SIG_A), surplusResult));
+                    .willReturn(createSignatureResponse(createSignatureResult("0", SIG_A), surplusResult));
             var oneItem = List.of(DTBS_0);
 
             // when
@@ -312,20 +345,26 @@ class CryptographicOperationServiceSignerTest {
             assertSignerFault(signOneItem);
         }
 
-        @Test
-        void rejectsAnEmptyBatchOrAnEmptyItem() throws Exception {
-            // given — nothing to sign
+        @ParameterizedTest
+        @MethodSource("invalidBatches")
+        void throwsIllegalArgument_whenBatchOrItemIsNullOrEmpty(List<byte[]> invalidBatch) throws Exception {
+            // given — a batch the signer cannot send
 
-            // when / then
-            assertThatThrownBy(() -> signer.signAll(null)).isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> signer.signAll(List.of())).isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> signer.signAll(List.of(DTBS_0, new byte[0])))
-                    .isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> signer.signAll(Arrays.asList(DTBS_0, null)))
-                    .isInstanceOf(IllegalArgumentException.class);
+            // when
+            ThrowingCallable signInvalidBatch = () -> signer.signAll(invalidBatch);
+
+            // then
+            assertThatThrownBy(signInvalidBatch).isInstanceOf(IllegalArgumentException.class);
             then(cryptographicOperationService)
                     .should(never())
                     .signDataWithoutEventHistory(any(), any(), any(), any(), any());
+        }
+
+        private static Stream<Named<List<byte[]>>> invalidBatches() {
+            return Stream
+                    .of(named("null batch", null), named("empty batch", List.of()),
+                            named("batch with an empty item", List.of(DTBS_0, new byte[0])),
+                            named("batch with a null item", Arrays.asList(DTBS_0, null)));
         }
     }
 
@@ -343,11 +382,13 @@ class CryptographicOperationServiceSignerTest {
         }
     }
 
-    private static SignDataResponseDto signatures(SignatureResponseData... items) {
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static SignDataResponseDto createSignatureResponse(SignatureResponseData... items) {
         return new SignDataResponseDto(List.of(items));
     }
 
-    private static SignatureResponseData result(String identifier, byte[] signature) {
+    private static SignatureResponseData createSignatureResult(String identifier, byte[] signature) {
         SignatureResponseData data = new SignatureResponseData();
         data.setIdentifier(identifier);
         data.setData(Base64.getEncoder().encodeToString(signature));
