@@ -923,47 +923,45 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
         return Stream
                 .of(named("list cipher attributes",
                         test -> test.cryptographicOperationService
-                                .listCipherAttributes(test.token(), test.profile(), test.key.getUuid(),
-                                        test.content1.getUuid(), KeyAlgorithm.RSA)),
+                                .listCipherAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                        test.key.getUuid(), test.content1.getUuid(), KeyAlgorithm.RSA)),
                         named("list encrypt attributes",
                                 test -> test.cryptographicOperationService
-                                        .listEncryptAttributes(test.token(), test.profile(), test.key.getUuid(),
-                                                test.content1.getUuid())),
+                                        .listEncryptAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid())),
                         named("list decrypt attributes",
                                 test -> test.cryptographicOperationService
-                                        .listDecryptAttributes(test.token(), test.profile(), test.key.getUuid(),
-                                                test.content1.getUuid())),
-                        named("encrypt",
-                                test -> test.cryptographicOperationService
-                                        .encryptData(test.token(), test.profile(), test.key.getUuid(),
-                                                test.content1.getUuid(), new CipherDataRequestDto())),
-                        named("decrypt",
-                                test -> test.cryptographicOperationService
-                                        .decryptData(test.token(), test.profile(), test.key.getUuid(),
-                                                test.content1.getUuid(), new CipherDataRequestDto())),
+                                        .listDecryptAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid())),
+                        named("encrypt", test -> test.cryptographicOperationService
+                                .encryptData(test.getTokenUuid(), test.getTokenProfileUuid(), test.key.getUuid(),
+                                        test.content1.getUuid(), new CipherDataRequestDto())),
+                        named("decrypt", test -> test.cryptographicOperationService
+                                .decryptData(test.getTokenUuid(), test.getTokenProfileUuid(), test.key.getUuid(),
+                                        test.content1.getUuid(), new CipherDataRequestDto())),
                         named("list signature attributes",
                                 test -> test.cryptographicOperationService
-                                        .listSignatureAttributes(test.token(), test.profile(), test.key.getUuid(),
-                                                test.content1.getUuid(), KeyAlgorithm.RSA)),
+                                        .listSignatureAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid(), KeyAlgorithm.RSA)),
                         named("list sign attributes",
                                 test -> test.cryptographicOperationService
-                                        .listSignAttributes(test.token(), test.profile(), test.key.getUuid(),
-                                                test.content1.getUuid())),
+                                        .listSignAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid())),
                         named("list verify attributes",
                                 test -> test.cryptographicOperationService
-                                        .listVerifyAttributes(test.token(), test.profile(), test.key.getUuid(),
-                                                test.content1.getUuid())),
+                                        .listVerifyAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid())),
                         named("sign",
                                 test -> test.cryptographicOperationService
-                                        .signData(test.token(), test.profile(), test.key.getUuid(),
+                                        .signData(test.getTokenUuid(), test.getTokenProfileUuid(), test.key.getUuid(),
                                                 test.content1.getUuid(), new SignDataRequestDto())),
                         named("sign without event history",
                                 test -> test.cryptographicOperationInternalService
-                                        .signDataWithoutEventHistory(test.token(), test.profile(), test.key.getUuid(),
-                                                test.content1.getUuid(), new SignDataRequestDto())),
+                                        .signDataWithoutEventHistory(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid(), new SignDataRequestDto())),
                         named("verify",
                                 test -> test.cryptographicOperationService
-                                        .verifyData(test.token(), test.profile(), test.key.getUuid(),
+                                        .verifyData(test.getTokenUuid(), test.getTokenProfileUuid(), test.key.getUuid(),
                                                 test.content1.getUuid(), new VerifyDataRequestDto())));
     }
 
@@ -977,11 +975,11 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
         ownerAssociationRepository.saveAndFlush(owner);
     }
 
-    private SecuredParentUUID token() {
+    private SecuredParentUUID getTokenUuid() {
         return tokenInstanceReference.getSecuredParentUuid();
     }
 
-    private SecuredUUID profile() {
+    private SecuredUUID getTokenProfileUuid() {
         return tokenProfile.getSecuredUuid();
     }
 
