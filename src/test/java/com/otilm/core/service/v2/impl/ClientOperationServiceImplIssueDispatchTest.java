@@ -7,6 +7,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -571,6 +573,25 @@ class ClientOperationServiceImplIssueDispatchTest {
         service.issueCertificateAction(certUuid, true);
 
         verify(claimWriter, times(1)).clear(certUuid);
+    }
+
+    @Test
+    void clearsClaim_whenRecordingAMetadataFailureFailsToo() throws Exception {
+        // given — the authority accepts with metadata; storing it fails (no attribute engine is wired here) and
+        // recording that failure in the history fails as well
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of(mock(MetadataAttribute.class))));
+        doThrow(new IllegalStateException("history unavailable"))
+                .when(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.anyString(), ArgumentMatchers.anyString());
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(RuntimeException.class);
+        verify(claimWriter).clear(certUuid);
     }
 
     @AfterEach

@@ -1462,7 +1462,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         try {
             finalizeIssuance(certificateUuid, certificate, result);
-        } catch (CertificateOperationException e) {
+        } catch (CertificateOperationException | RuntimeException e) {
+            // The authority has accepted: any local failure from here on parks the certificate.
             clearPendingIssueClaimBestEffort(certificate);
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
