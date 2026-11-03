@@ -25,6 +25,7 @@ import com.otilm.core.signing.tsa.validator.TspRequestValidationException;
 import com.otilm.core.signing.tsa.validator.TspRequestValidator;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -490,7 +491,7 @@ class TsaServiceImplUnitTest {
         }
 
         @Test
-        void enforcesAuthorization_beforeRefusingAContentSigningProfileWithATspLink() throws NotFoundException {
+        void enforcesAuthorization_beforeRefusingAContentSigningProfileWithATspLink() throws Exception {
             // given — the misconfiguration a content-signing profile can only reach by being linked to a TSP profile
             var signingProfile = aSigningProfile()
                     .withName("content-signing-profile")
@@ -503,12 +504,12 @@ class TsaServiceImplUnitTest {
             ArgumentCaptor<SecuredUUID> securedUuid = ArgumentCaptor.forClass(SecuredUUID.class);
 
             // when
-            Executable call = () -> tsaService
+            ThrowingCallable processTspRequestForSigningProfile = () -> tsaService
                     .processTspRequestForSigningProfile("content-signing-profile", aTspRequest().build());
 
             // then — RFC 3161 processing stays confined to managed timestamping, but only after the caller is
             // authorized for the linked TSP profile
-            assertThatThrownBy(call::execute).isInstanceOf(TspException.class).satisfies(ex -> {
+            assertThatThrownBy(processTspRequestForSigningProfile).isInstanceOf(TspException.class).satisfies(ex -> {
                 assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
                 assertThat(((TspException) ex).getClientMessage()).isEqualTo("The system is misconfigured.");
             });

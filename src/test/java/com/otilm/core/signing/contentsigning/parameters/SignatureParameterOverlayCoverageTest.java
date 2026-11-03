@@ -136,43 +136,60 @@ class SignatureParameterOverlayCoverageTest {
     }
 
     @Test
-    void copiesTheImageArray_ratherThanSharingEitherArguments() {
+    void copiesTheProfileImage_whenTheRequestLeavesTheImageOut() {
+        // given
+        PadesSignatureParametersDto defaults = aPadesParameters().build();
+        byte[] profileImage = (byte[]) ParameterPaths.populate(defaults, "visibleSignature.image", 0);
+
+        // when
+        PadesSignatureParametersDto effective = merge(defaults, requestOf("reason"));
+
+        // then
+        byte[] effectiveImage = effective.getVisibleSignature().getImage();
+        assertThat(effectiveImage).containsExactly(profileImage);
+        assertThat(effectiveImage)
+                .as("the effective parameters share the profile's image array")
+                .isNotSameAs(profileImage);
+    }
+
+    @Test
+    void copiesTheRequestImage_whenTheRequestSuppliesOne() {
         // given
         PadesSignatureParametersDto defaults = aPadesParameters().build();
         ParameterPaths.populate(defaults, "visibleSignature.image", 0);
         PadesSignatureParametersDto requested = aPadesParameters().build();
-        ParameterPaths.populate(requested, "visibleSignature.image", 1);
+        byte[] requestImage = (byte[]) ParameterPaths.populate(requested, "visibleSignature.image", 1);
 
         // when
-        PadesSignatureParametersDto fromProfile = merge(defaults, requestOf("reason"));
-        PadesSignatureParametersDto fromRequest = merge(defaults, requested);
+        PadesSignatureParametersDto effective = merge(defaults, requested);
 
         // then
-        assertThat(fromProfile.getVisibleSignature().getImage())
-                .as("the effective parameters share the profile's image array")
-                .isNotSameAs(defaults.getVisibleSignature().getImage());
-        assertThat(fromRequest.getVisibleSignature().getImage())
+        byte[] effectiveImage = effective.getVisibleSignature().getImage();
+        assertThat(effectiveImage).containsExactly(requestImage);
+        assertThat(effectiveImage)
                 .as("the effective parameters share the request's image array")
-                .isNotSameAs(requested.getVisibleSignature().getImage());
+                .isNotSameAs(requestImage);
     }
 
     @Test
     void overlaysEveryNeutralFieldItself() {
         // given — the neutral fields the sweeps above arrange the opposite side with
+        List<String> problems = new ArrayList<>();
 
-        // when / then
+        // when
         for (String path : paths()) {
             for (String neutral : List.of(outerNeutralFor(path), siblingNeutralFor(path))) {
                 PadesSignatureParametersDto requested = aPadesParameters().build();
                 Object supplied = ParameterPaths.populate(requested, neutral, 1);
-
                 Object effective = ParameterPaths.read(merge(aPadesParameters().build(), requested), neutral);
-
-                assertThat(effective)
-                        .as("%s is not overlaid, so a sweep using it proves nothing", neutral)
-                        .isEqualTo(supplied);
+                if (!Objects.deepEquals(supplied, effective)) {
+                    problems.add(neutral + " is not overlaid, so a sweep using it proves nothing");
+                }
             }
         }
+
+        // then
+        assertThat(problems).isEmpty();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

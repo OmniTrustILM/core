@@ -269,7 +269,7 @@ class InternalTimestampSourceTest {
 
         // then
         assertThatThrownBy(timestamp).isInstanceOf(SigningEngineException.class).satisfies(thrown -> {
-            var exception = (SigningEngineException) thrown;
+            SigningEngineException exception = (SigningEngineException) thrown;
             assertThat(exception.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
             assertThat(exception.operatorMessage()).contains("not a managed timestamping profile");
         });
