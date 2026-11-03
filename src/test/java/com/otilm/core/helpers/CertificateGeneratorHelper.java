@@ -19,8 +19,10 @@ import java.util.Date;
 import javax.security.auth.x500.X500Principal;
 import lombok.Getter;
 import org.bouncycastle.asn1.ASN1EncodableVector;
+import org.bouncycastle.asn1.DERNull;
 import org.bouncycastle.asn1.DERPrintableString;
 import org.bouncycastle.asn1.DERSequence;
+import org.bouncycastle.asn1.ocsp.OCSPObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AccessDescription;
 import org.bouncycastle.asn1.x509.AuthorityInformationAccess;
@@ -178,6 +180,46 @@ public class CertificateGeneratorHelper {
 
         ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
 
+        return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+    }
+
+    /**
+     * Generates a delegated OCSP responder certificate signed by the given CA, valid for one year up to
+     * {@code notAfter}, with {@code purpose} as its only extended key usage, digitalSignature as its key usage and the
+     * id-pkix-ocsp-nocheck extension.
+     */
+    public static X509Certificate generateOcspResponderCertificate(KeyPair caKeyPair, X509Certificate caCert,
+            KeyPair responderKeyPair, KeyPurposeId purpose, Date notAfter) throws Exception {
+        return generateOcspResponderCertificate(caKeyPair, caCert, responderKeyPair,
+                new KeyUsage(KeyUsage.digitalSignature), purpose, true, notAfter);
+    }
+
+    /**
+     * As above, with {@code keyUsage} as its key usage (no key usage extension when it is {@code null}) and the
+     * id-pkix-ocsp-nocheck extension only when {@code noCheck} is set.
+     */
+    public static X509Certificate generateOcspResponderCertificate(KeyPair caKeyPair, X509Certificate caCert,
+            KeyPair responderKeyPair, KeyUsage keyUsage, KeyPurposeId purpose, boolean noCheck, Date notAfter)
+            throws Exception {
+
+        X500Name issuer = new X500Name(caCert.getSubjectX500Principal().getName());
+        X500Name subject = new X500Name("CN=Test-OCSP-Responder");
+        BigInteger serial = BigInteger.valueOf(System.nanoTime());
+        Date start = new Date(notAfter.getTime() - 365 * 86400000L);
+
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(issuer, serial, start, notAfter, subject,
+                responderKeyPair.getPublic());
+
+        builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
+        if (keyUsage != null) {
+            builder.addExtension(Extension.keyUsage, true, keyUsage);
+        }
+        builder.addExtension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(purpose));
+        if (noCheck) {
+            builder.addExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nocheck, false, DERNull.INSTANCE);
+        }
+
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
         return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
     }
 
