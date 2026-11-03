@@ -88,7 +88,6 @@ public final class SignatureParameterMerge {
         merged.setOriginY(pick(base, requested, PadesVisibleSignaturePlacementDto::getOriginY));
         merged.setWidth(pick(base, requested, PadesVisibleSignaturePlacementDto::getWidth));
         merged.setHeight(pick(base, requested, PadesVisibleSignaturePlacementDto::getHeight));
-        merged.setRotation(pick(base, requested, PadesVisibleSignaturePlacementDto::getRotation));
         merged.setAlignmentHorizontal(pick(base, requested, PadesVisibleSignaturePlacementDto::getAlignmentHorizontal));
         merged.setAlignmentVertical(pick(base, requested, PadesVisibleSignaturePlacementDto::getAlignmentVertical));
         merged.setZoom(pick(base, requested, PadesVisibleSignaturePlacementDto::getZoom));
@@ -129,7 +128,7 @@ public final class SignatureParameterMerge {
 
     /**
      * @return whether the two placements combine into one legal addressing mode. A named field admits nothing beside
-     * itself; a placement carrying only the page and rotation the other two modes share completes either of them.
+     * itself; a placement carrying only the page, which the other two modes share, completes either of them.
      */
     private static boolean refines(PlacementMode requested, PlacementMode defaults) {
         if (requested == PlacementMode.NAMED_FIELD || defaults == PlacementMode.NAMED_FIELD) {
@@ -160,7 +159,7 @@ public final class SignatureParameterMerge {
         return RequestParameterGroups.suppliesNothing(container) ? null : container;
     }
 
-    /** The placement addressing modes. {@code NONE} covers the page and rotation the other two modes share. */
+    /** The placement addressing modes. {@code NONE} covers the page the other two modes share. */
     private enum PlacementMode {
         NAMED_FIELD,
         COORDINATES,

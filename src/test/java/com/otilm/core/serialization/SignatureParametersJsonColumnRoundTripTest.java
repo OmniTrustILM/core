@@ -64,7 +64,6 @@ class SignatureParametersJsonColumnRoundTripTest {
         assertThat(placement.getOriginY()).isEqualTo(30f);
         assertThat(placement.getWidth()).isEqualTo(180f);
         assertThat(placement.getHeight()).isEqualTo(60f);
-        assertThat(placement.getRotation()).isEqualTo(90);
 
         PadesVisibleSignatureStyleDto style = visible.getStyle();
         assertThat(style.getTextColor()).isEqualTo("#171717");
@@ -154,8 +153,7 @@ class SignatureParametersJsonColumnRoundTripTest {
                                 .withOriginX(20f)
                                 .withOriginY(30f)
                                 .withWidth(180f)
-                                .withHeight(60f)
-                                .withRotation(90))
+                                .withHeight(60f))
                         .withStyle(aStyle()
                                 .withTextColor("#171717")
                                 .withTextBackgroundColor("#ffffff")

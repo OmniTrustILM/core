@@ -44,7 +44,6 @@ final class FullyPopulatedParameters {
                                 .withOriginY(30f)
                                 .withWidth(180f)
                                 .withHeight(60f)
-                                .withRotation(90)
                                 .withAlignmentHorizontal(HorizontalAlignment.RIGHT)
                                 .withAlignmentVertical(VerticalAlignment.BOTTOM)
                                 .withZoom(100f))

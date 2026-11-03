@@ -16,7 +16,6 @@ public final class PadesVisibleSignaturePlacementDtoBuilder {
     private Float originY;
     private Float width;
     private Float height;
-    private Integer rotation;
     private HorizontalAlignment alignmentHorizontal;
     private VerticalAlignment alignmentVertical;
     private Float zoom;
@@ -55,11 +54,6 @@ public final class PadesVisibleSignaturePlacementDtoBuilder {
         return this;
     }
 
-    public PadesVisibleSignaturePlacementDtoBuilder withRotation(Integer rotation) {
-        this.rotation = rotation;
-        return this;
-    }
-
     public PadesVisibleSignaturePlacementDtoBuilder withAlignmentHorizontal(HorizontalAlignment alignmentHorizontal) {
         this.alignmentHorizontal = alignmentHorizontal;
         return this;
@@ -83,7 +77,6 @@ public final class PadesVisibleSignaturePlacementDtoBuilder {
         placement.setOriginY(originY);
         placement.setWidth(width);
         placement.setHeight(height);
-        placement.setRotation(rotation);
         placement.setAlignmentHorizontal(alignmentHorizontal);
         placement.setAlignmentVertical(alignmentVertical);
         placement.setZoom(zoom);

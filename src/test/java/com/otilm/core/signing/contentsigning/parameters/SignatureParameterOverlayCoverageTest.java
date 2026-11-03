@@ -192,7 +192,7 @@ class SignatureParameterOverlayCoverageTest {
 
     private static String siblingNeutralFor(String path) {
         if (path.startsWith(PLACEMENT)) {
-            return path.equals(PLACEMENT + "page") ? PLACEMENT + "rotation" : PLACEMENT + "page";
+            return path.equals(PLACEMENT + "page") ? PLACEMENT + "originX" : PLACEMENT + "page";
         }
         if (path.startsWith(STYLE)) {
             return path.equals(STYLE + "dpi") ? STYLE + "padding" : STYLE + "dpi";
