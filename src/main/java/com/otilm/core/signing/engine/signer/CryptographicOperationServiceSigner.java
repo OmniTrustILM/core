@@ -6,6 +6,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
+import com.otilm.api.model.client.cryptography.operations.SignatureResponseData;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -13,6 +14,8 @@ import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
@@ -49,17 +52,25 @@ public class CryptographicOperationServiceSigner implements Signer {
     }
 
     @Override
-    public byte[] sign(byte[] dtbs) throws SigningEngineException {
-        if (dtbs == null || dtbs.length == 0) {
-            throw new IllegalArgumentException("dtbs must not be null or empty");
+    public List<byte[]> signAll(List<byte[]> dtbsList) throws SigningEngineException {
+        if (dtbsList == null || dtbsList.isEmpty()) {
+            throw new IllegalArgumentException("dtbsList must not be null or empty");
         }
-
-        SignatureRequestData requestData = new SignatureRequestData();
-        requestData.setData(Base64.getEncoder().encodeToString(dtbs));
+        List<SignatureRequestData> items = new ArrayList<>(dtbsList.size());
+        for (int i = 0; i < dtbsList.size(); i++) {
+            byte[] dtbs = dtbsList.get(i);
+            if (dtbs == null || dtbs.length == 0) {
+                throw new IllegalArgumentException("dtbs must not be null or empty");
+            }
+            SignatureRequestData requestData = new SignatureRequestData();
+            requestData.setIdentifier(Integer.toString(i));
+            requestData.setData(Base64.getEncoder().encodeToString(dtbs));
+            items.add(requestData);
+        }
 
         SignDataRequestDto request = new SignDataRequestDto();
         request.setSignatureAttributes(signatureAttributes);
-        request.setData(List.of(requestData));
+        request.setData(items);
 
         try {
             SignDataResponseDto response = cryptographicOperationService
@@ -67,11 +78,9 @@ public class CryptographicOperationServiceSigner implements Signer {
                             request);
 
             if (response == null || response.getSignatures() == null || response.getSignatures().isEmpty()) {
-                throw new SigningEngineException(SigningEngineFailure.SIGNER_FAULT,
-                        "Signing operation returned no signatures", "Internal signing error");
+                throw signerFault("Signing operation returned no signatures");
             }
-
-            return Base64.getDecoder().decode(response.getSignatures().getFirst().getData());
+            return matchByIdentifier(response.getSignatures(), items.size());
 
         } catch (ConnectorException e) {
             throw new SigningEngineException(SigningEngineFailure.SIGNER_FAULT,
@@ -80,5 +89,46 @@ public class CryptographicOperationServiceSigner implements Signer {
             throw new SigningEngineException(SigningEngineFailure.SIGNER_FAULT,
                     "Key or token not found during signing: " + e.getMessage(), e, "Internal signing error");
         }
+    }
+
+    // Providers may answer out of order, so results are matched by the identifier sent with each item.
+    private static List<byte[]> matchByIdentifier(List<SignatureResponseData> results, int expected)
+            throws SigningEngineException {
+        if (results.size() != expected) {
+            throw signerFault(
+                    "Signing operation returned " + results.size() + " signatures for " + expected + " items");
+        }
+        byte[][] ordered = new byte[expected][];
+        for (SignatureResponseData result : results) {
+            int index = indexOf(result.getIdentifier(), expected);
+            if (ordered[index] != null) {
+                throw signerFault("Signing operation returned a repeated identifier: " + result.getIdentifier());
+            }
+            ordered[index] = Base64.getDecoder().decode(result.getData());
+        }
+        return Arrays.asList(ordered);
+    }
+
+    private static int indexOf(String identifier, int expected) throws SigningEngineException {
+        if (identifier == null) {
+            // A lone item cannot be mismatched, so connectors that do not echo identifiers stay supported.
+            if (expected == 1) {
+                return 0;
+            }
+            throw signerFault("Signing operation returned a result without an identifier");
+        }
+        try {
+            int index = Integer.parseInt(identifier);
+            if (index >= 0 && index < expected) {
+                return index;
+            }
+        } catch (NumberFormatException ignored) {
+            // falls through to the unknown-identifier fault
+        }
+        throw signerFault("Signing operation returned an unknown identifier: " + identifier);
+    }
+
+    private static SigningEngineException signerFault(String message) {
+        return new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, message, "Internal signing error");
     }
 }
