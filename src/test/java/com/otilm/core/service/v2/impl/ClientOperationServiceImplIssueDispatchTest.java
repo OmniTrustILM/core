@@ -1,8 +1,13 @@
 package com.otilm.core.service.v2.impl;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -25,19 +30,28 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
 import java.security.NoSuchAlgorithmException;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -61,6 +75,7 @@ class ClientOperationServiceImplIssueDispatchTest {
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private EventProducer eventProducer;
     private CertificateLocationRepository certificateLocationRepository;
+    private CertificatePendingIssueClaimWriter claimWriter;
 
     private UUID certUuid;
     private Certificate certificate;
@@ -92,6 +107,8 @@ class ClientOperationServiceImplIssueDispatchTest {
         service.setCapabilityService(capabilityService);
         service.setCertificateEventHistoryService(certificateEventHistoryService);
         service.setEventProducer(eventProducer);
+        claimWriter = mock(CertificatePendingIssueClaimWriter.class);
+        service.setPendingIssueClaimWriter(claimWriter);
 
         when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(mock(TransactionStatus.class));
 
@@ -342,5 +359,321 @@ class ClientOperationServiceImplIssueDispatchTest {
                                 .argThat(msg -> msg.contains("completing local state failed")
                                         && !msg.contains(leakySecret)),
                         ArgumentMatchers.eq(""));
+    }
+
+    @Test
+    void stampsClaim_whenClaimingTheCertificateForIssue() throws Exception {
+        // given — the mocked state machine records the stamp the certificate carries at the moment it is claimed
+        AtomicReference<OffsetDateTime> stampAtClaim = new AtomicReference<>();
+        Mockito.doAnswer(inv -> {
+            stampAtClaim.set(inv.<Certificate>getArgument(0).getPendingIssueClaimedAt());
+            return null;
+        })
+                .when(stateMachine)
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                        ArgumentMatchers.any(), ArgumentMatchers.anyString());
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThat(stampAtClaim.get()).isNotNull().isBetween(before, OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    @Test
+    void clearsClaim_whenNonPollableAuthorityAcceptsAsynchronously() throws Exception {
+        // given — no poll row is written: the out-of-band manual-completion case
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertClaimCleared();
+    }
+
+    @Test
+    void clearsClaim_whenAuthorityAnswersWithNoContent() throws Exception {
+        // given
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncNoContent());
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertClaimCleared();
+    }
+
+    @Test
+    void clearsClaim_whenConnectorAcceptsButALocalAdapterStepFails() throws Exception {
+        // given
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted, local failed",
+                        new RuntimeException("boom")));
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertClaimCleared();
+    }
+
+    @Test
+    void clearsClaim_whenSyncResultHasNoCertificateData() throws Exception {
+        // given
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk(null, List.of(), null));
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertClaimCleared();
+    }
+
+    @Test
+    void clearsClaim_whenCompletingTheIssuedCertificateFails() throws Exception {
+        // given
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        doThrow(new IllegalStateException("persist failed"))
+                .when(certificateService)
+                .issueRequestedCertificate(certUuid, "cert-data", List.of());
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertClaimCleared();
+    }
+
+    @Test
+    void leavesClaimToTheStateMachine_whenConnectorRejectsTheRequest() throws Exception {
+        // given — the exit to FAILED goes through the state machine, which clears the stamp itself
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new ConnectorException("upstream refused"));
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED)))
+                .thenReturn(true);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(claimWriter, never()).clear(ArgumentMatchers.any());
+    }
+
+    @Test
+    void honoursTheAcceptance_whenClearingTheClaimFails() throws Exception {
+        // given — a pollable authority accepts asynchronously, but clearing the claim fails (best-effort)
+        stubPollableAuthorityAcceptingAsynchronously();
+        when(claimWriter.clear(certUuid)).thenThrow(new IllegalStateException("db down"));
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        verify(pollWriter)
+                .schedule(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateOperation.ISSUE),
+                        ArgumentMatchers.any());
+        assertThat(certificate.getPendingIssueClaimedAt()).isNull();
+    }
+
+    @Test
+    void clearsClaimOnlyAfterSchedulingThePoll_whenPollableAuthorityAcceptsAsynchronously() throws Exception {
+        // given — were Core to stop between the two writes, the claim must still be set (claim + poll row: the
+        // poller owns it), never already cleared with no poll row behind it
+        stubPollableAuthorityAcceptingAsynchronously();
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        var inOrder = Mockito.inOrder(pollWriter, claimWriter);
+        inOrder
+                .verify(pollWriter)
+                .schedule(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateOperation.ISSUE),
+                        ArgumentMatchers.any());
+        inOrder.verify(claimWriter).clear(certUuid);
+    }
+
+    @Test
+    void warnsOfTheDivergence_whenCertificateLeftPendingIssueBeforeTheClaimWasCleared() throws Exception {
+        // given — the authority accepted, but by the time Core records it the certificate has already left
+        // PENDING_ISSUE (reaped or cancelled during a slow call), so the guarded clear updates nothing
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenReturn(0);
+        when(certificateRepository.findStateByUuid(certUuid)).thenReturn(Optional.of(CertificateState.FAILED));
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThat(collectWarnings(logged)).anySatisfy(message -> assertThat(message).contains(certUuid.toString()));
+    }
+
+    @Test
+    void logsNoClaimWarning_whenTheClaimIsCleared() throws Exception {
+        // given
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenReturn(1);
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThat(collectWarnings(logged)).noneSatisfy(message -> assertThat(message).contains("claim"));
+    }
+
+    @Test
+    void retriesClear_whenItHitsATransientDatabaseError() throws Exception {
+        // given — a non-pollable authority accepts; the first clear meets a database blip, and without a retry the
+        // stale claim would leave the accepted request to the reaper
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid))
+                .thenThrow(new TransientDataAccessResourceException("connection reset"))
+                .thenReturn(1);
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        verify(claimWriter, times(2)).clear(certUuid);
+    }
+
+    @Test
+    void givesUpOnClear_whenThreeAttemptsHitTransientErrors() throws Exception {
+        // given
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenThrow(new TransientDataAccessResourceException("database down"));
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        verify(claimWriter, times(3)).clear(certUuid);
+    }
+
+    @Test
+    void triesClearOnce_whenItFailsForANonTransientReason() throws Exception {
+        // given
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenThrow(new IllegalStateException("not a database blip"));
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        verify(claimWriter, times(1)).clear(certUuid);
+    }
+
+    @Test
+    void clearsClaim_whenRecordingAMetadataFailureFailsToo() throws Exception {
+        // given — the authority accepts with metadata; storing it fails (no attribute engine is wired here) and
+        // recording that failure in the history fails as well
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of(mock(MetadataAttribute.class))));
+        doThrow(new IllegalStateException("history unavailable"))
+                .when(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.anyString(), ArgumentMatchers.anyString());
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        verify(claimWriter).clear(certUuid);
+    }
+
+    @Test
+    void writesNoReconcileEntry_whenRaisingTheEventFailsAfterIssue() throws Exception {
+        // given — the certificate is issued and recorded; only the action event after it fails (broker down)
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        IllegalStateException brokerDown = new IllegalStateException("broker down");
+        doThrow(brokerDown).when(eventProducer).produceMessage(ArgumentMatchers.any());
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isSameAs(brokerDown);
+        verify(certificateEventHistoryService, never())
+                .addEventHistory(ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED), ArgumentMatchers.anyString(),
+                        ArgumentMatchers.anyString());
+        verify(claimWriter, never()).clear(ArgumentMatchers.any());
+    }
+
+    @Test
+    void logsNoDivergence_whenTheCertificateIsAlreadyIssued() throws Exception {
+        // given — the guarded clear updates nothing because the certificate already completed
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(claimWriter.clear(certUuid)).thenReturn(0);
+        when(certificateRepository.findStateByUuid(certUuid)).thenReturn(Optional.of(CertificateState.ISSUED));
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThat(collectWarnings(logged)).noneSatisfy(message -> assertThat(message).contains("no longer"));
+    }
+
+    @AfterEach
+    void releaseTheServiceLogger() {
+        ((Logger) LoggerFactory.getLogger(ClientOperationServiceImpl.class)).detachAndStopAllAppenders();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void stubPollableAuthorityAcceptingAsynchronously() throws Exception {
+        AuthorityProviderAdapter asyncAdapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(AsyncOperationCapability.class));
+        when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(asyncAdapter);
+        when(asyncAdapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(certificateRepository.findForPollingByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(capabilityService
+                .supports(ArgumentMatchers.any(AuthorityInstanceReference.class),
+                        ArgumentMatchers.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
+                .thenReturn(true);
+    }
+
+    private static ListAppender<ILoggingEvent> captureServiceLogs() {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ((Logger) LoggerFactory.getLogger(ClientOperationServiceImpl.class)).addAppender(appender);
+        return appender;
+    }
+
+    private static List<String> collectWarnings(ListAppender<ILoggingEvent> logged) {
+        return logged.list
+                .stream()
+                .filter(event -> event.getLevel() == Level.WARN)
+                .map(ILoggingEvent::getFormattedMessage)
+                .toList();
+    }
+
+    /** The claim was cleared both in the database and on the instance the caller holds. */
+    private void assertClaimCleared() {
+        verify(claimWriter).clear(certUuid);
+        assertThat(certificate.getPendingIssueClaimedAt()).isNull();
     }
 }
