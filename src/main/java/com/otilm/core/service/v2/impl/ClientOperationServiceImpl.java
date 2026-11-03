@@ -122,6 +122,7 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
 import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -219,6 +220,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
     private CertificateStatusPollWriter pollWriter;
+    private CertificatePendingIssueClaimWriter pendingIssueClaimWriter;
     private CertificateRegistrationWriter certificateRegistrationWriter;
     private CertificateRegistrationRepository certificateRegistrationRepository;
     private CertificateLocationRepository certificateLocationRepository;
@@ -280,6 +282,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
         this.pollWriter = pollWriter;
+    }
+
+    @Autowired
+    public void setPendingIssueClaimWriter(CertificatePendingIssueClaimWriter pendingIssueClaimWriter) {
+        this.pendingIssueClaimWriter = pendingIssueClaimWriter;
     }
 
     @Autowired
@@ -1396,8 +1403,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
-            // state via the state machine. The sync path creates no poll row, so a crash before the
-            // terminal transition leaves the cert in PENDING_ISSUE until PendingIssueReaper reaps it.
+            // state via the state machine. The claim stamp commits with the move and is cleared once
+            // the authority's answer is recorded; PendingIssueReaper fails only a stamp that goes
+            // stale, i.e. a call interrupted by a crash.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -1422,6 +1431,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             result = adapterFactory.forAuthority(authority).issue(certificate, req);
         } catch (ConnectorAcceptedButLocalFailureException e) {
             // Connector accepted (v3 acceptance guard) but a local step failed: honour the state-divergence rule.
+            clearPendingIssueClaimBestEffort(certificate);
             String pendingIssueLabel = CertificateState.PENDING_ISSUE.getLabel();
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
@@ -1444,6 +1454,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             finalizeIssuance(certificateUuid, certificate, result);
         } catch (CertificateOperationException e) {
+            clearPendingIssueClaimBestEffort(certificate);
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                             "Certificate was issued by the authority but completing local state failed; reconcile manually. Cause: "
@@ -1560,6 +1571,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)
                             ? RegisterWireBuilder.buildIdentityContent(certificate.getSubjectDn())
                             : null;
+            managed.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(managed, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -1583,6 +1595,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             return registerCapability.issueRegistered(certificate, replay.replayMeta(), replay.identityContent());
         } catch (ConnectorAcceptedButLocalFailureException e) {
+            clearPendingIssueClaimBestEffort(certificate);
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but a local adapter step failed; "
                             + "left {} for reconciliation", certUuid, pendingIssueLabel, e);
@@ -1612,6 +1625,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             finalizeIssuance(certUuid, certificate, result);
         } catch (Exception e) {
+            clearPendingIssueClaimBestEffort(certificate);
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but completing local state failed; "
                             + "reconcile manually", certUuid, e);
@@ -1741,6 +1755,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private void onAsyncAccepted(Certificate certificate, List<MetadataAttribute> meta,
             ResourceAction originatingAction) {
+        clearPendingIssueClaimBestEffort(certificate);
         if (meta != null && !meta.isEmpty()) {
             try {
                 attributeEngine
@@ -2760,6 +2775,23 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         "Connector accepted asynchronously (HTTP 202); certificate transitioned to PENDING_REVOKE");
 
         logger.info("Certificate {} transitioned to PENDING_REVOKE", certificate.getUuid());
+    }
+
+    /**
+     * The authority has answered but the certificate stays in {@code PENDING_ISSUE} (accepted asynchronously, or parked
+     * after a local failure), so its claim stamp must no longer mark an unanswered call. Nulls the stamp on the held
+     * instance too, so a later save of it cannot write the stamp back. Best-effort: the authority has accepted, so a
+     * failure here must not fail the operation — it leaves the certificate to the reaper, as before this stamp existed.
+     */
+    private void clearPendingIssueClaimBestEffort(Certificate certificate) {
+        certificate.setPendingIssueClaimedAt(null);
+        try {
+            pendingIssueClaimWriter.clear(certificate.getUuid());
+        } catch (RuntimeException e) {
+            logger
+                    .warn("Failed to clear the pending-issue claim of certificate {}; the reaper may fail it: {}",
+                            certificate.getUuid(), e.getMessage(), e);
+        }
     }
 
     /**

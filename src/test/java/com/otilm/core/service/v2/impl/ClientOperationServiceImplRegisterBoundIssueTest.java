@@ -37,14 +37,17 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.RegisterCapability;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
+import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
+import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +60,7 @@ import org.mockito.Mockito;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -86,6 +90,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     private CertificateStatusPollWriter pollWriter;
     private CertificateRelationRepository certificateRelationRepository;
     private EventProducer eventProducer;
+    private CertificatePendingIssueClaimWriter claimWriter;
 
     private RaProfile raProfile;
     private AuthorityInstanceReference authority;
@@ -149,6 +154,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         service.setPollWriter(pollWriter);
         service.setCertificateRelationRepository(certificateRelationRepository);
         service.setEventProducer(eventProducer);
+        claimWriter = mock(CertificatePendingIssueClaimWriter.class);
+        service.setPendingIssueClaimWriter(claimWriter);
 
         TransactionStatus tx = mock(TransactionStatus.class);
         when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(tx);
@@ -265,8 +272,20 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         RegisterCapability adapter = registerCapableAdapter();
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        AtomicReference<OffsetDateTime> stampAtClaim = new AtomicReference<>();
+        Mockito.doAnswer(inv -> {
+            stampAtClaim.set(inv.<Certificate>getArgument(0).getPendingIssueClaimedAt());
+            return null;
+        })
+                .when(stateMachine)
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                        ArgumentMatchers.any(), ArgumentMatchers.anyString());
 
         issue();
+
+        assertThat(stampAtClaim.get())
+                .as("the claim is stamped in the same save as the move to PENDING_ISSUE")
+                .isNotNull();
 
         InOrder inOrder = Mockito.inOrder(stateMachine, adapter);
         inOrder
@@ -511,5 +530,73 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         attribute.setContentType(AttributeContentType.STRING);
         attribute.setContent(List.of(new StringAttributeContentV2(value)));
         return attribute;
+    }
+
+    @Test
+    void asyncAcceptClearsTheClaim() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+
+        issue();
+
+        assertClaimCleared();
+    }
+
+    @Test
+    void connectorAcceptedButLocalFailureClearsTheClaim() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new ConnectorAcceptedButLocalFailureException("accepted upstream, local step failed",
+                        new RuntimeException("boom")));
+
+        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
+
+        assertClaimCleared();
+    }
+
+    @Test
+    void syncOkButLocalCompletionFailureClearsTheClaim() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        doThrow(new IllegalStateException("persist failed"))
+                .when(certificateService)
+                .issueRequestedCertificate(certUuid, "cert-data", List.of());
+
+        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
+
+        assertClaimCleared();
+    }
+
+    @Test
+    void syncOkWithEmptyBodyClearsTheClaim() throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("", List.of(), CertificateType.X509));
+
+        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
+
+        assertClaimCleared();
+    }
+
+    @Test
+    void preAcceptanceConnectorFailureDoesNotClearTheClaim() throws Exception {
+        // the exit to FAILED goes through the state machine, which clears the stamp itself
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new ConnectorException("upstream refused"));
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED)))
+                .thenReturn(true);
+
+        assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class);
+
+        verify(claimWriter, never()).clear(ArgumentMatchers.any());
+    }
+
+    /** The claim was cleared both in the database and on the instance the caller holds. */
+    private void assertClaimCleared() {
+        verify(claimWriter).clear(certUuid);
+        assertThat(certificate.getPendingIssueClaimedAt()).isNull();
     }
 }
