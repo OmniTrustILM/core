@@ -40,8 +40,26 @@ class PendingIssueReaperTimingCheckTest {
 
     /**
      * The reaper fails a certificate whose claim is older than reap-stale-after, which must only ever mean the
-     * synchronous connector call is gone, so the call has to end within it.
+     * synchronous phase is gone: reading the vault-backed secrets of the authority and RA profile, then the request.
      */
+    @Test
+    void refuses_whenSecretReadsAndTheRequestCouldOutlastTheReapDelay() {
+        // given — at the default timeouts one connector call can take 48 s
+        Duration reapDelayForOneCall = Duration.ofMinutes(2);
+        when(proxyProvider.getIfAvailable()).thenReturn(null);
+        PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(reapDelayForOneCall,
+                createClient(Duration.ofSeconds(35)), proxyProvider);
+
+        // when
+        ThrowingCallable checkTimings = check::check;
+
+        // then
+        assertThatThrownBy(checkTimings)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("reap-stale-after must be longer than PT2M24S")
+                .hasMessageContaining("was PT2M");
+    }
+
     @Test
     void refuses_whenAConnectorCallCouldOutlastTheReapDelay() {
         // given
@@ -56,7 +74,7 @@ class PendingIssueReaperTimingCheckTest {
         // then
         assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("reap-stale-after must be longer than PT2M8S")
+                .hasMessageContaining("reap-stale-after must be longer than PT6M24S")
                 .hasMessageContaining("was PT1M");
     }
 
@@ -74,7 +92,7 @@ class PendingIssueReaperTimingCheckTest {
         // then
         assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("reap-stale-after must be longer than PT5M5S")
+                .hasMessageContaining("reap-stale-after must be longer than PT15M15S")
                 .hasMessageContaining("was PT5M");
     }
 

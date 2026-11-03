@@ -8,12 +8,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Refuses at startup a pending-issue reap delay that one connector call could outlast at the connector timeouts
- * configured: the reaper fails a certificate whose claim is that old, which must only ever mean the synchronous call to
- * the authority is gone, never that it is still running.
+ * Refuses at startup a pending-issue reap delay that the synchronous phase of a claimed certificate could outlast at
+ * the connector timeouts configured: the reaper fails a certificate whose claim is that old, which must only ever mean
+ * the synchronous call to the authority is gone, never that it is still running.
  */
 @Component
 public class PendingIssueReaperTimingCheck {
+
+    /**
+     * The connector calls a claimed certificate can wait on: reads of the vault-backed secrets referenced by the
+     * authority and RA profile attributes, typically one each, then the request to the authority.
+     */
+    private static final int CONNECTOR_CALLS = 3;
 
     private final Duration reapStaleAfter;
     private final ConnectorApiClientProperties connectorClient;
@@ -29,10 +35,12 @@ public class PendingIssueReaperTimingCheck {
 
     @PostConstruct
     void check() {
-        Duration call = ConnectorCallTimeouts.longestCall(connectorClient, proxy.getIfAvailable());
-        if (reapStaleAfter.compareTo(call) <= 0) {
-            throw new IllegalStateException("provider.status-poll.reap-stale-after must be longer than " + call
-                    + ", the longest connector call at the connector timeouts configured, was " + reapStaleAfter);
+        Duration needed = ConnectorCallTimeouts
+                .longestCall(connectorClient, proxy.getIfAvailable())
+                .multipliedBy(CONNECTOR_CALLS);
+        if (reapStaleAfter.compareTo(needed) <= 0) {
+            throw new IllegalStateException("provider.status-poll.reap-stale-after must be longer than " + needed
+                    + ", three connector calls at the connector timeouts configured, was " + reapStaleAfter);
         }
     }
 }
