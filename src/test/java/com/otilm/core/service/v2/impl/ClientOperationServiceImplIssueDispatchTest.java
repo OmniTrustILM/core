@@ -473,6 +473,33 @@ class ClientOperationServiceImplIssueDispatchTest {
         assertThat(certificate.getPendingIssueClaimedAt()).isNull();
     }
 
+    @Test
+    void clearsTheClaimOnlyAfterThePollIsScheduled() throws Exception {
+        // given — a pollable authority accepts asynchronously. Were Core to stop between the two writes, the claim
+        // must still be set (stamp + poll row: the poller owns it), never already cleared with no poll row behind it.
+        AuthorityProviderAdapter asyncAdapter = mock(AuthorityProviderAdapter.class,
+                Mockito.withSettings().extraInterfaces(AsyncOperationCapability.class));
+        when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(asyncAdapter);
+        when(asyncAdapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
+        when(certificateRepository.findForPollingByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(capabilityService
+                .supports(ArgumentMatchers.any(AuthorityInstanceReference.class),
+                        ArgumentMatchers.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
+                .thenReturn(true);
+
+        // when
+        service.issueCertificateAction(certUuid, true);
+
+        // then
+        var inOrder = Mockito.inOrder(pollWriter, claimWriter);
+        inOrder
+                .verify(pollWriter)
+                .schedule(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateOperation.ISSUE),
+                        ArgumentMatchers.any());
+        inOrder.verify(claimWriter).clear(certUuid);
+    }
+
     /** The claim was cleared both in the database and on the instance the caller holds. */
     private void assertClaimCleared() {
         verify(claimWriter).clear(certUuid);

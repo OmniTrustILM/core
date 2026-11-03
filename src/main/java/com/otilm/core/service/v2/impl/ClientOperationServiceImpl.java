@@ -1749,13 +1749,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * Records the connector's async acceptance ({@code 202}) of an issue/renew/rekey: persists returned metadata,
-     * schedules the status poll, raises the action-performed event, and writes the event-log entry. The cert is already
+     * schedules the status poll, clears the pending-issue claim, raises the action-performed event, and writes the
+     * event-log entry. The claim is cleared only after the poll is scheduled, so a crash in between leaves a claimed
+     * certificate with a poll row, which the poller owns, rather than one nothing will ever touch. The cert is already
      * in {@code PENDING_ISSUE}, so the state is unchanged; {@code originatingAction} drives
      * {@code CERTIFICATE_ACTION_PERFORMED} so subscribers see the actual operation.
      */
     private void onAsyncAccepted(Certificate certificate, List<MetadataAttribute> meta,
             ResourceAction originatingAction) {
-        clearPendingIssueClaimBestEffort(certificate);
         if (meta != null && !meta.isEmpty()) {
             try {
                 attributeEngine
@@ -1784,6 +1785,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
 
         scheduleStatusPoll(certificate, pollOperationFor(originatingAction));
+        clearPendingIssueClaimBestEffort(certificate);
 
         eventProducer
                 .produceMessage(CertificateActionPerformedEventHandler
