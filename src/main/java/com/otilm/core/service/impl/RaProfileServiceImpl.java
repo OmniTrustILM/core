@@ -77,6 +77,7 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.apache.commons.lang3.StringUtils;
@@ -87,6 +88,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service(Resource.Codes.RA_PROFILE)
 @Transactional
@@ -111,6 +115,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     private CertificateContentRepository certificateContentRepository;
     private ApprovalProfileExternalService approvalProfileService;
     private AuthorityProviderAdapterFactory authorityProviderAdapterFactory;
+    private TransactionTemplate separateReadOnlyTransactions;
 
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.LIST,
@@ -236,7 +241,8 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
-        requireDetailOfAuthorityLeft(raProfile, authorityInstanceUuid);
+        UUID authorityLeftUuid = raProfile.getAuthorityInstanceReferenceUuid();
+        requireDetailOfAuthorityLeft(authorityLeftUuid, authorityInstanceUuid);
 
         AuthorityInstanceReference authorityInstanceRef = authorityInstanceReferenceRepository
                 .findByUuid(authorityInstanceUuid)
@@ -246,7 +252,8 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         mergeAndValidateAttributes(authorityInstanceRef, request.getAttributes());
 
         updateRaProfile(raProfile, authorityInstanceRef, request);
-        raProfileRepository.save(raProfile);
+        raProfileRepository.saveAndFlush(raProfile);
+        requireAuthorityLeftUnchanged(raProfile.getUuid(), authorityLeftUuid);
 
         RaProfileDto raProfileDto = raProfile.mapToDto();
         raProfileDto
@@ -910,11 +917,27 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
      * An edit through another authority moves the RA Profile there. The caller was authorized on the authority the URL
      * names, so the authority the RA Profile leaves is checked as well.
      */
-    private void requireDetailOfAuthorityLeft(RaProfile raProfile, SecuredParentUUID authorityUuid) {
-        UUID currentAuthorityUuid = raProfile.getAuthorityInstanceReferenceUuid();
-        if (currentAuthorityUuid != null && !currentAuthorityUuid.equals(authorityUuid.getValue())) {
+    private void requireDetailOfAuthorityLeft(UUID authorityLeftUuid, SecuredParentUUID authorityUuid) {
+        if (authorityLeftUuid != null && !authorityLeftUuid.equals(authorityUuid.getValue())) {
             authorizationEnforcer
-                    .enforce(Resource.AUTHORITY, ResourceAction.DETAIL, SecuredUUID.fromUUID(currentAuthorityUuid));
+                    .enforce(Resource.AUTHORITY, ResourceAction.DETAIL, SecuredUUID.fromUUID(authorityLeftUuid));
+        }
+    }
+
+    /**
+     * The flush before this holds the RA Profile's row lock until commit, so the authority read here, in a transaction
+     * of its own, is the one this edit replaces. If another request moved the RA Profile after this edit checked the
+     * authority it leaves, the edit is refused instead of taking the RA Profile out of an authority it was not checked
+     * against.
+     */
+    private void requireAuthorityLeftUnchanged(UUID raProfileUuid, UUID authorityLeftUuid) {
+        UUID committedAuthorityUuid = separateReadOnlyTransactions
+                .execute(status -> raProfileRepository
+                        .findAuthorityInstanceReferenceUuidByUuid(raProfileUuid)
+                        .orElse(null));
+        if (!Objects.equals(committedAuthorityUuid, authorityLeftUuid)) {
+            throw new ValidationException(ValidationError
+                    .create("RA Profile was moved to another authority while it was being edited. Load it again and retry."));
         }
     }
 
@@ -1093,5 +1116,12 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Autowired
     public void setAuthorityProviderAdapterFactory(AuthorityProviderAdapterFactory authorityProviderAdapterFactory) {
         this.authorityProviderAdapterFactory = authorityProviderAdapterFactory;
+    }
+
+    @Autowired
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        separateReadOnlyTransactions = new TransactionTemplate(transactionManager);
+        separateReadOnlyTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        separateReadOnlyTransactions.setReadOnly(true);
     }
 }

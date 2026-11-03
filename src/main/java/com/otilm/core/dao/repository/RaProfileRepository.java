@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -24,6 +26,10 @@ public interface RaProfileRepository extends SecurityFilterRepository<RaProfile,
             "authorityInstanceReference.connector",
             "authorityInstanceReference.connector.functionGroups"})
     Optional<RaProfile> findWithAuthorityByUuid(UUID uuid);
+
+    /** Scalar projection of the authority, read without managing the entity. */
+    @Query("SELECT r.authorityInstanceReferenceUuid FROM RaProfile r WHERE r.uuid = :uuid")
+    Optional<UUID> findAuthorityInstanceReferenceUuidByUuid(@Param("uuid") UUID uuid);
 
     Optional<RaProfile> findByName(String name);
 

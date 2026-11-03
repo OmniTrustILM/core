@@ -81,11 +81,18 @@ import com.otilm.core.service.RaProfileInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.WireMockResponseGate;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -96,6 +103,9 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
+
+import static org.awaitility.Awaitility.await;
 
 class RaProfileServiceITest extends ApprovalProfileData {
 
@@ -148,10 +158,11 @@ class RaProfileServiceITest extends ApprovalProfileData {
     private Connector connector;
 
     private WireMockServer mockServer;
+    private final WireMockResponseGate responseGate = new WireMockResponseGate();
 
     @BeforeEach
     void setUp() {
-        mockServer = new WireMockServer(LoopbackWireMock.options());
+        mockServer = new WireMockServer(LoopbackWireMock.options().extensions(responseGate));
         mockServer.start();
 
         WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
@@ -919,6 +930,41 @@ class RaProfileServiceITest extends ApprovalProfileData {
     }
 
     @Test
+    void testEditRaProfile_refusesTheEditWhenAnotherRequestMovedTheRaProfileMeanwhile() throws Exception {
+        stubRaProfileAttributeValidation();
+        SecuredParentUUID targetAuthorityUuid = anotherAuthority().getSecuredParentUuid();
+        AuthorityInstanceReference movedTo = authority("3l");
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        EditRaProfileRequestDto request = editRequest();
+        CountDownLatch release = responseGate.hold();
+
+        try (ExecutorService editor = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            Future<RaProfileDto> edit = editor
+                    .submit(() -> raProfileService.editRaProfile(targetAuthorityUuid, raProfileUuid, request));
+            await()
+                    .atMost(5, TimeUnit.SECONDS)
+                    .until(() -> mockServer
+                            .countRequestsMatching(WireMock
+                                    .postRequestedFor(WireMock
+                                            .urlPathMatching(
+                                                    "/v1/authorityProvider/authorities/[^/]+/raProfile/attributes/validate"))
+                                    .build())
+                            .getCount() == 1);
+            RaProfile moved = reloadedRaProfile();
+            moved.setAuthorityInstanceReference(movedTo);
+            raProfileRepository.save(moved);
+            release.countDown();
+
+            ExecutionException failure = Assertions
+                    .assertThrows(ExecutionException.class, () -> edit.get(10, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(ValidationException.class, failure.getCause());
+        }
+
+        Assertions.assertEquals(movedTo.getUuid(), reloadedRaProfile().getAuthorityInstanceReferenceUuid());
+    }
+
+    @Test
     void testEditRaProfile_placesAnRaProfileWithoutAuthorityUnderTheAuthorityInThePath()
             throws ConnectorException, AttributeException, NotFoundException {
         stubRaProfileAttributeValidation();
@@ -1008,10 +1054,14 @@ class RaProfileServiceITest extends ApprovalProfileData {
     }
 
     private AuthorityInstanceReference anotherAuthority() {
-        AuthorityInstanceReference otherAuthority = new AuthorityInstanceReference();
-        otherAuthority.setAuthorityInstanceUuid("2l");
-        otherAuthority.setConnector(connector);
-        return authorityInstanceReferenceRepository.save(otherAuthority);
+        return authority("2l");
+    }
+
+    private AuthorityInstanceReference authority(String authorityInstanceUuid) {
+        AuthorityInstanceReference authority = new AuthorityInstanceReference();
+        authority.setAuthorityInstanceUuid(authorityInstanceUuid);
+        authority.setConnector(connector);
+        return authorityInstanceReferenceRepository.save(authority);
     }
 
     private RaProfile reloadedRaProfile() {

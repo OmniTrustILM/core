@@ -6,10 +6,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.extension.Parameters;
-import com.github.tomakehurst.wiremock.extension.ServeEventListener;
 import com.github.tomakehurst.wiremock.http.Fault;
-import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
@@ -124,6 +121,7 @@ import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.WireMockResponseGate;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import java.io.IOException;
@@ -309,7 +307,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private CertificateContent certificateContent;
 
     private WireMockServer mockServer;
-    private final ResponseGate responseGate = new ResponseGate();
+    private final WireMockResponseGate responseGate = new WireMockResponseGate();
 
     private X509Certificate x509Cert;
     @MockitoSpyBean
@@ -3071,38 +3069,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertTrue(events.stream().noneMatch(event -> event.contains(sentinel)),
                         "the connector's answer must not reach the log: " + events);
-    }
-
-    /**
-     * Holds the connector's answer until the test releases it, so a competing write provably commits while the
-     * operation waits on the authority.
-     */
-    private static final class ResponseGate implements ServeEventListener {
-
-        private volatile CountDownLatch release;
-
-        CountDownLatch hold() {
-            release = new CountDownLatch(1);
-            return release;
-        }
-
-        @Override
-        public void beforeResponseSent(ServeEvent serveEvent, Parameters parameters) {
-            CountDownLatch gate = release;
-            if (gate == null) {
-                return;
-            }
-            try {
-                gate.await(10, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
-        @Override
-        public String getName() {
-            return "responseGate";
-        }
     }
 
     private void stubRevokeResponse(ResponseDefinitionBuilder response) {
