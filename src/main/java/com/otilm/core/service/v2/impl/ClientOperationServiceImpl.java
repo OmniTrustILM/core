@@ -2221,7 +2221,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
-            // uniform PENDING_ISSUE state via the state machine.
+            // uniform PENDING_ISSUE state via the state machine. The claim stamp commits with the move.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -2263,6 +2264,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // record the failure against the predecessor and surface it. (state-divergence rule)
             logger.error("Failed to renew certificate {}", certificateUuid, e);
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                clearPendingIssueClaimBestEffort(certificate);
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
                                 CertificateEventStatus.FAILED,
@@ -2478,7 +2480,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
-            // uniform PENDING_ISSUE state via the state machine.
+            // uniform PENDING_ISSUE state via the state machine. The claim stamp commits with the move.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -2526,6 +2529,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // record the failure against the predecessor and surface it. (state-divergence rule)
             logger.error("Failed to rekey certificate {}", certificateUuid, e);
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                clearPendingIssueClaimBestEffort(certificate);
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
                                 CertificateEventStatus.FAILED,

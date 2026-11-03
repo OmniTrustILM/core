@@ -148,6 +148,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -307,6 +308,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     private WireMockServer mockServer;
     private final ResponseGate responseGate = new ResponseGate();
+    private static final String RENEW_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/renew";
 
     private X509Certificate x509Cert;
     @MockitoSpyBean
@@ -3242,6 +3244,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.ISSUED, newCert.getState(), "sync 200 renew must finish in ISSUED");
+        Assertions.assertNull(newCert.getPendingIssueClaimedAt(), "an answered renew leaves no claim stamp");
 
         var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(newCert);
         Assertions
@@ -3282,6 +3285,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         .formatted(successorUuid), ex.getMessage());
         assertFailedHistory(CertificateEvent.RENEW,
                 "Connector accepted renewal but local update failed: internal error");
+        assertParkedWithoutClaimStamp(successorUuid);
     }
 
     /**
@@ -3302,6 +3306,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         Certificate newCert = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.ISSUED, newCert.getState(), "sync 200 rekey must finish in ISSUED");
+        Assertions.assertNull(newCert.getPendingIssueClaimedAt(), "an answered rekey leaves no claim stamp");
 
         var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(newCert);
         Assertions
@@ -3341,6 +3346,75 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .assertEquals("Connector accepted rekey but local update failed for certificate %s: internal error"
                         .formatted(successorUuid), ex.getMessage());
         assertFailedHistory(CertificateEvent.REKEY, "Connector accepted rekey but local update failed: internal error");
+        assertParkedWithoutClaimStamp(successorUuid);
+    }
+
+    @Test
+    void renewCertificateAction_stampsTheClaimDuringTheConnectorCall_andClearsItOn202() throws Exception {
+        prepareCertificateForRenewal();
+        stubRenewAccepted();
+        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+        UUID successorUuid = certificate.getUuid();
+
+        assertClaimStampedDuringCallAndClearedAfterAcceptance(successorUuid, () -> {
+            clientOperationInternalService.renewCertificateAction(successorUuid, request, true);
+            return null;
+        });
+    }
+
+    @Test
+    void rekeyCertificateAction_stampsTheClaimDuringTheConnectorCall_andClearsItOn202() throws Exception {
+        prepareCertificateForRenewal();
+        stubRenewAccepted();
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        UUID successorUuid = certificate.getUuid();
+
+        assertClaimStampedDuringCallAndClearedAfterAcceptance(successorUuid, () -> {
+            clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true);
+            return null;
+        });
+    }
+
+    private void stubRenewAccepted() {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(RENEW_PATH))
+                        .willReturn(WireMock.aResponse().withStatus(202)));
+    }
+
+    /**
+     * Holds the connector's 202 so the claim stamp can be read while the call is in flight, then releases it and checks
+     * the stamp is gone once the acceptance is recorded.
+     */
+    private void assertClaimStampedDuringCallAndClearedAfterAcceptance(UUID successorUuid, Callable<Void> action)
+            throws Exception {
+        CountDownLatch release = responseGate.hold();
+        try (ExecutorService caller = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor())) {
+            Future<Void> call = caller.submit(action);
+            await()
+                    .atMost(5, TimeUnit.SECONDS)
+                    .until(() -> mockServer
+                            .countRequestsMatching(
+                                    WireMock.postRequestedFor(WireMock.urlPathMatching(RENEW_PATH)).build())
+                            .getCount() == 1);
+            Certificate inFlight = certificateRepository.findByUuid(successorUuid).orElseThrow();
+            Assertions.assertEquals(CertificateState.PENDING_ISSUE, inFlight.getState());
+            Assertions
+                    .assertNotNull(inFlight.getPendingIssueClaimedAt(),
+                            "the claim is stamped while the synchronous call is in flight");
+            release.countDown();
+            call.get(10, TimeUnit.SECONDS);
+        }
+        assertParkedWithoutClaimStamp(successorUuid);
+    }
+
+    private void assertParkedWithoutClaimStamp(UUID successorUuid) {
+        Certificate parked = certificateRepository.findByUuid(successorUuid).orElseThrow();
+        Assertions.assertEquals(CertificateState.PENDING_ISSUE, parked.getState());
+        Assertions
+                .assertNull(parked.getPendingIssueClaimedAt(),
+                        "the authority answered, so the reaper must not see an interrupted call");
     }
 
     @Test
