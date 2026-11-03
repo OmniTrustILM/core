@@ -4756,7 +4756,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         private PendingIssueReaper pendingIssueReaper;
 
         @Test
-        void stampsClaim_whileTheIssueCallIsInFlight() throws Exception {
+        void stampsClaim_whenTheIssueCallIsInFlight() throws Exception {
             // given
             UUID certUuid = prepareCertificateForIssuance();
             stubAccepted(ISSUE_PATH);
@@ -4773,7 +4773,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void stampsClaim_whileTheRenewalCallIsInFlight() throws Exception {
+        void stampsClaim_whenTheRenewalCallIsInFlight() throws Exception {
             // given
             prepareCertificateForRenewal();
             UUID successorUuid = certificate.getUuid();
@@ -4792,7 +4792,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void stampsClaim_whileTheRekeyCallIsInFlight() throws Exception {
+        void stampsClaim_whenTheRekeyCallIsInFlight() throws Exception {
             // given
             prepareCertificateForRenewal();
             UUID successorUuid = certificate.getUuid();
