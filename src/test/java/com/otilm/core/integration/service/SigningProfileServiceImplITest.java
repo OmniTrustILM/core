@@ -2617,16 +2617,32 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     @Nested
     class IlmNativeProtocol {
 
+        private SigningProfileDto createManagedContentProfile(String name)
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            return signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName(name)
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .build());
+        }
+
+        private boolean listsIlmNative(SecuredUUID uuid) throws NotFoundException {
+            return signingProfileService
+                    .getSigningProfile(uuid, null)
+                    .getEnabledProtocols()
+                    .contains(SigningProtocol.ILM_NATIVE);
+        }
+
+        private List<SigningProtocol> cachedModelProtocols(String name) throws NotFoundException {
+            return signingProfileInternalService.getSigningProfileModel(name).enabledProtocols();
+        }
+
         @Test
         void activate_onContentSigningProfile_addsIlmNative()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
             // given: a managed profile, since a delegated content-signing profile is refused
-            SigningProfileDto managedContent = signingProfileService
-                    .createSigningProfile(aSigningProfileRequest()
-                            .withName("managed-content-signing-profile")
-                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
-                            .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
-                            .build());
+            SigningProfileDto managedContent = createManagedContentProfile("managed-content-signing-profile");
             SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
 
             // when
@@ -2668,6 +2684,22 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .getSigningProfile(uuid, null)
                     .getEnabledProtocols()
                     .contains(SigningProtocol.ILM_NATIVE));
+        }
+
+        @Test
+        void activate_onDelegatedRawSigningProfile_throwsValidationException() throws NotFoundException {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultDelegatedSigningProfile.getUuid());
+
+            // when
+            Executable activate = () -> signingProfileService.activateIlmNative(uuid);
+
+            // then
+            ValidationException refusal = assertThrows(ValidationException.class, activate);
+            assertThat(refusal.getMessage())
+                    .isEqualTo("Signing profile 'default-delegated-signing-profile' uses delegated signing; "
+                            + "ILM_NATIVE needs a key ILM signs with.");
+            assertFalse(listsIlmNative(uuid));
         }
 
         @Test
@@ -2728,6 +2760,89 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .getSigningProfile(uuid, null)
                     .getEnabledProtocols()
                     .contains(SigningProtocol.ILM_NATIVE));
+        }
+
+        @Test
+        void cachedModel_listsIlmNativeAfterActivationAndNotAfterDeactivation()
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given: a managed content-signing profile whose model is cached
+            SigningProfileDto managedContent = createManagedContentProfile("cached-managed-content");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            assertThat(cachedModelProtocols(managedContent.getName())).doesNotContain(SigningProtocol.ILM_NATIVE);
+
+            // when
+            signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThat(cachedModelProtocols(managedContent.getName())).contains(SigningProtocol.ILM_NATIVE);
+
+            // when
+            signingProfileService.deactivateIlmNative(uuid);
+
+            // then
+            assertThat(cachedModelProtocols(managedContent.getName())).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void update_activatedContentProfileToTimestamping_dropsIlmNative()
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
+            SigningProfileDto managedContent = createManagedContentProfile("content-to-timestamping");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(uuid,
+                            aSigningProfileRequestFromExistingProfile(managedContent)
+                                    .withStaticKeyManagedSigning(defaultTimestampingCertificate.getUuid())
+                                    .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                                    .build());
+
+            // then
+            assertThat(updated.getEnabledProtocols()).doesNotContain(SigningProtocol.ILM_NATIVE);
+            assertFalse(listsIlmNative(uuid));
+        }
+
+        @Test
+        void update_activatedManagedContentProfileToDelegated_dropsIlmNative()
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
+            SigningProfileDto managedContent = createManagedContentProfile("managed-to-delegated-content");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(uuid,
+                            aSigningProfileRequestFromExistingProfile(managedContent)
+                                    .withDelegatedSigning(signerConnector.getUuid())
+                                    .withDelegatedContentSigning()
+                                    .build());
+
+            // then
+            assertThat(updated.getEnabledProtocols()).doesNotContain(SigningProtocol.ILM_NATIVE);
+            assertFalse(listsIlmNative(uuid));
+        }
+
+        @Test
+        void update_keepingAManagedContentProfile_keepsIlmNative()
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            // given
+            SigningProfileDto managedContent = createManagedContentProfile("managed-content-kept");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(uuid,
+                            aSigningProfileRequestFromExistingProfile(managedContent)
+                                    .withDescription("still a managed content-signing profile")
+                                    .build());
+
+            // then
+            assertThat(updated.getEnabledProtocols()).contains(SigningProtocol.ILM_NATIVE);
+            assertTrue(listsIlmNative(uuid));
         }
     }
 

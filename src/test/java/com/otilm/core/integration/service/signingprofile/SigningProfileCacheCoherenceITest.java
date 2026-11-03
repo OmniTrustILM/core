@@ -7,7 +7,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.core.config.cache.CacheConfig;
-import com.otilm.core.config.cache.ReadThroughCache;
 import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -154,31 +153,5 @@ class SigningProfileCacheCoherenceITest extends SigningProfileTestBase {
 
         // then
         assertThat(cache.get(tsp.getName(), TspProfileModel.class)).isNull();
-    }
-
-    @Test
-    void signingProfileCacheEntryIsClearedAfterIlmNativeActivationAndDeactivation()
-            throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-        // given - a raw profile; a raw model cannot be built yet, so a marker stands in for the cached model
-        SigningProfileDto profileDto = signingProfileService
-                .createSigningProfile(buildDelegatedRawRequest("raw-for-ilm-native-cache"));
-        SecuredUUID uuid = SecuredUUID.fromString(profileDto.getUuid());
-        ReadThroughCache cache = (ReadThroughCache) cacheManager.getCache(CacheConfig.SIGNING_PROFILE_CACHE);
-        cache.getOrLoad(profileDto.getName(), () -> "stale");
-
-        // when
-        signingProfileService.activateIlmNative(uuid);
-
-        // then
-        assertThat(cache.get(profileDto.getName())).isNull();
-
-        // given
-        cache.getOrLoad(profileDto.getName(), () -> "stale");
-
-        // when
-        signingProfileService.deactivateIlmNative(uuid);
-
-        // then
-        assertThat(cache.get(profileDto.getName())).isNull();
     }
 }

@@ -537,6 +537,9 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
         applyWorkflow(profile, version, request.getWorkflow(), request.getSigningScheme().getSigningScheme());
         applyScheme(profile, version, request.getSigningScheme());
+        if (!admitsIlmNative(profile)) {
+            profile.setIlmNativeEnabled(false);
+        }
         applyRecordPolicyToVersion(version, request.getRecordPolicy());
         profile = signingProfileRepository.save(profile);
         signingProfileVersionRepository.save(version);
@@ -783,8 +786,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     public void activateIlmNative(SecuredUUID uuid) throws NotFoundException {
         SigningProfile profile = findByUuid(uuid);
         validateSupportedProtocol(profile.getWorkflowType(), SigningProtocol.ILM_NATIVE);
-        if (profile.getWorkflowType() == SigningWorkflowType.CONTENT_SIGNING
-                && profile.getSigningScheme() == SigningScheme.DELEGATED) {
+        if (!admitsIlmNative(profile)) {
             throw new ValidationException(
                     "Signing profile '%s' uses delegated signing; ILM_NATIVE needs a key ILM signs with."
                             .formatted(profile.getName()));
@@ -827,13 +829,24 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 .orElseThrow(() -> new NotFoundException("Signing Profile not found: " + uuid));
     }
 
+    private static boolean supportsProtocol(SigningWorkflowType workflowType, SigningProtocol protocol) {
+        return SUPPORTED_PROTOCOLS.getOrDefault(workflowType, EnumSet.noneOf(SigningProtocol.class)).contains(protocol);
+    }
+
     private void validateSupportedProtocol(SigningWorkflowType workflowType, SigningProtocol protocol) {
-        Set<SigningProtocol> supported = SUPPORTED_PROTOCOLS
-                .getOrDefault(workflowType, EnumSet.noneOf(SigningProtocol.class));
-        if (!supported.contains(protocol)) {
+        if (!supportsProtocol(workflowType, protocol)) {
             throw new ValidationException(
                     protocol.getCode() + " is not supported for workflow type " + workflowType.getCode());
         }
+    }
+
+    /**
+     * Native operations sign only with keys ILM manages, so ILM_NATIVE needs a workflow that offers it and a scheme
+     * that is not delegated.
+     */
+    private static boolean admitsIlmNative(SigningProfile profile) {
+        return supportsProtocol(profile.getWorkflowType(), SigningProtocol.ILM_NATIVE)
+                && profile.getSigningScheme() != SigningScheme.DELEGATED;
     }
 
     private void validateSigningSchemeCoherence(SigningSchemeRequestDto scheme) {
