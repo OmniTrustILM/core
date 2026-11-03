@@ -122,6 +122,7 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
 import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -162,7 +163,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
@@ -219,6 +224,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private ActionProducer actionProducer;
     private EventProducer eventProducer;
     private CertificateStatusPollWriter pollWriter;
+    private CertificatePendingIssueClaimWriter pendingIssueClaimWriter;
     private CertificateRegistrationWriter certificateRegistrationWriter;
     private CertificateRegistrationRepository certificateRegistrationRepository;
     private CertificateLocationRepository certificateLocationRepository;
@@ -280,6 +286,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
         this.pollWriter = pollWriter;
+    }
+
+    @Autowired
+    public void setPendingIssueClaimWriter(CertificatePendingIssueClaimWriter pendingIssueClaimWriter) {
+        this.pendingIssueClaimWriter = pendingIssueClaimWriter;
     }
 
     @Autowired
@@ -1403,8 +1414,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             // Move to PENDING_ISSUE before calling the connector so every path (sync 200 or async
             // 202) reaches issueRequestedCertificate / the poll cycle from a uniform PENDING_ISSUE
-            // state via the state machine. The sync path creates no poll row, so a crash before the
-            // terminal transition leaves the cert in PENDING_ISSUE until PendingIssueReaper reaps it.
+            // state via the state machine.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -1423,12 +1434,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private void callConnectorAndFinalizeIssue(final UUID certificateUuid, Certificate certificate,
             ClientCertificateIssueRequestDto req, AuthorityInstanceReference authority)
-            throws CertificateOperationException, NotFoundException {
+            throws CertificateOperationException {
         AdapterOperationResult result;
         try {
             result = adapterFactory.forAuthority(authority).issue(certificate, req);
         } catch (ConnectorAcceptedButLocalFailureException e) {
             // Connector accepted (v3 acceptance guard) but a local step failed: honour the state-divergence rule.
+            clearPendingIssueClaimBestEffort(certificate);
             String pendingIssueLabel = CertificateState.PENDING_ISSUE.getLabel();
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
@@ -1448,9 +1460,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             + safeMessage(e, "issuance failed"));
         }
 
+        boolean issuedSynchronously;
         try {
-            finalizeIssuance(certificateUuid, certificate, result);
+            issuedSynchronously = finalizeIssuance(certificateUuid, certificate, result);
         } catch (CertificateOperationException e) {
+            clearPendingIssueClaimBestEffort(certificate);
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                             "Certificate was issued by the authority but completing local state failed; reconcile manually. Cause: "
@@ -1458,13 +1472,23 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             "");
             throw e;
         }
+        if (issuedSynchronously) {
+            afterSynchronousIssue(certificateUuid);
+        }
     }
 
-    private void finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result)
-            throws CertificateOperationException, NotFoundException {
+    /**
+     * Records the authority's answer to an issue: parks the certificate on an asynchronous acceptance, or records the
+     * certificate it returned. The caller runs the post-issue steps after its own failure handling, so their failure is
+     * never reported as a failed issuance.
+     *
+     * @return {@code true} when the certificate was issued synchronously
+     */
+    private boolean finalizeIssuance(final UUID certificateUuid, Certificate certificate, AdapterOperationResult result)
+            throws CertificateOperationException {
         if (result.isAsync() || result.outcome() == AdapterOperationOutcome.SYNC_NO_CONTENT) {
             onAsyncAccepted(certificate, result.meta(), ResourceAction.ISSUE);
-            return;
+            return false;
         }
         if (result.certificateData() == null || result.certificateData().isEmpty()) {
             throw new CertificateOperationException(
@@ -1483,7 +1507,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Certificate %s was issued by the authority but completing local state failed; reconcile manually. Cause: "
                             .formatted(certificateUuid) + safeMessage(e, "issuance completion failed"));
         }
-        afterSynchronousIssue(certificateUuid);
+        return true;
     }
 
     /** Re-reads the claimed cert under a short row lock and transitions PENDING_ISSUE -> FAILED. */
@@ -1567,6 +1591,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)
                             ? RegisterWireBuilder.buildIdentityContent(certificate.getSubjectDn())
                             : null;
+            managed.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(managed, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -1590,6 +1615,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         try {
             return registerCapability.issueRegistered(certificate, replay.replayMeta(), replay.identityContent());
         } catch (ConnectorAcceptedButLocalFailureException e) {
+            clearPendingIssueClaimBestEffort(certificate);
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but a local adapter step failed; "
                             + "left {} for reconciliation", certUuid, pendingIssueLabel, e);
@@ -1616,9 +1642,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private void completeAcceptedRegisterBoundIssue(Certificate certificate, AdapterOperationResult result)
             throws CertificateOperationException {
         final UUID certUuid = certificate.getUuid();
+        boolean issuedSynchronously;
         try {
-            finalizeIssuance(certUuid, certificate, result);
+            issuedSynchronously = finalizeIssuance(certUuid, certificate, result);
         } catch (Exception e) {
+            clearPendingIssueClaimBestEffort(certificate);
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but completing local state failed; "
                             + "reconcile manually", certUuid, e);
@@ -1630,6 +1658,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new CertificateOperationException(
                     "Connector accepted the register-bound issue for certificate %s but completing local state failed; reconcile manually."
                             .formatted(certUuid));
+        }
+        if (issuedSynchronously) {
+            afterSynchronousIssue(certUuid);
         }
     }
 
@@ -1742,7 +1773,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * Records the connector's async acceptance ({@code 202}) of an issue/renew/rekey: persists returned metadata,
-     * schedules the status poll, raises the action-performed event, and writes the event-log entry. The cert is already
+     * schedules the status poll, clears the pending-issue claim, raises the action-performed event, and writes the
+     * event-log entry. The claim is cleared only after the poll is scheduled, so a crash in between leaves a claimed
+     * certificate with a poll row, which the poller owns, rather than one nothing will ever touch. The cert is already
      * in {@code PENDING_ISSUE}, so the state is unchanged; {@code originatingAction} drives
      * {@code CERTIFICATE_ACTION_PERFORMED} so subscribers see the actual operation.
      */
@@ -1765,17 +1798,26 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 logger
                         .warn("Failed to persist metadata from 202 response for cert {}: {}", certificate.getUuid(),
                                 metaEx.getMessage(), metaEx);
-                certificateEventHistoryService
-                        .addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
-                                "Failed to persist connector metadata returned with HTTP 202; "
-                                        + "cancellation of this pending operation may be limited if "
-                                        + "the connector requires the original metadata. Cause: "
-                                        + safeMessage(metaEx, INTERNAL_ERROR),
-                                "");
+                try {
+                    certificateEventHistoryService
+                            .addEventHistory(certificate.getUuid(), CertificateEvent.ISSUE,
+                                    CertificateEventStatus.FAILED,
+                                    "Failed to persist connector metadata returned with HTTP 202; "
+                                            + "cancellation of this pending operation may be limited if "
+                                            + "the connector requires the original metadata. Cause: "
+                                            + safeMessage(metaEx, INTERNAL_ERROR),
+                                    "");
+                } catch (RuntimeException historyEx) {
+                    // The poll and the claim clear below must still run for an accepted operation.
+                    logger
+                            .warn("Failed to record the metadata failure of cert {}: {}", certificate.getUuid(),
+                                    historyEx.getMessage(), historyEx);
+                }
             }
         }
 
         scheduleStatusPoll(certificate, pollOperationFor(originatingAction));
+        clearPendingIssueClaimBestEffort(certificate);
 
         eventProducer
                 .produceMessage(CertificateActionPerformedEventHandler
@@ -2214,6 +2256,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
             // uniform PENDING_ISSUE state via the state machine.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -2255,6 +2298,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // record the failure against the predecessor and surface it. (state-divergence rule)
             logger.error("Failed to renew certificate {}", certificateUuid, e);
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                clearPendingIssueClaimBestEffort(certificate);
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.RENEW,
                                 CertificateEventStatus.FAILED,
@@ -2471,6 +2515,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
             // (sync 200 or async 202) reaches issueRequestedCertificate / the poll cycle from a
             // uniform PENDING_ISSUE state via the state machine.
+            certificate.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
                     .transition(certificate, CertificateState.PENDING_ISSUE, CertificateEvent.ISSUE,
                             CERTIFICATE_REQUESTED_EVENT_MESSAGE);
@@ -2518,6 +2563,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // record the failure against the predecessor and surface it. (state-divergence rule)
             logger.error("Failed to rekey certificate {}", certificateUuid, e);
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
+                clearPendingIssueClaimBestEffort(certificate);
                 certificateEventHistoryService
                         .addEventHistory(oldCertificate.getUuid(), CertificateEvent.REKEY,
                                 CertificateEventStatus.FAILED,
@@ -2767,6 +2813,46 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         "Connector accepted asynchronously (HTTP 202); certificate transitioned to PENDING_REVOKE");
 
         logger.info("Certificate {} transitioned to PENDING_REVOKE", certificate.getUuid());
+    }
+
+    /**
+     * Retries a claim clear that met a transient database error, each attempt in a transaction of its own: for an
+     * authority that cannot be polled, the clear is the only record that the authority accepted.
+     */
+    private static final RetryTemplate CLAIM_CLEAR_RETRY = RetryTemplate
+            .builder()
+            .maxAttempts(3)
+            .exponentialBackoff(200, 2, 1000)
+            .retryOn(List
+                    .of(TransientDataAccessException.class, RecoverableDataAccessException.class,
+                            CannotCreateTransactionException.class))
+            .traversingCauses()
+            .build();
+
+    /**
+     * Clears the claim stamp of a certificate the authority answered but that stays in {@code PENDING_ISSUE} (accepted
+     * asynchronously, or parked after a local failure), on the held instance too so a later save cannot write it back.
+     * Best-effort: the authority has accepted, so a failure is logged and leaves the certificate to the reaper.
+     */
+    private void clearPendingIssueClaimBestEffort(Certificate certificate) {
+        certificate.setPendingIssueClaimedAt(null);
+        try {
+            if (CLAIM_CLEAR_RETRY.execute(retry -> pendingIssueClaimWriter.clear(certificate.getUuid())) == 0
+                    && certificateRepository
+                            .findStateByUuid(certificate.getUuid())
+                            .orElse(null) != CertificateState.ISSUED) {
+                // The certificate left PENDING_ISSUE without being issued while the call was in flight (reaped or
+                // cancelled), so the platform has ended an operation the authority accepted.
+                logger
+                        .warn("Certificate {} was no longer {} when the authority's acceptance was recorded; "
+                                + "the authority may still complete it", certificate.getUuid(),
+                                CertificateState.PENDING_ISSUE.getLabel());
+            }
+        } catch (RuntimeException e) {
+            logger
+                    .warn("Failed to clear the pending-issue claim of certificate {}; the reaper may fail it: {}",
+                            certificate.getUuid(), e.getMessage(), e);
+        }
     }
 
     /**

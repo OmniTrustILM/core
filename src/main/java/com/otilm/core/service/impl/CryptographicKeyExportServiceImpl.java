@@ -131,7 +131,7 @@ public class CryptographicKeyExportServiceImpl implements CryptographicKeyExport
     /** Refuses a reassignment before resolving the operation's attributes or sending the export passphrase. */
     private KeyProviderAdapter createScopeValidatingKeyProviderAdapter(CryptographicKeyBasicModel key,
             CryptographicKeyItemOperationModel item) throws NotFoundException {
-        return keyProviderAdapterFactory.forKeyItem(item, scope -> {
+        return keyProviderAdapterFactory.forKeyItemInCurrentScope(item, scope -> {
             if (!scope.tokenProfileUuid().equals(key.tokenProfileUuid())
                     || !scope.tokenInstanceReferenceUuid().equals(key.tokenInstanceReferenceUuid())) {
                 throw refusal(PROFILE_CHANGED, scope.tokenProfileUuid());

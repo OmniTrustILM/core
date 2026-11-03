@@ -22,6 +22,7 @@ import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
@@ -71,13 +72,14 @@ class CryptographicKeyServiceImplDestroyTest {
     private final CryptographicKeyItem laterParentItem = item(secondParent, "later-parent-item");
 
     @BeforeEach
-    void setUp() throws Exception {
+    void wireServiceWithParents() throws Exception {
         service.setCryptographicKeyRepository(keys);
         service.setCryptographicKeyItemRepository(items);
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapters);
         service.setKeyEventHistoryService(history);
         service.setCacheEvictor(cache);
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         service.setAuthorizationEnforcer(authorization);
         loadParents();
     }

@@ -1,5 +1,6 @@
 package com.otilm.core.config.cache;
 
+import java.util.function.Predicate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -13,8 +14,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * <p>
  * When a transaction is active, invalidation is deferred to {@code afterCommit} so a rollback leaves the cache intact.
  * Full clears ({@link #clear}) are deduped per cache name per transaction — bulk operations that trigger multiple
- * mutations result in at most one {@code cache.clear()} call per cache. Key-level evictions ({@link #evict}) are not
- * deduped because they target distinct entries.
+ * mutations result in at most one {@code cache.clear()} call per cache. Key-level evictions ({@link #evict},
+ * {@link #evictIf}) are not deduped because they target distinct entries.
  */
 @Component
 public class CacheEvictor {
@@ -34,16 +35,15 @@ public class CacheEvictor {
         if (cache == null) {
             return;
         }
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cache.evict(key);
-                }
-            });
-        } else {
-            cache.evict(key);
-        }
+        runAfterCommit(() -> cache.evict(key));
+    }
+
+    /**
+     * Evicts every key of the named read-through cache that matches. Safe to call inside or outside a transaction.
+     */
+    public void evictIf(String cacheName, Predicate<Object> keyMatches) {
+        ReadThroughCache cache = ReadThroughCache.from(cacheManager, cacheName);
+        runAfterCommit(() -> cache.evictIf(keyMatches));
     }
 
     /**
@@ -66,6 +66,19 @@ public class CacheEvictor {
             }
         } else {
             cache.clear();
+        }
+    }
+
+    private static void runAfterCommit(Runnable eviction) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    eviction.run();
+                }
+            });
+        } else {
+            eviction.run();
         }
     }
 

@@ -107,6 +107,11 @@ public class ReadThroughCache extends AbstractValueAdaptingCache {
         });
     }
 
+    /** Drops every entry whose key matches, so a running load under such a key is dropped too. */
+    public void evictIf(Predicate<Object> keyMatches) {
+        cache.asMap().keySet().removeIf(keyMatches);
+    }
+
     private void drop(Object key, CompletableFuture<Object> load) {
         cache.asMap().remove(key, load);
     }
