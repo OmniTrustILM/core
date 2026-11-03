@@ -30,6 +30,7 @@ import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -108,19 +109,20 @@ public class OutboundSecretContainment {
 
     /**
      * Record the text, file body or code of each resolved attribute whose stored row is encrypted, since resolution
-     * sends it as plain content that {@link #recordExpandedSecretsFromRequest} cannot tell from a public value. A
-     * number, flag, file name or language is left out, as it would match benign content.
+     * sends it as plain content that {@link #recordExpandedSecretsFromRequest} cannot tell from a public value. Rows
+     * and attributes are matched by definition UUID, as two definitions of a connector may share a name. A number,
+     * flag, file name or language is left out, as it would match benign content.
      */
     public void recordProtectedValuesFromRequest(List<ObjectAttributeContent> storedRows,
             List<RequestAttribute> resolved, Set<String> expandedSecrets) {
-        Set<String> protectedNames = storedRows
+        Set<UUID> protectedDefinitions = storedRows
                 .stream()
                 .filter(row -> row.encryptedContent() != null)
-                .map(ObjectAttributeContent::name)
+                .map(ObjectAttributeContent::uuid)
                 .collect(Collectors.toSet());
         for (RequestAttribute attribute : resolved) {
             List<? extends AttributeContent> content = attribute.getContent();
-            if (protectedNames.contains(attribute.getName()) && content != null) {
+            if (protectedDefinitions.contains(attribute.getUuid()) && content != null) {
                 content.forEach(item -> addIfPresent(protectedText(item.getData()), expandedSecrets));
             }
         }

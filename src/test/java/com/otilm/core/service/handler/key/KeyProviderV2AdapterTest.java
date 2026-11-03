@@ -355,14 +355,20 @@ class KeyProviderV2AdapterTest {
         return attribute;
     }
 
-    private static RequestAttribute fileAttribute(String name, String body) {
+    private static FileAttributeContentV2 keystoreFile(String body) {
         FileAttributeContentData file = new FileAttributeContentData();
         file.setContent(body);
-        file.setFileName(name + ".p12");
+        file.setFileName("token.p12");
         file.setMimeType("application/x-pkcs12");
+        return new FileAttributeContentV2(null, file);
+    }
+
+    /** The attribute that resolving a stored row sends, which keeps the row's definition UUID and name. */
+    private static RequestAttribute resolvedFrom(ObjectAttributeContent row, BaseAttributeContentV2<?> content) {
         RequestAttributeV2 attribute = new RequestAttributeV2();
-        attribute.setName(name);
-        attribute.setContent(List.of(new FileAttributeContentV2(null, file)));
+        attribute.setUuid(row.uuid());
+        attribute.setName(row.name());
+        attribute.setContent(List.of(content));
         return attribute;
     }
 
@@ -2456,8 +2462,9 @@ class KeyProviderV2AdapterTest {
         void refusesSignDefinitions_echoingATokenValueStoredEncrypted() throws Exception {
             // given
             var tokenPin = "4815162342";
-            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
-                    List.of(sealedRow("token-pin", tokenPin)), List.of(stringAttribute("token-pin", tokenPin)));
+            var pinRow = sealedRow("token-pin", tokenPin);
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), List.of(pinRow),
+                    List.of(resolvedFrom(pinRow, new StringAttributeContentV2(tokenPin))));
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(tokenPin));
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
 
@@ -2491,9 +2498,9 @@ class KeyProviderV2AdapterTest {
         void refusesSignDefinitions_echoingATokenFileStoredEncrypted() throws Exception {
             // given
             var keystoreBody = "MIIKPAIBAzCCCfYGCSqGSIb3DQEHAaCC";
-            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
-                    List.of(sealedRow("token-keystore", keystoreBody)),
-                    List.of(fileAttribute("token-keystore", keystoreBody)));
+            var keystoreRow = sealedRow("token-keystore", keystoreBody);
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(), List.of(keystoreRow),
+                    List.of(resolvedFrom(keystoreRow, keystoreFile(keystoreBody))));
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(keystoreBody));
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
 

@@ -127,6 +127,8 @@ class KeyOperationCacheTest {
                     .getStoredObjectDataAttributesContent(attributeScope(otherConnectorsToken, otherConnectorUuid));
         }
 
+        // ── Helpers ───────────────────────────────────────────────────────────
+
         private ObjectAttributeContentInfo attributeScope(UUID tokenUuid) {
             return attributeScope(tokenUuid, connectorUuid);
         }
@@ -326,6 +328,8 @@ class KeyOperationCacheTest {
             // then
             assertThat(loader.loads()).isEqualTo(2);
         }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
 
         /** Reads the scope's current rows for each call, as an operation does. */
         private List<BaseAttribute> signDefinitions(UUID keyItemUuid, KeyOperationScope keyScope,

@@ -159,12 +159,31 @@ class OutboundSecretContainmentTest {
     void recordsTheTextValue_ofAnAttributeStoredEncrypted() {
         // given
         var tokenPin = "4815162342";
-        var storedRows = List.of(storedRow("token-pin", SEALED));
-        var resolved = List.of(resolvedAttribute("token-pin", new StringAttributeContentV2(tokenPin)));
+        var pinRow = storedRow("token-pin", SEALED);
+        var resolved = List.of(resolvedFrom(pinRow, new StringAttributeContentV2(tokenPin)));
         Set<String> expandedSecrets = new HashSet<>();
 
         // when
-        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+        containment.recordProtectedValuesFromRequest(List.of(pinRow), resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(tokenPin);
+    }
+
+    @Test
+    void recordsOnlyTheEncryptedRowsValue_whenTwoDefinitionsShareAName() {
+        // given
+        var tokenPin = "4815162342";
+        var publicAlgorithm = "SHA256withRSA";
+        var encryptedRow = storedRow("token-setting", SEALED);
+        var plainNamesake = storedRow("token-setting", null);
+        var resolved = List
+                .of(resolvedFrom(encryptedRow, new StringAttributeContentV2(tokenPin)),
+                        resolvedFrom(plainNamesake, new StringAttributeContentV2(publicAlgorithm)));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(List.of(encryptedRow, plainNamesake), resolved, expandedSecrets);
 
         // then
         assertThat(expandedSecrets).containsExactly(tokenPin);
@@ -174,14 +193,14 @@ class OutboundSecretContainmentTest {
     void recordsTheFileBody_ofAFileStoredEncrypted() {
         // given
         var keystoreBody = "MIIKPAIBAzCCCfYGCSqGSIb3DQEHAaCC";
-        var storedRows = List.of(storedRow("token-keystore", SEALED));
+        var keystoreRow = storedRow("token-keystore", SEALED);
         var resolved = List
-                .of(resolvedAttribute("token-keystore",
+                .of(resolvedFrom(keystoreRow,
                         decryptedContent(fileData(keystoreBody, "token.p12", "application/x-pkcs12"))));
         Set<String> expandedSecrets = new HashSet<>();
 
         // when
-        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+        containment.recordProtectedValuesFromRequest(List.of(keystoreRow), resolved, expandedSecrets);
 
         // then
         assertThat(expandedSecrets).containsExactly(keystoreBody);
@@ -191,14 +210,14 @@ class OutboundSecretContainmentTest {
     void recordsTheCode_ofACodeBlockStoredEncrypted() {
         // given
         var unlockScript = "ZWNobyAkVE9LRU5fUElO";
-        var storedRows = List.of(storedRow("unlock-script", SEALED));
+        var scriptRow = storedRow("unlock-script", SEALED);
         var resolved = List
-                .of(resolvedAttribute("unlock-script", decryptedContent(
+                .of(resolvedFrom(scriptRow, decryptedContent(
                         new CodeBlockAttributeContentData(ProgrammingLanguageEnum.BASH, unlockScript))));
         Set<String> expandedSecrets = new HashSet<>();
 
         // when
-        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+        containment.recordProtectedValuesFromRequest(List.of(scriptRow), resolved, expandedSecrets);
 
         // then
         assertThat(expandedSecrets).containsExactly(unlockScript);
@@ -207,12 +226,12 @@ class OutboundSecretContainmentTest {
     @Test
     void leavesOutTheValue_ofAnAttributeStoredInPlain() {
         // given
-        var storedRows = List.of(storedRow("token-label", null));
-        var resolved = List.of(resolvedAttribute("token-label", new StringAttributeContentV2("primary")));
+        var labelRow = storedRow("token-label", null);
+        var resolved = List.of(resolvedFrom(labelRow, new StringAttributeContentV2("primary")));
         Set<String> expandedSecrets = new HashSet<>();
 
         // when
-        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+        containment.recordProtectedValuesFromRequest(List.of(labelRow), resolved, expandedSecrets);
 
         // then
         assertThat(expandedSecrets).isEmpty();
@@ -221,12 +240,12 @@ class OutboundSecretContainmentTest {
     @Test
     void leavesOutANumber_storedEncrypted() {
         // given
-        var storedRows = List.of(storedRow("slot", SEALED));
-        var resolved = List.of(resolvedAttribute("slot", new IntegerAttributeContentV2(1)));
+        var slotRow = storedRow("slot", SEALED);
+        var resolved = List.of(resolvedFrom(slotRow, new IntegerAttributeContentV2(1)));
         Set<String> expandedSecrets = new HashSet<>();
 
         // when
-        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+        containment.recordProtectedValuesFromRequest(List.of(slotRow), resolved, expandedSecrets);
 
         // then
         assertThat(expandedSecrets).isEmpty();
@@ -471,6 +490,15 @@ class OutboundSecretContainmentTest {
         data.setFileName(fileName);
         data.setMimeType(mimeType);
         return data;
+    }
+
+    /** The attribute that resolving a stored row sends, which keeps the row's definition UUID and name. */
+    private static RequestAttribute resolvedFrom(ObjectAttributeContent row, BaseAttributeContentV2<?> content) {
+        RequestAttributeV2 attribute = new RequestAttributeV2();
+        attribute.setUuid(row.uuid());
+        attribute.setName(row.name());
+        attribute.setContent(List.of(content));
+        return attribute;
     }
 
     private static RequestAttribute resolvedAttribute(String name, BaseAttributeContentV2<?> content) {

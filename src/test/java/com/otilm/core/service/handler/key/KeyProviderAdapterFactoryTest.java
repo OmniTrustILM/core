@@ -343,6 +343,8 @@ class KeyProviderAdapterFactoryTest {
             verify(operations).listEncryptAttributes(any(), any());
         }
 
+        // ── Helpers ───────────────────────────────────────────────────────────
+
         private static Stream<Arguments> movedScopes() {
             return Stream
                     .of(arguments(named("moved to another token",
