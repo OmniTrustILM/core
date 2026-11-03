@@ -182,6 +182,29 @@ public class CertificateGeneratorHelper {
     }
 
     /**
+     * Generates an end-entity certificate signed by the given CA whose only extended key usage is {@code purpose},
+     * valid for one year up to {@code notAfter}; used to stand in for a delegated OCSP responder.
+     */
+    public static X509Certificate generateCertificateWithExtendedKeyUsage(KeyPair caKeyPair, X509Certificate caCert,
+            KeyPair eeKeyPair, KeyPurposeId purpose, Date notAfter) throws Exception {
+
+        X500Name issuer = new X500Name(caCert.getSubjectX500Principal().getName());
+        X500Name subject = new X500Name("CN=Test-Delegated-Signer");
+        BigInteger serial = BigInteger.valueOf(System.nanoTime());
+        Date start = new Date(notAfter.getTime() - 365 * 86400000L);
+
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(issuer, serial, start, notAfter, subject,
+                eeKeyPair.getPublic());
+
+        builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
+        builder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature));
+        builder.addExtension(Extension.extendedKeyUsage, false, new ExtendedKeyUsage(purpose));
+
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
+        return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+    }
+
+    /**
      * Generates an end-entity timestamping certificate signed by the given CA, carrying a critical
      * {@code id-kp-timeStamping}-only EKU as required by RFC 3161 (and enforced by
      * {@code CertificateUtil.isCertificateDigitalSigningAcceptable}).

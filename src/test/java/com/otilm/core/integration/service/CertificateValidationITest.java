@@ -1,9 +1,12 @@
 package com.otilm.core.integration.service;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.extension.ResponseDefinitionTransformerV2;
+import com.github.tomakehurst.wiremock.http.ResponseDefinition;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
@@ -28,6 +31,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Crl;
+import com.otilm.core.dao.entity.CrlEntry;
 import com.otilm.core.dao.entity.CrlEntryId;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -49,11 +53,13 @@ import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.PlatformX500NameStyle;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -68,6 +74,8 @@ import java.security.cert.CRLException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509CRL;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.ECPublicKey;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -75,15 +83,22 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.security.auth.x500.X500Principal;
 import org.apache.commons.lang3.StringUtils;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.asn1.ASN1Integer;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERIA5String;
+import org.bouncycastle.asn1.DEROctetString;
+import org.bouncycastle.asn1.ocsp.CertID;
+import org.bouncycastle.asn1.ocsp.OCSPObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.CRLDistPoint;
 import org.bouncycastle.asn1.x509.CRLNumber;
@@ -91,9 +106,11 @@ import org.bouncycastle.asn1.x509.CRLReason;
 import org.bouncycastle.asn1.x509.DistributionPoint;
 import org.bouncycastle.asn1.x509.DistributionPointName;
 import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
+import org.bouncycastle.asn1.x509.KeyPurposeId;
 import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.CertIOException;
@@ -102,27 +119,42 @@ import org.bouncycastle.cert.X509v2CRLBuilder;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CRLConverter;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509v2CRLBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.cert.ocsp.BasicOCSPRespBuilder;
+import org.bouncycastle.cert.ocsp.CertificateID;
 import org.bouncycastle.cert.ocsp.CertificateStatus;
+import org.bouncycastle.cert.ocsp.OCSPReq;
 import org.bouncycastle.cert.ocsp.OCSPResp;
+import org.bouncycastle.cert.ocsp.OCSPRespBuilder;
+import org.bouncycastle.cert.ocsp.RevokedStatus;
+import org.bouncycastle.cert.ocsp.jcajce.JcaBasicOCSPRespBuilder;
 import org.bouncycastle.cms.CMSException;
 import org.bouncycastle.cms.CMSSignedData;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.DigestCalculator;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 import org.bouncycastle.util.Store;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemReader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 public class CertificateValidationITest extends BaseSpringBootTest {
@@ -555,212 +587,306 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testCrlProcessing_emptyCrl_validatesAndPersistsNoEntry()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void reportsCrlValid_whenIssuerSignedCrlListsNothing() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String urlPath = "/p2-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlEmpty-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlEmpty-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
         Certificate entity = createTrustedCertEntity(cert);
-        stubCrlPoint(urlPath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
+        stubCrlPoint(urlPath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.VALID,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
-        UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Assertions.assertNotNull(crlUuid);
-        Assertions.assertNull(crlService.findCrlEntryForCertificate(cert.getSerialNumber().toString(16), crlUuid));
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.VALID);
+        assertThat(findStoredCrl(cert)).isPresent();
+        assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).isEmpty();
     }
 
     @Test
-    void testCrlProcessing_crlNumberBump_oldEntriesReplaced()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void replacesCrlEntries_whenRefreshedCrlHasHigherNumber() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String urlPath = "/p3-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlUpdate-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlUpdate-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
         createTrustedCertEntity(cert);
-
-        Map<BigInteger, Integer> v1Entries = new HashMap<>();
-        v1Entries.put(BigInteger.valueOf(0x99), CRLReason.keyCompromise);
-        X509CRL v1 = buildStaleCrl(caCert, pair.getPrivate(), BigInteger.TWO, v1Entries);
-        stubCrlPoint(urlPath, v1.getEncoded());
+        BigInteger replacedSerialNumber = BigInteger.valueOf(0x99);
+        BigInteger replacementSerialNumber = BigInteger.valueOf(0xAA);
+        stubCrlPoint(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.TWO,
+                Map.of(replacedSerialNumber, CRLReason.keyCompromise)).getEncoded());
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Assertions.assertNotNull(crlUuid);
-        CrlEntryId v1EntryId = new CrlEntryId(crlUuid, BigInteger.valueOf(0x99).toString(16));
-        Assertions
-                .assertTrue(crlEntryRepository.findById(v1EntryId).isPresent(),
-                        "v1 entry must be persisted by the initial getCurrentCrl");
+        CrlEntryId replacedEntryId = new CrlEntryId(crlUuid, replacedSerialNumber.toString(16));
+        assertThat(crlEntryRepository.findById(replacedEntryId)).as("entry of the first CRL").isPresent();
+        replaceStub(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.valueOf(3),
+                Map.of(replacementSerialNumber, CRLReason.affiliationChanged)).getEncoded());
 
-        replaceStub(urlPath, buildStaleCrl(caCert, pair.getPrivate(), BigInteger.valueOf(3),
-                Map.of(BigInteger.valueOf(0xAA), CRLReason.affiliationChanged)).getEncoded());
-        UUID crlUuid2 = crlService.getCurrentCrl(cert, cert);
-        Assertions
-                .assertEquals(crlUuid, crlUuid2,
-                        "CRL row UUID must be preserved across a CRL-number bump (update path keeps the existing row)");
-        Assertions
-                .assertTrue(crlEntryRepository.findById(v1EntryId).isEmpty(),
-                        "after CRL-number bump, persistCrlAndEntries(isNewCrl=false) must clear the old entries");
-        Assertions
-                .assertTrue(crlEntryRepository
-                        .findById(new CrlEntryId(crlUuid, BigInteger.valueOf(0xAA).toString(16)))
-                        .isPresent(), "v2 entry must be inserted into the same CRL row");
+        // when
+        UUID refreshedCrlUuid = crlService.getCurrentCrl(cert, cert);
+
+        // then
+        assertThat(refreshedCrlUuid).as("the refresh keeps the CRL row").isEqualTo(crlUuid);
+        assertThat(crlEntryRepository.findById(replacedEntryId)).as("entry of the first CRL").isEmpty();
+        assertThat(crlEntryRepository.findById(new CrlEntryId(crlUuid, replacementSerialNumber.toString(16))))
+                .as("entry of the refreshed CRL")
+                .isPresent();
     }
 
     @Test
-    void testCrlProcessing_revokedCertViaSecondCdp_revoked()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void reportsCrlRevoked_whenSecondDistributionPointListsCertificate() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
-        String urlPathBad = "/p4-bad-" + stamp + ".crl"; // intentionally not stubbed
-        String urlPathOk = "/p4-ok-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlRevoked-" + stamp,
-                List.of(LoopbackWireMock.url(mockServer) + urlPathBad, LoopbackWireMock.url(mockServer) + urlPathOk),
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String unansweredPath = "/p4-bad-" + stamp + ".crl";
+        String listingPath = "/p4-ok-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRevoked-" + stamp, List
+                .of(LoopbackWireMock.url(mockServer) + unansweredPath, LoopbackWireMock.url(mockServer) + listingPath),
                 null, BigInteger.ONE);
         Certificate entity = createTrustedCertEntity(cert);
+        X509CRL revokingCrl = addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                createEmptyCRL(cert, issuerKeyPair.getPrivate()),
+                Map.of(cert.getSerialNumber(), CRLReason.keyCompromise));
+        stubCrlPoint(listingPath, revokingCrl.getEncoded());
 
-        X509CRL empty = createEmptyCRL(caCert, pair.getPrivate());
-        Map<BigInteger, Integer> entries = new HashMap<>();
-        entries.put(cert.getSerialNumber(), CRLReason.keyCompromise);
-        X509CRL revokedCrl = addRevocationToCRL(pair.getPrivate(), "SHA256WithRSAEncryption", empty, entries);
-        stubCrlPoint(urlPathOk, revokedCrl.getEncoded());
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.REVOKED,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
-        UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Assertions.assertNotNull(crlService.findCrlEntryForCertificate(cert.getSerialNumber().toString(16), crlUuid));
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).isPresent();
     }
 
     @Test
-    void testCrlProcessing_deltaCrlOk_metadataPersisted()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void storesDeltaCrlState_whenDeltaCrlExtendsBaseCrl() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String basePath = "/p5-base-" + stamp + ".crl";
         String deltaPath = "/p5-delta-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaOk-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaOk-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         createTrustedCertEntity(cert);
+        stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        BigInteger baseCrlNumber = BigInteger.TWO;
+        stubCrlPoint(deltaPath, createEmptyDeltaCRL(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate(),
+                baseCrlNumber, BigInteger.ONE).getEncoded());
 
-        stubCrlPoint(basePath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
-        X509CRL delta = createEmptyDeltaCRL(caCert.getSubjectX500Principal(), pair.getPrivate(),
-                BigInteger.TWO /* indicator matches base crlNumber */, BigInteger.ONE);
-        stubCrlPoint(deltaPath, delta.getEncoded());
-
+        // when
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Crl persisted = crlRepository.findByUuid(SecuredUUID.fromUUID(crlUuid)).orElseThrow();
-        Assertions.assertNotNull(persisted.getCrlNumberDelta(), "delta CRL number must be persisted");
-        Assertions.assertNotNull(persisted.getNextUpdateDelta(), "delta nextUpdate must be persisted");
+
+        // then
+        Crl storedCrl = crlRepository.findByUuid(SecuredUUID.fromUUID(crlUuid)).orElseThrow();
+        assertThat(storedCrl.getCrlNumberDelta()).isNotNull();
+        assertThat(storedCrl.getNextUpdateDelta()).isNotNull();
     }
 
     @Test
-    void testCrlProcessing_deltaCrlIndicatorMismatch_throws()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void reportsCrlFailed_whenDeltaCrlNeedsNewerBaseCrl() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String basePath = "/p6-base-" + stamp + ".crl";
         String deltaPath = "/p6-delta-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaBad-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaBad-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        BigInteger unpublishedBaseCrlNumber = BigInteger.valueOf(3);
+        stubCrlPoint(deltaPath, createEmptyDeltaCRL(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate(),
+                unpublishedBaseCrlNumber, BigInteger.TWO).getEncoded());
 
-        // Base CRL has crlNumber=2; delta carries indicator=3 (unreachable since base never advances to 3).
-        stubCrlPoint(basePath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
-        stubCrlPoint(deltaPath, createEmptyDeltaCRL(caCert.getSubjectX500Principal(), pair.getPrivate(),
-                BigInteger.valueOf(3), BigInteger.TWO).getEncoded());
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.FAILED,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
-        Assertions.assertThrows(ValidationException.class, () -> crlService.getCurrentCrl(cert, cert));
+        // then
+        CertificateValidationCheckDto crlCheck = result
+                .getValidationChecks()
+                .get(CertificateValidationCheck.CRL_VERIFICATION);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("Unable to get CRL with base CRL number equal to DeltaCRLIndicator");
     }
 
     @Test
-    void testCrlProcessing_deltaCrlIssuerMismatch_throws()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void reportsCrlFailed_whenDeltaCrlNamesAnotherIssuer() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String basePath = "/p7-base-" + stamp + ".crl";
         String deltaPath = "/p7-delta-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaIssuer-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaIssuer-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
-
-        stubCrlPoint(basePath, createEmptyCRL(caCert, pair.getPrivate()).getEncoded());
-        // Delta signed under cert's own subject DN — different from the base CRL's issuer DN.
+        stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        X500Principal anotherIssuerName = new X500Principal("CN=Another-Crl-Issuer");
         stubCrlPoint(deltaPath,
-                createEmptyDeltaCRL(cert.getIssuerX500Principal(), pair.getPrivate(), BigInteger.TWO, BigInteger.TWO)
+                createEmptyDeltaCRL(anotherIssuerName, issuerKeyPair.getPrivate(), BigInteger.TWO, BigInteger.TWO)
                         .getEncoded());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.FAILED,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
-        Assertions.assertThrows(ValidationException.class, () -> crlService.getCurrentCrl(cert, cert));
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = result
+                .getValidationChecks()
+                .get(CertificateValidationCheck.CRL_VERIFICATION);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("Delta CRL issuer not same as issuer stored in CRL entity");
     }
 
     @Test
-    void testCrlProcessing_deltaCrlAppliesRemoveAndUpsert()
-            throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
+    void appliesDeltaCrlEntries_whenDeltaCrlExtendsBaseCrl() throws Exception {
+        // given
         long stamp = System.nanoTime();
-        KeyPair pair = freshRsaKeyPair();
-        X509Certificate caCert = CertificateUtil.getX509Certificate(caCertificate.getCertificateContent().getContent());
+        KeyPair issuerKeyPair = freshRsaKeyPair();
         String basePath = "/p8-base-" + stamp + ".crl";
         String deltaPath = "/p8-delta-" + stamp + ".crl";
-        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlDeltaApply-" + stamp,
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaApply-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
-
-        // Base CRL: serial 123 (KEY_COMPROMISE) and 1234 (CA_COMPROMISE).
-        Map<BigInteger, Integer> baseEntries = new HashMap<>();
-        baseEntries.put(BigInteger.valueOf(123), CRLReason.keyCompromise);
-        baseEntries.put(BigInteger.valueOf(1234), CRLReason.cACompromise);
-        X509CRL baseCrl = addRevocationToCRL(pair.getPrivate(), "SHA256WithRSAEncryption",
-                createEmptyCRL(caCert, pair.getPrivate()), baseEntries);
+        BigInteger removedSerialNumber = BigInteger.valueOf(123);
+        BigInteger changedSerialNumber = BigInteger.valueOf(1234);
+        X509CRL baseCrl = addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                createEmptyCRL(cert, issuerKeyPair.getPrivate()),
+                Map.of(removedSerialNumber, CRLReason.keyCompromise, changedSerialNumber, CRLReason.cACompromise));
         stubCrlPoint(basePath, baseCrl.getEncoded());
-
-        // Delta CRL: remove 123, change 1234's reason to KEY_COMPROMISE, add the cert's own serial (CA_COMPROMISE).
-        Map<BigInteger, Integer> deltaEntries = new HashMap<>();
-        deltaEntries.put(BigInteger.valueOf(123), CRLReason.removeFromCRL);
-        deltaEntries.put(BigInteger.valueOf(1234), CRLReason.keyCompromise);
-        deltaEntries.put(cert.getSerialNumber(), CRLReason.cACompromise);
-        X509CRL deltaCrl = addRevocationToCRL(pair.getPrivate(), "SHA256WithRSAEncryption", createEmptyDeltaCRL(
-                caCert.getSubjectX500Principal(), pair.getPrivate(), BigInteger.TWO, BigInteger.TWO), deltaEntries);
+        X509CRL deltaCrl = addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                createEmptyDeltaCRL(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate(), BigInteger.TWO,
+                        BigInteger.TWO),
+                Map
+                        .of(removedSerialNumber, CRLReason.removeFromCRL, changedSerialNumber, CRLReason.keyCompromise,
+                                cert.getSerialNumber(), CRLReason.cACompromise));
         stubCrlPoint(deltaPath, deltaCrl.getEncoded());
 
-        var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
-        Assertions
-                .assertEquals(CertificateValidationStatus.REVOKED,
-                        result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus());
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
 
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).as("entry the delta CRL adds").isPresent();
+        assertThat(findStoredCrlEntry(cert, removedSerialNumber)).as("entry the delta CRL removes").isEmpty();
+        assertThat(findStoredCrlEntry(cert, changedSerialNumber))
+                .as("entry the delta CRL changes")
+                .hasValueSatisfying(entry -> assertThat(entry.getRevocationReason())
+                        .isEqualTo(CertificateRevocationReason.KEY_COMPROMISE));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void reportsCrlFailed_whenCrlIsNotSignedByIssuer(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        KeyPair forgerKeyPair = freshRsaKeyPair();
+        String urlPath = "/forged-" + stamp + ".crl";
+        String crlUrl = LoopbackWireMock.url(mockServer) + urlPath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlForged-" + stamp,
+                List.of(crlUrl), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath, createEmptyCRL(cert, forgerKeyPair.getPrivate()).getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(findStoredCrl(cert)).isEmpty();
+        assertThat(output.getOut().lines().filter(line -> line.contains("Ignoring the CRL from " + crlUrl)))
+                .isNotEmpty()
+                .allSatisfy(line -> assertThat(line).contains("WARN"));
+    }
+
+    @Test
+    void keepsStoredCrl_whenRefreshedCrlIsNotSignedByIssuer() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        KeyPair forgerKeyPair = freshRsaKeyPair();
+        String urlPath = "/refresh-forged-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRefreshForged-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.TWO,
+                Map.of(cert.getSerialNumber(), CRLReason.keyCompromise)).getEncoded());
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
-        Assertions
-                .assertNotNull(crlService.findCrlEntryForCertificate(cert.getSerialNumber().toString(16), crlUuid),
-                        "delta upsert must have added the cert's own serial");
-        Assertions
-                .assertNull(crlService.findCrlEntryForCertificate(BigInteger.valueOf(123).toString(16), crlUuid),
-                        "delta REMOVE_FROM_CRL must have deleted serial 123");
-        CrlEntryId changedReason = new CrlEntryId(crlUuid, BigInteger.valueOf(1234).toString(16));
-        Assertions
-                .assertEquals(CertificateRevocationReason.KEY_COMPROMISE,
-                        crlEntryRepository.findById(changedReason).orElseThrow().getRevocationReason(),
-                        "delta upsert must have changed the revocation reason on serial 1234");
+        replaceStub(urlPath,
+                buildStaleCrl(cert, forgerKeyPair.getPrivate(), BigInteger.valueOf(3), Map.of()).getEncoded());
+
+        // when
+        ThrowingCallable refreshCrl = () -> crlService.getCurrentCrl(cert, cert);
+
+        // then
+        assertThatThrownBy(refreshCrl).isInstanceOf(IOException.class);
+        assertThat(crlEntryRepository.findById(new CrlEntryId(crlUuid, cert.getSerialNumber().toString(16))))
+                .as("revocation listed by the stored CRL")
+                .isPresent();
+    }
+
+    @Test
+    void keepsBaseCrlRevocation_whenDeltaCrlIsNotSignedByIssuer() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        KeyPair forgerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-forged-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaForged-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                        createEmptyCRL(cert, issuerKeyPair.getPrivate()),
+                        Map.of(cert.getSerialNumber(), CRLReason.keyCompromise)).getEncoded());
+        X509CRL forgedDeltaCrl = addRevocationToCRL(forgerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                createEmptyDeltaCRL(cert.getSubjectX500Principal(), forgerKeyPair.getPrivate(), BigInteger.TWO,
+                        BigInteger.TWO),
+                Map.of(cert.getSerialNumber(), CRLReason.removeFromCRL));
+        stubCrlPoint(deltaPath, forgedDeltaCrl.getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    void keepsBaseCrlRevocation_whenDeltaCrlIsUnreachable() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String unansweredDeltaPath = "/delta-missing-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMissing-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + unansweredDeltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
+                        createEmptyCRL(cert, issuerKeyPair.getPrivate()),
+                        Map.of(cert.getSerialNumber(), CRLReason.keyCompromise)).getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
     }
 
     private Certificate createTrustedCertEntity(X509Certificate cert) {
@@ -814,30 +940,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                                 .withHeader("Set-Cookie", "split_test_group=B")
                                 .withHeader("Cache-Control", "no-cache")
                                 .withBody(body)));
-    }
-
-    private X509Certificate createSelfSignedCertificateWithCrl(String commonName, List<String> crlUrls,
-            List<String> deltaCrlUrls, BigInteger serialNumber)
-            throws CertIOException, NoSuchAlgorithmException, OperatorCreationException, CertificateException {
-        KeyPairGenerator keyPairGen = KeyPairGenerator.getInstance("RSA");
-        keyPairGen.initialize(2048);
-        KeyPair pair = keyPairGen.generateKeyPair();
-        SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo.getInstance(pair.getPublic().getEncoded());
-
-        X500Name x500Name = new X500Name("CN=" + commonName);
-        X509v3CertificateBuilder certificateBuilder = new X509v3CertificateBuilder(x500Name, serialNumber, new Date(0),
-                Date.from(Instant.parse("9999-12-31T23:59:59Z")), x500Name, subjectPublicKeyInfo);
-        CRLDistPoint crlDistPoint = new CRLDistPoint(createCrlDistributionPoints(crlUrls));
-        certificateBuilder.addExtension(Extension.cRLDistributionPoints, false, crlDistPoint);
-        if (deltaCrlUrls != null) {
-            CRLDistPoint deltaCrlDistPoint = new CRLDistPoint(createCrlDistributionPoints(deltaCrlUrls));
-            certificateBuilder.addExtension(Extension.freshestCRL, false, deltaCrlDistPoint);
-        }
-        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption").build(pair.getPrivate());
-        X509CertificateHolder holder = certificateBuilder.build(signer);
-        JcaX509CertificateConverter converter = new JcaX509CertificateConverter();
-        converter.setProvider(new BouncyCastleProvider());
-        return converter.getCertificate(holder);
     }
 
     private int getNumberOfCertificatesInPkcs7(String content) throws CMSException {
@@ -916,17 +1018,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         JcaX509CRLConverter converter = new JcaX509CRLConverter().setProvider("BC");
 
         return converter.getCRL(crlGen.build(signer));
-    }
-
-    private DistributionPoint[] createCrlDistributionPoints(List<String> urls) {
-        List<DistributionPoint> list = new ArrayList<>();
-        for (String url : urls) {
-            DERIA5String deria5String = new DERIA5String(url);
-            GeneralName generalName = new GeneralName(GeneralName.uniformResourceIdentifier, deria5String);
-            DistributionPointName distributionPointName = new DistributionPointName(new GeneralNames(generalName));
-            list.add(new DistributionPoint(distributionPointName, null, null));
-        }
-        return list.toArray(new DistributionPoint[0]);
     }
 
     @Test
@@ -1146,5 +1237,583 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         mockServer.resetRequests();
         certificateService.validate(eeEntity);
         mockServer.verify(0, WireMock.getRequestedFor(WireMock.urlPathEqualTo(caIssuersPath)));
+    }
+
+    // ── OcspAnswerTrust ───────────────────────────────────────────────────────
+
+    @Nested
+    class OcspAnswerTrust {
+
+        private final OcspResponder ocspResponder = new OcspResponder();
+
+        private WireMockServer ocspServer;
+
+        private String ocspUrl;
+
+        private CertificateGeneratorHelper.CertificateChainInfo chain;
+
+        private Certificate endEntity;
+
+        @BeforeEach
+        void uploadChainCheckedByOcspResponder() throws Exception {
+            ocspServer = LoopbackWireMock.start(ocspResponder);
+            ocspServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathEqualTo("/ocsp"))
+                            .willReturn(aResponse()
+                                    .withStatus(200)
+                                    .withHeader("Content-Type", "application/ocsp-response")));
+            ocspUrl = LoopbackWireMock.url(ocspServer) + "/ocsp";
+            chain = CertificateGeneratorHelper
+                    .generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Ocsp-Trust-Ca", "CN=Ocsp-Trust-EndEntity",
+                            ocspUrl);
+            uploadCertificate(chain.getCaCertificateBase64Encoded());
+            endEntity = uploadCertificate(chain.getEndEntityCertificateBase64Encoded());
+        }
+
+        @AfterEach
+        void stopOcspResponder() {
+            ocspServer.stop();
+        }
+
+        @Test
+        void reportsValid_whenIssuerSignsGoodAnswer() throws Exception {
+            // given
+            ocspResponder.answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair()).build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsRevoked_whenIssuerSignsRevocation() throws Exception {
+            // given
+            var revocation = new RevokedStatus(new Date(), CRLReason.keyCompromise);
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withStatus(revocation)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.REVOKED);
+        }
+
+        @Test
+        void reportsValid_whenAuthorizedResponderSignsAnswer() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            X509Certificate authorizedResponder = issueResponderCertificate(responderKeyPair,
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                            .withSignerCertificate(authorizedResponder)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsValid_whenAuthorizedResponderUsesAnotherKeyAlgorithmThanIssuer() throws Exception {
+            // given
+            KeyPair ecResponderKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.ECDSA, null);
+            X509Certificate authorizedResponder = issueResponderCertificate(ecResponderKeyPair,
+                    KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, ecResponderKeyPair)
+                            .withSignerCertificate(authorizedResponder)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsValid_whenAnswerExpiredWithinClockSkew() throws Exception {
+            // given
+            Date justPassedNextUpdate = Date.from(Instant.now().minus(Duration.ofMinutes(1)));
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withValidity(calculateDate(-1), justPassedNextUpdate)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsValid_whenAnswerStartsWithinClockSkew() throws Exception {
+            // given
+            Date slightlyFutureThisUpdate = Date.from(Instant.now().plus(Duration.ofMinutes(1)));
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withValidity(slightlyFutureThisUpdate, null)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        @ExtendWith(OutputCaptureExtension.class)
+        void reportsFailed_whenAnswerIsSignedByUnrelatedKey(CapturedOutput output) throws Exception {
+            // given
+            KeyPair unrelatedKeyPair = freshRsaKeyPair();
+            ocspResponder.answerWith(request -> anOcspAnswer(request, unrelatedKeyPair).build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+            assertThat(
+                    output.getOut().lines().filter(line -> line.contains("Ignoring the OCSP response from " + ocspUrl)))
+                    .isNotEmpty()
+                    .allSatisfy(line -> assertThat(line).contains("WARN"));
+        }
+
+        @Test
+        void reportsFailed_whenRevocationIsSignedByUnrelatedKey() throws Exception {
+            // given
+            KeyPair unrelatedKeyPair = freshRsaKeyPair();
+            var revocation = new RevokedStatus(new Date(), CRLReason.keyCompromise);
+            ocspResponder.answerWith(request -> anOcspAnswer(request, unrelatedKeyPair).withStatus(revocation).build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderLacksOcspSigningUsage() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            X509Certificate clientAuthCertificate = issueResponderCertificate(responderKeyPair,
+                    KeyPurposeId.id_kp_clientAuth, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                            .withSignerCertificate(clientAuthCertificate)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderIsIssuedByAnotherCaOfTheSameName() throws Exception {
+            // given
+            KeyPair otherCaKeyPair = freshRsaKeyPair();
+            X509Certificate otherCaOfTheSameName = CertificateGeneratorHelper
+                    .generateCACertificate(otherCaKeyPair,
+                            chain.getCaCertificate().getSubjectX500Principal().getName());
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            X509Certificate responderOfOtherCa = CertificateGeneratorHelper
+                    .generateCertificateWithExtendedKeyUsage(otherCaKeyPair, otherCaOfTheSameName, responderKeyPair,
+                            KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                            .withSignerCertificate(responderOfOtherCa)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderIsIssuedByAnotherCaSharingTheIssuerKey() throws Exception {
+            // given
+            X509Certificate otherCaSharingTheKey = CertificateGeneratorHelper
+                    .generateCACertificate(chain.getCaCertificateKeyPair(), "CN=Ocsp-Trust-Other-Ca");
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            X509Certificate responderOfOtherCa = CertificateGeneratorHelper
+                    .generateCertificateWithExtendedKeyUsage(chain.getCaCertificateKeyPair(), otherCaSharingTheKey,
+                            responderKeyPair, KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                            .withSignerCertificate(responderOfOtherCa)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderCertificateHasExpired() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            Date expiredAMinuteAgo = Date.from(Instant.now().minus(Duration.ofMinutes(1)));
+            X509Certificate expiredResponder = issueResponderCertificate(responderKeyPair,
+                    KeyPurposeId.id_kp_OCSPSigning, expiredAMinuteAgo);
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, responderKeyPair)
+                            .withSignerCertificate(expiredResponder)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsForAnotherSerialNumber() throws Exception {
+            // given
+            BigInteger anotherSerialNumber = chain.getEndEntityCertificate().getSerialNumber().add(BigInteger.ONE);
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withSerialNumber(anotherSerialNumber)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsForAnotherIssuer() throws Exception {
+            // given
+            X509Certificate anotherIssuer = CertificateGeneratorHelper
+                    .generateCACertificate(freshRsaKeyPair(), "CN=Another-Ca");
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withIssuer(anotherIssuer)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsForAnotherIssuerOfTheSameName() throws Exception {
+            // given
+            X509Certificate anotherIssuerOfTheSameName = CertificateGeneratorHelper
+                    .generateCACertificate(freshRsaKeyPair(),
+                            chain.getCaCertificate().getSubjectX500Principal().getName());
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withIssuer(anotherIssuerOfTheSameName)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerLabelsIssuerHashesWithAnotherAlgorithm() throws Exception {
+            // given
+            var unsupportedHashAlgorithm = new ASN1ObjectIdentifier("1.2.3.4.5");
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withHashAlgorithm(unsupportedHashAlgorithm)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsStale() throws Exception {
+            // given
+            Date passedNextUpdate = calculateDate(-1);
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withValidity(calculateDate(-2), passedNextUpdate)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerIsNotYetValid() throws Exception {
+            // given
+            Date futureThisUpdate = calculateDate(1);
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withValidity(futureThisUpdate, null)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenNonceDiffersFromRequest() throws Exception {
+            // given
+            byte[] nonceOfAnotherRequest = "another request".getBytes(StandardCharsets.US_ASCII);
+            ocspResponder
+                    .answerWith(request -> anOcspAnswer(request, chain.getCaCertificateKeyPair())
+                            .withNonce(nonceOfAnotherRequest)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private CertificateValidationStatus checkOcspStatus() throws NotFoundException {
+            return certificateService
+                    .getCertificateValidationResult(endEntity.getSecuredUuid())
+                    .getValidationChecks()
+                    .get(CertificateValidationCheck.OCSP_VERIFICATION)
+                    .getStatus();
+        }
+
+        private X509Certificate issueResponderCertificate(KeyPair responderKeyPair, KeyPurposeId purpose, Date notAfter)
+                throws Exception {
+            return CertificateGeneratorHelper
+                    .generateCertificateWithExtendedKeyUsage(chain.getCaCertificateKeyPair(), chain.getCaCertificate(),
+                            responderKeyPair, purpose, notAfter);
+        }
+
+        private static OcspAnswerBuilder anOcspAnswer(OCSPReq request, KeyPair signer) {
+            return new OcspAnswerBuilder(request, signer);
+        }
+
+        @FunctionalInterface
+        private interface OcspAnswer {
+            OCSPResp to(OCSPReq request) throws Exception;
+        }
+
+        /** Answers each OCSP request with what the test's {@link OcspAnswer} makes of it, as a real responder does. */
+        private static final class OcspResponder implements ResponseDefinitionTransformerV2 {
+
+            private final AtomicReference<OcspAnswer> answer = new AtomicReference<>();
+
+            void answerWith(OcspAnswer ocspAnswer) {
+                answer.set(ocspAnswer);
+            }
+
+            @Override
+            public ResponseDefinition transform(ServeEvent serveEvent) {
+                OcspAnswer ocspAnswer = answer.get();
+                if (ocspAnswer == null) {
+                    return serveEvent.getResponseDefinition();
+                }
+                try {
+                    OCSPReq request = new OCSPReq(serveEvent.getRequest().getBody());
+                    return ResponseDefinitionBuilder
+                            .like(serveEvent.getResponseDefinition())
+                            .withBody(ocspAnswer.to(request).getEncoded())
+                            .build();
+                } catch (Exception e) {
+                    throw new IllegalStateException("The test OCSP responder could not answer the request", e);
+                }
+            }
+
+            @Override
+            public String getName() {
+                return "ocsp-responder";
+            }
+        }
+
+        /**
+         * Builds a responder's answer to one OCSP request: {@code good} for the requested certificate, valid from now
+         * with no next update, echoing the request nonce, signed by {@code signer} and carrying no certificate.
+         */
+        private static final class OcspAnswerBuilder {
+
+            private final OCSPReq request;
+
+            private final KeyPair signer;
+
+            private X509Certificate signerCertificate;
+
+            private CertificateStatus status = CertificateStatus.GOOD;
+
+            private BigInteger serialNumber;
+
+            private X509Certificate issuer;
+
+            private ASN1ObjectIdentifier hashAlgorithm;
+
+            private Date thisUpdate = new Date();
+
+            private Date nextUpdate;
+
+            private Extension nonce;
+
+            private OcspAnswerBuilder(OCSPReq request, KeyPair signer) {
+                this.request = request;
+                this.signer = signer;
+                this.nonce = request.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce);
+            }
+
+            OcspAnswerBuilder withSignerCertificate(X509Certificate signerCertificate) {
+                this.signerCertificate = signerCertificate;
+                return this;
+            }
+
+            OcspAnswerBuilder withStatus(CertificateStatus status) {
+                this.status = status;
+                return this;
+            }
+
+            OcspAnswerBuilder withSerialNumber(BigInteger serialNumber) {
+                this.serialNumber = serialNumber;
+                return this;
+            }
+
+            OcspAnswerBuilder withIssuer(X509Certificate issuer) {
+                this.issuer = issuer;
+                return this;
+            }
+
+            OcspAnswerBuilder withHashAlgorithm(ASN1ObjectIdentifier hashAlgorithm) {
+                this.hashAlgorithm = hashAlgorithm;
+                return this;
+            }
+
+            OcspAnswerBuilder withValidity(Date thisUpdate, Date nextUpdate) {
+                this.thisUpdate = thisUpdate;
+                this.nextUpdate = nextUpdate;
+                return this;
+            }
+
+            OcspAnswerBuilder withNonce(byte[] nonce) {
+                this.nonce = new Extension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce, false, new DEROctetString(nonce));
+                return this;
+            }
+
+            OCSPResp build() throws Exception {
+                DigestCalculator sha1 = new JcaDigestCalculatorProviderBuilder().build().get(CertificateID.HASH_SHA1);
+                BasicOCSPRespBuilder responseBuilder = new JcaBasicOCSPRespBuilder(signer.getPublic(), sha1);
+                responseBuilder.addResponse(answeredCertificateId(sha1), status, thisUpdate, nextUpdate, null);
+                responseBuilder.setResponseExtensions(new Extensions(nonce));
+                String signatureAlgorithm = signer.getPublic() instanceof ECPublicKey
+                        ? "SHA256withECDSA"
+                        : "SHA256withRSA";
+                ContentSigner contentSigner = new JcaContentSignerBuilder(signatureAlgorithm)
+                        .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                        .build(signer.getPrivate());
+                X509CertificateHolder[] embeddedCertificates = signerCertificate == null
+                        ? new X509CertificateHolder[0]
+                        : new X509CertificateHolder[]{new JcaX509CertificateHolder(signerCertificate)};
+                return new OCSPRespBuilder()
+                        .build(OCSPRespBuilder.SUCCESSFUL,
+                                responseBuilder.build(contentSigner, embeddedCertificates, new Date()));
+            }
+
+            private CertificateID answeredCertificateId(DigestCalculator sha1) throws Exception {
+                CertificateID requested = request.getRequestList()[0].getCertID();
+                BigInteger answeredSerialNumber = serialNumber == null ? requested.getSerialNumber() : serialNumber;
+                if (issuer != null) {
+                    return new CertificateID(sha1, new JcaX509CertificateHolder(issuer), answeredSerialNumber);
+                }
+                CertID requestedId = requested.toASN1Primitive();
+                AlgorithmIdentifier answeredHashAlgorithm = hashAlgorithm == null
+                        ? requestedId.getHashAlgorithm()
+                        : new AlgorithmIdentifier(hashAlgorithm);
+                return new CertificateID(new CertID(answeredHashAlgorithm, requestedId.getIssuerNameHash(),
+                        requestedId.getIssuerKeyHash(), new ASN1Integer(answeredSerialNumber)));
+            }
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static X509Certificate createSelfSignedCertificateWithCrl(String commonName, List<String> crlUrls,
+            List<String> deltaCrlUrls, BigInteger serialNumber)
+            throws CertIOException, NoSuchAlgorithmException, OperatorCreationException, CertificateException {
+        return createSelfSignedCertificateWithCrl(freshRsaKeyPair(), commonName, crlUrls, deltaCrlUrls, serialNumber);
+    }
+
+    private static X509Certificate createSelfSignedCertificateWithCrl(KeyPair pair, String commonName,
+            List<String> crlUrls, List<String> deltaCrlUrls, BigInteger serialNumber)
+            throws CertIOException, OperatorCreationException, CertificateException {
+        SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo.getInstance(pair.getPublic().getEncoded());
+
+        X500Name x500Name = new X500Name("CN=" + commonName);
+        X509v3CertificateBuilder certificateBuilder = new X509v3CertificateBuilder(x500Name, serialNumber, new Date(0),
+                Date.from(Instant.parse("9999-12-31T23:59:59Z")), x500Name, subjectPublicKeyInfo);
+        CRLDistPoint crlDistPoint = new CRLDistPoint(createCrlDistributionPoints(crlUrls));
+        certificateBuilder.addExtension(Extension.cRLDistributionPoints, false, crlDistPoint);
+        if (deltaCrlUrls != null) {
+            CRLDistPoint deltaCrlDistPoint = new CRLDistPoint(createCrlDistributionPoints(deltaCrlUrls));
+            certificateBuilder.addExtension(Extension.freshestCRL, false, deltaCrlDistPoint);
+        }
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption").build(pair.getPrivate());
+        X509CertificateHolder holder = certificateBuilder.build(signer);
+        JcaX509CertificateConverter converter = new JcaX509CertificateConverter();
+        converter.setProvider(new BouncyCastleProvider());
+        return converter.getCertificate(holder);
+    }
+
+    private static DistributionPoint[] createCrlDistributionPoints(List<String> urls) {
+        List<DistributionPoint> list = new ArrayList<>();
+        for (String url : urls) {
+            DERIA5String deria5String = new DERIA5String(url);
+            GeneralName generalName = new GeneralName(GeneralName.uniformResourceIdentifier, deria5String);
+            DistributionPointName distributionPointName = new DistributionPointName(new GeneralNames(generalName));
+            list.add(new DistributionPoint(distributionPointName, null, null));
+        }
+        return list.toArray(new DistributionPoint[0]);
+    }
+
+    private static CertificateValidationStatus readCrlStatus(CertificateValidationResultDto result) {
+        return result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus();
+    }
+
+    private Optional<Crl> findStoredCrl(X509Certificate selfSignedIssuer) {
+        String issuerDn = X500Name
+                .getInstance(new PlatformX500NameStyle(true), selfSignedIssuer.getSubjectX500Principal().getEncoded())
+                .toString();
+        return crlRepository.findByIssuerDnAndSerialNumber(issuerDn, selfSignedIssuer.getSerialNumber().toString(16));
+    }
+
+    private Optional<CrlEntry> findStoredCrlEntry(X509Certificate selfSignedIssuer, BigInteger serialNumber) {
+        return findStoredCrl(selfSignedIssuer)
+                .flatMap(crl -> crlEntryRepository.findById(new CrlEntryId(crl.getUuid(), serialNumber.toString(16))));
     }
 }
