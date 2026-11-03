@@ -139,7 +139,7 @@ public class SigningProfileMapper {
         if (header.isIlmNativeEnabled()) {
             protocols.add(SigningProtocol.ILM_NATIVE);
         }
-        return protocols;
+        return List.copyOf(protocols);
     }
 
     // ──────────────────────────────────────────────────────────────────────────

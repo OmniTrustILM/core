@@ -29,6 +29,7 @@ class NativeSigningExceptionHandlingAdviceTest {
             Assertions.assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, response.getStatusCode());
             Assertions.assertEquals(List.of(CLIENT), response.getBody());
             Assertions.assertFalse(String.valueOf(response.getBody()).contains("key 42"));
+            Assertions.assertNull(response.getHeaders().getFirst("Retry-After"));
         }
     }
 
@@ -40,6 +41,7 @@ class NativeSigningExceptionHandlingAdviceTest {
             Assertions.assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
             Assertions.assertEquals(CLIENT, ((ErrorMessageDto) response.getBody()).getMessage());
             Assertions.assertFalse(String.valueOf(response.getBody()).contains("key 42"));
+            Assertions.assertNull(response.getHeaders().getFirst("Retry-After"));
         }
     }
 
@@ -69,7 +71,24 @@ class NativeSigningExceptionHandlingAdviceTest {
             ResponseEntity<Object> response = handle(failure);
             Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
             Assertions.assertEquals(CLIENT, ((ErrorMessageDto) response.getBody()).getMessage());
+            Assertions.assertFalse(String.valueOf(response.getBody()).contains("key 42"));
+            Assertions.assertNull(response.getHeaders().getFirst("Retry-After"));
         }
+    }
+
+    @Test
+    void fallsBackWhenTheClientMessageIsNull() {
+        ResponseEntity<Object> unprocessable = advice
+                .handleSigningEngineException(
+                        new SigningEngineException(SigningEngineFailure.INVALID_INPUT, OPERATOR, null));
+        Assertions.assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, unprocessable.getStatusCode());
+        Assertions.assertEquals(List.of("The request was refused."), unprocessable.getBody());
+
+        ResponseEntity<Object> internal = advice
+                .handleSigningEngineException(
+                        new SigningEngineException(SigningEngineFailure.STEP_FAILED, OPERATOR, null));
+        Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, internal.getStatusCode());
+        Assertions.assertEquals("Internal signing error", ((ErrorMessageDto) internal.getBody()).getMessage());
     }
 
     @Test

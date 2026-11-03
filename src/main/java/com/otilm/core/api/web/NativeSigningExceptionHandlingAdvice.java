@@ -24,29 +24,34 @@ public class NativeSigningExceptionHandlingAdvice {
 
     public static final int RETRY_AFTER_SECONDS = 30;
 
+    private static final String REFUSED_FALLBACK = "The request was refused.";
+    private static final String INTERNAL_FALLBACK = "Internal signing error";
+
     private static final Logger LOG = LoggerFactory.getLogger(NativeSigningExceptionHandlingAdvice.class);
 
     @ExceptionHandler(SigningEngineException.class)
     public ResponseEntity<Object> handleSigningEngineException(SigningEngineException ex) {
         String message = ex.getMessage();
+        String clientMessage = message != null ? message : REFUSED_FALLBACK;
+        String errorMessage = message != null ? message : INTERNAL_FALLBACK;
         return switch (ex.failure()) {
-            case INVALID_INPUT, MALFORMED_INPUT -> ResponseEntity.unprocessableEntity().body(List.of(message));
+            case INVALID_INPUT, MALFORMED_INPUT -> ResponseEntity.unprocessableEntity().body(List.of(clientMessage));
             case CONNECTOR_FAULT, SIGNER_FAULT -> {
                 LOG.warn("Native signing failed: {} {}", ex.failure(), ex.operatorMessage());
-                yield ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(ErrorMessageDto.getInstance(message));
+                yield ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(ErrorMessageDto.getInstance(errorMessage));
             }
             case TIME_UNAVAILABLE -> {
                 LOG.warn("Native signing failed: {} {}", ex.failure(), ex.operatorMessage());
                 yield ResponseEntity
                         .status(HttpStatus.SERVICE_UNAVAILABLE)
                         .header(HttpHeaders.RETRY_AFTER, String.valueOf(RETRY_AFTER_SECONDS))
-                        .body(ErrorMessageDto.getInstance(message));
+                        .body(ErrorMessageDto.getInstance(errorMessage));
             }
             default -> {
                 LOG.error("Native signing failed: {} {}", ex.failure(), ex.operatorMessage(), ex);
                 yield ResponseEntity
                         .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .body(ErrorMessageDto.getInstance(message));
+                        .body(ErrorMessageDto.getInstance(errorMessage));
             }
         };
     }
