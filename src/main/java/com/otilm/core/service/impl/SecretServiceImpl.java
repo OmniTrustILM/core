@@ -372,14 +372,14 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     @Override
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.CREATE, parentResource = Resource.VAULT,
             parentAction = ResourceAction.DETAIL)
-    public SecretDetailDto createSecret(SecretRequestDto secretRequest, SecuredParentUUID sourceVaultProfileUuid,
-            SecuredUUID vaultInstanceUuid) throws NotFoundException, AttributeException, AlreadyExistException {
+    public SecretDetailDto createSecret(SecretRequestDto secretRequest, SecuredParentUUID vaultInstanceUuid,
+            UUID sourceVaultProfileUuid) throws NotFoundException, AttributeException, AlreadyExistException {
         if (secretRepository.existsByName(secretRequest.getName())) {
             throw new AlreadyExistException("Secret with name '" + secretRequest.getName() + "' already exists");
         }
 
         VaultProfile vaultProfile = vaultProfileRepository
-                .findByUuid(sourceVaultProfileUuid)
+                .findByUuid(SecuredUUID.fromUUID(sourceVaultProfileUuid))
                 .orElseThrow(() -> new NotFoundException(VaultProfile.class, sourceVaultProfileUuid.toString()));
 
         if (!vaultProfile.getVaultInstanceUuid().equals(vaultInstanceUuid.getValue())) {
@@ -448,10 +448,9 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         return secretDetailDto;
     }
 
-    @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.CREATE, parentResource = Resource.VAULT,
-            parentAction = ResourceAction.DETAIL)
-    private void checkCreateSecretPermissions(SecuredParentUUID vaultInstanceUuid, SecuredUUID sourceVaultProfileUuid) {
-        // empty to evaluate permissions
+    private void checkCreateSecretPermissions(UUID vaultInstanceUuid) {
+        authorizationEnforcer.enforce(Resource.VAULT, ResourceAction.DETAIL, SecuredUUID.fromUUID(vaultInstanceUuid));
+        authorizationEnforcer.enforce(Resource.SECRET, ResourceAction.CREATE);
     }
 
     private void createSecretAction(UUID secretUuid, SecretRequestDto secretRequest, boolean isApproved)
@@ -459,8 +458,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         Secret secret = getSecretEntity(secretUuid);
         VaultProfile vaultProfile = secret.getSourceVaultProfile();
         if (!isApproved) {
-            checkCreateSecretPermissions(SecuredParentUUID.fromUUID(vaultProfile.getVaultInstanceUuid()),
-                    SecuredUUID.fromUUID(vaultProfile.getUuid()));
+            checkCreateSecretPermissions(vaultProfile.getVaultInstanceUuid());
         }
         UUID connectorUuid = vaultProfile.getVaultInstance().getConnectorUuid();
         SecretResponseDto secretResponseDto;
@@ -568,9 +566,8 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         });
     }
 
-    @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.UPDATE)
     private void checkUpdateSecretPermissions() {
-        // empty to evaluate permissions
+        authorizationEnforcer.enforce(Resource.SECRET, ResourceAction.UPDATE);
     }
 
     private void updateSecretAction(UUID secretUuid, SecretUpdateRequestDto secretRequest, boolean isApproved,
@@ -694,9 +691,8 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                 .existsByResourceAndObjectUuidAndStatus(Resource.SECRET, secret.getUuid(), ApprovalStatusEnum.PENDING);
     }
 
-    @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.DELETE)
     private void checkDeleteSecretPermissions() {
-        // empty to evaluate permissions
+        authorizationEnforcer.enforce(Resource.SECRET, ResourceAction.DELETE);
     }
 
     private void deleteSecretAction(UUID secretUuid, boolean isApproved, SecretState originalState,

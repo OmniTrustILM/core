@@ -17,6 +17,7 @@ import com.otilm.api.model.client.cryptography.operations.RandomDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
@@ -25,6 +26,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.cryptography.key.KeyState;
@@ -36,6 +38,7 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.FunctionGroup;
+import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
@@ -43,15 +46,20 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
+import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.mapper.crypto.CryptographicKeyDtoMapper;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.TokenInstanceInternalService;
+import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.LoopbackWireMock;
@@ -74,7 +82,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import javax.security.auth.x500.X500Principal;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.jcajce.interfaces.SLHDSAPublicKey;
 import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
@@ -82,8 +92,15 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 
 class CryptographicOperationServiceITest extends BaseSpringBootTest {
 
@@ -116,6 +133,9 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeyItemRepository cryptographicKeyItemRepository;
+
+    @Autowired
+    private OwnerAssociationRepository ownerAssociationRepository;
 
     private TokenInstanceReference tokenInstanceReference;
     private TokenProfile tokenProfile;
@@ -842,6 +862,21 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
         mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
     }
 
+    @ParameterizedTest
+    @MethodSource("keyOperations")
+    void refusesTheKeysOwner_whenTokenDetailIsDenied(KeyOperation operation) {
+        // given
+        makeTheCallerOwnTheKey();
+        denyResourceAccess(Resource.TOKEN, ResourceAction.DETAIL, tokenInstanceReference.getUuid());
+
+        // when
+        ThrowingCallable operate = () -> operation.call(this);
+
+        // then
+        assertThatThrownBy(operate).isInstanceOf(AccessDeniedException.class);
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
     private void mockSignResponse(String keyUuid, String signature) {
         mockServer
                 .stubFor(WireMock
@@ -877,6 +912,75 @@ class CryptographicOperationServiceITest extends BaseSpringBootTest {
         signature.update(keyPair.getPublic().getEncoded());
         byte[] signedData = signature.sign();
         return Base64.getEncoder().encodeToString(signedData);
+    }
+
+    @FunctionalInterface
+    private interface KeyOperation {
+        void call(CryptographicOperationServiceITest test) throws Exception;
+    }
+
+    private static Stream<Named<KeyOperation>> keyOperations() {
+        return Stream
+                .of(named("list cipher attributes",
+                        test -> test.cryptographicOperationService
+                                .listCipherAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                        test.key.getUuid(), test.content1.getUuid(), KeyAlgorithm.RSA)),
+                        named("list encrypt attributes",
+                                test -> test.cryptographicOperationService
+                                        .listEncryptAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid())),
+                        named("list decrypt attributes",
+                                test -> test.cryptographicOperationService
+                                        .listDecryptAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid())),
+                        named("encrypt", test -> test.cryptographicOperationService
+                                .encryptData(test.getTokenUuid(), test.getTokenProfileUuid(), test.key.getUuid(),
+                                        test.content1.getUuid(), new CipherDataRequestDto())),
+                        named("decrypt", test -> test.cryptographicOperationService
+                                .decryptData(test.getTokenUuid(), test.getTokenProfileUuid(), test.key.getUuid(),
+                                        test.content1.getUuid(), new CipherDataRequestDto())),
+                        named("list signature attributes",
+                                test -> test.cryptographicOperationService
+                                        .listSignatureAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid(), KeyAlgorithm.RSA)),
+                        named("list sign attributes",
+                                test -> test.cryptographicOperationService
+                                        .listSignAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid())),
+                        named("list verify attributes",
+                                test -> test.cryptographicOperationService
+                                        .listVerifyAttributes(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid())),
+                        named("sign",
+                                test -> test.cryptographicOperationService
+                                        .signData(test.getTokenUuid(), test.getTokenProfileUuid(), test.key.getUuid(),
+                                                test.content1.getUuid(), new SignDataRequestDto())),
+                        named("sign without event history",
+                                test -> test.cryptographicOperationInternalService
+                                        .signDataWithoutEventHistory(test.getTokenUuid(), test.getTokenProfileUuid(),
+                                                test.key.getUuid(), test.content1.getUuid(), new SignDataRequestDto())),
+                        named("verify",
+                                test -> test.cryptographicOperationService
+                                        .verifyData(test.getTokenUuid(), test.getTokenProfileUuid(), test.key.getUuid(),
+                                                test.content1.getUuid(), new VerifyDataRequestDto())));
+    }
+
+    private void makeTheCallerOwnTheKey() {
+        NameAndUuidDto caller = AuthHelper.getUserIdentification();
+        OwnerAssociation owner = new OwnerAssociation();
+        owner.setOwnerUuid(UUID.fromString(caller.getUuid()));
+        owner.setOwnerUsername(caller.getName());
+        owner.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        owner.setObjectUuid(key.getUuid());
+        ownerAssociationRepository.saveAndFlush(owner);
+    }
+
+    private SecuredParentUUID getTokenUuid() {
+        return tokenInstanceReference.getSecuredParentUuid();
+    }
+
+    private SecuredUUID getTokenProfileUuid() {
+        return tokenProfile.getSecuredUuid();
     }
 
 }
