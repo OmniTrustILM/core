@@ -83,7 +83,7 @@ class SignatureParametersJsonColumnRoundTripTest {
                                 .withPage(2)
                                 .withAlignmentHorizontal(HorizontalAlignment.RIGHT)
                                 .withAlignmentVertical(VerticalAlignment.BOTTOM)
-                                .withZoom(75f)))
+                                .withZoom(75)))
                 .build();
 
         // when
@@ -96,7 +96,7 @@ class SignatureParametersJsonColumnRoundTripTest {
                 .getPlacement();
         assertThat(reloaded.getAlignmentHorizontal()).isEqualTo(HorizontalAlignment.RIGHT);
         assertThat(reloaded.getAlignmentVertical()).isEqualTo(VerticalAlignment.BOTTOM);
-        assertThat(reloaded.getZoom()).isEqualTo(75f);
+        assertThat(reloaded.getZoom()).isEqualTo(75);
         assertThat(reloaded.getOriginX()).isNull();
     }
 
