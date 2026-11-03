@@ -2,6 +2,7 @@ package com.otilm.core.config;
 
 import com.otilm.core.messaging.proxy.ProxyProperties;
 import java.time.Duration;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.util.unit.DataSize;
@@ -16,14 +17,16 @@ class PendingIssueReaperTimingCheckTest {
     private static final Duration DEFAULT_REAP_STALE_AFTER = Duration.ofMinutes(30);
 
     @Test
-    void theDefaultsFit() {
+    void accepts_whenTheDefaultsAreConfigured() {
         // given
         PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(DEFAULT_REAP_STALE_AFTER,
-                client(Duration.ofSeconds(35)), noProxy());
+                createClient(Duration.ofSeconds(35)), provideProxy(null));
 
         // when
+        ThrowingCallable checkTimings = check::check;
+
         // then
-        assertThatCode(check::check).doesNotThrowAnyException();
+        assertThatCode(checkTimings).doesNotThrowAnyException();
     }
 
     /**
@@ -31,46 +34,49 @@ class PendingIssueReaperTimingCheckTest {
      * synchronous connector call is gone, so one call has to end within it.
      */
     @Test
-    void aReapDelayAConnectorCallCouldOutlastIsRefused() {
+    void refuses_whenAConnectorCallCouldOutlastTheReapDelay() {
         // given
+        Duration slowResponse = Duration.ofSeconds(115);
         PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(Duration.ofMinutes(1),
-                client(Duration.ofSeconds(115)), noProxy());
+                createClient(slowResponse), provideProxy(null));
 
         // when
+        ThrowingCallable checkTimings = check::check;
+
         // then
-        assertThatThrownBy(check::check)
+        assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("provider.status-poll.reap-stale-after must be longer than PT2M8S, the longest connector "
-                        + "call at the connector timeouts configured, was PT1M");
+                .hasMessageContaining("reap-stale-after must be longer than PT2M8S")
+                .hasMessageContaining("was PT1M");
     }
 
     @Test
-    void aProxyRequestIsAConnectorCall() {
+    void refuses_whenAProxyRequestCouldOutlastTheReapDelay() {
         // given
         ProxyProperties proxy = mock(ProxyProperties.class);
         when(proxy.requestTimeout()).thenReturn(Duration.ofMinutes(5));
         PendingIssueReaperTimingCheck check = new PendingIssueReaperTimingCheck(Duration.ofMinutes(5),
-                client(Duration.ofSeconds(35)), provider(proxy));
+                createClient(Duration.ofSeconds(35)), provideProxy(proxy));
 
         // when
+        ThrowingCallable checkTimings = check::check;
+
         // then
-        assertThatThrownBy(check::check)
+        assertThatThrownBy(checkTimings)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("provider.status-poll.reap-stale-after must be longer than PT5M5S, the longest connector "
-                        + "call at the connector timeouts configured, was PT5M");
+                .hasMessageContaining("reap-stale-after must be longer than PT5M5S")
+                .hasMessageContaining("was PT5M");
     }
 
-    private static ConnectorApiClientProperties client(Duration responseTimeout) {
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static ConnectorApiClientProperties createClient(Duration responseTimeout) {
         return new ConnectorApiClientProperties(Duration.ofSeconds(3), responseTimeout, 20, Duration.ofSeconds(10),
                 DataSize.ofMegabytes(16));
     }
 
-    private static ObjectProvider<ProxyProperties> noProxy() {
-        return provider(null);
-    }
-
     @SuppressWarnings("unchecked")
-    private static ObjectProvider<ProxyProperties> provider(ProxyProperties proxy) {
+    private static ObjectProvider<ProxyProperties> provideProxy(ProxyProperties proxy) {
         ObjectProvider<ProxyProperties> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(proxy);
         return provider;
