@@ -57,7 +57,7 @@ class SigningProfileMapperTest {
         }
 
         @Test
-        void returnsIlmNative_whenTheFlagIsSet() {
+        void returnsOnlyIlmNative_whenIlmNativeIsEnabledWithoutTspProfile() {
             // given
             SigningProfile header = newListHeader();
             header.setTspProfileUuid(null);
@@ -71,7 +71,7 @@ class SigningProfileMapperTest {
         }
 
         @Test
-        void returnsTspThenIlmNative_whenBothAreActive() {
+        void returnsTspThenIlmNative_whenBothProtocolsAreEnabled() {
             // given
             SigningProfile header = newListHeader();
             header.setTspProfileUuid(TSP_UUID);

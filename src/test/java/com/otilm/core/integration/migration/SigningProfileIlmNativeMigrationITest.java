@@ -32,41 +32,42 @@ class SigningProfileIlmNativeMigrationITest extends BaseSpringBootTest {
     private DataSource dataSource;
 
     @Test
-    void existingProfilesStartWithIlmNativeOff() throws Exception {
+    void addsNonNullIlmNativeFlagSetToFalse_whenProfilesAlreadyExist() throws Exception {
         try (Connection connection = dataSource.getConnection()) {
-            try {
-                try (Statement statement = connection.createStatement()) {
-                    statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
-                    statement.execute("CREATE SCHEMA " + SCRATCH_SCHEMA);
-                    statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
-                    statement.execute(TABLE_STUB);
-                    statement
-                            .execute(
-                                    "INSERT INTO \"signing_profile\" (\"uuid\", \"name\") VALUES (gen_random_uuid(), 'existing')");
-                    String sql = new String(new ClassPathResource(MIGRATION_RESOURCE).getInputStream().readAllBytes(),
-                            StandardCharsets.UTF_8);
-                    statement.execute(sql);
+            try (Statement statement = connection.createStatement()) {
+                // given
+                statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
+                statement.execute("CREATE SCHEMA " + SCRATCH_SCHEMA);
+                statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
+                statement.execute(TABLE_STUB);
+                statement
+                        .execute(
+                                "INSERT INTO \"signing_profile\" (\"uuid\", \"name\") VALUES (gen_random_uuid(), 'existing')");
+                String migration = new String(new ClassPathResource(MIGRATION_RESOURCE).getInputStream().readAllBytes(),
+                        StandardCharsets.UTF_8);
 
-                    try (ResultSet row = statement
-                            .executeQuery("SELECT \"ilm_native_enabled\" FROM \"signing_profile\"")) {
-                        assertThat(row.next()).isTrue();
-                        assertThat(row.getBoolean(1)).isFalse();
-                        assertThat(row.next()).isFalse();
-                    }
-                    try (ResultSet column = statement
-                            .executeQuery("SELECT is_nullable FROM information_schema.columns WHERE table_schema = '"
-                                    + SCRATCH_SCHEMA
-                                    + "' AND table_name = 'signing_profile' AND column_name = 'ilm_native_enabled'")) {
-                        assertThat(column.next()).isTrue();
-                        assertThat(column.getString(1)).isEqualTo("NO");
-                    }
+                // when
+                statement.execute(migration);
+
+                // then
+                try (ResultSet row = statement.executeQuery("SELECT \"ilm_native_enabled\" FROM \"signing_profile\"")) {
+                    assertThat(row.next()).isTrue();
+                    assertThat(row.getBoolean(1)).isFalse();
+                    assertThat(row.next()).isFalse();
+                }
+                try (ResultSet column = statement
+                        .executeQuery("SELECT is_nullable FROM information_schema.columns WHERE table_schema = '"
+                                + SCRATCH_SCHEMA
+                                + "' AND table_name = 'signing_profile' AND column_name = 'ilm_native_enabled'")) {
+                    assertThat(column.next()).isTrue();
+                    assertThat(column.getString(1)).isEqualTo("NO");
                 }
             } finally {
-                try (Statement statement = connection.createStatement()) {
+                try (Statement cleanup = connection.createStatement()) {
                     // The connection goes back to a pool shared with the rest of the suite: the session's search_path
                     // must not point at the schema this drops.
-                    statement.execute("RESET search_path");
-                    statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
+                    cleanup.execute("RESET search_path");
+                    cleanup.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
                 }
             }
         }

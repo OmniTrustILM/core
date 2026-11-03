@@ -6,17 +6,192 @@ import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.util.List;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class NativeSigningExceptionHandlingAdviceTest {
 
-    private static final String OPERATOR = "connector said: key 42 locked";
-    private static final String CLIENT = "The request was refused.";
+    private static final String OPERATOR_ONLY_DETAIL = "key 42";
+    private static final String OPERATOR = "connector said: " + OPERATOR_ONLY_DETAIL + " locked";
+    // Distinct from the advice's refusal fallback, so a response that drops the client message cannot pass.
+    private static final String CLIENT = "The document does not satisfy the signing profile.";
 
     private final NativeSigningExceptionHandlingAdvice advice = new NativeSigningExceptionHandlingAdvice();
+
+    @ParameterizedTest
+    @EnumSource(value = SigningEngineFailure.class, names = {"INVALID_INPUT", "MALFORMED_INPUT"})
+    void answers422WithClientMessageOnly_whenCallerInputIsRefused(SigningEngineFailure inputFailure) {
+        // given — a failure carrying operator detail and a client message
+
+        // when
+        ResponseEntity<Object> response = handle(inputFailure);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(response.getBody()).isEqualTo(List.of(CLIENT));
+        assertThat(String.valueOf(response.getBody())).doesNotContain(OPERATOR_ONLY_DETAIL);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SigningEngineFailure.class, names = {"CONNECTOR_FAULT", "SIGNER_FAULT"})
+    void answers502WithClientMessageOnly_whenConnectorOrSignerFails(SigningEngineFailure downstreamFault) {
+        // given — a failure carrying operator detail and a client message
+
+        // when
+        ResponseEntity<Object> response = handle(downstreamFault);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.getBody())
+                .isInstanceOfSatisfying(ErrorMessageDto.class, body -> assertThat(body.getMessage()).isEqualTo(CLIENT));
+        assertThat(String.valueOf(response.getBody())).doesNotContain(OPERATOR_ONLY_DETAIL);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isNull();
+    }
+
+    @Test
+    void answers503WithRetryAfter_whenUnreachableConnectorCausedSignerFault() {
+        // given
+        ConnectorCommunicationException unreachableConnector = createUnreachableConnectorException();
+
+        // when
+        ResponseEntity<Object> response = handle(SigningEngineFailure.SIGNER_FAULT, unreachableConnector);
+
+        // then
+        assertConnectorUnavailable(response);
+    }
+
+    @Test
+    void answers503WithRetryAfter_whenUnreachableConnectorIsDeeperInCauseChain() {
+        // given
+        var wrappedUnreachableConnector = new ConnectorException("formatting failed",
+                createUnreachableConnectorException());
+
+        // when
+        ResponseEntity<Object> response = handle(SigningEngineFailure.CONNECTOR_FAULT, wrappedUnreachableConnector);
+
+        // then
+        assertConnectorUnavailable(response);
+    }
+
+    @Test
+    void answers502WithoutRetryAfter_whenConnectorRefusedTheCall() {
+        // given
+        var connectorRefusal = new ConnectorException("connector answered 500");
+
+        // when
+        ResponseEntity<Object> response = handle(SigningEngineFailure.CONNECTOR_FAULT, connectorRefusal);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isNull();
+    }
+
+    @Test
+    void keeps422WithoutRetryAfter_whenInvalidInputWrapsUnreachableConnector() {
+        // given
+        ConnectorCommunicationException unreachableConnector = createUnreachableConnectorException();
+
+        // when
+        ResponseEntity<Object> response = handle(SigningEngineFailure.INVALID_INPUT, unreachableConnector);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isNull();
+    }
+
+    @Test
+    void answers503WithRetryAfter_whenTimeIsUnavailable() {
+        // given — a failure carrying operator detail and a client message
+
+        // when
+        ResponseEntity<Object> response = handle(SigningEngineFailure.TIME_UNAVAILABLE);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("30");
+        assertThat(response.getBody())
+                .isInstanceOfSatisfying(ErrorMessageDto.class, body -> assertThat(body.getMessage()).isEqualTo(CLIENT));
+    }
+
+    @Test
+    void answers503WithRetryAfter_whenConnectorCommunicationFails() {
+        // given
+        ConnectorCommunicationException unreachableConnector = createUnreachableConnectorException();
+
+        // when
+        ResponseEntity<Object> response = advice.handleConnectorCommunicationException(unreachableConnector);
+
+        // then
+        assertConnectorUnavailable(response);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SigningEngineFailure.class, names = {"MISCONFIGURED", "BINDING_VIOLATION", "STEP_FAILED"})
+    void answers500WithClientMessageOnly_whenPlatformFails(SigningEngineFailure platformFailure) {
+        // given — a failure carrying operator detail and a client message
+
+        // when
+        ResponseEntity<Object> response = handle(platformFailure);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody())
+                .isInstanceOfSatisfying(ErrorMessageDto.class, body -> assertThat(body.getMessage()).isEqualTo(CLIENT));
+        assertThat(String.valueOf(response.getBody())).doesNotContain(OPERATOR_ONLY_DETAIL);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isNull();
+    }
+
+    @Test
+    void answers422WithRefusalFallback_whenInputFailureHasNoClientMessage() {
+        // given
+        String noClientMessage = null;
+        var refusal = new SigningEngineException(SigningEngineFailure.INVALID_INPUT, OPERATOR, noClientMessage);
+
+        // when
+        ResponseEntity<Object> response = advice.handleSigningEngineException(refusal);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(response.getBody()).isEqualTo(List.of("The request was refused."));
+    }
+
+    @Test
+    void answers500WithInternalFallback_whenStepFailureHasNoClientMessage() {
+        // given
+        String noClientMessage = null;
+        var stepFailure = new SigningEngineException(SigningEngineFailure.STEP_FAILED, OPERATOR, noClientMessage);
+
+        // when
+        ResponseEntity<Object> response = advice.handleSigningEngineException(stepFailure);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody())
+                .isInstanceOfSatisfying(ErrorMessageDto.class,
+                        body -> assertThat(body.getMessage()).isEqualTo("Internal signing error"));
+    }
+
+    @ParameterizedTest
+    @EnumSource(SigningEngineFailure.class)
+    void answersErrorStatusWithBody_whenAnyFailureOccurs(SigningEngineFailure failure) {
+        // given — a failure carrying operator detail and a client message
+
+        // when
+        ResponseEntity<Object> response = handle(failure);
+
+        // then
+        assertThat(response.getStatusCode()).matches(HttpStatusCode::isError, "an error status");
+        assertThat(response.getBody()).isNotNull();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private ResponseEntity<Object> handle(SigningEngineFailure failure) {
         return advice.handleSigningEngineException(new SigningEngineException(failure, OPERATOR, CLIENT));
@@ -26,118 +201,16 @@ class NativeSigningExceptionHandlingAdviceTest {
         return advice.handleSigningEngineException(new SigningEngineException(failure, OPERATOR, cause, CLIENT));
     }
 
-    private static ConnectorCommunicationException unreachableConnector() {
+    private static ConnectorCommunicationException createUnreachableConnectorException() {
         return new ConnectorCommunicationException("connector at 10.0.0.5 refused", new RuntimeException("refused"),
                 null);
     }
 
     private static void assertConnectorUnavailable(ResponseEntity<Object> response) {
-        Assertions.assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-        Assertions.assertEquals("30", response.getHeaders().getFirst("Retry-After"));
-        Assertions.assertEquals("The connector is unavailable.", ((ErrorMessageDto) response.getBody()).getMessage());
-    }
-
-    @Test
-    void mapsInvalidAndMalformedInputTo422WithTheClientMessageOnly() {
-        for (SigningEngineFailure failure : List
-                .of(SigningEngineFailure.INVALID_INPUT, SigningEngineFailure.MALFORMED_INPUT)) {
-            ResponseEntity<Object> response = handle(failure);
-            Assertions.assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, response.getStatusCode());
-            Assertions.assertEquals(List.of(CLIENT), response.getBody());
-            Assertions.assertFalse(String.valueOf(response.getBody()).contains("key 42"));
-            Assertions.assertNull(response.getHeaders().getFirst("Retry-After"));
-        }
-    }
-
-    @Test
-    void mapsConnectorAndSignerFaultsTo502() {
-        for (SigningEngineFailure failure : List
-                .of(SigningEngineFailure.CONNECTOR_FAULT, SigningEngineFailure.SIGNER_FAULT)) {
-            ResponseEntity<Object> response = handle(failure);
-            Assertions.assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
-            Assertions.assertEquals(CLIENT, ((ErrorMessageDto) response.getBody()).getMessage());
-            Assertions.assertFalse(String.valueOf(response.getBody()).contains("key 42"));
-            Assertions.assertNull(response.getHeaders().getFirst("Retry-After"));
-        }
-    }
-
-    @Test
-    void mapsASignerFaultCausedByAnUnreachableConnectorTo503WithRetryAfter() {
-        assertConnectorUnavailable(handle(SigningEngineFailure.SIGNER_FAULT, unreachableConnector()));
-    }
-
-    @Test
-    void mapsAConnectorFaultWithAnUnreachableConnectorDeeperInTheChainTo503WithRetryAfter() {
-        ConnectorException wrapped = new ConnectorException("formatting failed", unreachableConnector());
-
-        assertConnectorUnavailable(handle(SigningEngineFailure.CONNECTOR_FAULT, wrapped));
-    }
-
-    @Test
-    void mapsAConnectorFaultCausedByAConnectorRefusalTo502() {
-        ResponseEntity<Object> response = handle(SigningEngineFailure.CONNECTOR_FAULT,
-                new ConnectorException("connector answered 500"));
-
-        Assertions.assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
-        Assertions.assertNull(response.getHeaders().getFirst("Retry-After"));
-    }
-
-    @Test
-    void keepsInvalidInput422EvenWhenAnUnreachableConnectorIsInTheChain() {
-        ResponseEntity<Object> response = handle(SigningEngineFailure.INVALID_INPUT, unreachableConnector());
-
-        Assertions.assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, response.getStatusCode());
-        Assertions.assertNull(response.getHeaders().getFirst("Retry-After"));
-    }
-
-    @Test
-    void mapsTimeUnavailableTo503WithRetryAfter() {
-        ResponseEntity<Object> response = handle(SigningEngineFailure.TIME_UNAVAILABLE);
-        Assertions.assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-        Assertions.assertEquals("30", response.getHeaders().getFirst("Retry-After"));
-        Assertions.assertEquals(CLIENT, ((ErrorMessageDto) response.getBody()).getMessage());
-    }
-
-    @Test
-    void mapsAnUnreachableConnectorTo503WithRetryAfter() {
-        assertConnectorUnavailable(advice.handleConnectorCommunicationException(unreachableConnector()));
-    }
-
-    @Test
-    void mapsEveryOtherFailureTo500() {
-        for (SigningEngineFailure failure : List
-                .of(SigningEngineFailure.MISCONFIGURED, SigningEngineFailure.BINDING_VIOLATION,
-                        SigningEngineFailure.STEP_FAILED)) {
-            ResponseEntity<Object> response = handle(failure);
-            Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-            Assertions.assertEquals(CLIENT, ((ErrorMessageDto) response.getBody()).getMessage());
-            Assertions.assertFalse(String.valueOf(response.getBody()).contains("key 42"));
-            Assertions.assertNull(response.getHeaders().getFirst("Retry-After"));
-        }
-    }
-
-    @Test
-    void fallsBackWhenTheClientMessageIsNull() {
-        ResponseEntity<Object> unprocessable = advice
-                .handleSigningEngineException(
-                        new SigningEngineException(SigningEngineFailure.INVALID_INPUT, OPERATOR, null));
-        Assertions.assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, unprocessable.getStatusCode());
-        Assertions.assertEquals(List.of("The request was refused."), unprocessable.getBody());
-
-        ResponseEntity<Object> internal = advice
-                .handleSigningEngineException(
-                        new SigningEngineException(SigningEngineFailure.STEP_FAILED, OPERATOR, null));
-        Assertions.assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, internal.getStatusCode());
-        Assertions.assertEquals("Internal signing error", ((ErrorMessageDto) internal.getBody()).getMessage());
-    }
-
-    @Test
-    void everyFailureHasAnErrorStatusAndABody() {
-        for (SigningEngineFailure failure : SigningEngineFailure.values()) {
-            ResponseEntity<Object> response = handle(failure);
-            Assertions
-                    .assertTrue(response.getStatusCode().isError(), failure + " answered " + response.getStatusCode());
-            Assertions.assertNotNull(response.getBody(), failure + " answered without a body");
-        }
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("30");
+        assertThat(response.getBody())
+                .isInstanceOfSatisfying(ErrorMessageDto.class,
+                        body -> assertThat(body.getMessage()).isEqualTo("The connector is unavailable."));
     }
 }

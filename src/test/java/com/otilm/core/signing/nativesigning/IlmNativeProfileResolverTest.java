@@ -12,16 +12,17 @@ import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.SigningProfileInternalService;
-import com.otilm.core.util.builders.SigningProfileModelBuilder;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -50,7 +51,86 @@ class IlmNativeProfileResolverTest {
         resolver = new IlmNativeProfileResolver(signingProfileRepository, signingProfileService);
     }
 
-    private void givenRecord(boolean ilmNativeEnabled, SigningScheme scheme) {
+    @Test
+    void throwsNotFoundWithoutLoadingModel_whenProfileIsUnknown() throws Exception {
+        // given
+        when(signingProfileRepository.findByUuid(any())).thenReturn(Optional.empty());
+
+        // when
+        ThrowingCallable resolveForDocumentSigning = () -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT);
+
+        // then
+        assertThatThrownBy(resolveForDocumentSigning)
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Signing Profile not found: " + PROFILE);
+        verify(signingProfileService, never()).loadSigningProfileModel(any());
+    }
+
+    @Test
+    void throwsValidationWithoutLoadingModel_whenRecordUsesDelegatedScheme() throws Exception {
+        // given
+        stubStoredRecord(true, SigningScheme.DELEGATED);
+
+        // when
+        ThrowingCallable resolveForDocumentSigning = () -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT);
+
+        // then
+        assertThatThrownBy(resolveForDocumentSigning)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(
+                        "Signing profile 'invoices' uses delegated signing; the native API signs only with keys ILM "
+                                + "manages.");
+        verify(signingProfileService, never()).loadSigningProfileModel(any());
+    }
+
+    @Test
+    void throwsValidationWithoutLoadingModel_whenRecordLacksIlmNative() throws Exception {
+        // given
+        stubStoredRecord(false, SigningScheme.MANAGED);
+
+        // when
+        ThrowingCallable resolveForDocumentSigning = () -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT);
+
+        // then
+        assertThatThrownBy(resolveForDocumentSigning)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Signing profile 'invoices' does not have the ILM_NATIVE protocol enabled.");
+        verify(signingProfileService, never()).loadSigningProfileModel(any());
+    }
+
+    @Test
+    void returnsLoadedModel_whenProfilePassesGate() throws Exception {
+        // given
+        stubStoredRecord(true, SigningScheme.MANAGED);
+        SigningProfileModel<?, ?> model = buildManagedContentModel(PROFILE);
+        doReturn(model).when(signingProfileService).loadSigningProfileModel(NAME);
+
+        // when
+        SigningProfileModel<?, ?> resolved = resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT);
+
+        // then
+        assertThat(resolved).isSameAs(model);
+    }
+
+    @Test
+    void throwsNotFound_whenLoadedModelBelongsToAnotherProfile() throws Exception {
+        // given — the profile was renamed and its old name now belongs to another profile
+        stubStoredRecord(true, SigningScheme.MANAGED);
+        SigningProfileModel<?, ?> otherProfileModel = buildManagedContentModel(OTHER);
+        doReturn(otherProfileModel).when(signingProfileService).loadSigningProfileModel(NAME);
+
+        // when
+        ThrowingCallable resolveForDocumentSigning = () -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT);
+
+        // then
+        assertThatThrownBy(resolveForDocumentSigning)
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Signing Profile not found: " + PROFILE);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void stubStoredRecord(boolean ilmNativeEnabled, SigningScheme scheme) {
         SigningProfile profile = new SigningProfile();
         profile.setUuid(PROFILE);
         profile.setName(NAME);
@@ -62,9 +142,8 @@ class IlmNativeProfileResolverTest {
                 .thenReturn(Optional.of(profile));
     }
 
-    private static SigningProfileModel<?, ?> managedContentModel(UUID uuid) {
-        return SigningProfileModelBuilder
-                .aSigningProfile()
+    private static SigningProfileModel<?, ?> buildManagedContentModel(UUID uuid) {
+        return aSigningProfile()
                 .withName(NAME)
                 .withUuid(uuid)
                 .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
@@ -72,69 +151,5 @@ class IlmNativeProfileResolverTest {
                         new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null, null, null))
                 .withSigningScheme(new StaticKeyManagedSigning(UUID.randomUUID(), List.of()))
                 .build();
-    }
-
-    @Test
-    void refusesAnUnknownProfileAsNotFound() throws NotFoundException {
-        // given
-        when(signingProfileRepository.findByUuid(any())).thenReturn(Optional.empty());
-
-        // when / then
-        assertThatThrownBy(() -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessage("Signing Profile not found: " + PROFILE);
-        verify(signingProfileService, never()).loadSigningProfileModel(any());
-    }
-
-    @Test
-    void refusesADelegatedProfileBeforeLoadingItsModel() throws NotFoundException {
-        // given
-        givenRecord(true, SigningScheme.DELEGATED);
-
-        // when / then
-        assertThatThrownBy(() -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT))
-                .isInstanceOf(ValidationException.class)
-                .hasMessage(
-                        "Signing profile 'invoices' uses delegated signing; the native API signs only with keys ILM "
-                                + "manages.");
-        verify(signingProfileService, never()).loadSigningProfileModel(any());
-    }
-
-    @Test
-    void refusesAProfileWithoutIlmNativeBeforeLoadingItsModel() throws NotFoundException {
-        // given
-        givenRecord(false, SigningScheme.MANAGED);
-
-        // when / then
-        assertThatThrownBy(() -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT))
-                .isInstanceOf(ValidationException.class)
-                .hasMessage("Signing profile 'invoices' does not have the ILM_NATIVE protocol enabled.");
-        verify(signingProfileService, never()).loadSigningProfileModel(any());
-    }
-
-    @Test
-    void returnsTheModelOfAProfileThatPassesTheGate() throws NotFoundException {
-        // given
-        givenRecord(true, SigningScheme.MANAGED);
-        SigningProfileModel<?, ?> model = managedContentModel(PROFILE);
-        doReturn(model).when(signingProfileService).loadSigningProfileModel(NAME);
-
-        // when
-        SigningProfileModel<?, ?> resolved = resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT);
-
-        // then
-        assertThat(resolved).isSameAs(model);
-    }
-
-    @Test
-    void refusesAModelOfAnotherProfileAsNotFound() throws NotFoundException {
-        // given: the profile was renamed and its old name now belongs to another profile
-        givenRecord(true, SigningScheme.MANAGED);
-        doReturn(managedContentModel(OTHER)).when(signingProfileService).loadSigningProfileModel(NAME);
-
-        // when / then
-        assertThatThrownBy(() -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessage("Signing Profile not found: " + PROFILE);
     }
 }

@@ -1,6 +1,5 @@
 package com.otilm.core.service.impl;
 
-import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
@@ -40,7 +39,7 @@ class SigningProfileIlmNativeLockTest {
     private final SigningProfileServiceImpl service = new SigningProfileServiceImpl();
 
     @BeforeEach
-    void wireService() {
+    void wireServiceToStoredProfile() {
         service.setClusterSynchronizer(clusterSynchronizer);
         service.setSigningProfileRepository(signingProfileRepository);
         service.setCacheEvictor(cacheEvictor);
@@ -54,7 +53,9 @@ class SigningProfileIlmNativeLockTest {
     }
 
     @Test
-    void activationLocksTheProfileBeforeReadingIt() throws NotFoundException {
+    void locksProfileBeforeReadingIt_whenActivatingIlmNative() throws Exception {
+        // given — a stored managed raw-signing profile
+
         // when
         service.activateIlmNative(SecuredUUID.fromUUID(PROFILE));
 
@@ -65,7 +66,9 @@ class SigningProfileIlmNativeLockTest {
     }
 
     @Test
-    void deactivationLocksTheProfileBeforeReadingIt() throws NotFoundException {
+    void locksProfileBeforeReadingIt_whenDeactivatingIlmNative() throws Exception {
+        // given — a stored managed raw-signing profile
+
         // when
         service.deactivateIlmNative(SecuredUUID.fromUUID(PROFILE));
 
