@@ -1,6 +1,5 @@
 package com.otilm.core.config;
 
-import com.otilm.core.messaging.proxy.ProxyClientImpl;
 import com.otilm.core.messaging.proxy.ProxyProperties;
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
@@ -31,15 +30,7 @@ public class KeyImportTimingCheck {
 
     @PostConstruct
     void check() {
-        Duration call = connectorClient
-                .pendingAcquireTimeout()
-                .plus(connectorClient.connectTimeout())
-                .plus(connectorClient.responseTimeout());
-        ProxyProperties proxied = proxy.getIfAvailable();
-        if (proxied != null) {
-            Duration proxiedCall = proxied.requestTimeout().plusMillis(ProxyClientImpl.MESSAGE_ROUND_TRIP_BUFFER_MS);
-            call = proxiedCall.compareTo(call) > 0 ? proxiedCall : call;
-        }
+        Duration call = ConnectorCallTimeouts.longestCall(connectorClient, proxy.getIfAvailable());
         Duration needed = keyImport.requestTimeout().plus(call.multipliedBy(CONNECTOR_CALLS));
         if (keyImport.retryWindow().compareTo(needed) < 0) {
             throw new IllegalStateException("key-import.retry-window must be at least " + needed
