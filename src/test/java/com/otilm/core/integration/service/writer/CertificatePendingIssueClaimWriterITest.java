@@ -5,6 +5,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
 import com.otilm.core.util.BaseSpringBootTest;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -29,31 +30,63 @@ class CertificatePendingIssueClaimWriterITest extends BaseSpringBootTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void clearsTheStampOfAPendingIssueCertificate() {
-        Certificate cert = certificateRepository.save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
-        stamp(cert.getUuid());
+    void clearsStamp_whenCertificateIsPendingIssue() {
+        // given
+        Certificate pending = certificateRepository
+                .save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
+        stamp(pending.getUuid());
 
-        int rows = claimWriter.clear(cert.getUuid());
+        // when
+        int rows = claimWriter.clear(pending.getUuid());
 
+        // then
         assertThat(rows).isEqualTo(1);
-        assertThat(readStamp(cert.getUuid())).isNull();
+        assertThat(readStamp(pending.getUuid())).isNull();
     }
 
     @Test
-    void leavesACertificateOutsidePendingIssueUntouched() {
-        Certificate cert = certificateRepository.save(aCertificate().withState(CertificateState.ISSUED).build());
-        stamp(cert.getUuid());
+    void leavesStamp_whenCertificateIsNotPendingIssue() {
+        // given
+        Certificate issued = certificateRepository.save(aCertificate().withState(CertificateState.ISSUED).build());
+        stamp(issued.getUuid());
 
-        int rows = claimWriter.clear(cert.getUuid());
+        // when
+        int rows = claimWriter.clear(issued.getUuid());
 
+        // then
         assertThat(rows).isZero();
-        assertThat(readStamp(cert.getUuid())).isNotNull();
+        assertThat(readStamp(issued.getUuid())).isNotNull();
     }
 
     @Test
-    void clearingAnUnknownCertificateIsANoOp() {
-        assertThat(claimWriter.clear(UUID.randomUUID())).isZero();
+    void updatesNothing_whenCertificateDoesNotExist() {
+        // given
+        UUID unknownCertificate = UUID.randomUUID();
+
+        // when
+        int rows = claimWriter.clear(unknownCertificate);
+
+        // then
+        assertThat(rows).isZero();
     }
+
+    @Test
+    void advancesUpdatedTimestamp_whenClearingTheStamp() {
+        // given
+        Certificate pending = certificateRepository
+                .save(aCertificate().withState(CertificateState.PENDING_ISSUE).build());
+        stamp(pending.getUuid());
+        OffsetDateTime updatedLongAgo = OffsetDateTime.now(ZoneOffset.UTC).minus(Duration.ofDays(2));
+        jdbcTemplate.update("UPDATE certificate SET i_upd = ? WHERE uuid = ?", updatedLongAgo, pending.getUuid());
+
+        // when
+        claimWriter.clear(pending.getUuid());
+
+        // then
+        assertThat(readUpdated(pending.getUuid())).isAfter(updatedLongAgo);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void stamp(UUID uuid) {
         jdbcTemplate
@@ -65,5 +98,9 @@ class CertificatePendingIssueClaimWriterITest extends BaseSpringBootTest {
         return jdbcTemplate
                 .queryForObject("SELECT pending_issue_claimed_at FROM certificate WHERE uuid = ?", OffsetDateTime.class,
                         uuid);
+    }
+
+    private OffsetDateTime readUpdated(UUID uuid) {
+        return jdbcTemplate.queryForObject("SELECT i_upd FROM certificate WHERE uuid = ?", OffsetDateTime.class, uuid);
     }
 }

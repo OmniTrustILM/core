@@ -243,7 +243,7 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
      */
     @Modifying
     @Query("""
-            UPDATE Certificate c SET c.pendingIssueClaimedAt = NULL
+            UPDATE Certificate c SET c.pendingIssueClaimedAt = NULL, c.updated = CURRENT_TIMESTAMP
                 WHERE c.uuid = :uuid
                     AND c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
             """)
