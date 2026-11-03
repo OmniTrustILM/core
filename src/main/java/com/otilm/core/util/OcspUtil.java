@@ -18,7 +18,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -186,7 +185,7 @@ public class OcspUtil {
             reason = "it is signed by neither the issuer nor an OCSP responder the issuer authorized";
         } else if (!isAbout(answer.getCertID(), request.getRequestList()[0].getCertID())) {
             reason = "it answers for another certificate";
-        } else if (!isCurrent(answer.getThisUpdate(), answer.getNextUpdate())) {
+        } else if (!isCurrent(answer)) {
             reason = "it is not current (thisUpdate %s, nextUpdate %s)"
                     .formatted(answer.getThisUpdate(), answer.getNextUpdate());
         } else if (!nonceMatches(response, request)) {
@@ -243,13 +242,13 @@ public class OcspUtil {
                 && Arrays.equals(answered.getIssuerKeyHash(), requested.getIssuerKeyHash());
     }
 
-    private static boolean isCurrent(Date thisUpdate, Date nextUpdate) {
+    private static boolean isCurrent(SingleResp answer) {
         Instant now = Instant.now();
+        Instant thisUpdate = answer.getThisUpdate().toInstant();
         // An answer without nextUpdate is current only around its thisUpdate, as for the JDK's OCSP checker, so an old
         // one cannot be replayed.
-        Date validUntil = nextUpdate == null ? thisUpdate : nextUpdate;
-        return !thisUpdate.toInstant().isAfter(now.plus(CLOCK_SKEW))
-                && !validUntil.toInstant().isBefore(now.minus(CLOCK_SKEW));
+        Instant validUntil = answer.getNextUpdate() == null ? thisUpdate : answer.getNextUpdate().toInstant();
+        return !thisUpdate.isAfter(now.plus(CLOCK_SKEW)) && !validUntil.isBefore(now.minus(CLOCK_SKEW));
     }
 
     private static boolean nonceMatches(BasicOCSPResp response, OCSPReq request) {
