@@ -15,6 +15,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -190,7 +191,7 @@ class CertificateStateMachineTest {
     @EnumSource(value = CertificateState.class, names = {"ISSUED", "FAILED"})
     void clearsClaimStamp_whenLeavingPendingIssue(CertificateState target) {
         // given
-        Certificate claimed = certWithState(CertificateState.PENDING_ISSUE);
+        Certificate claimed = aCertificate().withState(CertificateState.PENDING_ISSUE).build();
         claimed.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
 
         // when
@@ -204,7 +205,7 @@ class CertificateStateMachineTest {
     @Test
     void clearsClaimStamp_whenExitFromPendingIssueIsAuditedExternally() {
         // given
-        Certificate claimed = certWithState(CertificateState.PENDING_ISSUE);
+        Certificate claimed = aCertificate().withState(CertificateState.PENDING_ISSUE).build();
         claimed.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
 
         // when
@@ -218,7 +219,7 @@ class CertificateStateMachineTest {
     void keepsCallersClaimStamp_whenEnteringPendingIssue() {
         // given
         OffsetDateTime claimedAt = OffsetDateTime.now(ZoneOffset.UTC);
-        Certificate requested = certWithState(CertificateState.REQUESTED);
+        Certificate requested = aCertificate().withState(CertificateState.REQUESTED).build();
         requested.setPendingIssueClaimedAt(claimedAt);
 
         // when
@@ -232,7 +233,7 @@ class CertificateStateMachineTest {
     void keepsClaimStamp_whenTransitionDoesNotLeavePendingIssue() {
         // given
         OffsetDateTime claimedAt = OffsetDateTime.now(ZoneOffset.UTC);
-        Certificate pendingRevoke = certWithState(CertificateState.PENDING_REVOKE);
+        Certificate pendingRevoke = aCertificate().withState(CertificateState.PENDING_REVOKE).build();
         pendingRevoke.setPendingIssueClaimedAt(claimedAt);
 
         // when
