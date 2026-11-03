@@ -57,6 +57,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.apache.commons.lang3.function.TriFunction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -65,6 +67,8 @@ import org.springframework.stereotype.Service;
 @Service(value = Resource.Codes.VAULT_PROFILE)
 @Transactional
 public class VaultProfileServiceImpl implements VaultProfileExternalService, VaultProfileInternalService {
+
+    private static final Logger logger = LoggerFactory.getLogger(VaultProfileServiceImpl.class);
 
     private VaultProfileRepository vaultProfileRepository;
     private VaultInstanceRepository vaultInstanceRepository;
@@ -153,6 +157,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         VaultProfile vaultProfile = vaultProfileRepository
                 .findByUuid(vaultProfileUuid)
                 .orElseThrow(() -> new NotFoundException(VaultProfile.class, vaultProfileUuid));
+        requireUnderVault(vaultProfile, vaultUuid, vaultProfileUuid);
         VaultProfileDetailDto detailDto = vaultProfile.mapToDetailDto();
         if (vaultProfile.getVaultInstance().getConnectorUuid() != null) {
             detailDto
@@ -183,11 +188,11 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         VaultProfile vaultProfile = vaultProfileRepository
                 .findByUuid(securedUUID)
                 .orElseThrow(() -> new NotFoundException(VaultProfile.class, securedUUID));
+        requireUnderVault(vaultProfile, securedParentUUID, securedUUID);
         if (vaultProfile.getVaultInstance().getConnectorUuid() == null) {
             throw new ValidationException("Cannot update vault profile for vault without associated connector");
         }
 
-        // check that the vault profile is associated with the same vault instance?
         vaultProfile.setDescription(request.getDescription());
         attributeEngine.validateCustomAttributesContent(Resource.VAULT_PROFILE, request.getCustomAttributes());
 
@@ -214,6 +219,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         VaultProfile vaultProfile = vaultProfileRepository
                 .findByUuid(securedUUID)
                 .orElseThrow(() -> new NotFoundException(VaultProfile.class, securedUUID));
+        requireUnderVault(vaultProfile, securedParentUUID, securedUUID);
         List<String> secretsSource = secretRepository.findAllNamesBySourceVaultProfileUuid(securedUUID.getValue());
         if (!secretsSource.isEmpty()) {
             throw new ValidationException("Cannot delete vault profile %s set as source for secrets %s."
@@ -276,6 +282,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         VaultProfile vaultProfile = vaultProfileRepository
                 .findByUuid(securedUUID)
                 .orElseThrow(() -> new NotFoundException(VaultProfile.class, securedUUID));
+        requireUnderVault(vaultProfile, securedParentUUID, securedUUID);
         vaultProfile.setEnabled(true);
         vaultProfileRepository.save(vaultProfile);
     }
@@ -288,6 +295,7 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
         VaultProfile vaultProfile = vaultProfileRepository
                 .findByUuid(securedUUID)
                 .orElseThrow(() -> new NotFoundException(VaultProfile.class, securedUUID));
+        requireUnderVault(vaultProfile, securedParentUUID, securedUUID);
         vaultProfile.setEnabled(false);
         vaultProfileRepository.save(vaultProfile);
     }
@@ -374,5 +382,17 @@ public class VaultProfileServiceImpl implements VaultProfileExternalService, Vau
     public Long statisticsVaultProfileCount(SecurityFilter filter) {
         filter.setParentRefProperty(VaultProfile_.VAULT_INSTANCE_UUID);
         return vaultProfileRepository.countUsingSecurityFilter(filter, null);
+    }
+
+    /**
+     * The caller was authorized on the vault the URL names, so a vault profile under another vault is not found there,
+     * in the words used for one that does not exist.
+     */
+    private static void requireUnderVault(VaultProfile vaultProfile, SecuredParentUUID vaultUuid,
+            SecuredUUID vaultProfileUuid) throws NotFoundException {
+        if (!vaultUuid.getValue().equals(vaultProfile.getVaultInstanceUuid())) {
+            logger.debug("Vault profile {} is not under vault {}", vaultProfile.getUuid(), vaultUuid);
+            throw new NotFoundException(VaultProfile.class, vaultProfileUuid);
+        }
     }
 }
