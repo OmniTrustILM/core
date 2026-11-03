@@ -57,6 +57,34 @@ class SigningProfileMapperTest {
         }
 
         @Test
+        void returnsIlmNative_whenTheFlagIsSet() {
+            // given
+            SigningProfile header = newListHeader();
+            header.setTspProfileUuid(null);
+            header.setIlmNativeEnabled(true);
+
+            // when
+            SigningProfileListDto dto = SigningProfileMapper.toListDto(header);
+
+            // then
+            assertThat(dto.getEnabledProtocols()).containsExactly(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void returnsTspThenIlmNative_whenBothAreActive() {
+            // given
+            SigningProfile header = newListHeader();
+            header.setTspProfileUuid(TSP_UUID);
+            header.setIlmNativeEnabled(true);
+
+            // when
+            SigningProfileListDto dto = SigningProfileMapper.toListDto(header);
+
+            // then
+            assertThat(dto.getEnabledProtocols()).containsExactly(SigningProtocol.TSP, SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
         void returnsNoProtocols_whenProfileHasNoTspProfile() {
             // given
             SigningProfile header = newListHeader();

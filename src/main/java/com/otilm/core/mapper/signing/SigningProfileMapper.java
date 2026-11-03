@@ -132,7 +132,14 @@ public class SigningProfileMapper {
      * Detects the protocols a Signing Profile is enabled for (header-level, unversioned state).
      */
     private static List<SigningProtocol> detectEnabledProtocols(SigningProfile header) {
-        return header.getTspProfileUuid() != null ? List.of(SigningProtocol.TSP) : List.of();
+        List<SigningProtocol> protocols = new ArrayList<>();
+        if (header.getTspProfileUuid() != null) {
+            protocols.add(SigningProtocol.TSP);
+        }
+        if (header.isIlmNativeEnabled()) {
+            protocols.add(SigningProtocol.ILM_NATIVE);
+        }
+        return protocols;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
