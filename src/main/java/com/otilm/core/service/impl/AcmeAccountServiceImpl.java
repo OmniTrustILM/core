@@ -61,6 +61,7 @@ public class AcmeAccountServiceImpl implements AcmeAccountExternalService, AcmeA
     @ExternalAuthorization(resource = Resource.ACME_ACCOUNT, action = ResourceAction.REVOKE,
             parentResource = Resource.ACME_PROFILE, parentAction = ResourceAction.DETAIL)
     public void revokeAccount(SecuredParentUUID acmeProfileUuid, SecuredUUID uuid) throws NotFoundException {
+        requireUnderAcmeProfile(getAcmeAccountEntity(uuid), acmeProfileUuid, uuid);
         revokeAccount(uuid);
     }
 
@@ -69,6 +70,7 @@ public class AcmeAccountServiceImpl implements AcmeAccountExternalService, AcmeA
             parentResource = Resource.ACME_PROFILE, parentAction = ResourceAction.DETAIL)
     public void enableAccount(SecuredParentUUID acmeProfileUuid, SecuredUUID uuid) throws NotFoundException {
         AcmeAccount account = getAcmeAccountEntity(uuid);
+        requireUnderAcmeProfile(account, acmeProfileUuid, uuid);
         if (!account.getStatus().equals(AccountStatus.VALID)) {
             throw new ValidationException(ValidationError.create("Cannot enable a revoked account"));
         }
@@ -81,6 +83,7 @@ public class AcmeAccountServiceImpl implements AcmeAccountExternalService, AcmeA
             parentResource = Resource.ACME_PROFILE, parentAction = ResourceAction.DETAIL)
     public void disableAccount(SecuredParentUUID acmeProfileUuid, SecuredUUID uuid) throws NotFoundException {
         AcmeAccount account = getAcmeAccountEntity(uuid);
+        requireUnderAcmeProfile(account, acmeProfileUuid, uuid);
         if (!account.getStatus().equals(AccountStatus.VALID)) {
             throw new ValidationException(ValidationError.create("Cannot disable a revoked account"));
         }
@@ -155,6 +158,7 @@ public class AcmeAccountServiceImpl implements AcmeAccountExternalService, AcmeA
     public AcmeAccountResponseDto getAcmeAccount(SecuredParentUUID acmeProfileUuid, SecuredUUID uuid)
             throws NotFoundException {
         AcmeAccount acmeAccount = getAcmeAccountEntity(uuid);
+        requireUnderAcmeProfile(acmeAccount, acmeProfileUuid, uuid);
 
         Integer invalidatedExpiredOrders = acmeOrderRepository.invalidateExpiredOrders(acmeAccount, new Date());
         acmeAccount.setFailedOrders(acmeAccount.getFailedOrders() + invalidatedExpiredOrders);
@@ -165,6 +169,18 @@ public class AcmeAccountServiceImpl implements AcmeAccountExternalService, AcmeA
 
     private AcmeAccount getAcmeAccountEntity(SecuredUUID uuid) throws NotFoundException {
         return acmeAccountRepository.findByUuid(uuid).orElseThrow(() -> new NotFoundException(AcmeAccount.class, uuid));
+    }
+
+    /**
+     * The caller was authorized on the ACME profile the URL names, so an account under another ACME profile is not
+     * found there, in the words used for one that does not exist.
+     */
+    private static void requireUnderAcmeProfile(AcmeAccount account, SecuredParentUUID acmeProfileUuid,
+            SecuredUUID uuid) throws NotFoundException {
+        if (!acmeProfileUuid.getValue().equals(account.getAcmeProfileUuid())) {
+            logger.debug("ACME account {} is not under ACME profile {}", account.getUuid(), acmeProfileUuid);
+            throw new NotFoundException(AcmeAccount.class, uuid);
+        }
     }
 
     public void revokeAccount(SecuredUUID uuid) throws NotFoundException {
