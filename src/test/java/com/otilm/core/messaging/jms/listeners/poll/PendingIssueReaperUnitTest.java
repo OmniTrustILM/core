@@ -21,7 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.assertj.core.api.Assertions.assertThatCode;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -69,61 +69,71 @@ class PendingIssueReaperUnitTest {
     }
 
     @Test
-    void skipsCandidateNoLongerInPendingIssueUnderLock() {
+    void skipsCandidate_whenItLeftPendingIssueBeforeLocking() {
+        // given — between selection and locking the certificate completed elsewhere
         UUID uuid = UUID.randomUUID();
         when(certificateRepository.findStaleClaimedPendingIssueWithoutPollRow(any(), any())).thenReturn(List.of(uuid));
-        // Between selection and locking the certificate completed elsewhere: it is now ISSUED.
         when(certificateRepository.findAndLockWithAssociationsByUuid(uuid))
-                .thenReturn(Optional.of(cert(uuid, CertificateState.ISSUED)));
+                .thenReturn(Optional.of(createCertificate(uuid, CertificateState.ISSUED)));
 
+        // when
         reaper.reapStaleOrphans();
 
+        // then
         verify(stateMachine, never()).transition(any(), any(), any(), anyString());
     }
 
     @Test
-    void skipsCandidateWhoseClaimWasClearedUnderLock() {
+    void skipsCandidate_whenItsClaimWasClearedBeforeLocking() {
+        // given — between selection and locking the authority's answer was recorded: still PENDING_ISSUE, no claim
         UUID uuid = UUID.randomUUID();
         when(certificateRepository.findStaleClaimedPendingIssueWithoutPollRow(any(), any())).thenReturn(List.of(uuid));
-        // Between selection and locking the authority's answer was recorded: still PENDING_ISSUE, claim cleared.
         when(certificateRepository.findAndLockWithAssociationsByUuid(uuid))
-                .thenReturn(Optional.of(cert(uuid, CertificateState.PENDING_ISSUE, null)));
+                .thenReturn(Optional.of(createCertificate(uuid, CertificateState.PENDING_ISSUE, null)));
 
+        // when
         reaper.reapStaleOrphans();
 
+        // then
         verify(stateMachine, never()).transition(any(), any(), any(), anyString());
     }
 
     @Test
-    void oneCertificateFailureDoesNotAbortTheBatch() {
+    void reapsRemainingCandidates_whenOneTransitionFails() {
+        // given
         UUID failing = UUID.randomUUID();
         UUID healthy = UUID.randomUUID();
-        Certificate failingCert = cert(failing, CertificateState.PENDING_ISSUE);
-        Certificate healthyCert = cert(healthy, CertificateState.PENDING_ISSUE);
+        Certificate failingCert = createCertificate(failing, CertificateState.PENDING_ISSUE);
+        Certificate healthyCert = createCertificate(healthy, CertificateState.PENDING_ISSUE);
         when(certificateRepository.findStaleClaimedPendingIssueWithoutPollRow(any(), any()))
                 .thenReturn(List.of(failing, healthy));
         when(certificateRepository.findAndLockWithAssociationsByUuid(failing)).thenReturn(Optional.of(failingCert));
         when(certificateRepository.findAndLockWithAssociationsByUuid(healthy)).thenReturn(Optional.of(healthyCert));
         doThrowOnTransition(failingCert);
 
-        assertThatCode(() -> reaper.reapStaleOrphans()).doesNotThrowAnyException();
+        // when
+        reaper.reapStaleOrphans();
 
-        // The healthy certificate is still reaped despite the earlier failure.
+        // then
         verify(stateMachine)
                 .transition(eq(healthyCert), eq(CertificateState.FAILED), eq(CertificateEvent.ISSUE), anyString());
     }
 
     @Test
-    void skipsAllWorkWhenAdvisoryLockNotAcquired() {
-        // Another node holds the cluster lock: this run must select nothing and reap nothing.
+    void selectsNothing_whenAnotherNodeHoldsTheSweepLock() {
+        // given
         when(clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.PROVIDER_STATUS_POLL_SWEEP))
                 .thenReturn(false);
 
+        // when
         reaper.reapStaleOrphans();
 
+        // then
         verify(certificateRepository, never()).findStaleClaimedPendingIssueWithoutPollRow(any(), any());
         verify(stateMachine, never()).transition(any(), any(), any(), anyString());
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void doThrowOnTransition(Certificate cert) {
         doThrow(new RuntimeException("lock timeout"))
@@ -131,15 +141,13 @@ class PendingIssueReaperUnitTest {
                 .transition(eq(cert), eq(CertificateState.FAILED), eq(CertificateEvent.ISSUE), anyString());
     }
 
-    private static Certificate cert(UUID uuid, CertificateState state) {
-        return cert(uuid, state, OffsetDateTime.now(ZoneOffset.UTC).minusDays(2));
+    private static Certificate createCertificate(UUID uuid, CertificateState state) {
+        return createCertificate(uuid, state, OffsetDateTime.now(ZoneOffset.UTC).minusDays(2));
     }
 
-    private static Certificate cert(UUID uuid, CertificateState state, OffsetDateTime claimedAt) {
-        Certificate c = new Certificate();
-        c.setUuid(uuid);
-        c.setState(state);
-        c.setPendingIssueClaimedAt(claimedAt);
-        return c;
+    private static Certificate createCertificate(UUID uuid, CertificateState state, OffsetDateTime claimedAt) {
+        Certificate certificate = aCertificate().withUuid(uuid).withState(state).build();
+        certificate.setPendingIssueClaimedAt(claimedAt);
+        return certificate;
     }
 }
