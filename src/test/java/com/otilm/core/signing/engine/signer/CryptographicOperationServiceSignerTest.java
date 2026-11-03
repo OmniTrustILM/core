@@ -346,7 +346,7 @@ class CryptographicOperationServiceSignerTest {
         }
 
         @ParameterizedTest
-        @MethodSource("invalidBatches")
+        @MethodSource("provideInvalidBatches")
         void throwsIllegalArgument_whenBatchOrItemIsNullOrEmpty(List<byte[]> invalidBatch) throws Exception {
             // given — a batch the signer cannot send
 
@@ -360,7 +360,9 @@ class CryptographicOperationServiceSignerTest {
                     .signDataWithoutEventHistory(any(), any(), any(), any(), any());
         }
 
-        private static Stream<Named<List<byte[]>>> invalidBatches() {
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Named<List<byte[]>>> provideInvalidBatches() {
             return Stream
                     .of(named("null batch", null), named("empty batch", List.of()),
                             named("batch with an empty item", List.of(DTBS_0, new byte[0])),

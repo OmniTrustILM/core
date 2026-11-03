@@ -2507,7 +2507,7 @@ class KeyProviderV2AdapterTest {
         }
 
         @ParameterizedTest
-        @MethodSource("positionOneNotSpelledAsSent")
+        @MethodSource("provideRespelledPositionOne")
         void throwsConnectorException_whenIdentifierIsNotSpelledAsSent(String respelledPositionOne) throws Exception {
             // given
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
@@ -2583,7 +2583,9 @@ class KeyProviderV2AdapterTest {
             assertThatThrownBy(sign).isInstanceOf(ConnectorException.class);
         }
 
-        private static Stream<Named<String>> positionOneNotSpelledAsSent() {
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Named<String>> provideRespelledPositionOne() {
             return Stream
                     .of(named("leading zero", "01"), named("explicit plus sign", "+1"),
                             named("Arabic-Indic digit one", "\u0661"));
