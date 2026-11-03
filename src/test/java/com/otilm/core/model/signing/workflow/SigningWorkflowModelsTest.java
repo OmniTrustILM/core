@@ -43,8 +43,7 @@ class SigningWorkflowModelsTest {
         assertThat(wf.getWorkflowType()).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
         assertThat(wf.signatureFormattingConnectorUuid()).isEqualTo(connectorUuid);
         assertThat(wf.signatureFormattingConnectorAttributes()).isNotNull();
-        assertThat(wf).isInstanceOf(ContentSigningWorkflow.class);
-        assertThat(wf).isInstanceOf(SigningWorkflow.class);
+        assertThat(wf).isInstanceOf(ContentSigningWorkflow.class).isInstanceOf(SigningWorkflow.class);
     }
 
     @Test

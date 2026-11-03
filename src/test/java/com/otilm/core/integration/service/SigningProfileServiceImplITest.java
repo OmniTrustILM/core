@@ -324,13 +324,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                         .build());
     }
 
-    /** Reads the persisted row directly, bypassing the DTO mapping the create/update calls already exercise. */
-    private SigningProfileVersion persistedVersion(String profileUuid, int version) {
-        return signingProfileVersionRepository
-                .findBySigningProfileUuidAndVersion(UUID.fromString(profileUuid), version)
-                .orElseThrow();
-    }
-
     private static String firstErrorMessage(ValidationException ex) {
         return ex.getErrors().stream().map(ValidationError::getErrorDescription).findFirst().orElse("");
     }
@@ -3878,5 +3871,14 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .hasMessageContaining("does not support model retrieval yet");
         }
 
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Reads the persisted row directly, bypassing the DTO mapping the create/update calls already exercise. */
+    private SigningProfileVersion persistedVersion(String profileUuid, int version) {
+        return signingProfileVersionRepository
+                .findBySigningProfileUuidAndVersion(UUID.fromString(profileUuid), version)
+                .orElseThrow();
     }
 }

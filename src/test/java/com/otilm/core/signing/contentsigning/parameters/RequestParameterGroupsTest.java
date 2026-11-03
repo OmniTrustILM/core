@@ -129,7 +129,7 @@ class RequestParameterGroupsTest {
     @Test
     void reachesEveryFieldOfThePadesTree() {
         // given
-        PadesSignatureParametersDto parameters = FullyPopulatedParameters.pades();
+        PadesSignatureParametersDto parameters = PadesParametersFixtures.fullyPopulated();
 
         // when
         Map<SignatureParameterGroup, List<String>> present = RequestParameterGroups.presentFieldsByGroup(parameters);

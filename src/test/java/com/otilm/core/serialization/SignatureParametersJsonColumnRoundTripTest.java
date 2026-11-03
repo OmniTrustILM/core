@@ -8,9 +8,7 @@ import com.otilm.api.model.common.signature.parameters.pades.HorizontalAlignment
 import com.otilm.api.model.common.signature.parameters.pades.ImageScaling;
 import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureScope;
-import com.otilm.api.model.common.signature.parameters.pades.PadesVisibleSignatureDto;
 import com.otilm.api.model.common.signature.parameters.pades.PadesVisibleSignaturePlacementDto;
-import com.otilm.api.model.common.signature.parameters.pades.PadesVisibleSignatureStyleDto;
 import com.otilm.api.model.common.signature.parameters.pades.TextHorizontalAlignment;
 import com.otilm.api.model.common.signature.parameters.pades.TextPosition;
 import com.otilm.api.model.common.signature.parameters.pades.TextVerticalAlignment;
@@ -41,41 +39,10 @@ class SignatureParametersJsonColumnRoundTripTest {
         SignatureParametersDto decoded = mapper.readValue(json, SignatureParametersDto.class);
 
         // then: the discriminator selected the subtype and every value is intact
-        assertThat(decoded).isInstanceOf(PadesSignatureParametersDto.class);
-        PadesSignatureParametersDto pades = (PadesSignatureParametersDto) decoded;
-        assertThat(pades.getFamily()).isEqualTo(SignatureFamily.PADES);
-        assertThat(pades.getReason()).isEqualTo("Contract approval");
-        assertThat(pades.getLocation()).isEqualTo("Prague");
-        assertThat(pades.getContactInfo()).isEqualTo("jane.doe@example.com");
-        assertThat(pades.getSignerName()).isEqualTo("Jane Doe");
-        assertThat(pades.getSignatureScope()).isEqualTo(PadesSignatureScope.CERTIFICATION);
-        assertThat(pades.getCommitmentType()).isEqualTo(CommitmentType.PROOF_OF_APPROVAL);
-        assertThat(pades.getClaimedRoles()).containsExactly("Head of Legal");
-
-        PadesVisibleSignatureDto visible = pades.getVisibleSignature();
-        assertThat(visible.getVisible()).isTrue();
-        assertThat(visible.getText()).isEqualTo("Signed by Jane Doe");
-        assertThat(visible.getImage()).isEqualTo(STAMP);
-        assertThat(visible.getImageMimeType()).isEqualTo("image/png");
-
-        PadesVisibleSignaturePlacementDto placement = visible.getPlacement();
-        assertThat(placement.getPage()).isEqualTo(1);
-        assertThat(placement.getOriginX()).isEqualTo(20f);
-        assertThat(placement.getOriginY()).isEqualTo(30f);
-        assertThat(placement.getWidth()).isEqualTo(180f);
-        assertThat(placement.getHeight()).isEqualTo(60f);
-
-        PadesVisibleSignatureStyleDto style = visible.getStyle();
-        assertThat(style.getTextColor()).isEqualTo("#171717");
-        assertThat(style.getTextBackgroundColor()).isEqualTo("#ffffff");
-        assertThat(style.getBackgroundColor()).isEqualTo("#F5F5F5");
-        assertThat(style.getPadding()).isEqualTo(5);
-        assertThat(style.getTextWrapping()).isEqualTo(TextWrapping.FONT_BASED);
-        assertThat(style.getTextPosition()).isEqualTo(TextPosition.LEFT);
-        assertThat(style.getTextHorizontalAlignment()).isEqualTo(TextHorizontalAlignment.LEFT);
-        assertThat(style.getTextVerticalAlignment()).isEqualTo(TextVerticalAlignment.MIDDLE);
-        assertThat(style.getImageScaling()).isEqualTo(ImageScaling.STRETCH);
-        assertThat(style.getDpi()).isEqualTo(300);
+        assertThat(decoded)
+                .isInstanceOf(PadesSignatureParametersDto.class)
+                .usingRecursiveComparison()
+                .isEqualTo(original);
     }
 
     /** The discriminator has to be written into the document, or nothing can select the subtype on the way back. */

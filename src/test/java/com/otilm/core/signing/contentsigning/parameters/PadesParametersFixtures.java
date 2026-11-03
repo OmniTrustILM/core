@@ -17,14 +17,15 @@ import static com.otilm.core.util.builders.PadesVisibleSignaturePlacementDtoBuil
 import static com.otilm.core.util.builders.PadesVisibleSignatureStyleDtoBuilder.aStyle;
 
 /**
- * A PAdES parameters tree with every parameter field set to a value, used to prove the walk reaches every one of them.
+ * PAdES parameters trees for tests; {@link #fullyPopulated()} sets every parameter field, so a walk over the tree can
+ * prove it reaches each one.
  */
-final class FullyPopulatedParameters {
+public final class PadesParametersFixtures {
 
-    private FullyPopulatedParameters() {
+    private PadesParametersFixtures() {
     }
 
-    static PadesSignatureParametersDto pades() {
+    public static PadesSignatureParametersDto fullyPopulated() {
         return aPadesParameters()
                 .withReason("Contract approval")
                 .withLocation("Prague")
