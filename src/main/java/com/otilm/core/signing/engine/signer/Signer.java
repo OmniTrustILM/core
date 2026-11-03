@@ -6,8 +6,8 @@ import com.otilm.core.signing.engine.error.SigningEngineException;
 import java.util.List;
 
 /**
- * Signs a byte array and returns the raw signature bytes. The bytes passed are the DER-encoded SignedAttributes as
- * produced by BouncyCastle's SignerInfoGenerator — i.e. the DTBS for the timestamp token.
+ * Signs opaque data-to-be-signed with its configured key, one item or a batch, and returns the raw signature bytes. The
+ * caller decides what the bytes are, for example a DTBS or a digest.
  */
 public interface Signer {
 
@@ -20,7 +20,7 @@ public interface Signer {
     /**
      * Signs {@code dtbs} and returns the raw signature bytes. A batch of one.
      *
-     * @param dtbs DER-encoded SignedAttributes to sign; must not be null or empty
+     * @param dtbs the bytes to sign; must not be null or empty
      * @return raw signature bytes
      * @throws SigningEngineException if signing fails
      * @throws IllegalArgumentException if dtbs is null or empty
