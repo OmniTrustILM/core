@@ -14,6 +14,7 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
+import com.otilm.core.dao.entity.notifications.NotificationProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
 import com.otilm.core.dao.entity.notifications.PendingNotification;
 import com.otilm.core.dao.repository.GroupRepository;
@@ -309,6 +310,7 @@ class NotificationListenerTest {
     private static PendingNotification pending(UUID profileUuid, int version, int repetitions) {
         PendingNotification pending = new PendingNotification();
         pending.setNotificationProfileUuid(profileUuid);
+        pending.setResource(Resource.CERTIFICATE);
         pending.setVersion(version);
         pending.setRepetitions(repetitions);
         pending.setLastSentAt(OffsetDateTime.now().minusDays(30));
@@ -336,6 +338,9 @@ class NotificationListenerTest {
         version.setFrequency(frequency);
         version.setRepetitions(repetitions);
         version.setNotificationInstanceRefUuid(instanceRefUuid);
+        NotificationProfile profile = new NotificationProfile();
+        profile.setName("reminder-profile");
+        version.setNotificationProfile(profile);
 
         NotificationInstanceReference instanceRef = new NotificationInstanceReference();
         instanceRef.setKind("WEBHOOK");

@@ -431,6 +431,7 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
              WHERE c.compliance_status = 'NOK'
                AND c.archived = false
                AND c.state = 'ISSUED'
+               AND (c.validation_status IS NULL OR c.validation_status <> 'EXPIRED')
                AND (v.frequency IS NOT NULL OR v.repetitions IS NOT NULL)
                AND (v.repetitions IS NULL OR p.repetitions < v.repetitions)
                AND NOT EXISTS (

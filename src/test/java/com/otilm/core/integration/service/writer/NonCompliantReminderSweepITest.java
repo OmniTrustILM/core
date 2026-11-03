@@ -3,6 +3,7 @@ package com.otilm.core.integration.service.writer;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.notification.RecipientType;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -53,6 +54,9 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
         Certificate archived = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, true);
         Certificate revoked = certificate(ComplianceStatus.NOK, CertificateState.REVOKED, false);
         Certificate exhausted = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
+        Certificate expired = certificate(ComplianceStatus.NOK, CertificateState.ISSUED, false);
+        expired.setValidationStatus(CertificateValidationStatus.EXPIRED);
+        certificateRepository.save(expired);
 
         sent(reminding, selected, 1);
         sent(once, withoutReminders, 1);
@@ -60,8 +64,9 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
         sent(reminding, archived, 1);
         sent(reminding, revoked, 1);
         sent(reminding, exhausted, 3);
+        sent(reminding, expired, 1);
 
-        List<UUID> due = due(selected, withoutReminders, compliant, archived, revoked, exhausted);
+        List<UUID> due = due(selected, withoutReminders, compliant, archived, revoked, exhausted, expired);
 
         Assertions.assertEquals(List.of(selected.getUuid()), due);
     }

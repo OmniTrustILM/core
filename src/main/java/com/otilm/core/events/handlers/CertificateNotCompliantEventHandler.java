@@ -4,6 +4,7 @@ import com.otilm.api.exception.EventException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.common.events.data.CertificateNotCompliantEventData;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.Certificate;
@@ -11,6 +12,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.evaluator.CertificateTriggerEvaluator;
 import com.otilm.core.events.data.EventDataBuilder;
 import com.otilm.core.messaging.model.EventMessage;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.writer.PendingNotificationWriter;
 import java.util.UUID;
@@ -52,7 +54,16 @@ public class CertificateNotCompliantEventHandler extends CertificateEventsHandle
 
     @Override
     public void handleEvent(EventMessage eventMessage) throws EventException {
-        if (!REMINDER_DATA.equals(eventMessage.getData())) {
+        if (REMINDER_DATA.equals(eventMessage.getData())) {
+            // A reminder can wait in the queue while a check makes the certificate compliant
+            boolean stillNotCompliant = repository
+                    .findByUuid(SecuredUUID.fromUUID(eventMessage.getObjectUuid()))
+                    .map(certificate -> certificate.getComplianceStatus() == ComplianceStatus.NOK)
+                    .orElse(false);
+            if (!stillNotCompliant) {
+                return;
+            }
+        } else {
             pendingNotificationWriter
                     .deleteForObjectAndEvent(Resource.CERTIFICATE, eventMessage.getObjectUuid(),
                             ResourceEvent.CERTIFICATE_NOT_COMPLIANT);
