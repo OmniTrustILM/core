@@ -116,6 +116,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Autowired
@@ -684,6 +686,42 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         Assertions
                 .assertFalse(certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void matchesCertificateRelation_whenConditionUsesEnumConstant() throws RuleException {
+        // given
+        CertificateRelation successorRelation = new CertificateRelation();
+        successorRelation.setRelationType(CertificateRelationType.RENEWAL);
+        certificate.setSuccessorRelations(Set.of(successorRelation));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.SUCCEEDING_CERTIFICATES.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(CertificateRelationType.RENEWAL));
+
+        // when
+        boolean matches = certificateTriggerEvaluator
+                .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE);
+
+        // then
+        assertThat(matches).isTrue();
+    }
+
+    @Test
+    void matchesKeyUsage_whenConditionUsesCode() throws RuleException {
+        // given
+        certificate.setKeyUsage(BitMaskEnum.convertSetToBitMask(EnumSet.of(CertificateKeyUsage.DIGITAL_SIGNATURE)));
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(FilterField.KEY_USAGE.name());
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setValue(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE.getCode()));
+
+        // when
+        boolean matches = certificateTriggerEvaluator
+                .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE);
+
+        // then
+        assertThat(matches).isTrue();
     }
 
     @Test

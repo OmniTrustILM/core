@@ -322,14 +322,19 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
         // evaluation during loop, result stays true
         boolean result = (operator == FilterConditionOperator.NOT_EQUALS);
         BiPredicate<Object, Object> comparison = comparisonFor(fieldType, operator, filterField.getLabel());
+        if (filterField.getEnumClass() != null && conditionValue instanceof Collection<?> values) {
+            // Rule filters store codes, but callers can also provide enum constants (e.g. key usages).
+            conditionValue = values
+                    .stream()
+                    .map(value -> value instanceof IPlatformEnum platformEnum ? platformEnum.getCode() : value)
+                    .toList();
+        }
         for (Object item : objectValues) {
             if (nestedJoinAttributes != null) {
                 item = getPropertyValue(item, nestedJoinAttributes, filterField.getFieldAttribute(), filterField);
             }
 
-            if ((filterField == FilterField.SUCCEEDING_CERTIFICATES
-                    || filterField == FilterField.PRECEDING_CERTIFICATES)
-                    && item instanceof IPlatformEnum platformEnum) {
+            if (filterField.getEnumClass() != null && item instanceof IPlatformEnum platformEnum) {
                 item = platformEnum.getCode();
             }
 
