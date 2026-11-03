@@ -3359,13 +3359,28 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void issueCertificateAction_stampsTheClaimDuringTheConnectorCall_andClearsItOn202() throws Exception {
+        UUID certUuid = prepareCertificateForIssuance();
+        String issuePath = "/v2/authorityProvider/authorities/[^/]+/certificates/issue";
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(issuePath))
+                        .willReturn(WireMock.aResponse().withStatus(202)));
+
+        assertClaimStampedDuringCallAndClearedAfterAcceptance(issuePath, certUuid, () -> {
+            clientOperationInternalService.issueCertificateAction(certUuid, true);
+            return null;
+        });
+    }
+
+    @Test
     void renewCertificateAction_stampsTheClaimDuringTheConnectorCall_andClearsItOn202() throws Exception {
         prepareCertificateForRenewal();
         stubRenewAccepted();
         ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
         UUID successorUuid = certificate.getUuid();
 
-        assertClaimStampedDuringCallAndClearedAfterAcceptance(successorUuid, () -> {
+        assertClaimStampedDuringCallAndClearedAfterAcceptance(RENEW_PATH, successorUuid, () -> {
             clientOperationInternalService.renewCertificateAction(successorUuid, request, true);
             return null;
         });
@@ -3378,7 +3393,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
         UUID successorUuid = certificate.getUuid();
 
-        assertClaimStampedDuringCallAndClearedAfterAcceptance(successorUuid, () -> {
+        assertClaimStampedDuringCallAndClearedAfterAcceptance(RENEW_PATH, successorUuid, () -> {
             clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true);
             return null;
         });
@@ -3395,8 +3410,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
      * Holds the connector's 202 so the claim stamp can be read while the call is in flight, then releases it and checks
      * the stamp is gone once the acceptance is recorded.
      */
-    private void assertClaimStampedDuringCallAndClearedAfterAcceptance(UUID successorUuid, Callable<Void> action)
-            throws Exception {
+    private void assertClaimStampedDuringCallAndClearedAfterAcceptance(String connectorPath, UUID certUuid,
+            Callable<Void> action) throws Exception {
         CountDownLatch release = responseGate.hold();
         try (ExecutorService caller = new DelegatingSecurityContextExecutorService(
                 Executors.newSingleThreadExecutor())) {
@@ -3405,9 +3420,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                     .atMost(5, TimeUnit.SECONDS)
                     .until(() -> mockServer
                             .countRequestsMatching(
-                                    WireMock.postRequestedFor(WireMock.urlPathMatching(RENEW_PATH)).build())
+                                    WireMock.postRequestedFor(WireMock.urlPathMatching(connectorPath)).build())
                             .getCount() == 1);
-            Certificate inFlight = certificateRepository.findByUuid(successorUuid).orElseThrow();
+            Certificate inFlight = certificateRepository.findByUuid(certUuid).orElseThrow();
             Assertions.assertEquals(CertificateState.PENDING_ISSUE, inFlight.getState());
             Assertions
                     .assertNotNull(inFlight.getPendingIssueClaimedAt(),
@@ -3415,7 +3430,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             release.countDown();
             call.get(10, TimeUnit.SECONDS);
         }
-        assertParkedWithoutClaimStamp(successorUuid);
+        assertParkedWithoutClaimStamp(certUuid);
     }
 
     private void assertParkedWithoutClaimStamp(UUID successorUuid) {
