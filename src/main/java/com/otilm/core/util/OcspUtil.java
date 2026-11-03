@@ -215,8 +215,9 @@ public class OcspUtil {
     }
 
     /**
-     * Returns the key of a certificate the issuer issued for signing OCSP responses and that is valid now, per RFC 6960
-     * section 4.2.2.2; any other certificate yields nothing.
+     * Returns the key of a certificate the issuer issued for signing OCSP responses (RFC 6960 section 4.2.2.2) that is
+     * valid now and carries id-pkix-ocsp-nocheck: without it, the responder's own revocation would need checking, which
+     * is not done here. Any other certificate yields nothing.
      */
     private static Optional<PublicKey> authorizedResponderKey(X509CertificateHolder candidate, X509Certificate issuer) {
         try {
@@ -227,7 +228,8 @@ public class OcspUtil {
             boolean[] keyUsage = responder.getKeyUsage();
             boolean authorized = responder.getIssuerX500Principal().equals(issuer.getSubjectX500Principal())
                     && purposes.contains(KeyPurposeId.id_kp_OCSPSigning.getId())
-                    && (keyUsage == null || keyUsage[DIGITAL_SIGNATURE]);
+                    && (keyUsage == null || keyUsage[DIGITAL_SIGNATURE])
+                    && responder.getExtensionValue(OCSPObjectIdentifiers.id_pkix_ocsp_nocheck.getId()) != null;
             return authorized ? Optional.of(responder.getPublicKey()) : Optional.empty();
         } catch (GeneralSecurityException | IOException e) {
             logger.debug("OCSP response certificate is not an authorized responder: {}", e.getMessage());

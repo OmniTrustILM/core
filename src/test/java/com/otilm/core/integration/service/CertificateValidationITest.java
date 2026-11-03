@@ -1441,7 +1441,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                             chain.getCaCertificate().getSubjectX500Principal().getName());
             KeyPair responderKeyPair = freshRsaKeyPair();
             X509Certificate responderOfOtherCa = CertificateGeneratorHelper
-                    .generateCertificateWithExtendedKeyUsage(otherCaKeyPair, otherCaOfTheSameName, responderKeyPair,
+                    .generateOcspResponderCertificate(otherCaKeyPair, otherCaOfTheSameName, responderKeyPair,
                             KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
             ocspResponder
                     .answerWith(request -> anOcspResponse(request, responderKeyPair)
@@ -1462,7 +1462,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                     .generateCACertificate(chain.getCaCertificateKeyPair(), "CN=Ocsp-Trust-Other-Ca");
             KeyPair responderKeyPair = freshRsaKeyPair();
             X509Certificate responderOfOtherCa = CertificateGeneratorHelper
-                    .generateCertificateWithExtendedKeyUsage(chain.getCaCertificateKeyPair(), otherCaSharingTheKey,
+                    .generateOcspResponderCertificate(chain.getCaCertificateKeyPair(), otherCaSharingTheKey,
                             responderKeyPair, KeyPurposeId.id_kp_OCSPSigning, calculateDate(24 * 30));
             ocspResponder
                     .answerWith(request -> anOcspResponse(request, responderKeyPair)
@@ -1486,6 +1486,27 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             ocspResponder
                     .answerWith(request -> anOcspResponse(request, responderKeyPair)
                             .withSignerCertificate(responderThatMayNotSign)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsFailed_whenResponderCertificateLacksOcspNoCheck() throws Exception {
+            // given
+            KeyPair responderKeyPair = freshRsaKeyPair();
+            boolean noCheckExtension = false;
+            X509Certificate responderNeedingRevocationCheck = CertificateGeneratorHelper
+                    .generateOcspResponderCertificate(chain.getCaCertificateKeyPair(), chain.getCaCertificate(),
+                            responderKeyPair, new KeyUsage(KeyUsage.digitalSignature), KeyPurposeId.id_kp_OCSPSigning,
+                            noCheckExtension, calculateDate(24 * 30));
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, responderKeyPair)
+                            .withSignerCertificate(responderNeedingRevocationCheck)
                             .build());
 
             // when
@@ -1667,8 +1688,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         private X509Certificate issueResponderCertificate(KeyPair responderKeyPair, KeyUsage keyUsage,
                 KeyPurposeId purpose, Date notAfter) throws Exception {
             return CertificateGeneratorHelper
-                    .generateCertificateWithExtendedKeyUsage(chain.getCaCertificateKeyPair(), chain.getCaCertificate(),
-                            responderKeyPair, keyUsage, purpose, notAfter);
+                    .generateOcspResponderCertificate(chain.getCaCertificateKeyPair(), chain.getCaCertificate(),
+                            responderKeyPair, keyUsage, purpose, true, notAfter);
         }
 
         /** Answers each OCSP request with what the test's answer function makes of it, as a real responder does. */
