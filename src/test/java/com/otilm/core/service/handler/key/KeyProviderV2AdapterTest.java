@@ -35,6 +35,7 @@ import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeC
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.BooleanAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.FileAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
@@ -343,6 +344,14 @@ class KeyProviderV2AdapterTest {
         RequestAttributeV2 attribute = new RequestAttributeV2();
         attribute.setName(name);
         attribute.setContent(List.of(new StringAttributeContentV2(value)));
+        return attribute;
+    }
+
+    /** A resolved attribute as decryption gives a protected SECRET row, with the secret in a base content. */
+    private static RequestAttribute decryptedSecretAttribute(String name, String secret) {
+        RequestAttributeV2 attribute = new RequestAttributeV2();
+        attribute.setName(name);
+        attribute.setContent(List.of(new BaseAttributeContentV2<>(null, new SecretAttributeContentData(secret))));
         return attribute;
     }
 
@@ -2450,6 +2459,24 @@ class KeyProviderV2AdapterTest {
             stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
                     List.of(sealedRow("token-pin", tokenPin)), List.of(stringAttribute("token-pin", tokenPin)));
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(tokenPin));
+            CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
+
+            // when
+            ThrowingCallable sign = () -> adapter.signData(keyItem, signRequest(List.of()));
+
+            // then
+            assertThatThrownBy(sign).isInstanceOf(OutboundSecretLeakException.class);
+            verify(operationsClient, never()).signData(any(), any());
+        }
+
+        @Test
+        void refusesSignDefinitions_echoingATokenSecretStoredEncrypted() throws Exception {
+            // given
+            var tokenPassword = "correct-horse-battery-staple";
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
+                    List.of(sealedRow("token-password", tokenPassword)),
+                    List.of(decryptedSecretAttribute("token-password", tokenPassword)));
+            when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(tokenPassword));
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
 
             // when

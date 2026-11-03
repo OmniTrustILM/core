@@ -285,12 +285,11 @@ public class OutboundSecretContainment {
             // The response 'attributes' arm is List<BaseAttribute> — Data/Metadata/Custom all expose content via
             // the universal getContent(); descend the base type so a secret nested in any of them is reached.
             walkSecretGraph(baseAttribute.getContent(), depth + 1, visitor, failClosedOnDepth);
-        } else if (node instanceof CredentialAttributeContentV2 credential) {
-            walkSecretGraph(credential.getData(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof CredentialAttributeContentData credential) {
             walkSecretGraph(credential.getAttributes(), depth + 1, visitor, failClosedOnDepth);
-        } else if (node instanceof SecretAttributeContentV2 secret) {
-            walkSecretGraph(secret.getData(), depth + 1, visitor, failClosedOnDepth);
+        } else if (node instanceof AttributeContent content) {
+            // Decryption puts a protected row's data in a base content rather than its typed one.
+            walkSecretGraph(content.getData(), depth + 1, visitor, failClosedOnDepth);
         }
     }
 

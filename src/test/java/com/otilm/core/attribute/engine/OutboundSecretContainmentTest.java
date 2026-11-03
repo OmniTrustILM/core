@@ -84,6 +84,45 @@ class OutboundSecretContainmentTest {
     }
 
     @Test
+    void recordsTheSecret_ofASecretStoredEncrypted() {
+        // given
+        var tokenPassword = "correct-horse-battery-staple";
+        var resolved = List
+                .of(resolvedAttribute("token-password",
+                        decryptedContent(new SecretAttributeContentData(tokenPassword))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(tokenPassword);
+    }
+
+    @Test
+    void recordsTheSecretInACredential_storedEncrypted() {
+        // given
+        var credentialPassword = "correct-horse-battery-staple";
+        DataAttributeV2 password = new DataAttributeV2();
+        password.setName("password");
+        password.setContentType(AttributeContentType.SECRET);
+        password
+                .setContent(List
+                        .of(new SecretAttributeContentV2(null, new SecretAttributeContentData(credentialPassword))));
+        CredentialAttributeContentData credential = new CredentialAttributeContentData();
+        credential.setName("hsm-login");
+        credential.setAttributes(List.of(password));
+        var resolved = List.of(resolvedAttribute("token-login", decryptedContent(credential)));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(credentialPassword);
+    }
+
+    @Test
     void recordsTheTextValue_ofAnAttributeStoredEncrypted() {
         // given
         var tokenPin = "4815162342";
