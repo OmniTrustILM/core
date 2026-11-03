@@ -119,7 +119,9 @@ public class CryptographicOperationServiceSigner implements Signer {
         }
         try {
             int index = Integer.parseInt(identifier);
-            if (index >= 0 && index < expected) {
+            // parseInt also reads "+1", "01" and non-ASCII digits, none of which was sent.
+            boolean sent = index >= 0 && index < expected && Integer.toString(index).equals(identifier);
+            if (sent) {
                 return index;
             }
         } catch (NumberFormatException ignored) {

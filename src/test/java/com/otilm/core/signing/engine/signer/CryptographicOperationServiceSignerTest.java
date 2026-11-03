@@ -200,7 +200,7 @@ class CryptographicOperationServiceSignerTest {
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {"7", "-1", "x"})
+        @ValueSource(strings = {"7", "-1", "x", "+1", "01", "١"})
         void refusesAnUnknownResultIdentifier(String identifier) throws Exception {
             // given
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
