@@ -98,6 +98,10 @@ public class CryptographicOperationServiceSigner implements Signer {
             throw signerFault(
                     "Signing operation returned " + results.size() + " signatures for " + expected + " items");
         }
+        if (expected == 1) {
+            // A lone item cannot be mismatched, so its identifier is not checked.
+            return List.of(Base64.getDecoder().decode(results.getFirst().getData()));
+        }
         byte[][] ordered = new byte[expected][];
         for (SignatureResponseData result : results) {
             int index = indexOf(result.getIdentifier(), expected);
@@ -111,10 +115,6 @@ public class CryptographicOperationServiceSigner implements Signer {
 
     private static int indexOf(String identifier, int expected) throws SigningEngineException {
         if (identifier == null) {
-            // A lone item cannot be mismatched, so connectors that do not echo identifiers stay supported.
-            if (expected == 1) {
-                return 0;
-            }
             throw signerFault("Signing operation returned a result without an identifier");
         }
         try {
@@ -123,7 +123,7 @@ public class CryptographicOperationServiceSigner implements Signer {
                 return index;
             }
         } catch (NumberFormatException ignored) {
-            // falls through to the unknown-identifier fault
+            // A non-numeric identifier is unknown.
         }
         throw signerFault("Signing operation returned an unknown identifier: " + identifier);
     }

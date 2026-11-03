@@ -21,6 +21,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -36,6 +38,11 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CryptographicOperationServiceSignerTest {
+
+    private static final byte[] DTBS_0 = {1, 2, 3};
+    private static final byte[] DTBS_1 = {9, 8, 7};
+    private static final byte[] SIG_A = {4, 5, 6, 7};
+    private static final byte[] SIG_B = {10, 11, 12};
 
     @Mock
     private CryptographicOperationInternalService cryptographicOperationService;
@@ -173,28 +180,43 @@ class CryptographicOperationServiceSignerTest {
             assertThat(captor.getValue().getData())
                     .extracting(SignatureRequestData::getIdentifier)
                     .containsExactly("0", "1");
+            assertThat(captor.getValue().getData())
+                    .extracting(SignatureRequestData::getData)
+                    .containsExactly(Base64.getEncoder().encodeToString(DTBS_0),
+                            Base64.getEncoder().encodeToString(DTBS_1));
             assertThat(out).containsExactly(SIG_A, SIG_B);
         }
 
         @Test
         void refusesAResultCountThatDiffersFromTheBatch() throws Exception {
+            // given — fewer results, then more results, than items
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(signatures(result("0", SIG_A)))
+                    .willReturn(signatures(result("0", SIG_A), result("1", SIG_B), result("2", SIG_A)));
+
+            // when / then
+            assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
+            assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"7", "-1", "x"})
+        void refusesAnUnknownResultIdentifier(String identifier) throws Exception {
             // given
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("0", SIG_A)));
+                    .willReturn(signatures(result("0", SIG_A), result(identifier, SIG_B)));
 
             // when / then
             assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
         }
 
         @Test
-        void refusesAnUnknownOrRepeatedResultIdentifier() throws Exception {
+        void refusesARepeatedResultIdentifier() throws Exception {
             // given
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willReturn(signatures(result("0", SIG_A), result("7", SIG_B)))
                     .willReturn(signatures(result("0", SIG_A), result("0", SIG_B)));
 
             // when / then
-            assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
             assertSignerFault(() -> signer.signAll(List.of(DTBS_0, DTBS_1)));
         }
 
@@ -222,6 +244,19 @@ class CryptographicOperationServiceSignerTest {
         }
 
         @Test
+        void acceptsASingleResultWhateverItsIdentifier() throws Exception {
+            // given
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(signatures(result("connector-own-id", SIG_A)));
+
+            // when
+            List<byte[]> out = signer.signAll(List.of(DTBS_0));
+
+            // then
+            assertThat(out).containsExactly(SIG_A);
+        }
+
+        @Test
         void rejectsAnEmptyBatchOrAnEmptyItem() throws Exception {
             // given — nothing to sign
 
@@ -238,10 +273,19 @@ class CryptographicOperationServiceSignerTest {
         }
     }
 
-    private static final byte[] DTBS_0 = {1, 2, 3};
-    private static final byte[] DTBS_1 = {9, 8, 7};
-    private static final byte[] SIG_A = {4, 5, 6, 7};
-    private static final byte[] SIG_B = {10, 11, 12};
+    // ── GetSignatureAlgorithm ─────────────────────────────────────────────────
+
+    @Nested
+    class GetSignatureAlgorithm {
+
+        @Test
+        void returnsAlgorithmPassedAtConstruction() {
+            // given — signer constructed with SHA256_WITH_RSA
+
+            // when / then
+            assertThat(signer.getSignatureAlgorithm()).isEqualTo(SignatureAlgorithm.SHA256_WITH_RSA);
+        }
+    }
 
     private static SignDataResponseDto signatures(SignatureResponseData... items) {
         return new SignDataResponseDto(List.of(items));
@@ -259,19 +303,5 @@ class CryptographicOperationServiceSignerTest {
                 .isInstanceOf(SigningEngineException.class)
                 .satisfies(ex -> assertThat(((SigningEngineException) ex).failure())
                         .isEqualTo(SigningEngineFailure.SIGNER_FAULT));
-    }
-
-    // ── GetSignatureAlgorithm ─────────────────────────────────────────────────
-
-    @Nested
-    class GetSignatureAlgorithm {
-
-        @Test
-        void returnsAlgorithmPassedAtConstruction() {
-            // given — signer constructed with SHA256_WITH_RSA
-
-            // when / then
-            assertThat(signer.getSignatureAlgorithm()).isEqualTo(SignatureAlgorithm.SHA256_WITH_RSA);
-        }
     }
 }
