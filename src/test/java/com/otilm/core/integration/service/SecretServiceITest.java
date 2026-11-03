@@ -100,7 +100,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -443,83 +443,83 @@ class SecretServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void createSecret_refusesWithoutDetailOnTheVault() {
-        SecretRequestDto request = new SecretRequestDto();
-        request.setName("refusedSecret");
-        request.setSecret(new BasicAuthSecretContent());
+    void refusesSecretCreation_whenVaultDetailIsDenied() {
+        // given
+        denyResourceAccess(Resource.VAULT, ResourceAction.DETAIL, vaultInstance.getUuid());
         SecuredParentUUID vaultUuid = vaultInstance.getSecuredParentUuid();
         UUID vaultProfileUuid = vaultProfile.getUuid();
-        denyResourceAccess(Resource.VAULT, ResourceAction.DETAIL, vaultInstance.getUuid());
+        var request = new SecretRequestDto();
+        request.setName("refusedSecret");
+        request.setSecret(new BasicAuthSecretContent());
 
-        Assertions
-                .assertThrows(AccessDeniedException.class,
-                        () -> secretService.createSecret(request, vaultUuid, vaultProfileUuid));
+        // when
+        ThrowingCallable createSecret = () -> secretService.createSecret(request, vaultUuid, vaultProfileUuid);
 
-        Assertions.assertFalse(secretRepository.existsByName(request.getName()));
+        // then
+        assertThatThrownBy(createSecret).isInstanceOf(AccessDeniedException.class);
+        assertThat(secretRepository.existsByName(request.getName())).isFalse();
     }
 
     @ParameterizedTest
-    @EnumSource(value = ResourceAction.class, names = {"CREATE", "UPDATE", "UPDATE_SOURCE_VAULT_PROFILE", "DELETE"})
-    void processSecretAction_refusesWithoutThePermission_whenNoApprovalWasNeeded(ResourceAction action)
-            throws JsonProcessingException {
-        ActionMessage actionMessage = new ActionMessage();
-        actionMessage.setResourceUuid(secret.getUuid());
-        actionMessage.setResourceAction(action);
-        actionMessage
-                .setData(SecretActionData
+    @CsvSource({"CREATE, CREATE", "UPDATE, UPDATE", "UPDATE_SOURCE_VAULT_PROFILE, UPDATE", "DELETE, DELETE"})
+    void refusesTheActionWithoutApproval_whenItsPermissionIsDenied(ResourceAction action,
+            ResourceAction requiredPermission) throws Exception {
+        // given
+        denyResourceAccess(Resource.SECRET, requiredPermission);
+        String encryptedContent = SecretsUtil
+                .encryptAndEncodeSecretString(new ObjectMapper().writeValueAsString(new BasicAuthSecretContent()),
+                        SecretEncodingVersion.V1);
+        ActionMessage message = secretAction(action,
+                SecretActionData
                         .builder()
                         .name(secret.getName())
                         .originalState(secret.getState())
                         .updatedSourceVaultProfileUuid(vaultProfile.getUuid())
-                        .encryptedContent(SecretsUtil
-                                .encryptAndEncodeSecretString(
-                                        new ObjectMapper().writeValueAsString(new BasicAuthSecretContent()),
-                                        SecretEncodingVersion.V1))
+                        .encryptedContent(encryptedContent)
                         .deleteInVault(Boolean.FALSE)
                         .build());
-        ResourceAction secretAction = action == ResourceAction.UPDATE_SOURCE_VAULT_PROFILE
-                ? ResourceAction.UPDATE
-                : action;
-        denyResourceAccess(Resource.SECRET, secretAction);
 
-        Assertions
-                .assertThrows(AccessDeniedException.class,
-                        () -> secretInternalService.processSecretAction(actionMessage, false, false));
+        // when
+        ThrowingCallable processSecretAction = () -> secretInternalService.processSecretAction(message, false, false);
 
+        // then
+        assertThatThrownBy(processSecretAction).isInstanceOf(AccessDeniedException.class);
         Secret unchanged = secretRepository.findWithAssociationsByUuid(secret.getUuid()).orElseThrow();
-        Assertions.assertEquals(secret.getState(), unchanged.getState());
-        Assertions.assertEquals(vaultProfile.getUuid(), unchanged.getSourceVaultProfileUuid());
+        assertThat(unchanged.getState()).isEqualTo(secret.getState());
+        assertThat(unchanged.getSourceVaultProfileUuid()).isEqualTo(vaultProfile.getUuid());
         mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
     }
 
     @Test
-    void processSecretAction_createsTheSecret_whenNoApprovalWasNeeded() throws Exception {
+    void createsTheSecret_whenItsActionRunsWithoutApproval() throws Exception {
+        // given
         Mockito.doNothing().when(actionProducer).produceMessage(any());
-        SecretRequestDto request = new SecretRequestDto();
+        var request = new SecretRequestDto();
         request.setName("unapprovedSecret");
         request.setSecret(new BasicAuthSecretContent());
         SecretDetailDto created = secretService
                 .createSecret(request, vaultInstance.getSecuredParentUuid(), vaultProfile.getUuid());
-        ActionMessage actionMessage = new ActionMessage();
-        actionMessage.setResourceUuid(UUID.fromString(created.getUuid()));
-        actionMessage.setResourceAction(ResourceAction.CREATE);
-        actionMessage
+        UUID createdUuid = UUID.fromString(created.getUuid());
+        String encryptedContent = SecretsUtil
+                .encryptAndEncodeSecretString(new ObjectMapper().writeValueAsString(request.getSecret()),
+                        SecretEncodingVersion.V1);
+        ActionMessage creation = new ActionMessage();
+        creation.setResourceUuid(createdUuid);
+        creation.setResourceAction(ResourceAction.CREATE);
+        creation
                 .setData(SecretActionData
                         .builder()
                         .name(request.getName())
                         .attributes(List.of())
-                        .encryptedContent(SecretsUtil
-                                .encryptAndEncodeSecretString(
-                                        new ObjectMapper().writeValueAsString(request.getSecret()),
-                                        SecretEncodingVersion.V1))
+                        .encryptedContent(encryptedContent)
                         .build());
 
-        secretInternalService.processSecretAction(actionMessage, false, false);
+        // when
+        secretInternalService.processSecretAction(creation, false, false);
 
-        Secret createdSecret = secretRepository
-                .findWithAssociationsByUuid(UUID.fromString(created.getUuid()))
-                .orElseThrow();
-        Assertions.assertEquals(SecretState.ACTIVE, createdSecret.getState());
+        // then
+        Secret createdSecret = secretRepository.findWithAssociationsByUuid(createdUuid).orElseThrow();
+        assertThat(createdSecret.getState()).isEqualTo(SecretState.ACTIVE);
     }
 
     @Test
