@@ -137,7 +137,7 @@ class CryptographicOperationServiceTransactionITest extends BaseSpringBootTest {
 
         // when
         operationService
-                .signData(token.getSecuredParentUuid(), profile.getUuid(), key.getSecuredUuid(), privateKey.getUuid(),
+                .signData(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(), privateKey.getUuid(),
                         request);
 
         // then

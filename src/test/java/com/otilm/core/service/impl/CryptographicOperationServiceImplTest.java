@@ -301,8 +301,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         SignDataResponseDto response = service
-                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()), key.tokenProfileUuid(),
-                        SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(), signRequest());
+                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
         assertSame(expected, response);
@@ -327,8 +327,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         SignDataResponseDto response = service
-                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()), key.tokenProfileUuid(),
-                        SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(), request);
+                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
         assertSame(expected, response);
@@ -369,25 +369,22 @@ class CryptographicOperationServiceImplTest {
     private void invokeOperation(PathOperation operation, CryptographicKeyItemOperationModel key, UUID tokenUuid,
             UUID profileUuid, UUID keyUuid) throws Exception {
         SecuredParentUUID token = SecuredParentUUID.fromUUID(tokenUuid);
-        SecuredUUID securedKeyUuid = SecuredUUID.fromUUID(keyUuid);
+        SecuredUUID profile = SecuredUUID.fromUUID(profileUuid);
         switch (operation) {
-            case ENCRYPT ->
-                service.encryptData(token, profileUuid, securedKeyUuid, key.keyItemUuid(), new CipherDataRequestDto());
-            case DECRYPT ->
-                service.decryptData(token, profileUuid, securedKeyUuid, key.keyItemUuid(), new CipherDataRequestDto());
-            case SIGN -> service.signData(token, profileUuid, securedKeyUuid, key.keyItemUuid(), signRequest());
-            case SIGN_WITHOUT_HISTORY -> service
-                    .signDataWithoutEventHistory(token, profileUuid, securedKeyUuid, key.keyItemUuid(), signRequest());
-            case VERIFY ->
-                service.verifyData(token, profileUuid, securedKeyUuid, key.keyItemUuid(), new VerifyDataRequestDto());
-            case LIST_ENCRYPT -> service.listEncryptAttributes(token, profileUuid, securedKeyUuid, key.keyItemUuid());
-            case LIST_DECRYPT -> service.listDecryptAttributes(token, profileUuid, securedKeyUuid, key.keyItemUuid());
-            case LIST_SIGN -> service.listSignAttributes(token, profileUuid, securedKeyUuid, key.keyItemUuid());
-            case LIST_VERIFY -> service.listVerifyAttributes(token, profileUuid, securedKeyUuid, key.keyItemUuid());
+            case ENCRYPT -> service.encryptData(token, profile, keyUuid, key.keyItemUuid(), new CipherDataRequestDto());
+            case DECRYPT -> service.decryptData(token, profile, keyUuid, key.keyItemUuid(), new CipherDataRequestDto());
+            case SIGN -> service.signData(token, profile, keyUuid, key.keyItemUuid(), signRequest());
+            case SIGN_WITHOUT_HISTORY ->
+                service.signDataWithoutEventHistory(token, profile, keyUuid, key.keyItemUuid(), signRequest());
+            case VERIFY -> service.verifyData(token, profile, keyUuid, key.keyItemUuid(), new VerifyDataRequestDto());
+            case LIST_ENCRYPT -> service.listEncryptAttributes(token, profile, keyUuid, key.keyItemUuid());
+            case LIST_DECRYPT -> service.listDecryptAttributes(token, profile, keyUuid, key.keyItemUuid());
+            case LIST_SIGN -> service.listSignAttributes(token, profile, keyUuid, key.keyItemUuid());
+            case LIST_VERIFY -> service.listVerifyAttributes(token, profile, keyUuid, key.keyItemUuid());
             case LIST_CIPHER_LEGACY ->
-                service.listCipherAttributes(token, profileUuid, securedKeyUuid, key.keyItemUuid(), KeyAlgorithm.RSA);
-            case LIST_SIGNATURE_LEGACY -> service
-                    .listSignatureAttributes(token, profileUuid, securedKeyUuid, key.keyItemUuid(), KeyAlgorithm.RSA);
+                service.listCipherAttributes(token, profile, keyUuid, key.keyItemUuid(), KeyAlgorithm.RSA);
+            case LIST_SIGNATURE_LEGACY ->
+                service.listSignatureAttributes(token, profile, keyUuid, key.keyItemUuid(), KeyAlgorithm.RSA);
         }
     }
 
@@ -422,8 +419,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         Executable sign = () -> service
-                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()), key.tokenProfileUuid(),
-                        SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(), signRequest());
+                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
         assertSame(failure, assertThrows(ConnectorException.class, sign));
@@ -447,8 +444,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         Executable sign = () -> service
-                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()), key.tokenProfileUuid(),
-                        SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(), signRequest());
+                .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
         assertSame(auditFailure, assertThrows(RuntimeException.class, sign));
@@ -467,7 +464,7 @@ class CryptographicOperationServiceImplTest {
         // when
         service
                 .signDataWithoutEventHistory(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
-                        key.tokenProfileUuid(), SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(), signRequest());
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
         verifyNoInteractions(eventHistoryService);
@@ -487,8 +484,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         Executable encrypt = () -> service
-                .encryptData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()), key.tokenProfileUuid(),
-                        SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(), request);
+                .encryptData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
         ValidationException failure = assertThrows(ValidationException.class, encrypt);
@@ -510,8 +507,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         Executable verifyCall = () -> service
-                .verifyData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()), key.tokenProfileUuid(),
-                        SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(), request);
+                .verifyData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
         assertThrows(ValidationException.class, verifyCall);
@@ -531,8 +528,8 @@ class CryptographicOperationServiceImplTest {
 
         // when
         List<BaseAttribute> result = serviceListing
-                .list(service, SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()), key.tokenProfileUuid(),
-                        SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid());
+                .list(service, SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid());
 
         // then
         assertSame(schema, result);
@@ -563,7 +560,7 @@ class CryptographicOperationServiceImplTest {
     @FunctionalInterface
     interface ServiceListing {
         List<BaseAttribute> list(CryptographicOperationServiceImpl service, SecuredParentUUID tokenInstanceUuid,
-                UUID tokenProfileUuid, SecuredUUID keyUuid, UUID keyItemUuid)
+                SecuredUUID tokenProfileUuid, UUID keyUuid, UUID keyItemUuid)
                 throws ConnectorException, NotFoundException;
     }
 
@@ -576,7 +573,7 @@ class CryptographicOperationServiceImplTest {
         // when
         Executable list = () -> service
                 .listSignatureAttributes(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
-                        key.tokenProfileUuid(), SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(),
                         KeyAlgorithm.RSA);
 
         // then
@@ -594,7 +591,7 @@ class CryptographicOperationServiceImplTest {
         // when
         List<BaseAttribute> result = service
                 .listCipherAttributes(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
-                        key.tokenProfileUuid(), SecuredUUID.fromUUID(key.keyUuid()), key.keyItemUuid(),
+                        SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(),
                         KeyAlgorithm.RSA);
 
         // then

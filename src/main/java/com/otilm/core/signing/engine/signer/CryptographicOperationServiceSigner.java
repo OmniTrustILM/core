@@ -25,14 +25,14 @@ public class CryptographicOperationServiceSigner implements Signer {
 
     private final CryptographicOperationInternalService cryptographicOperationService;
     private final SecuredParentUUID tokenInstanceUuid;
-    private final UUID tokenProfileUuid;
-    private final SecuredUUID keyUuid;
+    private final SecuredUUID tokenProfileUuid;
+    private final UUID keyUuid;
     private final UUID privateKeyItemUuid;
     private final List<RequestAttribute> signatureAttributes;
     private final SignatureAlgorithm signatureAlgorithm;
 
     public CryptographicOperationServiceSigner(CryptographicOperationInternalService cryptographicOperationService,
-            SecuredParentUUID tokenInstanceUuid, UUID tokenProfileUuid, SecuredUUID keyUuid, UUID privateKeyItemUuid,
+            SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID keyUuid, UUID privateKeyItemUuid,
             List<RequestAttribute> signatureAttributes, SignatureAlgorithm signatureAlgorithm) {
         this.cryptographicOperationService = cryptographicOperationService;
         this.tokenInstanceUuid = tokenInstanceUuid;
