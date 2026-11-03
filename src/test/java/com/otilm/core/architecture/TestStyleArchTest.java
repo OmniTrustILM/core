@@ -4,7 +4,6 @@ import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
-import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -23,7 +22,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -57,7 +55,6 @@ public class TestStyleArchTest {
     private static final String GENERIC_LIFECYCLE_NAME = "setUp|setup|init|tearDown|teardown";
     private static final List<String> ASSERTION_LIBRARY_PREFIXES = List
             .of("org.junit.jupiter.api.Assertions", "org.junit.Assert", "org.hamcrest.");
-    private static final Pattern LAMBDA_BODY = Pattern.compile("lambda\\$(.+)\\$\\d+");
 
     private static final DescribedPredicate<JavaMethod> TEST_METHODS = annotatedWithAnyOf("are JUnit test methods",
             List.of(Test.class, ParameterizedTest.class, RepeatedTest.class, TestFactory.class, TestTemplate.class));
@@ -181,13 +178,15 @@ public class TestStyleArchTest {
                         .flatMap(codeUnit -> codeUnit.getAccessesFromSelf().stream())
                         .filter(access -> isAssertionLibrary(access.getTargetOwner()))
                         .sorted(Comparator.comparingInt(JavaAccess::getLineNumber))
-                        .forEach(access -> firstAssertionByMethod.putIfAbsent(writtenIn(access.getOrigin()), access));
+                        .forEach(
+                                access -> firstAssertionByMethod.putIfAbsent(access.getOrigin().getFullName(), access));
                 firstAssertionByMethod
-                        .forEach((method, access) -> events
+                        .values()
+                        .forEach(access -> events
                                 .add(SimpleConditionEvent
                                         .violated(testClass,
-                                                "Method <%s.%s> calls JUnit or Hamcrest assertions in %s"
-                                                        .formatted(testClass.getName(), method,
+                                                "%s calls JUnit or Hamcrest assertions in %s"
+                                                        .formatted(access.getOrigin().getDescription(),
                                                                 access.getSourceCodeLocation()))));
             }
         };
@@ -195,11 +194,6 @@ public class TestStyleArchTest {
 
     private static boolean isAssertionLibrary(JavaClass owner) {
         return ASSERTION_LIBRARY_PREFIXES.stream().anyMatch(owner.getName()::startsWith);
-    }
-
-    private static String writtenIn(JavaCodeUnit codeUnit) {
-        Matcher lambda = LAMBDA_BODY.matcher(codeUnit.getName());
-        return lambda.matches() ? lambda.group(1) : codeUnit.getName();
     }
 
     private static ArchCondition<JavaMethod> throwNothingOrException() {

@@ -50,7 +50,7 @@ class TestStyleArchSelfTest {
             List<String> violations = violationsOf(TestStyleArchTest.noJunitOrHamcrestAssertions(), planted);
 
             // then
-            assertThat(violations).singleElement().asString().contains("<" + departure.getName() + ".checksSum>");
+            assertThat(violations).singleElement().asString().contains("<" + departure.getName() + ".checksSum()>");
         }
 
         @Test
@@ -66,6 +66,21 @@ class TestStyleArchSelfTest {
         }
 
         @Test
+        void reportsEachOverload_whenSeveralOverloadsCallAssertions() {
+            // given
+            JavaClasses planted = importPlanted(PlantedOverloadedJunitAssertions.class);
+
+            // when
+            List<String> violations = violationsOf(TestStyleArchTest.noJunitOrHamcrestAssertions(), planted);
+
+            // then
+            assertThat(violations)
+                    .hasSize(2)
+                    .anyMatch(violation -> violation.contains(".checksValue(int)>"))
+                    .anyMatch(violation -> violation.contains(".checksValue(java.lang.String)>"));
+        }
+
+        @Test
         void namesTheEnclosingMethod_whenTheAssertionIsInALambda() {
             // given
             JavaClasses planted = importPlanted(PlantedJunitAssertionInLambda.class);
@@ -74,7 +89,7 @@ class TestStyleArchSelfTest {
             List<String> violations = violationsOf(TestStyleArchTest.noJunitOrHamcrestAssertions(), planted);
 
             // then
-            assertThat(violations).singleElement().asString().contains("PlantedJunitAssertionInLambda.checksLater>");
+            assertThat(violations).singleElement().asString().contains("PlantedJunitAssertionInLambda.checksLater()>");
         }
 
         @Test
@@ -409,6 +424,17 @@ class TestStyleArchSelfTest {
         void checksSumAndProduct() {
             Assertions.assertEquals(2, 1 + 1);
             Assertions.assertEquals(1, 1 * 1);
+        }
+    }
+
+    static class PlantedOverloadedJunitAssertions {
+
+        void checksValue(int value) {
+            Assertions.assertEquals(2, value);
+        }
+
+        void checksValue(String value) {
+            Assertions.assertEquals("2", value);
         }
     }
 
