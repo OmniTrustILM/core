@@ -392,6 +392,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             assertThat(embedded).isEqualTo(computed);
         }
 
+        // ── Helpers ───────────────────────────────────────────────────────────
+
         static Stream<Named<PostQuantumKey>> postQuantumKeys() {
             return POST_QUANTUM_KEYS.stream().map(key -> Named.of(key.signatureAlgorithm().getCode(), key));
         }

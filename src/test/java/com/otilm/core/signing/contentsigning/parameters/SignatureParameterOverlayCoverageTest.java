@@ -146,8 +146,8 @@ class SignatureParameterOverlayCoverageTest {
 
         // then
         byte[] effectiveImage = effective.getVisibleSignature().getImage();
-        assertThat(effectiveImage).containsExactly(profileImage);
         assertThat(effectiveImage)
+                .containsExactly(profileImage)
                 .as("the effective parameters share the profile's image array")
                 .isNotSameAs(profileImage);
     }
@@ -165,8 +165,8 @@ class SignatureParameterOverlayCoverageTest {
 
         // then
         byte[] effectiveImage = effective.getVisibleSignature().getImage();
-        assertThat(effectiveImage).containsExactly(requestImage);
         assertThat(effectiveImage)
+                .containsExactly(requestImage)
                 .as("the effective parameters share the request's image array")
                 .isNotSameAs(requestImage);
     }
