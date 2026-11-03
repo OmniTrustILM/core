@@ -4,13 +4,14 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SignatureParameterPolicy;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class SigningWorkflowModelsTest {
 
@@ -30,17 +31,19 @@ class SigningWorkflowModelsTest {
 
     @Test
     void managedContentSigningWorkflow_reportsContentSigningType_andExposesFields() {
+        // given
         UUID connectorUuid = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         List<RequestAttribute> attrs = List.of();
 
+        // when
         ManagedContentSigningWorkflow wf = new ManagedContentSigningWorkflow(connectorUuid, attrs, null, null, null,
-                null, CertificatePurposeRequirements.NONE);
+                null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
 
-        assertEquals(SigningWorkflowType.CONTENT_SIGNING, wf.getWorkflowType());
-        assertEquals(connectorUuid, wf.signatureFormattingConnectorUuid());
-        assertNotNull(wf.signatureFormattingConnectorAttributes());
-        assertInstanceOf(ContentSigningWorkflow.class, wf);
-        assertInstanceOf(SigningWorkflow.class, wf);
+        // then
+        assertThat(wf.getWorkflowType()).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
+        assertThat(wf.signatureFormattingConnectorUuid()).isEqualTo(connectorUuid);
+        assertThat(wf.signatureFormattingConnectorAttributes()).isNotNull();
+        assertThat(wf).isInstanceOf(ContentSigningWorkflow.class).isInstanceOf(SigningWorkflow.class);
     }
 
     @Test
