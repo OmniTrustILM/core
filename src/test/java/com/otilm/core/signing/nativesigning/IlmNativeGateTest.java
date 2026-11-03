@@ -7,6 +7,7 @@ import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.DelegatedSigning;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.DelegatedRawSigningWorkflow;
+import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedRawSigningWorkflow;
 import com.otilm.core.util.builders.SigningProfileModelBuilder;
 import java.util.List;
@@ -88,5 +89,54 @@ class IlmNativeGateTest {
         assertThatThrownBy(() -> IlmNativeGate
                 .require(managedRaw(OTHER, List.of(SigningProtocol.TSP)), PROFILE, NativeOperation.SIGN_HASH))
                 .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    void refusesADisabledProfile() {
+        SigningProfileModel<?, ?> disabled = SigningProfileModelBuilder
+                .aSigningProfile()
+                .withName("invoices")
+                .withUuid(PROFILE)
+                .withEnabled(false)
+                .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
+                .withWorkflow(new ManagedRawSigningWorkflow())
+                .withSigningScheme(new StaticKeyManagedSigning(UUID.randomUUID(), List.of()))
+                .build();
+
+        assertThatThrownBy(() -> IlmNativeGate.require(disabled, PROFILE, NativeOperation.SIGN_HASH))
+                .isInstanceOf(ValidationException.class)
+                .hasMessage("Signing profile 'invoices' is disabled.");
+    }
+
+    @Test
+    void passesAManagedContentProfileUnderSignDocument() {
+        SigningProfileModel<?, ?> content = SigningProfileModelBuilder
+                .aSigningProfile()
+                .withName("invoices")
+                .withUuid(PROFILE)
+                .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
+                .withWorkflow(
+                        new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null, null, null))
+                .withSigningScheme(new StaticKeyManagedSigning(UUID.randomUUID(), List.of()))
+                .build();
+
+        assertThatCode(() -> IlmNativeGate.require(content, PROFILE, NativeOperation.SIGN_DOCUMENT))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void checksTheWorkflowBeforeTheScheme() {
+        SigningProfileModel<?, ?> delegated = SigningProfileModelBuilder
+                .aSigningProfile()
+                .withName("invoices")
+                .withUuid(PROFILE)
+                .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
+                .withWorkflow(new DelegatedRawSigningWorkflow())
+                .withSigningScheme(new DelegatedSigning(UUID.randomUUID(), List.of()))
+                .build();
+
+        assertThatThrownBy(() -> IlmNativeGate.require(delegated, PROFILE, NativeOperation.SIGN_DOCUMENT))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("is not a content_signing profile");
     }
 }
