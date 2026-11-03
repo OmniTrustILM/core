@@ -60,7 +60,7 @@ class CryptographicKeyServiceImplSyncTest {
     private final ImmutableTokenInstanceFullModel token = token(null);
 
     @BeforeEach
-    void setUp() throws Exception {
+    void wireServiceForDiscovery() throws Exception {
         service.setTokenInstanceReferenceRepository(tokens);
         service.setCryptographicKeyItemRepository(items);
         service.setCryptographicKeyWriter(writer);

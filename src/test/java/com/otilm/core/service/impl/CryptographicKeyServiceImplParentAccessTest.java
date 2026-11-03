@@ -65,7 +65,7 @@ class CryptographicKeyServiceImplParentAccessTest {
     private final List<KeyUsage> requestedUsages = List.of(KeyUsage.SIGN);
 
     @BeforeEach
-    void setUp() {
+    void wireServiceWithParents() {
         service.setCryptographicKeyRepository(keys);
         service.setCryptographicKeyItemRepository(items);
         service.setCryptographicKeyWriter(writer);

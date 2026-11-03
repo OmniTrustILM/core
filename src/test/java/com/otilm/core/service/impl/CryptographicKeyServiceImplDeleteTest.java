@@ -64,7 +64,7 @@ class CryptographicKeyServiceImplDeleteTest {
     private final CryptographicKeyItemBasicModel secondItem = keyItem(keyUuid);
 
     @BeforeEach
-    void setUp() {
+    void wireService() {
         service.setCryptographicKeyRepository(repository);
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapterFactory);

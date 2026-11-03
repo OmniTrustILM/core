@@ -54,7 +54,7 @@ class CryptographicKeyServiceImplValidationTest {
     private final CryptographicKeyItem publicItem = item(KeyType.PUBLIC_KEY);
 
     @BeforeEach
-    void setUp() {
+    void wireServiceWithKeyPair() {
         CryptographicKeyWriter writer = new CryptographicKeyWriter(keyRepository, itemRepository, null, null, null,
                 null, null, null, history, null, null, null);
         service.setCryptographicKeyRepository(keyRepository);

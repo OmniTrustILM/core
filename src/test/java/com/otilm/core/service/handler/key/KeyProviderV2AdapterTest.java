@@ -126,10 +126,13 @@ import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.ExportEnvelopeFixtures;
 import com.otilm.core.util.PqcKeyFixtures;
+import com.otilm.core.util.SecretEncodingVersion;
+import com.otilm.core.util.SecretsUtil;
 import jakarta.validation.Validation;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PublicKey;
+import java.security.Security;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -139,6 +142,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Nested;
@@ -188,6 +192,8 @@ class KeyProviderV2AdapterTest {
     private static final String TOKEN_SECRET = "resolved-provider-password";
     private static final char[] PASSPHRASE = "correct horse battery staple".toCharArray();
     private static final List<RequestAttribute> NO_ATTRIBUTES = List.of();
+    /** The key Spring tests configure, so they still read their rows when they share this JVM. */
+    private static final String TEST_APPLICATION_ENCRYPTION_KEY = "test123";
 
     private final KeyOperationScopeSource scopeSource = mock(KeyOperationScopeSource.class);
     private KeySyncApiClient client;
@@ -223,7 +229,7 @@ class KeyProviderV2AdapterTest {
         when(resolver.resolveForConnectorRequestAsSystem(connectorUuid, List.of())).thenReturn(List.of());
         when(scopeSource.scopeOf(any()))
                 .thenReturn(new KeyOperationScope(profile.uuid(), profile.tokenInstanceReferenceUuid()));
-        operationCache = KeyOperationCacheFixtures.inMemory(attributes);
+        operationCache = KeyOperationCacheFixtures.keyOperationCache(attributes);
         adapter = new KeyProviderV2Adapter(apiClients, connector, attributes, resolver,
                 new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(),
                 new OperationResponseValidator(Validation.buildDefaultValidatorFactory().getValidator()), scopeSource,
@@ -347,6 +353,15 @@ class KeyProviderV2AdapterTest {
     private static ObjectAttributeContent storedRow(String name) {
         return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
                 AttributeContentType.STRING, new StringAttributeContentV2(name), 2, null);
+    }
+
+    /** A row as the attribute engine stores a protected value, sealed under the test application's key. */
+    private static ObjectAttributeContent sealedRow(String name, String value) {
+        Security.addProvider(new BouncyCastleProvider());
+        new SecretsUtil().setEncryptionKeyStatic(TEST_APPLICATION_ENCRYPTION_KEY);
+        String sealed = SecretsUtil.encryptAndEncodeSecretString(value, SecretEncodingVersion.V1);
+        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
+                AttributeContentType.STRING, new StringAttributeContentV2(), 2, sealed);
     }
 
     private static SignatureRequestData signatureItem(String base64, String identifier) {
@@ -2413,6 +2428,23 @@ class KeyProviderV2AdapterTest {
             assertThat(refusal).isNotNull();
             verify(operationsClient, times(2)).listSignAttributes(any(), any());
             verify(operationsClient).signData(any(), any());
+        }
+
+        @Test
+        void refusesSignDefinitions_echoingATokenValueStoredEncrypted() throws Exception {
+            // given
+            var tokenPin = "4815162342";
+            stubAttributes(Resource.TOKEN, profile.tokenInstanceReferenceUuid(),
+                    List.of(sealedRow("token-pin", tokenPin)), List.of(stringAttribute("token-pin", tokenPin)));
+            when(operationsClient.listSignAttributes(any(), any())).thenReturn(definitionsWithDefault(tokenPin));
+            CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
+
+            // when
+            ThrowingCallable sign = () -> adapter.signData(keyItem, signRequest(List.of()));
+
+            // then
+            assertThatThrownBy(sign).isInstanceOf(OutboundSecretLeakException.class);
+            verify(operationsClient, never()).signData(any(), any());
         }
 
         @Test

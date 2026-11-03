@@ -74,7 +74,7 @@ class CryptographicKeyServiceImplBulkDeleteTest {
     private SingularAttribute<CryptographicKey, UUID> previousTokenProfileAttribute;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void wireServiceAsOperator() throws Exception {
         previousTokenReferenceAttribute = CryptographicKey_.tokenInstanceReferenceUuid;
         previousTokenProfileAttribute = CryptographicKey_.tokenProfileUuid;
         CryptographicKey_.tokenInstanceReferenceUuid = uuidAttribute("tokenInstanceReferenceUuid");

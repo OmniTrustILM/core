@@ -804,7 +804,7 @@ class KeyProviderV2AdapterImportTest {
         when(attributes.getStoredObjectDataAttributesContent(any())).thenReturn(List.of());
         return new KeyProviderV2Adapter(apiClients, target, attributes, resolver,
                 new OutboundSecretContainment(new ObjectMapper()), new ConnectorCapabilityService(), RESPONSE_VALIDATOR,
-                mock(KeyOperationScopeSource.class), KeyOperationCacheFixtures.inMemory(attributes));
+                mock(KeyOperationScopeSource.class), KeyOperationCacheFixtures.keyOperationCache(attributes));
     }
 
     /**

@@ -38,6 +38,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -70,14 +71,14 @@ class KeyProviderAdapterFactoryTest {
     private ImmutableConnectorFullModel connector;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void wireFactory() throws Exception {
         connectorService = mock(ConnectorInternalService.class);
         clients = mock(ConnectorApiFactory.class);
         v2Clients = mock(CryptographyV2ApiClients.class);
         factory = new KeyProviderAdapterFactory(connectorService, clients, attributeEngine,
                 mock(OperationAttributeResolver.class), mock(OutboundSecretContainment.class), v2Clients,
                 new ConnectorCapabilityService(), mock(OperationResponseValidator.class), keyRepository,
-                KeyOperationCacheFixtures.inMemory(attributeEngine));
+                KeyOperationCacheFixtures.keyOperationCache(attributeEngine));
         connector = new ImmutableConnectorFullModel(UUID.randomUUID(), "provider", ConnectorVersion.V2,
                 "http://connector.test", null, List.of(), null, null, List.of(cryptographyInterface("v2")), List.of());
         when(connectorService.getConnectorFullModelForApiClient(connector.uuid())).thenReturn(connector);
@@ -169,122 +170,137 @@ class KeyProviderAdapterFactoryTest {
         verifyNoInteractions(clients);
     }
 
-    @Test
-    void forKeyItem_selectsV1_forItemWithoutInterface() throws Exception {
-        // given
-        CryptographicKeyItemOperationModel item = keyItem(null, null);
+    // ── ForKeyItem ────────────────────────────────────────────────────────────
 
-        // when
-        KeyProviderAdapter adapter = factory.forKeyItem(item);
+    @Nested
+    class ForKeyItem {
 
-        // then
-        assertInstanceOf(KeyProviderV1Adapter.class, adapter);
-        verify(clients).getKeyManagementApiClient(connector);
+        @Test
+        void selectsV1_forItemWithoutInterface() throws Exception {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(null, null);
+
+            // when
+            KeyProviderAdapter adapter = factory.forKeyItem(item);
+
+            // then
+            assertInstanceOf(KeyProviderV1Adapter.class, adapter);
+            verify(clients).getKeyManagementApiClient(connector);
+        }
+
+        @Test
+        void selectsV2_forCryptographyV2Interface() throws Exception {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+
+            // when
+            KeyProviderAdapter adapter = factory.forKeyItem(item);
+
+            // then
+            assertInstanceOf(KeyProviderV2Adapter.class, adapter);
+            verify(v2Clients).getKeyManagementApiClient(connector);
+        }
+
+        @Test
+        void scopesTheOperationByTheKeyItem_withoutReadingTheKey() throws Exception {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+            CryptographicOperationsSyncApiClient operations = mock(CryptographicOperationsSyncApiClient.class);
+            when(v2Clients.getCryptographicOperationsApiClient(connector)).thenReturn(operations);
+            when(operations.listSignAttributes(any(), any())).thenReturn(List.of());
+            KeyProviderAdapter adapter = factory.forKeyItem(item);
+
+            // when
+            adapter.listSignAttributes(item);
+
+            // then
+            verify(attributeEngine)
+                    .getStoredObjectDataAttributesContent(
+                            attributeScope(Resource.TOKEN, item.tokenInstanceReferenceUuid()));
+            verify(attributeEngine)
+                    .getStoredObjectDataAttributesContent(
+                            attributeScope(Resource.TOKEN_PROFILE, item.tokenProfileUuid()));
+            verifyNoInteractions(keyRepository);
+        }
+
+        @Test
+        void rejectsAKeyItemOutsideAnyProfile_withoutReadingTheKey() throws Exception {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2", null);
+            KeyProviderAdapter adapter = factory.forKeyItem(item);
+
+            // when
+            ThrowingCallable list = () -> adapter.listSignAttributes(item);
+
+            // then
+            assertThatThrownBy(list)
+                    .isInstanceOf(NotFoundException.class)
+                    .hasMessageContaining("Key " + item.keyUuid() + " is outside any token profile.");
+            verifyNoInteractions(keyRepository, attributeEngine);
+        }
+
+        @ParameterizedTest(name = "{0} {1}")
+        @CsvSource(value = {"DISCOVERY,v2", "CRYPTOGRAPHY,", "CRYPTOGRAPHY,v3", "CRYPTOGRAPHY,v1"})
+        void rejectsUnsupportedInterface(ConnectorInterface code, String version) {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(code, version);
+
+            // when
+            Executable select = () -> factory.forKeyItem(item);
+
+            // then
+            assertThrows(UnsupportedCryptographyProviderVersionException.class, select);
+            verifyNoInteractions(clients);
+        }
     }
 
-    @Test
-    void forKeyItem_selectsV2_forCryptographyV2Interface() throws Exception {
-        // given
-        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+    // ── ForKeyItemInCurrentScope ──────────────────────────────────────────────
 
-        // when
-        KeyProviderAdapter adapter = factory.forKeyItem(item);
+    @Nested
+    class ForKeyItemInCurrentScope {
 
-        // then
-        assertInstanceOf(KeyProviderV2Adapter.class, adapter);
-        verify(v2Clients).getKeyManagementApiClient(connector);
+        @Test
+        void appliesServiceScopeValidation_beforeBuildingTheRequest() throws Exception {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+            KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), UUID.randomUUID());
+            when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(scope));
+            ValidationException rejectedScope = new ValidationException(
+                    "The key no longer belongs to the authorized profile.");
+            KeyProviderAdapter adapter = factory.forKeyItemInCurrentScope(item, resolvedScope -> {
+                assertThat(resolvedScope).isSameAs(scope);
+                throw rejectedScope;
+            });
+
+            // when
+            ThrowingCallable list = () -> adapter.listSignAttributes(item);
+
+            // then
+            assertThatThrownBy(list).isSameAs(rejectedScope);
+            verify(keyRepository).findOperationScopeByUuid(item.keyUuid());
+        }
+
+        @Test
+        void rejectsAKeyOutsideAnyProfile_beforeTheValidator() throws Exception {
+            // given
+            CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
+            KeyOperationScope profileless = new KeyOperationScope(null, item.tokenInstanceReferenceUuid());
+            when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(profileless));
+            List<KeyOperationScope> validated = new ArrayList<>();
+            KeyProviderAdapter adapter = factory.forKeyItemInCurrentScope(item, validated::add);
+
+            // when
+            ThrowingCallable list = () -> adapter.listSignAttributes(item);
+
+            // then
+            assertThatThrownBy(list)
+                    .isInstanceOf(NotFoundException.class)
+                    .hasMessageContaining("Key " + item.keyUuid() + " is outside any token profile.");
+            assertThat(validated).isEmpty();
+        }
     }
 
-    @Test
-    void forKeyItemInCurrentScope_appliesServiceScopeValidation_beforeBuildingTheRequest() throws Exception {
-        // given
-        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
-        KeyOperationScope scope = new KeyOperationScope(UUID.randomUUID(), UUID.randomUUID());
-        when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(scope));
-        ValidationException rejectedScope = new ValidationException(
-                "The key no longer belongs to the authorized profile.");
-        KeyProviderAdapter adapter = factory.forKeyItemInCurrentScope(item, resolvedScope -> {
-            assertThat(resolvedScope).isSameAs(scope);
-            throw rejectedScope;
-        });
-
-        // when
-        ThrowingCallable list = () -> adapter.listSignAttributes(item);
-
-        // then
-        assertThatThrownBy(list).isSameAs(rejectedScope);
-        verify(keyRepository).findOperationScopeByUuid(item.keyUuid());
-    }
-
-    @Test
-    void forKeyItemInCurrentScope_rejectsAKeyOutsideAnyProfile_beforeTheValidator() throws Exception {
-        // given
-        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
-        KeyOperationScope profileless = new KeyOperationScope(null, item.tokenInstanceReferenceUuid());
-        when(keyRepository.findOperationScopeByUuid(item.keyUuid())).thenReturn(Optional.of(profileless));
-        List<KeyOperationScope> validated = new ArrayList<>();
-        KeyProviderAdapter adapter = factory.forKeyItemInCurrentScope(item, validated::add);
-
-        // when
-        ThrowingCallable list = () -> adapter.listSignAttributes(item);
-
-        // then
-        assertThatThrownBy(list)
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Key " + item.keyUuid() + " is outside any token profile.");
-        assertThat(validated).isEmpty();
-    }
-
-    @Test
-    void forKeyItem_scopesTheOperationByTheKeyItem_withoutReadingTheKey() throws Exception {
-        // given
-        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2");
-        CryptographicOperationsSyncApiClient operations = mock(CryptographicOperationsSyncApiClient.class);
-        when(v2Clients.getCryptographicOperationsApiClient(connector)).thenReturn(operations);
-        when(operations.listSignAttributes(any(), any())).thenReturn(List.of());
-        KeyProviderAdapter adapter = factory.forKeyItem(item);
-
-        // when
-        adapter.listSignAttributes(item);
-
-        // then
-        verify(attributeEngine)
-                .getStoredObjectDataAttributesContent(
-                        attributeScope(Resource.TOKEN, item.tokenInstanceReferenceUuid()));
-        verify(attributeEngine)
-                .getStoredObjectDataAttributesContent(attributeScope(Resource.TOKEN_PROFILE, item.tokenProfileUuid()));
-        verifyNoInteractions(keyRepository);
-    }
-
-    @Test
-    void forKeyItem_rejectsAKeyItemOutsideAnyProfile_withoutReadingTheKey() throws Exception {
-        // given
-        CryptographicKeyItemOperationModel item = keyItem(ConnectorInterface.CRYPTOGRAPHY, "v2", null);
-        KeyProviderAdapter adapter = factory.forKeyItem(item);
-
-        // when
-        ThrowingCallable list = () -> adapter.listSignAttributes(item);
-
-        // then
-        assertThatThrownBy(list)
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Key " + item.keyUuid() + " is outside any token profile.");
-        verifyNoInteractions(keyRepository, attributeEngine);
-    }
-
-    @ParameterizedTest(name = "{0} {1}")
-    @CsvSource(value = {"DISCOVERY,v2", "CRYPTOGRAPHY,", "CRYPTOGRAPHY,v3", "CRYPTOGRAPHY,v1"})
-    void forKeyItem_rejectsUnsupportedInterface(ConnectorInterface code, String version) {
-        // given
-        CryptographicKeyItemOperationModel item = keyItem(code, version);
-
-        // when
-        Executable select = () -> factory.forKeyItem(item);
-
-        // then
-        assertThrows(UnsupportedCryptographyProviderVersionException.class, select);
-        verifyNoInteractions(clients);
-    }
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private CryptographicKeyItemOperationModel keyItem(ConnectorInterface code, String version) {
         return keyItem(code, version, UUID.randomUUID());

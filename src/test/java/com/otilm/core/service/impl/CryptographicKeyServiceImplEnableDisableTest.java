@@ -52,7 +52,7 @@ class CryptographicKeyServiceImplEnableDisableTest {
     private final CryptographicKeyItemBasicModel unselectedItem = item(parent);
 
     @BeforeEach
-    void setUp() {
+    void wireServiceWithParent() {
         service.setCryptographicKeyRepository(keyRepository);
         service.setCryptographicKeyItemRepository(itemRepository);
         service.setCryptographicKeyWriter(writer);

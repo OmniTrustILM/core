@@ -59,7 +59,7 @@ class CryptographicKeyServiceImplSelectionTest {
     private final List<KeyUsage> usages = List.of(KeyUsage.SIGN);
 
     @BeforeEach
-    void setUp() {
+    void wireServiceWithParent() {
         service.setCryptographicKeyRepository(repository);
         service.setCryptographicKeyItemRepository(itemRepository);
         service.setCryptographicKeyWriter(writer);

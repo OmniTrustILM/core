@@ -72,7 +72,7 @@ class CryptographicKeyServiceImplDestroyTest {
     private final CryptographicKeyItem laterParentItem = item(secondParent, "later-parent-item");
 
     @BeforeEach
-    void setUp() throws Exception {
+    void wireServiceWithParents() throws Exception {
         service.setCryptographicKeyRepository(keys);
         service.setCryptographicKeyItemRepository(items);
         service.setCryptographicKeyWriter(writer);

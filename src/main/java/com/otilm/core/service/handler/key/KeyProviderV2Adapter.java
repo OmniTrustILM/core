@@ -1121,12 +1121,27 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         List<BaseAttribute> definitions = operationCache
                 .signAttributeDefinitions(keyItem.keyItemUuid(), connectorInfo, scopeRows, () -> {
                     KeyScopedRequestV2Dto request = keyScoped(new KeyScopedRequestV2Dto(), keyItem, scope);
-                    return checkedSchema(
+                    List<BaseAttribute> answer = checkedSchema(
                             schemaRequest -> operationsApiClient.listSignAttributes(connectorInfo, schemaRequest),
                             request);
+                    assertNoProtectedValueEchoed(scopeRows, scope, answer);
+                    return answer;
                 });
         AttributeDefinitionUtils.validateAttributes(definitions, attributes);
         return scope;
+    }
+
+    /** The cache keeps the answer for its TTL, so it must not hold a value the scope stores encrypted either. */
+    private void assertNoProtectedValueEchoed(ScopeRows scopeRows, TokenProfileScopedRequestV2Dto sentScope,
+            List<BaseAttribute> definitions) {
+        Set<String> protectedValues = new HashSet<>();
+        outboundSecretContainment
+                .recordProtectedValuesFromRequest(scopeRows.tokenRows(), sentScope.getTokenAttributes(),
+                        protectedValues);
+        outboundSecretContainment
+                .recordProtectedValuesFromRequest(scopeRows.tokenProfileRows(), sentScope.getTokenProfileAttributes(),
+                        protectedValues);
+        outboundSecretContainment.assertNoExpandedSecretOutbound(definitions, protectedValues);
     }
 
     private void assertNoExpandedSecretEchoed(TokenProfileScopedRequestV2Dto sentScope, Object payload) {

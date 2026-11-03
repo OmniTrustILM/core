@@ -6,12 +6,12 @@ import com.otilm.core.util.cache.CacheManagerFixtures;
 import org.springframework.cache.CacheManager;
 
 /** A key operation cache over the configured caches. An adapter test sees what its operations would read again. */
-final class KeyOperationCacheFixtures {
+public final class KeyOperationCacheFixtures {
 
     private KeyOperationCacheFixtures() {
     }
 
-    static KeyOperationCache inMemory(AttributeEngine attributeEngine) {
+    public static KeyOperationCache keyOperationCache(AttributeEngine attributeEngine) {
         CacheManager cacheManager = CacheManagerFixtures.configured();
         CacheEvictor cacheEvictor = new CacheEvictor();
         cacheEvictor.setCacheManager(cacheManager);

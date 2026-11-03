@@ -1,22 +1,28 @@
 package com.otilm.core.attribute.engine;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttributeV2;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.IntegerAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +30,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -32,6 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** D19 (widened) outbound containment: value-echo + structural secret-shape rejection. */
 class OutboundSecretContainmentTest {
+
+    private static final String SEALED = "sealed-by-the-attribute-engine";
 
     private final OutboundSecretContainment containment = new OutboundSecretContainment(
             new com.fasterxml.jackson.databind.ObjectMapper());
@@ -68,6 +77,49 @@ class OutboundSecretContainmentTest {
         Object echoResponse = Map.of("attributes", List.of(Map.of("default", "s3cr3t-token")));
         assertThrows(OutboundSecretLeakException.class,
                 () -> containment.assertNoExpandedSecretOutbound(echoResponse, expandedSecrets));
+    }
+
+    @Test
+    void recordsTheTextValue_ofAnAttributeStoredEncrypted() {
+        // given
+        var tokenPin = "4815162342";
+        var storedRows = List.of(storedRow("token-pin", SEALED));
+        var resolved = List.of(resolvedAttribute("token-pin", new StringAttributeContentV2(tokenPin)));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(tokenPin);
+    }
+
+    @Test
+    void leavesOutTheValue_ofAnAttributeStoredInPlain() {
+        // given
+        var storedRows = List.of(storedRow("token-label", null));
+        var resolved = List.of(resolvedAttribute("token-label", new StringAttributeContentV2("primary")));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).isEmpty();
+    }
+
+    @Test
+    void leavesOutANumber_storedEncrypted() {
+        // given
+        var storedRows = List.of(storedRow("slot", SEALED));
+        var resolved = List.of(resolvedAttribute("slot", new IntegerAttributeContentV2(1)));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(storedRows, resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).isEmpty();
     }
 
     @Test
@@ -270,5 +322,19 @@ class OutboundSecretContainmentTest {
         final Object payload = deep;
         assertThrows(OutboundSecretLeakException.class,
                 () -> containment.assertNoExpandedSecretOutbound(payload, new HashSet<>()));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static ObjectAttributeContent storedRow(String name, String encryptedContent) {
+        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
+                AttributeContentType.STRING, new StringAttributeContentV2(), 2, encryptedContent);
+    }
+
+    private static RequestAttribute resolvedAttribute(String name, BaseAttributeContentV2<?> content) {
+        RequestAttributeV2 attribute = new RequestAttributeV2();
+        attribute.setName(name);
+        attribute.setContent(List.of(content));
+        return attribute;
     }
 }

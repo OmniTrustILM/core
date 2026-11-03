@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
@@ -16,6 +17,7 @@ import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectConten
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.connector.secrets.content.SecretContent;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -25,6 +27,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -95,6 +98,30 @@ public class OutboundSecretContainment {
         }
         for (RequestAttribute attribute : resolved) {
             walkSecretGraph(attribute.getContent(), 0, node -> recordIfSecretLeaf(node, expandedSecrets), false);
+        }
+    }
+
+    /**
+     * Record the text values of the resolved attributes whose stored rows are encrypted, since resolution sends them as
+     * plain content that {@link #recordExpandedSecretsFromRequest} cannot tell from a public value. A number or flag is
+     * left out, as it would match benign content.
+     */
+    public void recordProtectedValuesFromRequest(List<ObjectAttributeContent> storedRows,
+            List<RequestAttribute> resolved, Set<String> expandedSecrets) {
+        Set<String> protectedNames = storedRows
+                .stream()
+                .filter(row -> row.encryptedContent() != null)
+                .map(ObjectAttributeContent::name)
+                .collect(Collectors.toSet());
+        for (RequestAttribute attribute : resolved) {
+            List<? extends AttributeContent> content = attribute.getContent();
+            if (protectedNames.contains(attribute.getName()) && content != null) {
+                content.forEach(item -> {
+                    if (item.getData() instanceof String text) {
+                        addIfPresent(text, expandedSecrets);
+                    }
+                });
+            }
         }
     }
 
