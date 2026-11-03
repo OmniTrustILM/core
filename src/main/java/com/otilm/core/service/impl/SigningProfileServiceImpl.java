@@ -500,7 +500,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         Objects.requireNonNull(formattingDefinitions, "formattingDefinitions must not be null");
         Objects.requireNonNull(signingSchema, "signingSchema must not be null");
         // Serialize the bump decision per profile to prevent concurrent updates from racing.
-        clusterSynchronizer.lock("signing-profile:" + uuid.getValue());
+        lockProfile(uuid);
 
         SigningProfile profile = findByUuid(uuid);
         // Capture the previous name under the advisory lock so concurrent renames evict the committed source name.
@@ -784,6 +784,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
     @Transactional
     public void activateIlmNative(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         SigningProfile profile = findByUuid(uuid);
         validateSupportedProtocol(profile.getWorkflowType(), SigningProtocol.ILM_NATIVE);
         if (!admitsIlmNative(profile)) {
@@ -800,6 +801,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
     @Transactional
     public void deactivateIlmNative(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         SigningProfile profile = findByUuid(uuid);
         profile.setIlmNativeEnabled(false);
         signingProfileRepository.save(profile);
@@ -827,6 +829,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         return signingProfileRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException("Signing Profile not found: " + uuid));
+    }
+
+    /**
+     * Serializes writers of one profile. The row is saved whole, so a writer that read it before another committed
+     * would save the values it read back.
+     */
+    private void lockProfile(SecuredUUID uuid) {
+        clusterSynchronizer.lock("signing-profile:" + uuid.getValue());
     }
 
     private static boolean supportsProtocol(SigningWorkflowType workflowType, SigningProtocol protocol) {
