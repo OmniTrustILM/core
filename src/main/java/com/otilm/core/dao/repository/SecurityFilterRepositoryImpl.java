@@ -4,11 +4,14 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.NameAndUuidDto;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.core.dao.AggregateResultDto;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
+import com.otilm.core.dao.entity.GroupAssociation;
+import com.otilm.core.dao.entity.GroupAssociation_;
 import com.otilm.core.dao.entity.UniquelyIdentifiedObject;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
 import com.otilm.core.model.auth.ResourceAction;
@@ -35,10 +38,10 @@ import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -108,7 +111,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         cr.select(projectionSpec.selection());
         cr.groupBy(projectionSpec.groupByExpressions());
 
-        List<Predicate> predicates = getPredicates(filter, null, root, cb);
+        List<Predicate> predicates = getPredicates(filter, (Predicate) null, root, cb, cr);
         if (!predicates.isEmpty()) {
             cr.where(predicates.toArray(Predicate[]::new));
         }
@@ -366,7 +369,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         final Root<T> root = cd.from(entity);
 
         Predicate additionalWhereClausePredicate = additionalWhereClause.apply(root, cb, cd);
-        final List<Predicate> predicates = getPredicates(filter, additionalWhereClausePredicate, root, cb);
+        final List<Predicate> predicates = getPredicates(filter, additionalWhereClausePredicate, root, cb, cd);
         if (!predicates.isEmpty()) {
             cd = cd.where(predicates.toArray(new Predicate[]{}));
         }
@@ -588,7 +591,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     }
 
     private List<Predicate> getPredicates(SecurityFilter filter, Predicate additionalWhereClause, Root<T> root,
-            CriteriaBuilder cb) {
+            CriteriaBuilder cb, CommonAbstractCriteria query) {
         List<Predicate> predicates = new ArrayList<>();
         if (additionalWhereClause != null) {
             predicates.add(additionalWhereClause);
@@ -616,7 +619,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
                 parentResourceFilterPredicate, cb);
 
         // add owner and group based object access permissions
-        getObjectGroupOwnerAccessPredicates(objectAccessPredicates, filter, root, cb);
+        getObjectGroupOwnerAccessPredicates(objectAccessPredicates, filter, root, cb, query);
 
         // remove null predicates
         objectAccessPredicates = objectAccessPredicates.stream().filter(Objects::nonNull).toList();
@@ -638,7 +641,7 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
             additionalWhereClausePredicate = additionalWhereClause.apply(root, cb, cr);
         }
 
-        return getPredicates(filter, additionalWhereClausePredicate, root, cb);
+        return getPredicates(filter, additionalWhereClausePredicate, root, cb, cr);
     }
 
     private List<Predicate> initObjectAccessPredicates(Predicate resourceFilterPredicate,
@@ -656,13 +659,15 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     }
 
     private void getObjectGroupOwnerAccessPredicates(List<Predicate> objectAccessPredicates, SecurityFilter filter,
-            Root<T> root, CriteriaBuilder cb) {
+            Root<T> root, CriteriaBuilder cb, CommonAbstractCriteria query) {
         if (filter.getResourceFilter() != null) {
             // check for group membership predicate
             if (filter.getResourceFilter().getResource().hasGroups()
                     && (filter.getResourceFilter().getResourceAction() == ResourceAction.LIST
                             || filter.getResourceFilter().getResourceAction() == ResourceAction.DETAIL)) {
-                objectAccessPredicates.add(getGroupMembersPredicate(root, filter.getGroupMembersFilter(), cb));
+                objectAccessPredicates
+                        .add(getGroupMembersPredicate(root, filter.getResourceFilter().getResource(),
+                                filter.getGroupMembersFilter(), cb, query));
             }
             // check for owner association predicate
             if (filter.getResourceFilter().getResource().hasOwner()) {
@@ -685,20 +690,31 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     }
 
     /**
-     * A group-members filter that restricts nothing grants the members action on every group, so it admits objects
-     * assigned to any group, not every object as an unrestricted resource filter would.
+     * Objects assigned to a group the members filter admits: any group when it restricts nothing, else the allowed
+     * groups, or every group but the forbidden ones. A subquery rather than a join on the groups collection, which
+     * would repeat an object once per group in listings that select without DISTINCT.
      */
-    private Predicate getGroupMembersPredicate(Root<T> root, SecurityResourceFilter groupMembersFilter,
-            CriteriaBuilder cb) {
-        if (groupMembersFilter == null || groupMembersFilter.areOnlySpecificObjectsAllowed()
-                || !groupMembersFilter.getForbiddenObjects().isEmpty()) {
-            return getPredicateBySecurityResourceFilter(root, groupMembersFilter, "groups.uuid");
+    private Predicate getGroupMembersPredicate(Root<T> root, Resource resource,
+            SecurityResourceFilter groupMembersFilter, CriteriaBuilder cb, CommonAbstractCriteria query) {
+        if (groupMembersFilter == null) {
+            return null;
         }
-        Path<Collection<?>> groups = root.getJavaType().equals(CryptographicKeyItem.class)
-                ? root.get(CryptographicKeyItem_.key.getName()).get("groups")
-                : root.get("groups");
-        // An emptiness check runs as EXISTS, where a join on the collection would repeat the object once per group.
-        return cb.isNotEmpty(groups);
+        Subquery<UUID> assigned = query.subquery(UUID.class);
+        Root<GroupAssociation> association = assigned.from(GroupAssociation.class);
+        List<Predicate> conditions = new ArrayList<>();
+        conditions.add(cb.equal(association.get(GroupAssociation_.resource), resource));
+        Path<UUID> groupUuid = association.get(GroupAssociation_.groupUuid);
+        if (groupMembersFilter.areOnlySpecificObjectsAllowed()) {
+            conditions.add(groupUuid.in(groupMembersFilter.getAllowedObjects()));
+        } else if (!groupMembersFilter.getForbiddenObjects().isEmpty()) {
+            conditions.add(groupUuid.in(groupMembersFilter.getForbiddenObjects()).not());
+        }
+        assigned.select(association.get(GroupAssociation_.objectUuid)).where(conditions.toArray(Predicate[]::new));
+
+        Path<UUID> objectUuid = root.getJavaType().equals(CryptographicKeyItem.class)
+                ? root.get(CryptographicKeyItem_.key.getName()).get("uuid")
+                : root.get("uuid");
+        return objectUuid.in(assigned);
     }
 
     private Predicate getPredicateBySecurityResourceFilter(Root<T> root, SecurityResourceFilter resourceFilter,
