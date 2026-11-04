@@ -35,6 +35,8 @@ public final class X509CrlBuilder {
 
     private BigInteger crlNumber = BigInteger.ONE;
 
+    private final Instant thisUpdate = Instant.now().minus(Duration.ofHours(1));
+
     private Instant nextUpdate = Instant.now().plus(Duration.ofDays(7));
 
     private BigInteger deltaCrlIndicator;
@@ -76,9 +78,8 @@ public final class X509CrlBuilder {
 
     public X509CRL build() {
         try {
-            Date thisUpdate = Date.from(Instant.now().minus(Duration.ofHours(1)));
             X509v2CRLBuilder crlBuilder = new X509v2CRLBuilder(X500Name.getInstance(issuerName.getEncoded()),
-                    thisUpdate);
+                    Date.from(thisUpdate));
             if (nextUpdate != null) {
                 crlBuilder.setNextUpdate(Date.from(nextUpdate));
             }

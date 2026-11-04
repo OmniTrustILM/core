@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import javax.security.auth.x500.X500Principal;
@@ -94,12 +95,7 @@ public class CrlServiceImpl implements CrlService {
         byte[] issuerDnPrincipalEncoded = certificate.getIssuerX500Principal().getEncoded();
         String issuerDn = X500Name.getInstance(new PlatformX500NameStyle(true), issuerDnPrincipalEncoded).toString();
         String issuerSerialNumber = issuerCertificate.getSerialNumber().toString(16);
-        Crl crl = crlRepository.findByIssuerDnAndSerialNumber(issuerDn, issuerSerialNumber).orElse(null);
-        // The writers update the row with queries that leave a loaded copy as it was, so a copy the request keeps would
-        // hide them from the next check in that request, and the request would flush the changes made to it below.
-        if (crl != null && entityManager.contains(crl)) {
-            entityManager.detach(crl);
-        }
+        Crl crl = findStoredCrl(issuerDn, issuerSerialNumber);
         Certificate caCertificate = certificateRepository
                 .findBySubjectDnNormalizedAndSerialNumber(issuerDn, issuerSerialNumber)
                 .orElse(null);
@@ -128,6 +124,22 @@ public class CrlServiceImpl implements CrlService {
                     issuer);
         }
         return crl == null ? null : crl.getUuid();
+    }
+
+    /**
+     * Reads the stored CRL from its row. The writers update the row with queries that leave a loaded copy as it was,
+     * and a request (open-in-view) may hold such a copy, loaded by an earlier check or with the CRL's entries, so a
+     * copy found in the persistence context is dropped and the row read again. The CRL returned is detached, so the
+     * request never flushes the changes made to it.
+     */
+    private Crl findStoredCrl(String issuerDn, String issuerSerialNumber) {
+        Optional<Crl> storedCrl = crlRepository.findByIssuerDnAndSerialNumber(issuerDn, issuerSerialNumber);
+        if (storedCrl.filter(entityManager::contains).isPresent()) {
+            entityManager.detach(storedCrl.get());
+            storedCrl = crlRepository.findByIssuerDnAndSerialNumber(issuerDn, issuerSerialNumber);
+            storedCrl.ifPresent(entityManager::detach);
+        }
+        return storedCrl.orElse(null);
     }
 
     @Override

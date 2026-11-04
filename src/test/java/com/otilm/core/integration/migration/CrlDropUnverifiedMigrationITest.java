@@ -6,19 +6,18 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Runs {@code V202611031730__crl_drop_unverified.sql} in a scratch schema holding the CRL tables as
+ * Runs each migration that empties the CRL cache in a scratch schema holding the CRL tables as
  * {@code V202401171122__ca_crl_management.sql} created them, and asserts it leaves no cached CRL or CRL entry.
  */
 class CrlDropUnverifiedMigrationITest extends BaseSpringBootTest {
-
-    private static final String MIGRATION_RESOURCE = "db/migration/V202611031730__crl_drop_unverified.sql";
 
     private static final String SCRATCH_SCHEMA = "crl_drop_unverified_migration_check";
 
@@ -49,8 +48,11 @@ class CrlDropUnverifiedMigrationITest extends BaseSpringBootTest {
     @Autowired
     private DataSource dataSource;
 
-    @Test
-    void emptiesCrlCache_whenApplied() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "db/migration/V202611031730__crl_drop_unverified.sql",
+            "db/migration/V202611040900__crl_drop_signature_only.sql"})
+    void emptiesCrlCache_whenApplied(String migrationResource) throws Exception {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             try {
                 // given
@@ -59,7 +61,7 @@ class CrlDropUnverifiedMigrationITest extends BaseSpringBootTest {
                 statement.execute("SET search_path TO " + SCRATCH_SCHEMA);
                 statement.execute(CRL_TABLES);
                 statement.execute(CACHED_CRL);
-                String migration = new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
+                String migration = new ClassPathResource(migrationResource).getContentAsString(StandardCharsets.UTF_8);
 
                 // when
                 statement.execute(migration);
