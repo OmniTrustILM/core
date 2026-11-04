@@ -2889,7 +2889,7 @@ public class CertificateServiceImpl
 
     @Override
     public int handleNonCompliantCertificatesReminders() {
-        List<UUID> certificates = certificateRepository.findNonCompliantCertificatesWithReminders();
+        List<UUID> certificates = certificateRepository.findNonCompliantCertificatesWithReminders(OffsetDateTime.now());
         for (UUID uuid : certificates) {
             eventProducer.produceMessage(CertificateNotCompliantEventHandler.constructReminderEventMessage(uuid));
         }

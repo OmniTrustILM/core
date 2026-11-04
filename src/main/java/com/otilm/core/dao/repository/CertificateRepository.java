@@ -447,6 +447,7 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
                AND (c.validation_status IS NULL OR c.validation_status <> 'EXPIRED')
                AND (v.frequency IS NOT NULL OR v.repetitions IS NOT NULL)
                AND (v.repetitions IS NULL OR p.repetitions < v.repetitions)
+               AND (v.frequency IS NULL OR p.last_sent_at + v.frequency < :now)
                AND NOT EXISTS (
                      SELECT 1
                        FROM {h-schema}certificate_relation cr
@@ -455,7 +456,7 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
                         AND sc.state = 'ISSUED'
                    )
             """, nativeQuery = true)
-    List<UUID> findNonCompliantCertificatesWithReminders();
+    List<UUID> findNonCompliantCertificatesWithReminders(@Param("now") OffsetDateTime now);
 
     @Query(value = """
                 UPDATE {h-schema}certificate

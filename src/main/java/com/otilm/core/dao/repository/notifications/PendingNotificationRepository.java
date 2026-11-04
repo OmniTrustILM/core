@@ -38,6 +38,17 @@ public interface PendingNotificationRepository extends SecurityFilterRepository<
             @Param("version") int version, @Param("lastSentAt") OffsetDateTime lastSentAt);
 
     @Modifying
+    @Query(value = """
+            INSERT INTO {h-schema}pending_notification (uuid, notification_profile_uuid, resource, object_uuid, event, version, repetitions, last_sent_at)
+            VALUES (:uuid, :profileUuid, :resource, :objectUuid, :event, :version, 0, :lastSentAt)
+            ON CONFLICT (notification_profile_uuid, resource, object_uuid, event) DO NOTHING
+            """,
+            nativeQuery = true)
+    void insertPendingIfAbsent(@Param("uuid") UUID uuid, @Param("profileUuid") UUID profileUuid,
+            @Param("resource") String resource, @Param("objectUuid") UUID objectUuid, @Param("event") String event,
+            @Param("version") int version, @Param("lastSentAt") OffsetDateTime lastSentAt);
+
+    @Modifying
     @Query("DELETE FROM PendingNotification p WHERE p.resource = :resource AND p.objectUuid = :objectUuid AND p.event = :event")
     void deleteForObjectAndEvent(@Param("resource") Resource resource, @Param("objectUuid") UUID objectUuid,
             @Param("event") ResourceEvent event);

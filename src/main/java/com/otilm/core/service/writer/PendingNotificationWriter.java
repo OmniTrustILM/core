@@ -8,14 +8,14 @@ import java.util.Collection;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Writer half of the notification listener's orchestrator/writer pair. Records a successful notification delivery --
- * external, internal, or both -- as an atomic upsert so concurrent notification consumers cannot create duplicate
- * suppression rows for one (profile, resource, object, event). REQUIRED propagation so it composes: joins an ambient
- * transaction when present, starts a short one otherwise.
+ * Writer half of the notification listener's orchestrator/writer pair. Writes the suppression rows: records a
+ * successful notification delivery -- external, internal, or both -- as an atomic upsert so concurrent notification
+ * consumers cannot create duplicate rows for one (profile, resource, object, event), and deletes an object's rows when
+ * the object is reset or deleted. REQUIRED propagation so it composes: joins an ambient transaction when present,
+ * starts a short one otherwise.
  */
 @Service
 public class PendingNotificationWriter {
@@ -38,10 +38,18 @@ public class PendingNotificationWriter {
     }
 
     /**
-     * Runs in its own transaction so the rows are gone before the event that follows is processed, whatever transaction
-     * the caller is in.
+     * Writes the row before the first send so that a failed send leaves it behind for the reminder sweep to find. A row
+     * that already exists is left as it is.
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
+    public void recordPending(UUID notificationProfileUuid, Resource resource, UUID objectUuid, ResourceEvent event,
+            int pinnedVersion) {
+        pendingNotificationRepository
+                .insertPendingIfAbsent(UUID.randomUUID(), notificationProfileUuid, resource.name(), objectUuid,
+                        event.name(), pinnedVersion, OffsetDateTime.now());
+    }
+
+    @Transactional
     public void deleteForObjectAndEvent(Resource resource, UUID objectUuid, ResourceEvent event) {
         pendingNotificationRepository.deleteForObjectAndEvent(resource, objectUuid, event);
     }

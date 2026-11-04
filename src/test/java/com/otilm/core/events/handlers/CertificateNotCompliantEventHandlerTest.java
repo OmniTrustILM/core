@@ -1,6 +1,5 @@
 package com.otilm.core.events.handlers;
 
-import com.otilm.api.exception.EventException;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -13,18 +12,18 @@ import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.writer.PendingNotificationWriter;
 import java.util.Optional;
 import java.util.UUID;
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -54,19 +53,30 @@ class CertificateNotCompliantEventHandlerTest {
     }
 
     @Test
-    void resetsPendingNotifications_whenHandlingATransition() {
+    void resetsPendingNotificationsBeforeTriggers_whenHandlingATransition() throws Exception {
         // given
         UUID certificateUuid = UUID.randomUUID();
+        when(certificateRepository.findByUuid(any(SecuredUUID.class)))
+                .thenReturn(Optional
+                        .of(aCertificate()
+                                .withUuid(certificateUuid)
+                                .withComplianceStatus(ComplianceStatus.NOK)
+                                .build()));
         EventMessage transition = CertificateNotCompliantEventHandler.constructEventMessages(certificateUuid);
 
         // when
-        ThrowingCallable handleTransition = () -> handler.handleEvent(transition);
+        handler.handleEvent(transition);
 
         // then
-        assertThatThrownBy(handleTransition).isInstanceOf(EventException.class);
-        verify(pendingNotificationWriter)
+        InOrder inOrder = inOrder(pendingNotificationWriter, triggerAssociationRepository);
+        inOrder
+                .verify(pendingNotificationWriter)
                 .deleteForObjectAndEvent(Resource.CERTIFICATE, certificateUuid,
                         ResourceEvent.CERTIFICATE_NOT_COMPLIANT);
+        inOrder
+                .verify(triggerAssociationRepository)
+                .findAllByEventAndResourceAndObjectUuidOrderByTriggerOrderAsc(
+                        eq(ResourceEvent.CERTIFICATE_NOT_COMPLIANT), isNull(), isNull());
     }
 
     @Test

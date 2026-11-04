@@ -21,11 +21,13 @@ import com.otilm.core.service.writer.PendingNotificationWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.builders.CertificateBuilder;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,11 +48,13 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
     private PendingNotificationRepository pendingNotificationRepository;
     @Autowired
     private PendingNotificationWriter pendingNotificationWriter;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @Test
     void selectsEligibleCertificates_whenProfilesEnableReminders() {
         // given
-        UUID reminding = createReminderProfile(Duration.ofDays(1), 3);
+        UUID reminding = createReminderProfile(null, 3);
         UUID notifyingOnce = createReminderProfile(null, null);
 
         Certificate eligible = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.NOK));
@@ -80,6 +84,40 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
 
         // then
         assertThat(due).containsExactly(eligible.getUuid());
+    }
+
+    @Test
+    void selectsCertificate_whenFrequencyHasElapsed() {
+        // given
+        UUID profile = createReminderProfile(Duration.ofHours(1), null);
+        Certificate elapsed = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.NOK));
+        Certificate notElapsed = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.NOK));
+        recordSendAt(profile, elapsed, 1, OffsetDateTime.now().minusHours(2));
+        recordSendAt(profile, notElapsed, 1, OffsetDateTime.now().minusMinutes(30));
+
+        // when
+        List<UUID> due = findDueCertificates(elapsed, notElapsed);
+
+        // then
+        assertThat(due).containsExactly(elapsed.getUuid());
+    }
+
+    @Test
+    void usesTheProfileVersionTheRowIsPinnedTo_whenSelectingReminders() {
+        // given
+        UUID profile = createReminderProfile(null, 3);
+        addProfileVersion(profile, 2, null, null);
+        Certificate pinnedToReminding = createCertificate(aCertificate().withComplianceStatus(ComplianceStatus.NOK));
+        Certificate pinnedToNotifyingOnce = createCertificate(
+                aCertificate().withComplianceStatus(ComplianceStatus.NOK));
+        recordSendAt(profile, pinnedToReminding, 1, OffsetDateTime.now().minusDays(1));
+        recordSendAt(profile, pinnedToNotifyingOnce, 2, OffsetDateTime.now().minusDays(1));
+
+        // when
+        List<UUID> due = findDueCertificates(pinnedToReminding, pinnedToNotifyingOnce);
+
+        // then
+        assertThat(due).containsExactly(pinnedToReminding.getUuid());
     }
 
     @Test
@@ -180,7 +218,7 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
     private List<UUID> findDueCertificates(Certificate... candidates) {
         List<UUID> candidateUuids = Arrays.stream(candidates).map(Certificate::getUuid).toList();
         return certificateRepository
-                .findNonCompliantCertificatesWithReminders()
+                .findNonCompliantCertificatesWithReminders(OffsetDateTime.now())
                 .stream()
                 .filter(candidateUuids::contains)
                 .toList();
@@ -190,16 +228,26 @@ class NonCompliantReminderSweepITest extends BaseSpringBootTest {
         NotificationProfile profile = new NotificationProfile();
         profile.setName("reminder-profile-" + UUID.randomUUID());
         profile = notificationProfileRepository.save(profile);
+        addProfileVersion(profile.getUuid(), 1, frequency, repetitions);
+        return profile.getUuid();
+    }
 
+    private void addProfileVersion(UUID profileUuid, int versionNumber, Duration frequency, Integer repetitions) {
         NotificationProfileVersion version = new NotificationProfileVersion();
-        version.setNotificationProfileUuid(profile.getUuid());
-        version.setVersion(1);
+        version.setNotificationProfileUuid(profileUuid);
+        version.setVersion(versionNumber);
         version.setRecipientType(RecipientType.NONE);
         version.setInternalNotification(false);
         version.setFrequency(frequency);
         version.setRepetitions(repetitions);
         notificationProfileVersionRepository.save(version);
-        return profile.getUuid();
+    }
+
+    private void recordSendAt(UUID profileUuid, Certificate certificate, int pinnedVersion, OffsetDateTime sentAt) {
+        transactionTemplate
+                .executeWithoutResult(status -> pendingNotificationRepository
+                        .upsertSent(UUID.randomUUID(), profileUuid, Resource.CERTIFICATE.name(), certificate.getUuid(),
+                                EVENT.name(), pinnedVersion, sentAt));
     }
 
     private Certificate createCertificate(CertificateBuilder builder) {

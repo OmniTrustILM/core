@@ -2,6 +2,7 @@ package com.otilm.core.messaging.jms.listeners;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.client.v1.NotificationInstanceSyncApiClient;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.events.data.CbomSyncedEventData;
@@ -48,6 +49,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -61,6 +63,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -489,7 +492,7 @@ class NotificationListenerTest {
             listener.processMessage(message);
 
             // then
-            verifyNoInteractions(apiClient, writer);
+            verifyNoInteractions(instanceRefRepository, apiClient, writer);
         }
 
         @Test
@@ -518,7 +521,7 @@ class NotificationListenerTest {
             listener.processMessage(message);
 
             // then
-            verifyNoInteractions(apiClient, writer);
+            verifyNoInteractions(instanceRefRepository, apiClient, writer);
         }
 
         @Test
@@ -532,7 +535,7 @@ class NotificationListenerTest {
             listener.processMessage(message);
 
             // then
-            verifyNoInteractions(apiClient, writer);
+            verifyNoInteractions(instanceRefRepository, apiClient, writer);
         }
 
         @Test
@@ -564,6 +567,89 @@ class NotificationListenerTest {
             // then
             verify(apiClient, times(2)).sendNotification(any(), any(), any());
             verify(writer, never()).recordSent(any(), any(), any(), any(), anyInt());
+        }
+
+        @Test
+        void writesRowBeforeSending_whenNotCompliantNotificationIsFirstOfItsKind() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, 3);
+            stubFirstSend(version);
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            InOrder inOrder = inOrder(writer, apiClient);
+            inOrder
+                    .verify(writer)
+                    .recordPending(eq(version.getNotificationProfileUuid()), eq(Resource.CERTIFICATE), any(),
+                            eq(ResourceEvent.CERTIFICATE_NOT_COMPLIANT), eq(1));
+            inOrder.verify(apiClient).sendNotification(any(), any(), any());
+        }
+
+        @Test
+        void keepsTheRow_whenFirstNotCompliantSendFails() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, 3);
+            stubFirstSend(version);
+            doThrow(new ConnectorException("connector down")).when(apiClient).sendNotification(any(), any(), any());
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(writer)
+                    .recordPending(eq(version.getNotificationProfileUuid()), eq(Resource.CERTIFICATE), any(),
+                            eq(ResourceEvent.CERTIFICATE_NOT_COMPLIANT), eq(1));
+            verify(writer, never()).recordSent(any(), any(), any(), any(), anyInt());
+        }
+
+        @Test
+        void doesNotWriteRowAgain_whenRowAlreadyExists() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, 3);
+            stubExistingRow(version, createPendingNotification(version, 1, OffsetDateTime.now().minusDays(30)));
+            stubSendingConnector(version);
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(writer, never()).recordPending(any(), any(), any(), any(), anyInt());
+        }
+
+        @Test
+        void doesNotWriteRowBeforeSending_whenEventIsExpiring() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, 3);
+            stubFirstSend(version);
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_EXPIRING, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(writer, never()).recordPending(any(), any(), any(), any(), anyInt());
+        }
+
+        @Test
+        void sendsNotification_whenWritingTheRowFails() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, 3);
+            stubFirstSend(version);
+            doThrow(new IllegalStateException("store down"))
+                    .when(writer)
+                    .recordPending(any(), any(), any(), any(), anyInt());
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(apiClient).sendNotification(any(), any(), any());
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
