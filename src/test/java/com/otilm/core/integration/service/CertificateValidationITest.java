@@ -98,6 +98,7 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.DERPrintableString;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
@@ -571,6 +572,42 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     }
 
     @Test
+    void reportsOcspFailed_whenAuthorityInfoAccessExtensionIsMalformed() throws Exception {
+        // given
+        byte[] noAccessDescriptions = new DERSequence().getEncoded();
+        Certificate endEntity = uploadEndEntityWithAuthorityInfoAccess(noAccessDescriptions);
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(endEntity.getSecuredUuid());
+
+        // then
+        assertThat(result.getValidationChecks())
+                .containsOnlyKeys(CertificateValidationCheck.values())
+                .hasEntrySatisfying(CertificateValidationCheck.OCSP_VERIFICATION, ocspCheck -> {
+                    assertThat(ocspCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+                    assertThat(ocspCheck.getMessage()).contains("The authorityInfoAccess extension is malformed");
+                })
+                .hasEntrySatisfying(CertificateValidationCheck.BASIC_CONSTRAINTS,
+                        basicConstraintsCheck -> assertThat(basicConstraintsCheck.getStatus())
+                                .isEqualTo(CertificateValidationStatus.VALID));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsDecoderFailure_whenAuthorityInfoAccessExtensionIsMalformed(CapturedOutput output) throws Exception {
+        // given
+        byte[] noAccessDescriptions = new DERSequence().getEncoded();
+        Certificate endEntity = uploadEndEntityWithAuthorityInfoAccess(noAccessDescriptions);
+
+        // when
+        certificateService.getCertificateValidationResult(endEntity.getSecuredUuid());
+
+        // then
+        assertThat(output.getOut()).contains("Caused by: java.lang.IllegalArgumentException");
+    }
+
+    @Test
     void testCrlProcessing_noCrlAvailable_failsCheck()
             throws GeneralSecurityException, OperatorCreationException, IOException, NotFoundException {
         long stamp = System.nanoTime();
@@ -606,6 +643,114 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.VALID);
         assertThat(findStoredCrl(cert)).isPresent();
         assertThat(findStoredCrlEntry(cert, cert.getSerialNumber())).isEmpty();
+    }
+
+    @Test
+    void reportsCrlFailed_whenCrlDistributionPointsExtensionIsMalformed() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        List<String> noDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlMalformed-" + stamp, noDistributionPoints,
+                null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("The cRLDistributionPoints extension is malformed");
+    }
+
+    @Test
+    void reportsCrlFailed_whenFreshestCrlExtensionIsMalformed() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/malformed-delta-base-" + stamp + ".crl";
+        List<String> noDeltaCrlDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMalformed-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath), noDeltaCrlDistributionPoints, BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate()).build().getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("The freshestCRL extension is malformed");
+    }
+
+    @Test
+    void keepsBaseCrlRevocation_whenFreshestCrlExtensionIsMalformed() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/malformed-delta-revoking-base-" + stamp + ".crl";
+        List<String> noDeltaCrlDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair,
+                "testCrlDeltaMalformedRevoked-" + stamp, List.of(LoopbackWireMock.url(mockServer) + basePath),
+                noDeltaCrlDistributionPoints, BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsDecoderFailure_whenCrlDistributionPointsExtensionIsMalformed(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        List<String> noDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlMalformedLogged-" + stamp,
+                noDistributionPoints, null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+
+        // when
+        certificateService.getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(output.getOut()).contains("Caused by: java.lang.IllegalArgumentException");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsDecoderFailure_whenStoredCrlKeepsCertificateRevoked(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/malformed-delta-logged-base-" + stamp + ".crl";
+        List<String> noDeltaCrlDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMalformedLogged-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath), noDeltaCrlDistributionPoints, BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        certificateService.getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(output.getOut()).contains("Caused by: java.lang.IllegalArgumentException");
     }
 
     @Test
@@ -3077,5 +3222,17 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         assertThat(output.getOut().lines().filter(line -> line.contains("Ignoring the CRL from " + crlUrl)))
                 .isNotEmpty()
                 .allSatisfy(line -> assertThat(line).contains("WARN"));
+    }
+
+    /** Uploads a CA and an end-entity certificate it issued whose authorityInfoAccess extension holds the value. */
+    private Certificate uploadEndEntityWithAuthorityInfoAccess(byte[] authorityInfoAccess) throws Exception {
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        X509Certificate issuerCertificate = CertificateGeneratorHelper
+                .generateCACertificate(issuerKeyPair, "CN=Malformed-Aia-Ca");
+        X509Certificate endEntityCertificate = CertificateGeneratorHelper
+                .generateEndEntityCertificateWithAuthorityInfoAccess(issuerKeyPair, issuerCertificate,
+                        freshRsaKeyPair(), "CN=Malformed-Aia-EndEntity", authorityInfoAccess);
+        uploadCertificate(Base64.getEncoder().encodeToString(issuerCertificate.getEncoded()));
+        return uploadCertificate(Base64.getEncoder().encodeToString(endEntityCertificate.getEncoded()));
     }
 }
