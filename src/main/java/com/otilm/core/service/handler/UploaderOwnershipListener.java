@@ -9,6 +9,8 @@ import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -17,6 +19,11 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * Makes the uploader the owner of an uploaded certificate in a transaction of its own, after the upload has committed.
  * Ownership is an extra: a failure is logged and leaves the certificate as uploaded, without an owner. A certificate
  * that has an owner by then, such as one an upload trigger set, keeps it.
+ *
+ * <p>
+ * It runs ahead of the other after-commit listeners, so a notification an upload trigger sends to the owner finds the
+ * owner stored when the message is consumed.
+ * </p>
  */
 @Component
 public class UploaderOwnershipListener {
@@ -35,6 +42,7 @@ public class UploaderOwnershipListener {
         this.transactionHandler = transactionHandler;
     }
 
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void handleUploaderOwnership(UploaderOwnershipEvent event) {
         try {
