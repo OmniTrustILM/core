@@ -10,6 +10,7 @@ import com.otilm.core.util.AuthHelper;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
@@ -22,7 +23,7 @@ import org.springframework.stereotype.Component;
  * itself, so ownership, group membership and object grants are honoured without restating the policy. A parent
  * permission an operation also requires, such as detail on an RA profile's authority, is not checked, so a reported
  * action can still be refused. That costs one OPA request per declared action; a principal granted every resource skips
- * them.
+ * them, unless its permissions deny an action on this object, which the policy still enforces.
  */
 @Component
 public class ObjectActionResolver {
@@ -47,7 +48,7 @@ public class ObjectActionResolver {
 
     List<ResourceAction> allowedActions(Resource resource, SecuredUUID objectUuid) {
         List<ResourceAction> declared = declaredActions(resource);
-        if (holdsAllResources()) {
+        if (holdsAllResourcesWithoutDenyOn(resource, objectUuid)) {
             return declared;
         }
         return declared
@@ -56,12 +57,24 @@ public class ObjectActionResolver {
                 .toList();
     }
 
-    private static boolean holdsAllResources() {
+    private static boolean holdsAllResourcesWithoutDenyOn(Resource resource, SecuredUUID objectUuid) {
         if (!(SecurityContextHolder.getContext().getAuthentication() instanceof PlatformAuthenticationToken)) {
             return false;
         }
         SubjectPermissionsDto permissions = AuthHelper.getUserProfile().getPermissions();
-        return permissions != null && Boolean.TRUE.equals(permissions.getAllowAllResources());
+        if (permissions == null || !Boolean.TRUE.equals(permissions.getAllowAllResources())) {
+            return false;
+        }
+        String uuid = objectUuid.toString();
+        return Stream
+                .ofNullable(permissions.getResources())
+                .flatMap(List::stream)
+                .filter(resourcePermissions -> resource.getCode().equals(resourcePermissions.getName()))
+                .flatMap(resourcePermissions -> Stream
+                        .ofNullable(resourcePermissions.getObjects())
+                        .flatMap(List::stream))
+                .noneMatch(object -> uuid.equals(object.getUuid()) && object.getDeny() != null
+                        && !object.getDeny().isEmpty());
     }
 
     private List<ResourceAction> declaredActions(Resource resource) {

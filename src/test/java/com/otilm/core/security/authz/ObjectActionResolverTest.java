@@ -83,6 +83,25 @@ class ObjectActionResolverTest {
     }
 
     @Test
+    void asksTheAuthorizationCheckWhenTheUserHoldsAllResourcesButIsDeniedAnActionOnTheObject() {
+        signInWithProfile("""
+                {
+                    "user": {"uuid": "%s", "username": "tester", "enabled": true, "systemUser": false},
+                    "roles": [],
+                    "permissions": {"allowAllResources": true, "resources": [{
+                        "name": "%s", "allowAllActions": false, "actions": [],
+                        "objects": [{"uuid": "%s", "name": "secret", "allow": [], "deny": ["delete"]}]
+                    }]}
+                }
+                """.formatted(UUID.randomUUID(), Resource.SECRET.getCode(), SECRET_UUID));
+        when(authorizationEnforcer.isAuthorized(eq(Resource.SECRET), any(), argThat(this::isTheSecret)))
+                .thenAnswer(invocation -> invocation.getArgument(1) != ResourceAction.DELETE);
+
+        assertThat(resolver.withAllowedActions(Resource.SECRET, SECRET_UUID, new SecretDetailDto()).getAllowedActions())
+                .containsExactly(ResourceAction.DETAIL, ResourceAction.GET_SECRET_CONTENT, ResourceAction.UPDATE);
+    }
+
+    @Test
     void reportsNoActionWhenTheAuthorizationCheckDeniesAll() {
         signIn(false);
         when(authorizationEnforcer.isAuthorized(any(), any(), any())).thenReturn(false);
