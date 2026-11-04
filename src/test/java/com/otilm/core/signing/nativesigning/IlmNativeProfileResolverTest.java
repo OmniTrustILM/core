@@ -5,12 +5,11 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
-import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.model.signing.SigningProfileGateRow;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
-import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.SigningProfileInternalService;
 import java.util.List;
 import java.util.Optional;
@@ -26,7 +25,6 @@ import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningPr
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -54,7 +52,7 @@ class IlmNativeProfileResolverTest {
     @Test
     void throwsNotFoundWithoutLoadingModel_whenProfileIsUnknown() throws Exception {
         // given
-        when(signingProfileRepository.findByUuid(any())).thenReturn(Optional.empty());
+        when(signingProfileRepository.findGateRowByUuid(any())).thenReturn(Optional.empty());
 
         // when
         ThrowingCallable resolveForDocumentSigning = () -> resolver.resolve(PROFILE, NativeOperation.SIGN_DOCUMENT);
@@ -131,15 +129,9 @@ class IlmNativeProfileResolverTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void stubStoredRecord(boolean ilmNativeEnabled, SigningScheme scheme) {
-        SigningProfile profile = new SigningProfile();
-        profile.setUuid(PROFILE);
-        profile.setName(NAME);
-        profile.setEnabled(true);
-        profile.setIlmNativeEnabled(ilmNativeEnabled);
-        profile.setWorkflowType(SigningWorkflowType.CONTENT_SIGNING);
-        profile.setSigningScheme(scheme);
-        when(signingProfileRepository.findByUuid(argThat((SecuredUUID uuid) -> PROFILE.equals(uuid.getValue()))))
-                .thenReturn(Optional.of(profile));
+        var profile = new SigningProfileGateRow(NAME, ilmNativeEnabled, true, SigningWorkflowType.CONTENT_SIGNING,
+                scheme);
+        when(signingProfileRepository.findGateRowByUuid(PROFILE)).thenReturn(Optional.of(profile));
     }
 
     private static SigningProfileModel<?, ?> buildManagedContentModel(UUID uuid) {

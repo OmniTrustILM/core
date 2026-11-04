@@ -5,7 +5,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
-import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.model.signing.SigningProfileGateRow;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.DelegatedSigning;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
@@ -185,7 +185,7 @@ class IlmNativeGateTest {
     @Test
     void throwsValidation_whenRecordLacksIlmNative() {
         // given
-        SigningProfile withoutIlmNative = buildProfileRecord(false, true, SigningWorkflowType.RAW_SIGNING,
+        SigningProfileGateRow withoutIlmNative = buildProfileRecord(false, true, SigningWorkflowType.RAW_SIGNING,
                 SigningScheme.MANAGED);
 
         // when
@@ -201,7 +201,7 @@ class IlmNativeGateTest {
     @Test
     void throwsValidation_whenRecordIsDisabled() {
         // given
-        SigningProfile disabled = buildProfileRecord(true, false, SigningWorkflowType.RAW_SIGNING,
+        SigningProfileGateRow disabled = buildProfileRecord(true, false, SigningWorkflowType.RAW_SIGNING,
                 SigningScheme.MANAGED);
 
         // when
@@ -216,7 +216,7 @@ class IlmNativeGateTest {
     @Test
     void throwsValidation_whenOperationDoesNotServeRecordWorkflow() {
         // given
-        SigningProfile rawProfile = buildProfileRecord(true, true, SigningWorkflowType.RAW_SIGNING,
+        SigningProfileGateRow rawProfile = buildProfileRecord(true, true, SigningWorkflowType.RAW_SIGNING,
                 SigningScheme.MANAGED);
 
         // when
@@ -232,7 +232,7 @@ class IlmNativeGateTest {
     @Test
     void throwsValidation_whenRecordUsesDelegatedScheme() {
         // given
-        SigningProfile delegated = buildProfileRecord(true, true, SigningWorkflowType.CONTENT_SIGNING,
+        SigningProfileGateRow delegated = buildProfileRecord(true, true, SigningWorkflowType.CONTENT_SIGNING,
                 SigningScheme.DELEGATED);
 
         // when
@@ -250,7 +250,7 @@ class IlmNativeGateTest {
     @Test
     void throwsIlmNativeRefusalFirst_whenRecordFailsEveryCheck() {
         // given
-        SigningProfile failsEveryCheck = buildProfileRecord(false, false, SigningWorkflowType.TIMESTAMPING,
+        SigningProfileGateRow failsEveryCheck = buildProfileRecord(false, false, SigningWorkflowType.TIMESTAMPING,
                 SigningScheme.DELEGATED);
 
         // when
@@ -266,7 +266,7 @@ class IlmNativeGateTest {
     @Test
     void admitsDocumentSigning_whenManagedContentRecordHasIlmNative() {
         // given
-        SigningProfile managedContent = buildProfileRecord(true, true, SigningWorkflowType.CONTENT_SIGNING,
+        SigningProfileGateRow managedContent = buildProfileRecord(true, true, SigningWorkflowType.CONTENT_SIGNING,
                 SigningScheme.MANAGED);
 
         // when
@@ -292,15 +292,8 @@ class IlmNativeGateTest {
                 .build();
     }
 
-    private static SigningProfile buildProfileRecord(boolean ilmNativeEnabled, boolean enabled,
+    private static SigningProfileGateRow buildProfileRecord(boolean ilmNativeEnabled, boolean enabled,
             SigningWorkflowType workflowType, SigningScheme scheme) {
-        SigningProfile profile = new SigningProfile();
-        profile.setUuid(PROFILE);
-        profile.setName("invoices");
-        profile.setIlmNativeEnabled(ilmNativeEnabled);
-        profile.setEnabled(enabled);
-        profile.setWorkflowType(workflowType);
-        profile.setSigningScheme(scheme);
-        return profile;
+        return new SigningProfileGateRow("invoices", ilmNativeEnabled, enabled, workflowType, scheme);
     }
 }

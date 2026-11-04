@@ -5,7 +5,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
-import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.model.signing.SigningProfileGateRow;
 import com.otilm.core.model.signing.SigningProfileModel;
 
 import java.util.UUID;
@@ -22,9 +22,9 @@ final class IlmNativeGate {
     private IlmNativeGate() {
     }
 
-    static void require(SigningProfile profile, NativeOperation operation) {
-        requireServes(profile.getName(), profile.isIlmNativeEnabled(), profile.isEnabled(), profile.getWorkflowType(),
-                profile.getSigningScheme(), operation);
+    static void require(SigningProfileGateRow profile, NativeOperation operation) {
+        requireServes(profile.name(), profile.ilmNativeEnabled(), profile.enabled(), profile.workflowType(),
+                profile.signingScheme(), operation);
     }
 
     static void require(SigningProfileModel<?, ?> profile, UUID requestedUuid, NativeOperation operation)

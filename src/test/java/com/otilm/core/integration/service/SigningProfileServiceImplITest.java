@@ -113,6 +113,8 @@ import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TspProfileExternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
+import com.otilm.core.signing.nativesigning.IlmNativeProfileResolver;
+import com.otilm.core.signing.nativesigning.NativeOperation;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
@@ -124,6 +126,8 @@ import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import com.otilm.core.util.mocks.SignerConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.NoSuchAlgorithmException;
@@ -132,6 +136,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -147,9 +152,11 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
@@ -179,6 +186,8 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
@@ -287,6 +296,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     /**
      * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
@@ -2842,6 +2854,25 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertThat(stored.isEnabled()).isTrue();
         }
 
+        @Test
+        void resolvesUpdatedVersion_whenUpdateCommitsBetweenRecordCheckAndModelLoad() throws Exception {
+            // given — an enabled ILM_NATIVE profile whose version has a signing record, so an update bumps it
+            SigningProfileDto managedContent = createManagedContentProfile("updated-while-resolving");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+            signingProfileService.enableSigningProfile(uuid);
+            createSigningRecordFor(managedContent);
+            int bumpedVersion = managedContent.getVersion() + 1;
+            IlmNativeProfileResolver resolver = buildResolverUpdatingBeforeModelLoad(managedContent);
+
+            // when
+            SigningProfileModel<?, ?> resolved = inARequest(
+                    () -> resolver.resolve(uuid.getValue(), NativeOperation.SIGN_DOCUMENT));
+
+            // then
+            assertThat(resolved.version()).isEqualTo(bumpedVersion);
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private SigningProfileDto createManagedContentProfile(String name)
@@ -2872,6 +2903,50 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     throw new IllegalStateException(e);
                 }
             });
+        }
+
+        /**
+         * Builds a resolver on the real repository whose model loader, once asked for the model, first lets another
+         * request commit an update of the profile and then loads the model through the real service.
+         */
+        private IlmNativeProfileResolver buildResolverUpdatingBeforeModelLoad(SigningProfileDto profile)
+                throws NotFoundException {
+            var modelLoader = mock(SigningProfileInternalService.class);
+            when(modelLoader.loadSigningProfileModel(profile.getName())).thenAnswer(invocation -> {
+                updateInAnotherRequest(profile);
+                return signingProfileInternalService.loadSigningProfileModel(profile.getName());
+            });
+            return new IlmNativeProfileResolver(signingProfileRepository, modelLoader);
+        }
+
+        /**
+         * Commits an update that changes nothing but the version on EntityManagers of its own, as a concurrent request
+         * does: the request's EntityManager is unbound for its duration, so it cannot learn of the change.
+         */
+        private void updateInAnotherRequest(SigningProfileDto profile) throws Exception {
+            Object request = TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            try {
+                signingProfileService
+                        .updateSigningProfile(SecuredUUID.fromString(profile.getUuid()),
+                                aSigningProfileRequestFromExistingProfile(profile).build());
+            } finally {
+                TransactionSynchronizationManager.bindResource(entityManagerFactory, request);
+            }
+        }
+
+        /**
+         * Runs the call with one EntityManager bound to the thread and no transaction around it, as an open-in-view
+         * request does, so what the call reads stays managed there until it returns.
+         */
+        private <T> T inARequest(Callable<T> call) throws Exception {
+            EntityManager bound = entityManagerFactory.createEntityManager();
+            TransactionSynchronizationManager.bindResource(entityManagerFactory, new EntityManagerHolder(bound));
+            try {
+                return call.call();
+            } finally {
+                TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+                bound.close();
+            }
         }
     }
 

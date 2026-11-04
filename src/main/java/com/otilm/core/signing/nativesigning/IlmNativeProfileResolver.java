@@ -2,10 +2,9 @@ package com.otilm.core.signing.nativesigning;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
-import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.model.signing.SigningProfileGateRow;
 import com.otilm.core.model.signing.SigningProfileModel;
-import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.SigningProfileInternalService;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -35,11 +34,11 @@ public class IlmNativeProfileResolver {
      */
     @SuppressWarnings("java:S1452") // wildcards for the same reason as SigningRecordInputSource#signingProfile
     public SigningProfileModel<?, ?> resolve(UUID uuid, NativeOperation operation) throws NotFoundException {
-        SigningProfile profile = signingProfileRepository
-                .findByUuid(SecuredUUID.fromUUID(uuid))
+        SigningProfileGateRow profile = signingProfileRepository
+                .findGateRowByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException("Signing Profile not found: " + uuid));
         IlmNativeGate.require(profile, operation);
-        SigningProfileModel<?, ?> model = signingProfileService.loadSigningProfileModel(profile.getName());
+        SigningProfileModel<?, ?> model = signingProfileService.loadSigningProfileModel(profile.name());
         IlmNativeGate.require(model, uuid, operation);
         return model;
     }
