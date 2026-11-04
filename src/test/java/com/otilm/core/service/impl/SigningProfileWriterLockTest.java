@@ -9,6 +9,7 @@ import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.TspProfileInternalService;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,11 +24,12 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 
 /**
- * Switching a protocol on or off must hold the lock a profile update holds, or the switch is decided on a workflow and
- * scheme a concurrent update is replacing, or commits a link the update has just cleared.
+ * A profile writer must hold the lock a profile update holds before it reads the profile, or it decides on state a
+ * concurrent update is replacing, commits a link the update has just cleared, or evicts the cache entry of a name the
+ * update has already changed.
  */
 @ExtendWith(MockitoExtension.class)
-class SigningProfileProtocolSwitchLockTest {
+class SigningProfileWriterLockTest {
 
     private static final UUID PROFILE = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
     private static final UUID TSP_PROFILE = UUID.fromString("00000000-0000-0000-0000-0000000000c2");
@@ -110,6 +112,92 @@ class SigningProfileProtocolSwitchLockTest {
 
         // then
         InOrder order = inOrder(clusterSynchronizer, signingProfileRepository);
+        order.verify(clusterSynchronizer).lock("signing-profile:" + PROFILE);
+        order.verify(signingProfileRepository).findByUuid(any());
+    }
+
+    @Test
+    void locksProfileBeforeReadingIt_whenEnabling() throws Exception {
+        // given — a stored profile
+
+        // when
+        service.enableSigningProfile(SecuredUUID.fromUUID(PROFILE));
+
+        // then
+        verifyLockedBeforeRead();
+    }
+
+    @Test
+    void locksProfileBeforeReadingIt_whenDisabling() throws Exception {
+        // given — a stored profile
+
+        // when
+        service.disableSigningProfile(SecuredUUID.fromUUID(PROFILE));
+
+        // then
+        verifyLockedBeforeRead();
+    }
+
+    @Test
+    void locksProfileBeforeReadingIt_whenEnablingInOwnTransaction() throws Exception {
+        // given — a stored profile
+
+        // when
+        service.enableInOwnTransaction(SecuredUUID.fromUUID(PROFILE));
+
+        // then
+        verifyLockedBeforeRead();
+    }
+
+    @Test
+    void locksProfileBeforeReadingIt_whenDisablingInOwnTransaction() throws Exception {
+        // given — a stored profile
+
+        // when
+        service.disableInOwnTransaction(SecuredUUID.fromUUID(PROFILE));
+
+        // then
+        verifyLockedBeforeRead();
+    }
+
+    @Test
+    void locksProfileInPerProfileTransaction_whenBulkEnabling() {
+        // given — a stored profile, with the service standing in for its own proxy
+        service.setSelf(service);
+
+        // when
+        service.bulkEnableSigningProfiles(List.of(SecuredUUID.fromUUID(PROFILE)));
+
+        // then
+        verifyLockedBetweenOuterAndInnerReads();
+    }
+
+    @Test
+    void locksProfileInPerProfileTransaction_whenBulkDisabling() {
+        // given — a stored profile, with the service standing in for its own proxy
+        service.setSelf(service);
+
+        // when
+        service.bulkDisableSigningProfiles(List.of(SecuredUUID.fromUUID(PROFILE)));
+
+        // then
+        verifyLockedBetweenOuterAndInnerReads();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void verifyLockedBeforeRead() {
+        InOrder order = inOrder(clusterSynchronizer, signingProfileRepository);
+        order.verify(clusterSynchronizer).lock("signing-profile:" + PROFILE);
+        order.verify(signingProfileRepository).findByUuid(any());
+    }
+
+    /**
+     * The outer read only names the profile in a failure message, so only the read inside the transaction is locked.
+     */
+    private void verifyLockedBetweenOuterAndInnerReads() {
+        InOrder order = inOrder(clusterSynchronizer, signingProfileRepository);
+        order.verify(signingProfileRepository).findByUuid(any());
         order.verify(clusterSynchronizer).lock("signing-profile:" + PROFILE);
         order.verify(signingProfileRepository).findByUuid(any());
     }

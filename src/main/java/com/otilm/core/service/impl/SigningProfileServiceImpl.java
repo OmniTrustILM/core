@@ -667,6 +667,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ENABLE)
     @Transactional
     public void enableSigningProfile(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         enableSigningProfile(findByUuid(uuid));
     }
 
@@ -693,6 +694,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     /** Reads the profile in this transaction: the caller's copy may be detached, and saving it merges stale state. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     void enableInOwnTransaction(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         enableSigningProfile(findByUuid(uuid));
     }
 
@@ -707,6 +709,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ENABLE)
     @Transactional
     public void disableSigningProfile(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         disableSigningProfile(findByUuid(uuid));
     }
 
@@ -733,6 +736,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     /** Reads the profile in this transaction: the caller's copy may be detached, and saving it merges stale state. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     void disableInOwnTransaction(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         disableSigningProfile(findByUuid(uuid));
     }
 
