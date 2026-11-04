@@ -17,6 +17,7 @@ import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.api.model.core.cbom.CbomContributedAssetDto;
 import com.otilm.api.model.core.cbom.CbomDetailDto;
 import com.otilm.api.model.core.cbom.CbomDto;
+import com.otilm.api.model.core.cbom.CbomIngestFindingDto;
 import com.otilm.api.model.core.cbom.CbomSyncSkipDto;
 import com.otilm.api.model.core.cbom.CbomSyncSkipState;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
@@ -46,9 +47,11 @@ import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.dao.entity.Cbom;
 import com.otilm.core.dao.entity.Cbom_;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
+import com.otilm.core.dao.entity.cbom.CbomIngestFinding;
 import com.otilm.core.dao.entity.cbom.CbomSyncSkip;
 import com.otilm.core.dao.repository.CbomRepository;
 import com.otilm.core.dao.repository.ScheduledJobHistoryRepository;
+import com.otilm.core.dao.repository.cbom.CbomIngestFindingRepository;
 import com.otilm.core.dao.repository.cbom.CbomSyncSkipRepository;
 import com.otilm.core.dao.repository.cbom.CbomTombstoneRepository;
 import com.otilm.core.enums.FilterField;
@@ -195,6 +198,8 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
 
     private CbomSyncSkipRepository syncSkipRepository;
 
+    private CbomIngestFindingRepository ingestFindingRepository;
+
     private CbomAssetIngestService assetIngestService;
 
     private CbomAssetSyncStateWriter assetSyncStateWriter;
@@ -281,6 +286,11 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
     @Autowired
     public void setSyncSkipRepository(CbomSyncSkipRepository syncSkipRepository) {
         this.syncSkipRepository = syncSkipRepository;
+    }
+
+    @Autowired
+    public void setIngestFindingRepository(CbomIngestFindingRepository ingestFindingRepository) {
+        this.ingestFindingRepository = ingestFindingRepository;
     }
 
     @Autowired
@@ -404,6 +414,17 @@ public class CbomServiceImpl implements CbomExternalService, CbomInternalService
                 .listCbomContributedAssets(uuid.getValue(), request, filter);
         getEntity(uuid);
         return page;
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CBOM, action = ResourceAction.DETAIL)
+    public List<CbomIngestFindingDto> listCbomIngestFindings(SecuredUUID uuid) throws NotFoundException {
+        Cbom cbom = getEntity(uuid);
+        return ingestFindingRepository
+                .findAllByCbomUuidOrderByKindAscDetailAsc(cbom.getUuid())
+                .stream()
+                .map(CbomIngestFinding::mapToDto)
+                .toList();
     }
 
     @Override

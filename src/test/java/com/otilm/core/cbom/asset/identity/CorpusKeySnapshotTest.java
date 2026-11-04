@@ -79,9 +79,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>
  * The first line is a header counting documents, parse failures, walked components, keyed assets and skips. Each row
  * after it is {@code document<TAB>asset index<TAB>chain step<TAB>identity key}, or
- * {@code document<TAB>skip:index<TAB>THROWN<TAB>failure class} for a component ingest would skip, sorted, so two runs
- * diff with {@code diff} and a moved row names itself. A skip is a row rather than a failure because a crash is exactly
- * the kind of movement worth diffing -- that is how the surrogate defect in this branch was first priced.
+ * {@code document<TAB>skip:index<TAB>THROWN<TAB>reason} for a component ingest would skip, sorted, so two runs diff
+ * with {@code diff} and a moved row names itself. A skip is a row rather than a failure because a crash is exactly the
+ * kind of movement worth diffing -- that is how the surrogate defect in this branch was first priced.
  */
 class CorpusKeySnapshotTest {
 

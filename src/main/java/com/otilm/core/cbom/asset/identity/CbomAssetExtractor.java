@@ -218,8 +218,8 @@ public final class CbomAssetExtractor {
      * One component that could not be extracted, and why.
      *
      * <p>
-     * The reason names the failure class and the component's own name, never the payload. A skip that quoted what it
-     * could not parse would be a disclosure channel for exactly the documents least worth trusting.
+     * The reason says why in fixed words, and the component is named by its own name, never the payload. A skip that
+     * quoted what it could not parse would be a disclosure channel for exactly the documents least worth trusting.
      *
      * <p>
      * {@code findings} are what the pipeline had to tell the producer before the component was skipped -- a withheld
@@ -332,7 +332,7 @@ public final class CbomAssetExtractor {
                 // The name goes through the same encodability rule as everything else headed for storage. It
                 // cannot be refused the way an asset's is: this is the refusal path, and a component whose name has
                 // no UTF-8 encoding is exactly the one whose skip has to be reportable.
-                skips.add(new Skip(encodable(nameOf(component)), e.getClass().getSimpleName()));
+                skips.add(new Skip(encodable(nameOf(component)), UNREADABLE_COMPONENT));
             }
         }
         return new Extraction(List.copyOf(assets), List.copyOf(skips), walk.depthLimitReached(), scopeUnavailable,
@@ -377,6 +377,11 @@ public final class CbomAssetExtractor {
         }
         return new CbomHeaderCounts(algorithms, certificates, protocols, relatedCryptoMaterials, total);
     }
+
+    /**
+     * Why a component was skipped when reading it threw: fixed text, since an exception's class is a runtime detail.
+     */
+    static final String UNREADABLE_COMPONENT = "reading it failed";
 
     /** Stands in for a duplicated {@code bom-ref} that has no UTF-8 encoding, so no column can hold its spelling. */
     static final String UNENCODABLE_REF = "(a bom-ref with no valid encoding)";

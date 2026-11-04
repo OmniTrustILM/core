@@ -1,7 +1,7 @@
 package com.otilm.core.cbom.ingest;
 
+import com.otilm.api.model.core.cbom.CbomIngestFindingKind;
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
-import com.otilm.core.model.cbom.CbomIngestFindingKind;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
