@@ -41,7 +41,7 @@ public final class X509CrlBuilder {
 
     private BigInteger deltaCrlIndicator;
 
-    private final Map<BigInteger, Integer> revocations = new LinkedHashMap<>();
+    private final Map<BigInteger, Revocation> revocations = new LinkedHashMap<>();
 
     private X509CrlBuilder(X500Principal issuerName, PrivateKey signerKey) {
         this.issuerName = issuerName;
@@ -72,7 +72,12 @@ public final class X509CrlBuilder {
 
     /** Lists the serial number as revoked now, for a {@link CRLReason} code. */
     public X509CrlBuilder withRevocation(BigInteger serialNumber, int reason) {
-        revocations.put(serialNumber, reason);
+        return withRevocation(serialNumber, reason, Instant.now());
+    }
+
+    /** Lists the serial number as revoked at {@code revocationDate}, for a {@link CRLReason} code. */
+    public X509CrlBuilder withRevocation(BigInteger serialNumber, int reason, Instant revocationDate) {
+        revocations.put(serialNumber, new Revocation(reason, revocationDate));
         return this;
     }
 
@@ -89,10 +94,13 @@ public final class X509CrlBuilder {
             if (deltaCrlIndicator != null) {
                 crlBuilder.addExtension(Extension.deltaCRLIndicator, true, new CRLNumber(deltaCrlIndicator));
             }
-            for (Map.Entry<BigInteger, Integer> revocation : revocations.entrySet()) {
+            for (Map.Entry<BigInteger, Revocation> revocation : revocations.entrySet()) {
                 ExtensionsGenerator entryExtensions = new ExtensionsGenerator();
-                entryExtensions.addExtension(Extension.reasonCode, false, CRLReason.lookup(revocation.getValue()));
-                crlBuilder.addCRLEntry(revocation.getKey(), new Date(), entryExtensions.generate());
+                entryExtensions
+                        .addExtension(Extension.reasonCode, false, CRLReason.lookup(revocation.getValue().reason()));
+                crlBuilder
+                        .addCRLEntry(revocation.getKey(), Date.from(revocation.getValue().revocationDate()),
+                                entryExtensions.generate());
             }
             ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption")
                     .setProvider(BouncyCastleProvider.PROVIDER_NAME)
@@ -103,5 +111,8 @@ public final class X509CrlBuilder {
         } catch (IOException | OperatorCreationException | CRLException e) {
             throw new IllegalStateException("Failed to build the CRL", e);
         }
+    }
+
+    private record Revocation(int reason, Instant revocationDate) {
     }
 }
