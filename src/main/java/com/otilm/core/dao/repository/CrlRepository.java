@@ -41,7 +41,9 @@ public interface CrlRepository extends SecurityFilterRepository<Crl, Long> {
             UPDATE Crl c
                SET c.crlNumber = :crlNumber,
                    c.nextUpdate = :nextUpdate,
-                   c.lastRevocationDate = :lastRevocationDate
+                   c.lastRevocationDate = :lastRevocationDate,
+                   c.crlNumberDelta = NULL,
+                   c.nextUpdateDelta = NULL
              WHERE c.uuid = :uuid
             """)
     void updateBaseMetadata(@Param("uuid") UUID uuid, @Param("crlNumber") String crlNumber,
