@@ -411,10 +411,6 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     private void injectProfileWithResources(String resourcesJson) {
-        injectProfile(false, resourcesJson);
-    }
-
-    private void injectProfile(boolean allowAllResources, String resourcesJson) {
         String userProfileData = """
                 {
                     "user": {
@@ -429,11 +425,11 @@ class AuthServiceITest extends BaseSpringBootTest {
                     },
                     "roles": [],
                     "permissions": {
-                        "allowAllResources": %s,
+                        "allowAllResources": false,
                         "resources": %s
                     }
                 }
-                """.formatted(USER_UUID, allowAllResources, resourcesJson);
+                """.formatted(USER_UUID, resourcesJson);
 
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, USER_UUID, "localhost", List.of(),
                 userProfileData);
