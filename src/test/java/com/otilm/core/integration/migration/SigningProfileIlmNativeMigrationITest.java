@@ -43,8 +43,7 @@ class SigningProfileIlmNativeMigrationITest extends BaseSpringBootTest {
                 statement
                         .execute(
                                 "INSERT INTO \"signing_profile\" (\"uuid\", \"name\") VALUES (gen_random_uuid(), 'existing')");
-                String migration = new String(new ClassPathResource(MIGRATION_RESOURCE).getInputStream().readAllBytes(),
-                        StandardCharsets.UTF_8);
+                String migration = new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
 
                 // when
                 statement.execute(migration);

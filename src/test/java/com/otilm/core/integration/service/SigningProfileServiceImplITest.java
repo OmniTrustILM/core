@@ -2631,6 +2631,27 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertFalse(updatedProfile.getEnabledProtocols().contains(SigningProtocol.TSP),
                     "TSP should still be absent after a no-op deactivation");
         }
+
+        @Test
+        void dropsTsp_whenUpdatingActivatedTimestampingProfileToContentSigning() throws Exception {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
+            signingProfileService.activateTsp(uuid, SecuredUUID.fromString(defaultTspProtocol.getUuid()), BASE_URL);
+            SigningProfileRequestDto toContentSigning = aSigningProfileRequestFromExistingProfile(
+                    defaultTimestampingProfile)
+                    .withDelegatedSigning(signerConnector.getUuid())
+                    .withDelegatedContentSigning()
+                    .build();
+
+            // when
+            SigningProfileDto updated = signingProfileService.updateSigningProfile(uuid, toContentSigning);
+
+            // then
+            assertThat(updated.getEnabledProtocols()).doesNotContain(SigningProtocol.TSP);
+            assertThat(signingProfileService.getSigningProfile(uuid, null).getEnabledProtocols())
+                    .doesNotContain(SigningProtocol.TSP);
+            assertThat(signingProfileRepository.findByUuid(uuid).orElseThrow().getTspProfileUuid()).isNull();
+        }
     }
 
     // ── IlmNativeProtocol ─────────────────────────────────────────────────────

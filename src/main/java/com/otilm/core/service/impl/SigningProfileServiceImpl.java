@@ -537,9 +537,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
         applyWorkflow(profile, version, request.getWorkflow(), request.getSigningScheme().getSigningScheme());
         applyScheme(profile, version, request.getSigningScheme());
-        if (!admitsIlmNative(profile)) {
-            profile.setIlmNativeEnabled(false);
-        }
+        dropProtocolsTheConfigurationCannotCarry(profile);
         applyRecordPolicyToVersion(version, request.getRecordPolicy());
         profile = signingProfileRepository.save(profile);
         signingProfileVersionRepository.save(version);
@@ -849,6 +847,16 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         if (!supportsProtocol(workflowType, protocol)) {
             throw new ValidationException(
                     protocol.getCode() + " is not supported for workflow type " + workflowType.getCode());
+        }
+    }
+
+    /** An update may move a profile to a workflow or scheme that cannot carry a protocol it had enabled. */
+    private static void dropProtocolsTheConfigurationCannotCarry(SigningProfile profile) {
+        if (!admitsIlmNative(profile)) {
+            profile.setIlmNativeEnabled(false);
+        }
+        if (!supportsProtocol(profile.getWorkflowType(), SigningProtocol.TSP)) {
+            profile.setTspProfile(null);
         }
     }
 
