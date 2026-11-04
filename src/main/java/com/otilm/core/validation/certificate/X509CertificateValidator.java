@@ -364,6 +364,7 @@ public class X509CertificateValidator implements ICertificateValidator {
         try {
             crlUuid = crlService.getCurrentCrl(certificate, issuerCertificate);
         } catch (IOException e) {
+            logger.debug("Unable to retrieve the CRL", e);
             return new CertificateValidationCheckDto(CertificateValidationCheck.CRL_VERIFICATION,
                     CertificateValidationStatus.FAILED, "Failed to retrieve CRL: " + e.getMessage());
         } catch (ValidationException e) {
