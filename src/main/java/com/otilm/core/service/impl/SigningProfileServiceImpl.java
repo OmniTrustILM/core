@@ -760,6 +760,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @Transactional
     public TspActivationDetailDto activateTsp(SecuredUUID signingProfileUuid, SecuredUUID tspProfileUuid,
             String baseUrl) throws NotFoundException {
+        lockProfile(signingProfileUuid);
         SigningProfile signingProfile = findByUuid(signingProfileUuid);
         validateSupportedProtocol(signingProfile.getWorkflowType(), SigningProtocol.TSP);
         TspProfile tspProfile = tspProfileService.getTspProfileEntity(tspProfileUuid);
@@ -774,6 +775,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
     @Transactional
     public void deactivateTsp(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         SigningProfile profile = findByUuid(uuid);
         profile.setTspProfile(null);
         signingProfileRepository.save(profile);
