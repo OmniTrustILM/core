@@ -609,6 +609,73 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     }
 
     @Test
+    void reportsCrlFailed_whenCrlDistributionPointsExtensionIsMalformed() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        List<String> noDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlMalformed-" + stamp, noDistributionPoints,
+                null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("The cRLDistributionPoints extension is malformed");
+    }
+
+    @Test
+    void reportsCrlFailed_whenFreshestCrlExtensionIsMalformed() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/malformed-delta-base-" + stamp + ".crl";
+        List<String> noDeltaCrlDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMalformed-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath), noDeltaCrlDistributionPoints, BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate()).build().getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("The freshestCRL extension is malformed");
+    }
+
+    @Test
+    void keepsBaseCrlRevocation_whenFreshestCrlExtensionIsMalformed() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/malformed-delta-revoking-base-" + stamp + ".crl";
+        List<String> noDeltaCrlDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair,
+                "testCrlDeltaMalformedRevoked-" + stamp, List.of(LoopbackWireMock.url(mockServer) + basePath),
+                noDeltaCrlDistributionPoints, BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
     void replacesCrlEntries_whenRefreshedCrlHasHigherNumber() throws Exception {
         // given
         long stamp = System.nanoTime();
