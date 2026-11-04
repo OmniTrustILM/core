@@ -99,4 +99,8 @@ public interface SigningProfileExternalService {
             throws NotFoundException;
 
     void deactivateTsp(SecuredUUID uuid) throws NotFoundException;
+
+    void activateIlmNative(SecuredUUID uuid) throws NotFoundException;
+
+    void deactivateIlmNative(SecuredUUID uuid) throws NotFoundException;
 }
