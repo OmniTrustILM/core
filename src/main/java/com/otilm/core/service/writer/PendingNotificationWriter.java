@@ -37,18 +37,6 @@ public class PendingNotificationWriter {
                         pinnedVersion, OffsetDateTime.now());
     }
 
-    /**
-     * Writes the row before the first send so that a failed send leaves it behind for the reminder sweep to find. A row
-     * that already exists is left as it is.
-     */
-    @Transactional
-    public void recordPending(UUID notificationProfileUuid, Resource resource, UUID objectUuid, ResourceEvent event,
-            int pinnedVersion) {
-        pendingNotificationRepository
-                .insertPendingIfAbsent(UUID.randomUUID(), notificationProfileUuid, resource.name(), objectUuid,
-                        event.name(), pinnedVersion, OffsetDateTime.now());
-    }
-
     @Transactional
     public void deleteForObjectAndEvent(Resource resource, UUID objectUuid, ResourceEvent event) {
         pendingNotificationRepository.deleteForObjectAndEvent(resource, objectUuid, event);

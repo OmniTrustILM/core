@@ -163,16 +163,16 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
 
     private void sendByNotificationProfile(UUID notificationProfileUuid, NotificationMessage message)
             throws NotFoundException {
-        PendingNotification existingNotification = message.getEvent().isMonitoring()
+        PendingNotification pendingNotification = message.getEvent().isMonitoring()
                 ? pendingNotificationRepository
                         .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(notificationProfileUuid,
                                 message.getResource(), message.getObjectUuid(), message.getEvent())
                 : null;
         NotificationProfileVersion notificationProfileVersion = resolveProfileVersion(notificationProfileUuid,
-                existingNotification);
-        PendingNotification pendingNotification = existingNotification != null
-                ? existingNotification
-                : getNewPendingNotification(message, notificationProfileVersion, null);
+                pendingNotification);
+        if (pendingNotification == null) {
+            pendingNotification = getNewPendingNotification(message, notificationProfileVersion, null);
+        }
 
         boolean sendInternalNotifications = notificationProfileVersion.isInternalNotification()
                 && (notificationProfileVersion.getRecipientType() != RecipientType.DEFAULT
@@ -193,11 +193,6 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                             notificationProfileVersion.getNotificationProfile().getName(), message.getEvent(),
                             pendingNotification.getLastSentAt(), pendingNotification.getRepetitions());
             return;
-        }
-
-        if (existingNotification == null && pendingNotification != null
-                && message.getEvent().isSingleNotificationWithoutReminders()) {
-            seedSuppressionState(notificationProfileUuid, message, notificationProfileVersion.getVersion());
         }
 
         EventData eventData = convertEventDataBestEffort(message);
@@ -228,7 +223,10 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             }
         }
 
-        if (pendingNotification != null && notificationSent) {
+        // For the event that reminds, a failed attempt counts as one as well, so a send that keeps failing is retried
+        // only as often and as many times as the profile allows.
+        if (pendingNotification != null
+                && (notificationSent || message.getEvent().isSingleNotificationWithoutReminders())) {
             recordSuppressionState(notificationProfileUuid, message, pendingNotification.getVersion());
         }
     }
@@ -248,23 +246,6 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         return notificationProfileVersionRepository
                 .findTopByNotificationProfileUuidOrderByVersionDesc(notificationProfileUuid)
                 .orElseThrow(() -> new NotFoundException(NotificationProfile.class, notificationProfileUuid));
-    }
-
-    /**
-     * Writes the suppression row before the first send, so a send that fails still leaves the row the reminder sweep
-     * looks for. A write failure is logged and swallowed: the send goes ahead without it.
-     */
-    private void seedSuppressionState(UUID notificationProfileUuid, NotificationMessage message, int pinnedVersion) {
-        try {
-            pendingNotificationWriter
-                    .recordPending(notificationProfileUuid, message.getResource(), message.getObjectUuid(),
-                            message.getEvent(), pinnedVersion);
-        } catch (RuntimeException e) {
-            logger
-                    .error("Could not write the suppression state before sending the notification for profile {} event {} on {} {}",
-                            notificationProfileUuid, message.getEvent(), message.getResource(), message.getObjectUuid(),
-                            e);
-        }
     }
 
     /**
