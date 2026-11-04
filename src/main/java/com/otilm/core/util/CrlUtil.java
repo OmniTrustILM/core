@@ -45,7 +45,8 @@ public class CrlUtil {
     /**
      * Returns the URLs that a cRLDistributionPoints or freshestCRL extension value names. A malformed value throws an
      * {@link IOException} naming {@code extensionName}, so callers treat it as unreadable revocation data; BouncyCastle
-     * reports most malformed values with an unchecked exception whose type depends on what is wrong with them.
+     * reports most malformed values with an unchecked exception whose type depends on what is wrong with them. That
+     * exception is kept only as the cause, since the message reaches API clients in the validation result.
      */
     public static List<String> getCDPFromCertificate(byte[] extensionToDownloadFrom, String extensionName)
             throws IOException {
@@ -57,7 +58,7 @@ public class CrlUtil {
         try {
             distributionPoints = readDistributionPoints(extensionToDownloadFrom);
         } catch (IOException | RuntimeException e) {
-            throw new IOException("The %s extension is malformed: %s".formatted(extensionName, e.getMessage()), e);
+            throw new IOException("The %s extension is malformed".formatted(extensionName), e);
         }
 
         List<String> crlUrls = new ArrayList<>();

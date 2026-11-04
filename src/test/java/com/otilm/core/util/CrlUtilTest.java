@@ -26,7 +26,8 @@ class CrlUtilTest {
         // then
         assertThatThrownBy(readCrlUrls)
                 .isInstanceOf(IOException.class)
-                .hasMessageContaining("The freshestCRL extension is malformed");
+                .hasMessage("The freshestCRL extension is malformed")
+                .hasCauseInstanceOf(Exception.class);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
