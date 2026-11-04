@@ -19,11 +19,15 @@ import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 
 @Getter
 @Setter
 @Entity
 @Table(name = "signing_profile")
+// An enable, disable or TSP switch may hold a copy read before an update or an ILM_NATIVE switch committed; writing
+// only what it changed keeps what that change gave the profile.
+@DynamicUpdate
 public class SigningProfile extends UniquelyIdentifiedAndAudited implements Securable {
 
     @Getter(onMethod_ = {@Override})
@@ -35,6 +39,9 @@ public class SigningProfile extends UniquelyIdentifiedAndAudited implements Secu
 
     @Column(name = "enabled", nullable = false)
     private boolean enabled = false;
+
+    @Column(name = "ilm_native_enabled", nullable = false)
+    private boolean ilmNativeEnabled = false;
 
     /**
      * Denormalized cache column — mirrors the latest {@link SigningProfileVersion#signingScheme}. Updated on every
