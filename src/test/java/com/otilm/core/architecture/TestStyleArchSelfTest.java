@@ -184,55 +184,6 @@ class TestStyleArchSelfTest {
         }
     }
 
-    // ── TestNames ────────────────────────────────────────────────────────────
-
-    @Nested
-    class TestNames {
-
-        @Test
-        void reportsTheMethods_whenTheirNamesDepartFromVerbOutcomeWhenCondition() {
-            // given
-            JavaClasses planted = importPlanted(PlantedLegacyTestNames.class);
-
-            // when
-            List<String> violations = violationsOf(TestStyleArchTest.testMethodsFollowVerbOutcomeWhenCondition(),
-                    planted);
-
-            // then
-            assertThat(violations)
-                    .hasSize(3)
-                    .anyMatch(violation -> violation.contains(".testSigning()>"))
-                    .anyMatch(violation -> violation.contains(".readsAgain_afterTheLoaderFailed_andKeepsTheOthers()>"))
-                    .anyMatch(violation -> violation.contains(".ReturnsPolicy()>"));
-        }
-
-        @Test
-        void reportsEachKindOfTestMethod_whenItsNameDepartsFromVerbOutcomeWhenCondition() {
-            // given
-            JavaClasses planted = importPlanted(PlantedLegacyTestKinds.class);
-
-            // when
-            List<String> violations = violationsOf(TestStyleArchTest.testMethodsFollowVerbOutcomeWhenCondition(),
-                    planted);
-
-            // then
-            assertThat(violations).hasSize(4);
-        }
-
-        @Test
-        void passes_whenTheNamesFollowVerbOutcomeWhenCondition() {
-            // given
-            JavaClasses planted = importPlanted(PlantedStyledTestNames.class);
-
-            // when
-            List<String> violations = violationsOf(TestStyleArchTest.testMethodsFollowVerbOutcomeWhenCondition(),
-                    planted);
-
-            // then
-            assertThat(violations).isEmpty();
-        }
-    }
-
     // ── NestedClasses ────────────────────────────────────────────────────────
 
     @Nested
@@ -491,36 +442,6 @@ class TestStyleArchSelfTest {
 
         @AfterEach
         abstract void stopMockServer();
-    }
-
-    abstract static class PlantedLegacyTestNames {
-
-        @Test
-        abstract void testSigning();
-
-        @Test
-        abstract void readsAgain_afterTheLoaderFailed_andKeepsTheOthers();
-
-        @Test
-        abstract void ReturnsPolicy();
-    }
-
-    abstract static class PlantedStyledTestNames {
-
-        @Test
-        abstract void returnsPolicy_whenRequestNamesOne();
-
-        @Test
-        abstract void throwsUnsupported();
-
-        @Test
-        abstract void asksAgain_afterTheLoaderFailed();
-
-        @Test
-        abstract void selectsV2_forCryptographyV2Interface();
-
-        @ParameterizedTest
-        abstract void testsConnection_whenUrlIsReachable();
     }
 
     abstract static class PlantedLegacyTestKinds {

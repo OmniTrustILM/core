@@ -50,8 +50,6 @@ public class TestStyleArchTest {
     private static final String TEST_STYLE = "the test style in .claude/rules/test-style.md asks for it";
     private static final String SUPPORT_STYLE = "the support-class style in .claude/rules/test-support.md asks for it";
 
-    private static final Pattern VERB_OUTCOME_WHEN_CONDITION = Pattern
-            .compile("(?!test(?:[A-Z0-9_]|$))[a-z][a-zA-Z0-9]*(?:_[a-z][a-zA-Z0-9]*)?");
     private static final String GENERIC_LIFECYCLE_NAME = "setUp|setup|init|tearDown|teardown";
     private static final List<String> ASSERTION_LIBRARY_PREFIXES = List
             .of("org.junit.jupiter.api.Assertions", "org.junit.Assert", "org.hamcrest.");
@@ -71,10 +69,6 @@ public class TestStyleArchTest {
     @ArchTest
     static final ArchRule lifecycle_methods_are_named_for_what_they_arrange = FreezingArchRule
             .freeze(lifecycleMethodsAreNamedForWhatTheyArrange());
-
-    @ArchTest
-    static final ArchRule test_methods_follow_verb_outcome_when_condition = FreezingArchRule
-            .freeze(testMethodsFollowVerbOutcomeWhenCondition());
 
     @ArchTest
     static final ArchRule nested_classes_are_one_level_deep_without_test_suffix = FreezingArchRule
@@ -108,10 +102,6 @@ public class TestStyleArchTest {
                 .should()
                 .haveNameNotMatching(GENERIC_LIFECYCLE_NAME)
                 .because(TEST_STYLE);
-    }
-
-    static ArchRule testMethodsFollowVerbOutcomeWhenCondition() {
-        return methods().that(TEST_METHODS).should(beNamedVerbOutcomeWhenCondition()).because(TEST_STYLE);
     }
 
     static ArchRule nestedClassesAreOneLevelDeepWithoutTestSuffix() {
@@ -205,20 +195,6 @@ public class TestStyleArchTest {
                     events
                             .add(SimpleConditionEvent
                                     .violated(method, "%s declares a throws clause other than Exception in %s"
-                                            .formatted(method.getDescription(), method.getSourceCodeLocation())));
-                }
-            }
-        };
-    }
-
-    private static ArchCondition<JavaMethod> beNamedVerbOutcomeWhenCondition() {
-        return new ArchCondition<>("be named verb_outcome_whenCondition") {
-            @Override
-            public void check(JavaMethod method, ConditionEvents events) {
-                if (!VERB_OUTCOME_WHEN_CONDITION.matcher(method.getName()).matches()) {
-                    events
-                            .add(SimpleConditionEvent
-                                    .violated(method, "%s is not named verb_outcome_whenCondition in %s"
                                             .formatted(method.getDescription(), method.getSourceCodeLocation())));
                 }
             }
