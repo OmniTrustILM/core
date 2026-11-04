@@ -166,8 +166,8 @@ public class CrlServiceImpl implements CrlService {
             throw deltaCrlFailure;
         }
         logger
-                .debug("Serial number {} stays revoked as the stored CRL lists it, though no delta CRL applies: {}",
-                        serialNumber, deltaCrlFailure.getMessage());
+                .debug("Serial number {} stays revoked as the stored CRL lists it, though no delta CRL applies",
+                        serialNumber, deltaCrlFailure);
     }
 
     /**
@@ -196,7 +196,7 @@ public class CrlServiceImpl implements CrlService {
     private Crl downloadCrl(byte[] crlDistributionPointsEncoded, String issuerDn, String issuerSerialNumber,
             UUID caCertificateUuid, Crl oldCrl, CertificateIssuer issuer, BigInteger lowestCrlNumber)
             throws IOException {
-        List<String> crlUrls = CrlUtil.getCDPFromCertificate(crlDistributionPointsEncoded);
+        List<String> crlUrls = CrlUtil.getCDPFromCertificate(crlDistributionPointsEncoded, "cRLDistributionPoints");
 
         String lastReasonToIgnore = null;
         for (String crlUrl : crlUrls) {
@@ -286,7 +286,7 @@ public class CrlServiceImpl implements CrlService {
     private void updateCrlAndCrlEntriesFromDeltaCrl(X509Certificate certificate, Crl crl, String issuerDn,
             String issuerSerialNumber, UUID caCertificateUuid, CertificateIssuer issuer) throws IOException {
         List<String> deltaCrlUrls = CrlUtil
-                .getCDPFromCertificate(certificate.getExtensionValue(Extension.freshestCRL.getId()));
+                .getCDPFromCertificate(certificate.getExtensionValue(Extension.freshestCRL.getId()), "freshestCRL");
         if (deltaCrlUrls.isEmpty()) {
             throw new IOException("The certificate names a delta CRL without a URL to read it from");
         }
