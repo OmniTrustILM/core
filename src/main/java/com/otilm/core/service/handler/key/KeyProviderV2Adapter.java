@@ -82,6 +82,7 @@ import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataReques
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.SignatureDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.data.SignatureResponseItemV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.VerificationResponseItemV2Dto;
 import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.attribute.EncryptionAlgorithmMapping;
@@ -652,8 +653,8 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         }
         SignDataResponseDto result = new SignDataResponseDto();
         result
-                .setSignatures(inRequestOrder(responseBody.getSignatures(), batch, SignatureDataV2Dto::getIdentifier,
-                        (item, identifier) -> {
+                .setSignatures(inRequestOrder(responseBody.getSignatures(), batch,
+                        SignatureResponseItemV2Dto::getIdentifier, (item, identifier) -> {
                             SignatureResponseData data = new SignatureResponseData();
                             data.setData(encodeRequired(item.getData()));
                             data.setIdentifier(identifier);
