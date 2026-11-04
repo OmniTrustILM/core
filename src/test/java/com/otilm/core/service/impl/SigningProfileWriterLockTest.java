@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -161,7 +162,7 @@ class SigningProfileWriterLockTest {
     }
 
     @Test
-    void locksProfileInPerProfileTransaction_whenBulkEnabling() {
+    void readsProfileOnlyUnderLock_whenBulkEnabling() {
         // given — a stored profile, with the service standing in for its own proxy
         service.setSelf(service);
 
@@ -169,11 +170,11 @@ class SigningProfileWriterLockTest {
         service.bulkEnableSigningProfiles(List.of(SecuredUUID.fromUUID(PROFILE)));
 
         // then
-        verifyLockedBetweenOuterAndInnerReads();
+        verifyReadOnlyUnderLock();
     }
 
     @Test
-    void locksProfileInPerProfileTransaction_whenBulkDisabling() {
+    void readsProfileOnlyUnderLock_whenBulkDisabling() {
         // given — a stored profile, with the service standing in for its own proxy
         service.setSelf(service);
 
@@ -181,7 +182,7 @@ class SigningProfileWriterLockTest {
         service.bulkDisableSigningProfiles(List.of(SecuredUUID.fromUUID(PROFILE)));
 
         // then
-        verifyLockedBetweenOuterAndInnerReads();
+        verifyReadOnlyUnderLock();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -193,12 +194,11 @@ class SigningProfileWriterLockTest {
     }
 
     /**
-     * The outer read only names the profile in a failure message, so only the read inside the transaction is locked.
+     * Under open-in-view a profile read before the lock stays managed in the request's EntityManager, which the
+     * per-profile transaction reuses, so the read under the lock would hand back that copy.
      */
-    private void verifyLockedBetweenOuterAndInnerReads() {
-        InOrder order = inOrder(clusterSynchronizer, signingProfileRepository);
-        order.verify(signingProfileRepository).findByUuid(any());
-        order.verify(clusterSynchronizer).lock("signing-profile:" + PROFILE);
-        order.verify(signingProfileRepository).findByUuid(any());
+    private void verifyReadOnlyUnderLock() {
+        verifyLockedBeforeRead();
+        verify(signingProfileRepository).findByUuid(any());
     }
 }

@@ -676,22 +676,22 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     public List<BulkActionMessageDto> bulkEnableSigningProfiles(List<SecuredUUID> uuids) {
         List<BulkActionMessageDto> messages = new ArrayList<>();
         for (SecuredUUID uuid : uuids) {
-            SigningProfile profile = null;
+            String name = "";
             try {
-                profile = findByUuid(uuid);
+                name = signingProfileRepository.findNameByUuid(uuid.getValue()).orElse("");
                 self.enableInOwnTransaction(uuid);
             } catch (Exception e) {
                 log.error("Failed to enable Signing Profile {}", uuid, e);
-                messages
-                        .add(BulkActionMessageDto
-                                .failure(uuid.toString(), profile != null ? profile.getName() : "", e,
-                                        "Enable failed"));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), name, e, "Enable failed"));
             }
         }
         return messages;
     }
 
-    /** Reads the profile in this transaction: the caller's copy may be detached, and saving it merges stale state. */
+    /**
+     * Reads the profile only under the lock. The caller must not read the entity: under open-in-view it would stay
+     * managed in the request's EntityManager, which this transaction reuses, and the read here would return that copy.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     void enableInOwnTransaction(SecuredUUID uuid) throws NotFoundException {
         lockProfile(uuid);
@@ -718,22 +718,22 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     public List<BulkActionMessageDto> bulkDisableSigningProfiles(List<SecuredUUID> uuids) {
         List<BulkActionMessageDto> messages = new ArrayList<>();
         for (SecuredUUID uuid : uuids) {
-            SigningProfile profile = null;
+            String name = "";
             try {
-                profile = findByUuid(uuid);
+                name = signingProfileRepository.findNameByUuid(uuid.getValue()).orElse("");
                 self.disableInOwnTransaction(uuid);
             } catch (Exception e) {
                 log.error("Failed to disable Signing Profile {}", uuid, e);
-                messages
-                        .add(BulkActionMessageDto
-                                .failure(uuid.toString(), profile != null ? profile.getName() : "", e,
-                                        "Disable failed"));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), name, e, "Disable failed"));
             }
         }
         return messages;
     }
 
-    /** Reads the profile in this transaction: the caller's copy may be detached, and saving it merges stale state. */
+    /**
+     * Reads the profile only under the lock. The caller must not read the entity: under open-in-view it would stay
+     * managed in the request's EntityManager, which this transaction reuses, and the read here would return that copy.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     void disableInOwnTransaction(SecuredUUID uuid) throws NotFoundException {
         lockProfile(uuid);

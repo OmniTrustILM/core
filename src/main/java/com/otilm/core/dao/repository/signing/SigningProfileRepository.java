@@ -25,6 +25,9 @@ public interface SigningProfileRepository extends SecurityFilterRepository<Signi
     @Query("SELECT s.name FROM SigningProfile s ORDER BY s.name")
     List<String> findAllNames();
 
+    @Query("SELECT s.name FROM SigningProfile s WHERE s.uuid = :uuid")
+    Optional<String> findNameByUuid(@Param("uuid") UUID uuid);
+
     @Query("""
             SELECT new com.otilm.core.model.signing.SigningProfileGateRow(
                 s.name, s.ilmNativeEnabled, s.enabled, s.workflowType, s.signingScheme)
