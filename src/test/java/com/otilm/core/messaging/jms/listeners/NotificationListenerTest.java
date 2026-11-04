@@ -416,6 +416,8 @@ class NotificationListenerTest {
                 renderedCommentNotification(ResourceEvent.COMMENT_RESOLVED, reopened)[0]);
     }
 
+    // ── NotCompliantReminders ────────────────────────────────────────────────
+
     @Nested
     @ExtendWith(MockitoExtension.class)
     class NotCompliantReminders {
@@ -477,7 +479,7 @@ class NotificationListenerTest {
         }
 
         @Test
-        void suppressesNotification_whenProfileSetsNoRemindersAndAlreadyNotified() throws Exception {
+        void suppressesNotification_whenProfileSetsNoRemindersAndAlreadyNotified() {
             // given
             NotificationProfileVersion version = createVersion(null, null);
             stubExistingRow(version, createPendingNotification(version, 1, OffsetDateTime.now().minusDays(30)));
@@ -506,7 +508,7 @@ class NotificationListenerTest {
         }
 
         @Test
-        void suppressesReminder_whenRepetitionsAreExhausted() throws Exception {
+        void suppressesReminder_whenRepetitionsAreExhausted() {
             // given
             NotificationProfileVersion version = createVersion(null, 2);
             stubExistingRow(version, createPendingNotification(version, 2, OffsetDateTime.now().minusDays(30)));
@@ -520,7 +522,7 @@ class NotificationListenerTest {
         }
 
         @Test
-        void suppressesReminder_whenFrequencyHasNotElapsed() throws Exception {
+        void suppressesReminder_whenFrequencyHasNotElapsed() {
             // given
             NotificationProfileVersion version = createVersion(Duration.ofDays(1), null);
             stubExistingRow(version, createPendingNotification(version, 1, OffsetDateTime.now()));
@@ -566,7 +568,7 @@ class NotificationListenerTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private NotificationProfileVersion createVersion(Duration frequency, Integer repetitions) {
+        private static NotificationProfileVersion createVersion(Duration frequency, Integer repetitions) {
             NotificationProfile profile = new NotificationProfile();
             profile.setName("reminder-profile");
 
@@ -582,8 +584,8 @@ class NotificationListenerTest {
             return version;
         }
 
-        private PendingNotification createPendingNotification(NotificationProfileVersion version, int repetitions,
-                OffsetDateTime lastSentAt) {
+        private static PendingNotification createPendingNotification(NotificationProfileVersion version,
+                int repetitions, OffsetDateTime lastSentAt) {
             PendingNotification pending = new PendingNotification();
             pending.setNotificationProfileUuid(version.getNotificationProfileUuid());
             pending.setResource(Resource.CERTIFICATE);
@@ -593,7 +595,7 @@ class NotificationListenerTest {
             return pending;
         }
 
-        private NotificationMessage createMessage(ResourceEvent event, NotificationProfileVersion version) {
+        private static NotificationMessage createMessage(ResourceEvent event, NotificationProfileVersion version) {
             return new NotificationMessage(event, Resource.CERTIFICATE, UUID.randomUUID(),
                     List.of(version.getNotificationProfileUuid()), List.of(), null, UUID.randomUUID(), null);
         }
