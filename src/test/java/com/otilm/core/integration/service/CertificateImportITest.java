@@ -551,33 +551,46 @@ class CertificateImportITest extends BaseSpringBootTest {
     }
 
     @Test
-    void importCertificates_makesTheImportingUserOwnerOfTheCertificatesItCreatesWhenAutomaticOwnershipIsOn()
-            throws Exception {
+    void importCertificates_makesImporterOwnerOfCreatedCertificates_whenAutomaticOwnershipIsOn() throws Exception {
         // given
         enableAutomaticOwnership();
         NameAndUuidDto importer = AuthHelper.getUserIdentification();
-        X509CertificateHolder another = ContainerFixtures.selfSigned(ContainerFixtures.ec(), "CN=Another");
-        String registered = certificateUploadService
-                .upload(Base64.getEncoder().encodeToString(other.getEncoded()), null, true);
-        UUID registeredUuid = certificateRepository.findByFingerprint(registered).orElseThrow().getUuid();
-        objectAssociationService.setOwner(Resource.CERTIFICATE, registeredUuid, UUID.randomUUID(), "someone else");
-        CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, other, another), null,
-                entry(reference(other), null), entry(reference(another), null));
+        X509CertificateHolder created = ContainerFixtures.selfSigned(ContainerFixtures.ec(), "CN=Created");
+        CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, created), null,
+                entry(reference(created), null));
 
         // when
         importCertificates(request);
 
         // then
-        assertThat(objectAssociationService.getOwner(Resource.CERTIFICATE, inventoried(another).getUuid()))
+        assertThat(objectAssociationService.getOwner(Resource.CERTIFICATE, inventoried(created).getUuid()))
                 .extracting(NameAndUuidDto::getUuid, NameAndUuidDto::getName)
                 .containsExactly(importer.getUuid(), importer.getName());
-        assertThat(objectAssociationService.getOwner(Resource.CERTIFICATE, registeredUuid).getName())
-                .isEqualTo("someone else");
     }
 
     @Test
-    void importCertificates_leavesCertificatesItCreatesWithoutOwnerByDefault() throws Exception {
+    void importCertificates_keepsOwnerOfCertificateAlreadyInInventory_whenAutomaticOwnershipIsOn() throws Exception {
         // given
+        enableAutomaticOwnership();
+        var existingOwnerName = "someone else";
+        String registered = certificateUploadService
+                .upload(Base64.getEncoder().encodeToString(other.getEncoded()), null, true);
+        UUID registeredUuid = certificateRepository.findByFingerprint(registered).orElseThrow().getUuid();
+        objectAssociationService.setOwner(Resource.CERTIFICATE, registeredUuid, UUID.randomUUID(), existingOwnerName);
+        CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, other), null,
+                entry(reference(other), null));
+
+        // when
+        importCertificates(request);
+
+        // then
+        assertThat(objectAssociationService.getOwner(Resource.CERTIFICATE, registeredUuid).getName())
+                .isEqualTo(existingOwnerName);
+    }
+
+    @Test
+    void importCertificates_leavesCreatedCertificatesWithoutOwner_whenAutomaticOwnershipIsOff() throws Exception {
+        // given — automatic ownership was never turned on
         CertificateImportRequestDto request = request(ContainerFixtures.pem(LF, other), null,
                 entry(reference(other), null));
 

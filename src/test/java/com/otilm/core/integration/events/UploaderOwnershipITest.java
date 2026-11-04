@@ -7,29 +7,15 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
-import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.other.ResourceEvent;
-import com.otilm.api.model.core.search.FilterConditionOperator;
-import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateUploadSettingsUpdateDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
-import com.otilm.api.model.core.workflows.ActionRequestDto;
-import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
-import com.otilm.api.model.core.workflows.ConditionRequestDto;
-import com.otilm.api.model.core.workflows.ConditionType;
-import com.otilm.api.model.core.workflows.ExecutionItemRequestDto;
-import com.otilm.api.model.core.workflows.ExecutionRequestDto;
-import com.otilm.api.model.core.workflows.ExecutionType;
-import com.otilm.api.model.core.workflows.RuleRequestDto;
-import com.otilm.api.model.core.workflows.TriggerRequestDto;
-import com.otilm.api.model.core.workflows.TriggerType;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateEventHistory;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
-import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.handlers.CertificateUploadedEventHandler;
 import com.otilm.core.events.transaction.UploaderOwnershipEvent;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
@@ -37,32 +23,35 @@ import com.otilm.core.messaging.jms.listeners.EventListener;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.service.ActionExternalService;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
-import com.otilm.core.service.RuleExternalService;
 import com.otilm.core.service.SettingExternalService;
-import com.otilm.core.service.TriggerExternalService;
 import com.otilm.core.service.handler.UploaderOwnershipListener;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.AuthServiceWireMockStubs;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.WireMockPorts;
+import com.otilm.core.util.seeders.CertificateUploadTriggerSeeder;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 class UploaderOwnershipITest extends BaseSpringBootTest {
+
+    private static final String UPLOADED_SUBJECT = "CN=uploaded";
 
     @Autowired
     private CertificateUploadedEventHandler certificateUploadedEventHandler;
@@ -81,211 +70,282 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
     @Autowired
     private CertificateExternalService certificateService;
     @Autowired
-    private RuleExternalService ruleService;
-    @Autowired
-    private ActionExternalService actionService;
-    @Autowired
-    private TriggerExternalService triggerService;
+    private CertificateUploadTriggerSeeder triggerSeeder;
 
-    private WireMockServer mockServer;
+    private WireMockServer authService;
+    private Logger capturedLogger;
+    private ListAppender<ILoggingEvent> capturedLogs;
 
     @AfterEach
     void tearDown() {
-        if (mockServer != null) {
-            mockServer.stop();
+        if (authService != null) {
+            authService.stop();
+        }
+        if (capturedLogger != null) {
+            capturedLogger.detachAppender(capturedLogs);
         }
     }
 
     @Test
-    void uploaderIsNotMadeOwnerByDefault() throws Exception {
-        Certificate uploaded = upload();
+    void leavesCertificateWithoutOwner_whenAutomaticOwnershipIsOff() throws Exception {
+        // given — automatic ownership was never turned on
 
-        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
+
+        // then
+        assertThat(ownerOf(uploaded)).isNull();
     }
 
     @Test
-    void uploaderBecomesOwnerWhenEnabled() throws Exception {
+    void makesUploaderOwner_whenAutomaticOwnershipIsOn() throws Exception {
+        // given
         enableAutomaticOwnership(true);
         NameAndUuidDto uploader = AuthHelper.getUserIdentification();
 
-        Certificate uploaded = upload();
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
 
-        NameAndUuidDto owner = associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid());
-        Assertions.assertNotNull(owner);
-        Assertions.assertEquals(uploader.getUuid(), owner.getUuid());
-        Assertions.assertEquals(uploader.getName(), owner.getName());
-        Assertions.assertEquals(List.of("undefined -> " + uploader.getName()), ownerChanges(uploaded));
+        // then
+        assertThat(ownerOf(uploaded))
+                .extracting(NameAndUuidDto::getUuid, NameAndUuidDto::getName)
+                .containsExactly(uploader.getUuid(), uploader.getName());
+        assertThat(ownerChanges(uploaded)).containsExactly("undefined -> " + uploader.getName());
     }
 
     @Test
-    void uploaderIsNotMadeOwnerAfterTurningTheSettingOff() throws Exception {
+    void leavesCertificateWithoutOwner_whenAutomaticOwnershipWasTurnedOff() throws Exception {
+        // given
         enableAutomaticOwnership(true);
         enableAutomaticOwnership(false);
 
-        Certificate uploaded = upload();
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
 
-        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
+        // then
+        assertThat(ownerOf(uploaded)).isNull();
     }
 
     @Test
-    void ownerSetByTriggerIsKept() throws Exception {
+    void keepsTriggerOwner_whenTriggerSetsOwner() throws Exception {
+        // given
         enableAutomaticOwnership(true);
-        UUID triggerOwnerUuid = UUID.randomUUID();
-        String triggerOwnerName = "team-account";
-        seedSetOwnerTrigger(triggerOwnerUuid, triggerOwnerName);
+        var teamAccountUuid = UUID.randomUUID();
+        var teamAccountName = "team-account";
+        startAuthService(teamAccountUuid, teamAccountName);
+        triggerSeeder.seedSetOwnerTrigger(teamAccountUuid);
 
-        Certificate uploaded = upload();
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
 
-        NameAndUuidDto owner = associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid());
-        Assertions.assertNotNull(owner);
-        Assertions.assertEquals(triggerOwnerUuid.toString(), owner.getUuid());
-        Assertions.assertEquals(List.of("undefined -> " + triggerOwnerName), ownerChanges(uploaded));
+        // then
+        assertThat(ownerOf(uploaded).getUuid()).isEqualTo(teamAccountUuid.toString());
+        assertThat(ownerChanges(uploaded)).containsExactly("undefined -> " + teamAccountName);
     }
 
     @Test
-    void failureToStoreTheOwnerIsLoggedAndLeavesTheCertificate() throws Exception {
-        Certificate uploaded = upload();
-        Logger listenerLogger = (Logger) LoggerFactory.getLogger(UploaderOwnershipListener.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        listenerLogger.addAppender(appender);
-
-        try {
-            // a username longer than the owner column takes, so storing the owner fails in the database
-            Assertions
-                    .assertDoesNotThrow(() -> uploaderOwnershipListener
-                            .handleUploaderOwnership(new UploaderOwnershipEvent(uploaded.getUuid(), UUID.randomUUID(),
-                                    "u".repeat(300))));
-        } finally {
-            listenerLogger.detachAppender(appender);
-        }
-
-        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
-        Assertions.assertTrue(certificateRepository.findByUuid(uploaded.getUuid()).isPresent());
-        Assertions
-                .assertTrue(
-                        appender.list
-                                .stream()
-                                .anyMatch(event -> event.getFormattedMessage().contains("Unable to make")),
-                        "the failure is logged");
-    }
-
-    @Test
-    void uploaderIsNotMadeOwnerWhenATriggerClearsTheOwner() throws Exception {
+    void leavesCertificateWithoutOwner_whenTriggerClearsOwner() throws Exception {
+        // given
         enableAutomaticOwnership(true);
-        seedSetOwnerTrigger(null, null);
+        startAuthService(UUID.randomUUID(), "trigger-owner");
+        triggerSeeder.seedClearOwnerTrigger();
 
-        Certificate uploaded = upload();
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
 
-        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
-        Assertions.assertEquals(List.of(), ownerChanges(uploaded));
+        // then
+        assertThat(ownerOf(uploaded)).isNull();
+        assertThat(ownerChanges(uploaded)).isEmpty();
     }
 
     @Test
-    void uploaderIsNotMadeOwnerWhenATriggerClearsTheOwnerAndAnotherOfItsExecutionsFails() throws Exception {
+    void leavesCertificateWithoutOwner_whenTriggerClearsOwnerAndAnotherExecutionFails() throws Exception {
+        // given
         enableAutomaticOwnership(true);
-        seedSetOwnerTrigger(null, null, FailingPart.OTHER_EXECUTION);
+        startAuthService(UUID.randomUUID(), "trigger-owner");
+        triggerSeeder.seedClearOwnerTriggerWithFailingExecution();
 
-        Certificate uploaded = upload();
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
 
-        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
-        Assertions.assertEquals(List.of(), ownerChanges(uploaded));
+        // then
+        assertThat(ownerOf(uploaded)).isNull();
+        assertThat(ownerChanges(uploaded)).isEmpty();
     }
 
     @Test
-    void uploaderIsNotMadeOwnerWhenATriggerClearsTheOwnerAndAnotherItemOfTheSameExecutionFails() throws Exception {
+    void leavesCertificateWithoutOwner_whenTriggerClearsOwnerAndAnotherItemOfTheExecutionFails() throws Exception {
+        // given
         enableAutomaticOwnership(true);
-        seedSetOwnerTrigger(null, null, FailingPart.SAME_EXECUTION);
+        startAuthService(UUID.randomUUID(), "trigger-owner");
+        triggerSeeder.seedClearOwnerTriggerWithFailingItem();
 
-        Certificate uploaded = upload();
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
 
-        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
-        Assertions.assertEquals(List.of(), ownerChanges(uploaded));
+        // then
+        assertThat(ownerOf(uploaded)).isNull();
+        assertThat(ownerChanges(uploaded)).isEmpty();
     }
 
     @Test
-    void warnsWhenTheUploaderIsNotKnown() throws Exception {
+    void makesUploaderOwner_whenOwnerClearingTriggerDoesNotMatch() throws Exception {
+        // given
         enableAutomaticOwnership(true);
-        Logger handlerLogger = (Logger) LoggerFactory.getLogger(CertificateUploadedEventHandler.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        handlerLogger.addAppender(appender);
+        NameAndUuidDto uploader = AuthHelper.getUserIdentification();
+        startAuthService(UUID.randomUUID(), "trigger-owner");
+        triggerSeeder.seedClearOwnerTriggerThatDoesNotMatch();
+
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
+
+        // then
+        assertThat(ownerOf(uploaded).getUuid()).isEqualTo(uploader.getUuid());
+    }
+
+    @Test
+    void makesQueuedUploaderOwner_whenMessageIsProcessedWithoutSecurityContext() throws Exception {
+        // given
+        enableAutomaticOwnership(true);
+        var uploaderUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
+        var uploaderName = "queued-uploader";
+        X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(null, "CN=queued");
+        EventMessage message = uploadMessage(x509);
+        startAuthService(uploaderUuid, uploaderName);
+        // the queue consumer thread has no identity of its own
         SecurityContextHolder.clearContext();
 
-        Certificate uploaded;
-        try {
-            uploaded = upload();
-        } finally {
-            handlerLogger.detachAppender(appender);
-        }
+        // when
+        eventListener.processMessage(message);
+        SecurityContextHolder.clearContext();
 
-        Assertions.assertNull(associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid()));
-        Assertions
-                .assertTrue(
-                        appender.list
-                                .stream()
-                                .anyMatch(event -> event.getFormattedMessage().contains("uploader of certificate")),
-                        "the missing owner is logged");
+        // then
+        Certificate uploaded = certificateRepository
+                .findByFingerprint(CertificateUtil.getThumbprint(x509))
+                .orElseThrow();
+        assertThat(ownerOf(uploaded))
+                .extracting(NameAndUuidDto::getUuid, NameAndUuidDto::getName)
+                .containsExactly(uploaderUuid.toString(), uploaderName);
     }
 
     @Test
-    void uploaderCarriedInTheMessageBecomesOwnerWhenProcessedWithoutASecurityContext() throws Exception {
+    void leavesCertificateWithoutOwner_whenUploaderIsNotKnown() throws Exception {
+        // given
         enableAutomaticOwnership(true);
-        UUID uploaderUuid = UUID.fromString(AuthHelper.getUserIdentification().getUuid());
-        X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(null, "CN=queued");
-        EventMessage message = CertificateUploadedEventHandler
+        SecurityContextHolder.clearContext();
+
+        // when
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
+
+        // then
+        assertThat(ownerOf(uploaded)).isNull();
+    }
+
+    @Test
+    void logsWarning_whenUploaderIsNotKnown() throws Exception {
+        // given
+        enableAutomaticOwnership(true);
+        captureLogsOf(CertificateUploadedEventHandler.class);
+        SecurityContextHolder.clearContext();
+
+        // when
+        upload(UPLOADED_SUBJECT);
+
+        // then
+        assertThat(capturedMessages()).anyMatch(message -> message.contains("uploader of certificate"));
+    }
+
+    @Test
+    void keepsCertificate_whenStoringOwnerFails() throws Exception {
+        // given
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
+        var longerThanOwnerColumn = "u".repeat(300);
+        var event = new UploaderOwnershipEvent(uploaded.getUuid(), UUID.randomUUID(), longerThanOwnerColumn);
+
+        // when
+        ThrowingCallable handleEvent = () -> uploaderOwnershipListener.handleUploaderOwnership(event);
+
+        // then
+        assertThatCode(handleEvent).doesNotThrowAnyException();
+        assertThat(certificateRepository.findByUuid(uploaded.getUuid())).isPresent();
+        assertThat(ownerOf(uploaded)).isNull();
+    }
+
+    @Test
+    void logsWarning_whenStoringOwnerFails() throws Exception {
+        // given
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
+        var longerThanOwnerColumn = "u".repeat(300);
+        captureLogsOf(UploaderOwnershipListener.class);
+
+        // when
+        uploaderOwnershipListener
+                .handleUploaderOwnership(
+                        new UploaderOwnershipEvent(uploaded.getUuid(), UUID.randomUUID(), longerThanOwnerColumn));
+
+        // then
+        assertThat(capturedMessages()).anyMatch(message -> message.contains("Unable to make"));
+    }
+
+    @Test
+    void keepsExistingOwnerAndHistory_whenListenerHandlesOwnedCertificate() throws Exception {
+        // given
+        Certificate uploaded = upload(UPLOADED_SUBJECT);
+        var existingOwnerName = "existing-owner";
+        associationService.setOwner(Resource.CERTIFICATE, uploaded.getUuid(), UUID.randomUUID(), existingOwnerName);
+
+        // when
+        uploaderOwnershipListener
+                .handleUploaderOwnership(new UploaderOwnershipEvent(uploaded.getUuid(), UUID.randomUUID(), "uploader"));
+
+        // then
+        assertThat(ownerOf(uploaded).getName()).isEqualTo(existingOwnerName);
+        assertThat(ownerChanges(uploaded)).isEmpty();
+    }
+
+    @Test
+    void opensCertificate_whenCallerOwnsItAndLacksDetailPermission() throws Exception {
+        // given
+        enableAutomaticOwnership(true);
+        Certificate owned = upload(UPLOADED_SUBJECT);
+        denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+        // when
+        CertificateDetailDto detail = certificateService.getCertificate(owned.getSecuredUuid());
+
+        // then
+        assertThat(detail.getUuid()).isEqualTo(owned.getUuid().toString());
+    }
+
+    @Test
+    void deniesCertificate_whenCallerDoesNotOwnItAndLacksDetailPermission() throws Exception {
+        // given
+        Certificate notOwned = upload(UPLOADED_SUBJECT);
+        denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+
+        // when
+        ThrowingCallable openCertificate = () -> certificateService.getCertificate(notOwned.getSecuredUuid());
+
+        // then
+        assertThatThrownBy(openCertificate).isInstanceOf(AuthorizationDeniedException.class);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private Certificate upload(String subject) throws Exception {
+        X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(null, subject);
+
+        certificateUploadedEventHandler.handleEvent(uploadMessage(x509));
+
+        return certificateRepository.findByFingerprint(CertificateUtil.getThumbprint(x509)).orElseThrow();
+    }
+
+    private static EventMessage uploadMessage(X509Certificate x509) throws Exception {
+        return CertificateUploadedEventHandler
                 .constructEventMessage(CertificateUploadEventMessageData
                         .builder()
                         .certificateContent(Base64.getEncoder().encodeToString(x509.getEncoded()))
                         .build());
-        mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
-        mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
-        AuthServiceWireMockStubs.stubImpersonation(mockServer, uploaderUuid, "queued-uploader");
-        // the queue consumer thread has no identity of its own
-        SecurityContextHolder.clearContext();
-
-        eventListener.processMessage(message);
-        SecurityContextHolder.clearContext();
-
-        Certificate uploaded = certificateRepository
-                .findByFingerprint(CertificateUtil.getThumbprint(x509))
-                .orElseThrow();
-        NameAndUuidDto owner = associationService.getOwner(Resource.CERTIFICATE, uploaded.getUuid());
-        Assertions.assertNotNull(owner);
-        Assertions.assertEquals(uploaderUuid.toString(), owner.getUuid());
-        Assertions.assertEquals("queued-uploader", owner.getName());
-    }
-
-    @Test
-    void ownerOpensTheUploadedCertificateWithoutThePermissionToSeeCertificates() throws Exception {
-        enableAutomaticOwnership(true);
-        Certificate owned = upload();
-        enableAutomaticOwnership(false);
-        Certificate notOwned = upload("CN=someone-elses");
-        denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
-
-        Assertions.assertDoesNotThrow(() -> certificateService.getCertificate(owned.getSecuredUuid()));
-        Assertions
-                .assertThrows(AuthorizationDeniedException.class,
-                        () -> certificateService.getCertificate(notOwned.getSecuredUuid()));
-    }
-
-    private Certificate upload() throws Exception {
-        return upload("CN=uploaded");
-    }
-
-    private Certificate upload(String subject) throws Exception {
-        X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(null, subject);
-        String fingerprint = CertificateUtil.getThumbprint(x509);
-        CertificateUploadEventMessageData data = CertificateUploadEventMessageData
-                .builder()
-                .certificateContent(Base64.getEncoder().encodeToString(x509.getEncoded()))
-                .build();
-
-        certificateUploadedEventHandler.handleEvent(CertificateUploadedEventHandler.constructEventMessage(data));
-
-        return certificateRepository.findByFingerprint(fingerprint).orElseThrow();
     }
 
     private void enableAutomaticOwnership(boolean enabled) {
@@ -298,6 +358,17 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
         settingService.updatePlatformSettings(update);
     }
 
+    private void startAuthService(UUID userUuid, String username) {
+        authService = new WireMockServer(WireMockPorts.AUTH_SERVICE);
+        authService.start();
+        WireMock.configureFor("localhost", authService.port());
+        AuthServiceWireMockStubs.stubImpersonation(authService, userUuid, username);
+    }
+
+    private NameAndUuidDto ownerOf(Certificate certificate) {
+        return associationService.getOwner(Resource.CERTIFICATE, certificate.getUuid());
+    }
+
     private List<String> ownerChanges(Certificate certificate) {
         return certificateEventHistoryRepository
                 .findByCertificateOrderByCreatedDesc(certificate)
@@ -307,94 +378,14 @@ class UploaderOwnershipITest extends BaseSpringBootTest {
                 .toList();
     }
 
-    private void seedSetOwnerTrigger(UUID ownerUuid, String ownerName) throws Exception {
-        seedSetOwnerTrigger(ownerUuid, ownerName, FailingPart.NONE);
+    private void captureLogsOf(Class<?> source) {
+        capturedLogger = (Logger) LoggerFactory.getLogger(source);
+        capturedLogs = new ListAppender<>();
+        capturedLogs.start();
+        capturedLogger.addAppender(capturedLogs);
     }
 
-    private void seedSetOwnerTrigger(UUID ownerUuid, String ownerName, FailingPart failingPart) throws Exception {
-        mockServer = new WireMockServer(WireMockPorts.AUTH_SERVICE);
-        mockServer.start();
-        WireMock.configureFor("localhost", mockServer.port());
-        AuthServiceWireMockStubs
-                .stubImpersonation(mockServer, ownerUuid == null ? UUID.randomUUID() : ownerUuid,
-                        ownerName == null ? "unused" : ownerName);
-
-        ConditionItemRequestDto conditionItem = new ConditionItemRequestDto();
-        conditionItem.setFieldSource(FilterFieldSource.PROPERTY);
-        conditionItem.setFieldIdentifier(FilterField.CERTIFICATE_STATE.name());
-        conditionItem.setOperator(FilterConditionOperator.EQUALS);
-        conditionItem.setValue(List.of(CertificateState.ISSUED.getCode()));
-        ConditionRequestDto conditionRequest = new ConditionRequestDto();
-        conditionRequest.setName("UploadedCertificateCondition");
-        conditionRequest.setResource(Resource.CERTIFICATE);
-        conditionRequest.setType(ConditionType.CHECK_FIELD);
-        conditionRequest.setItems(List.of(conditionItem));
-        String conditionUuid = ruleService.createCondition(conditionRequest).getUuid();
-
-        RuleRequestDto ruleRequest = new RuleRequestDto();
-        ruleRequest.setName("UploadedCertificateRule");
-        ruleRequest.setResource(Resource.CERTIFICATE);
-        ruleRequest.setConditionsUuids(List.of(conditionUuid));
-        String ruleUuid = ruleService.createRule(ruleRequest).getUuid();
-
-        ExecutionItemRequestDto executionItem = new ExecutionItemRequestDto();
-        executionItem.setFieldSource(FilterFieldSource.PROPERTY);
-        executionItem.setFieldIdentifier(FilterField.OWNER.toString());
-        executionItem.setData(ownerUuid == null ? null : ownerUuid.toString());
-        ExecutionRequestDto executionRequest = new ExecutionRequestDto();
-        executionRequest.setName("SetUploadOwnerExecution");
-        executionRequest.setResource(Resource.CERTIFICATE);
-        executionRequest.setType(ExecutionType.SET_FIELD);
-        if (failingPart == FailingPart.SAME_EXECUTION) {
-            ExecutionItemRequestDto failingItem = new ExecutionItemRequestDto();
-            failingItem.setFieldSource(FilterFieldSource.PROPERTY);
-            failingItem.setFieldIdentifier(FilterField.GROUP_NAME.toString());
-            failingItem.setData("not-a-uuid");
-            executionRequest.setItems(List.of(executionItem, failingItem));
-        } else {
-            executionRequest.setItems(List.of(executionItem));
-        }
-        String executionUuid = actionService.createExecution(executionRequest).getUuid();
-
-        List<String> executionUuids = new ArrayList<>(List.of(executionUuid));
-        if (failingPart == FailingPart.OTHER_EXECUTION) {
-            // a group that is not a UUID, which the evaluator refuses
-            ExecutionItemRequestDto failingItem = new ExecutionItemRequestDto();
-            failingItem.setFieldSource(FilterFieldSource.PROPERTY);
-            failingItem.setFieldIdentifier(FilterField.GROUP_NAME.toString());
-            failingItem.setData("not-a-uuid");
-            ExecutionRequestDto failingRequest = new ExecutionRequestDto();
-            failingRequest.setName("FailingUploadExecution");
-            failingRequest.setResource(Resource.CERTIFICATE);
-            failingRequest.setType(ExecutionType.SET_FIELD);
-            failingRequest.setItems(List.of(failingItem));
-            executionUuids.add(actionService.createExecution(failingRequest).getUuid());
-        }
-
-        ActionRequestDto actionRequest = new ActionRequestDto();
-        actionRequest.setName("SetUploadOwnerAction");
-        actionRequest.setResource(Resource.CERTIFICATE);
-        actionRequest.setExecutionsUuids(executionUuids);
-        String actionUuid = actionService.createAction(actionRequest).getUuid();
-
-        TriggerRequestDto triggerRequest = new TriggerRequestDto();
-        triggerRequest.setName("SetUploadOwnerTrigger");
-        triggerRequest.setType(TriggerType.EVENT);
-        triggerRequest.setEvent(ResourceEvent.CERTIFICATE_UPLOADED);
-        triggerRequest.setResource(Resource.CERTIFICATE);
-        triggerRequest.setRulesUuids(List.of(ruleUuid));
-        triggerRequest.setActionsUuids(List.of(actionUuid));
-        triggerRequest.setIgnoreTrigger(false);
-        String triggerUuid = triggerService.createTrigger(triggerRequest).getUuid();
-
-        triggerService
-                .createTriggerAssociations(ResourceEvent.CERTIFICATE_UPLOADED, null, null,
-                        List.of(UUID.fromString(triggerUuid)), true);
-    }
-
-    private enum FailingPart {
-        NONE,
-        OTHER_EXECUTION,
-        SAME_EXECUTION
+    private List<String> capturedMessages() {
+        return capturedLogs.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
     }
 }
