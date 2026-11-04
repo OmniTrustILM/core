@@ -64,14 +64,14 @@ class ScepRequestDecryptionTest {
     private ScepRequest request;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void buildEnvelopedRequestAndStubAdapter() throws Exception {
         Security.addProvider(new BouncyCastleProvider());
         caKeyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
         X509Certificate caCertificate = CertificateTestUtil.generateRandomX509Certificate(caKeyPair);
         byte[] message = ScepMessageTestData
                 .keyTransportEnvelopedPkcsReq(caCertificate, ScepMessageTestData.SUBJECT_DN, List.of(), null);
         request = new ScepRequest(message);
-        when(factory.forKeyItem(keyItem)).thenReturn(adapter);
+        when(factory.forKeyItemInUnchangedScope(keyItem)).thenReturn(adapter);
         when(adapter.cipherAttributesFor(any())).thenReturn(List.of());
     }
 

@@ -27,6 +27,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -390,6 +391,42 @@ class ProxyClientImplTest {
 
         assertThatThrownBy(() -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class))
                 .isInstanceOf(ConnectorCommunicationException.class);
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void throwsWithTimeoutCause_whenProxyReportsTimeout() {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        CompletableFuture<ProxyMessage> future = new CompletableFuture<>();
+        when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(future);
+        future.complete(createProxyErrorMessage("Request timed out", "timeout"));
+
+        // when
+        ThrowingCallable sendRequest = () -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class);
+
+        // then
+        assertThatThrownBy(sendRequest)
+                .isInstanceOf(ConnectorCommunicationException.class)
+                .hasCauseInstanceOf(java.util.concurrent.TimeoutException.class);
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void throwsWithConnectCause_whenProxyReportsConnectionFailure() {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        CompletableFuture<ProxyMessage> future = new CompletableFuture<>();
+        when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(future);
+        future.complete(createProxyErrorMessage("Connection refused", "connection"));
+
+        // when
+        ThrowingCallable sendRequest = () -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class);
+
+        // then
+        assertThatThrownBy(sendRequest)
+                .isInstanceOf(ConnectorCommunicationException.class)
+                .hasCauseInstanceOf(java.net.ConnectException.class);
     }
 
     @Test
@@ -1435,6 +1472,17 @@ class ProxyClientImplTest {
                                 .timestamp(Instant.now())
                                 .connectorResponse(response)
                                 .build()));
+    }
+
+    private static ProxyMessage createProxyErrorMessage(String error, String errorCategory) {
+        return ProxyMessage
+                .builder()
+                .correlationId("test-corr")
+                .proxyId("proxy-001")
+                .timestamp(Instant.now())
+                .connectorResponse(
+                        ConnectorResponse.builder().statusCode(0).error(error).errorCategory(errorCategory).build())
+                .build();
     }
 
     /**

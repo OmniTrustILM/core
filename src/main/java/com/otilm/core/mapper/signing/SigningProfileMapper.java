@@ -1,5 +1,6 @@
 package com.otilm.core.mapper.signing;
 
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
@@ -19,10 +20,12 @@ import com.otilm.api.model.client.signing.profile.workflow.timestamp.InternalTim
 import com.otilm.api.model.client.signing.protocols.tsp.TspActivationDetailDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.signature.SignatureParameterGroup;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.scheme.ManagedSigning;
@@ -34,10 +37,17 @@ import com.otilm.core.util.TspProtocolUrlFactory;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.jspecify.annotations.NonNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SigningProfileMapper {
+
+    private static final Logger logger = LoggerFactory.getLogger(SigningProfileMapper.class);
 
     private SigningProfileMapper() {
     }
@@ -132,7 +142,14 @@ public class SigningProfileMapper {
      * Detects the protocols a Signing Profile is enabled for (header-level, unversioned state).
      */
     private static List<SigningProtocol> detectEnabledProtocols(SigningProfile header) {
-        return header.getTspProfileUuid() != null ? List.of(SigningProtocol.TSP) : List.of();
+        List<SigningProtocol> protocols = new ArrayList<>();
+        if (header.getTspProfileUuid() != null) {
+            protocols.add(SigningProtocol.TSP);
+        }
+        if (header.isIlmNativeEnabled()) {
+            protocols.add(SigningProtocol.ILM_NATIVE);
+        }
+        return List.copyOf(protocols);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -199,7 +216,9 @@ public class SigningProfileMapper {
                 new ManagedContentSigningWorkflow(version.getSignatureFormattingConnectorUuid(),
                         cacheSafeList(signatureFormattingConnectorAttributes), version.getSignatureFamily(),
                         version.getMaxSignatureLevel(), version.getTimestampSourceProfileUuid(),
-                        version.getDocumentSizeCap(), toCertificatePurpose(version)),
+                        version.getDocumentSizeCap(), toCertificatePurpose(version),
+                        new SignatureParameterPolicy(toParameterGroups(version),
+                                version.getDefaultSignatureParameters())),
                 buildManagedSchemeModel(version, signingOperationAttributes), buildRecordPolicyModel(version));
     }
 
@@ -255,6 +274,8 @@ public class SigningProfileMapper {
         wf.setDocumentSizeCap(version.getDocumentSizeCap());
         wf.setRequireNonRepudiation(version.isRequireNonRepudiation());
         wf.setRequiredExtendedKeyUsageOids(new LinkedHashSet<>(safeList(version.getRequiredExtendedKeyUsageOids())));
+        wf.setAllowedRequestParameterGroups(toParameterGroups(version));
+        wf.setDefaultSignatureParameters(version.getDefaultSignatureParameters());
         if (version.getTimestampSourceProfileUuid() != null) {
             NameAndUuidDto timestampSourceProfile = new NameAndUuidDto();
             timestampSourceProfile.setUuid(version.getTimestampSourceProfileUuid().toString());
@@ -347,6 +368,24 @@ public class SigningProfileMapper {
     private static CertificatePurposeRequirements toCertificatePurpose(SigningProfileVersion version) {
         return CertificatePurposeRequirements
                 .of(version.isRequireNonRepudiation(), version.getRequiredExtendedKeyUsageOids());
+    }
+
+    private static Set<SignatureParameterGroup> toParameterGroups(SigningProfileVersion version) {
+        return safeList(version.getAllowedRequestParameterGroups())
+                .stream()
+                .flatMap(code -> knownParameterGroup(code, version).stream())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static Optional<SignatureParameterGroup> knownParameterGroup(String code, SigningProfileVersion version) {
+        try {
+            return Optional.of(SignatureParameterGroup.findByCode(code));
+        } catch (ValidationException e) {
+            logger
+                    .warn("Ignoring unknown stored signature parameter group '{}' of Signing Profile {} version {}.",
+                            code, version.getSigningProfileUuid(), version.getVersion());
+            return Optional.empty();
+        }
     }
 
     private static <T> List<T> safeList(List<T> list) {

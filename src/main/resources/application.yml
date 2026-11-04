@@ -25,10 +25,11 @@ caching:
   signing-certs:
     ttl-minutes: ${SIGNING_CERTS_CACHE_TTL_MINUTES:5}
     max-size: ${SIGNING_CERTS_CACHE_MAX_SIZE:1000}
-  # Cryptographic Key Item cache caches keys and their associations to avoid repeated database lookups
+  # Cryptographic key caches hold key items, the stored attributes of their tokens and profiles, and the sign
+  # attribute definitions returned by connectors.
   crypto-keys:
-    ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached key is considered valid
-    max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of cached key items
+    ttl-minutes: ${CRYPTO_KEYS_CACHE_TTL_MINUTES:5}   # How long a cached entry is considered valid
+    max-size: ${CRYPTO_KEYS_CACHE_MAX_SIZE:10000}     # Maximum number of entries in each cache
   # TSP Profile cache caches TSP Profile for the timestamping hot path, keyed by both name (protocol path) and UUID (signing-profile path)
   tsp-profiles:
     ttl-minutes: ${TSP_PROFILES_CACHE_TTL_MINUTES:5}   # How long a cached TSP profile is considered valid
@@ -156,8 +157,12 @@ provider:
     sweep-interval-ms: ${PROVIDER_STATUS_POLL_SWEEP_INTERVAL_MS:10000}
     sweep-batch-size: ${PROVIDER_STATUS_POLL_SWEEP_BATCH_SIZE:200}
     sweep-max-batches-per-run: ${PROVIDER_STATUS_POLL_SWEEP_MAX_BATCHES_PER_RUN:10}
-    # How long a certificate may sit in PENDING_ISSUE with no poll row (a crashed synchronous issue)
-    # before the reaper fails it. Must exceed any legitimate synchronous issue duration.
+    # How long a synchronous issue/renew/rekey call may stay unanswered (Core stopped mid-call)
+    # before the reaper fails its certificate. Certificates the authority answered are not reaped,
+    # unless clearing their claim failed. Must exceed nine connector calls at the configured
+    # connector timeouts (one secret each for the authority and the RA profile, four vault calls
+    # per secret read, then the request); checked at startup. Each further secret reference adds
+    # four calls, so leave headroom.
     reap-stale-after: ${PROVIDER_STATUS_POLL_REAP_STALE_AFTER:PT30M}
     defaults:
       delays:

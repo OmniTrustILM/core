@@ -35,7 +35,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class AttributeVersionHelper {
@@ -54,6 +56,35 @@ public class AttributeVersionHelper {
             return getResponseAttributeV3(uuid, name, label, content, contentType, attributeType);
         }
         return null;
+    }
+
+    /** Groups stored rows into one request attribute per attribute. Each secret is decrypted on the way. */
+    public static List<RequestAttribute> toRequestAttributes(List<ObjectAttributeContent> objectContents) {
+        Map<String, RequestAttribute> mapping = new HashMap<>();
+        for (ObjectAttributeContent objectContent : objectContents) {
+            RequestAttribute requestAttribute = mapping
+                    .computeIfAbsent(objectContent.uuid().toString(),
+                            uuid -> getRequestAttribute(objectContent.uuid(), objectContent.name(), new ArrayList<>(),
+                                    objectContent.contentType(), objectContent.version()));
+            addRequestAttributeContent(requestAttribute, objectContent);
+        }
+
+        return mapping.values().stream().toList();
+    }
+
+    /** Groups stored rows into one response attribute per attribute. Each secret is decrypted on the way. */
+    public static List<ResponseAttribute> toResponseAttributes(List<ObjectAttributeContent> objectContents) {
+        Map<String, ResponseAttribute> mapping = new HashMap<>();
+        for (ObjectAttributeContent objectContent : objectContents) {
+            ResponseAttribute responseAttribute = mapping
+                    .computeIfAbsent(objectContent.uuid().toString(),
+                            uuid -> getResponseAttribute(objectContent.uuid(), objectContent.name(),
+                                    objectContent.label(), new ArrayList<>(), objectContent.contentType(),
+                                    objectContent.type(), objectContent.version()));
+            addResponseAttributeContent(responseAttribute, objectContent);
+        }
+
+        return mapping.values().stream().toList();
     }
 
     public static RequestAttribute getRequestAttribute(UUID uuid, String name, List<? extends AttributeContent> content,

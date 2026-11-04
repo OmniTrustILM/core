@@ -3,7 +3,6 @@ package com.otilm.core.dao.repository;
 import com.otilm.core.dao.entity.CrlEntry;
 import com.otilm.core.dao.entity.CrlEntryId;
 import java.util.Date;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.Modifying;
@@ -39,7 +38,4 @@ public interface CrlEntryRepository extends SecurityFilterRepository<CrlEntry, L
     @Modifying
     @Query("DELETE FROM CrlEntry e WHERE e.id.crlUuid = ?1 AND e.id.serialNumber = ?2")
     void deleteByCrlUuidAndSerialNumber(UUID crlUuid, String serialNumber);
-
-    @Query("SELECT e FROM CrlEntry e WHERE e.id.crlUuid = ?1")
-    List<CrlEntry> findAllByCrlUuid(UUID crlUuid);
 }

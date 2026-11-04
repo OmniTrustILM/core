@@ -52,6 +52,8 @@ import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.SignatureParameterGroup;
+import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
@@ -79,6 +81,7 @@ import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
@@ -113,6 +116,8 @@ import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.TspProfileExternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
+import com.otilm.core.signing.nativesigning.IlmNativeProfileResolver;
+import com.otilm.core.signing.nativesigning.NativeOperation;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
@@ -124,6 +129,8 @@ import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import com.otilm.core.util.mocks.SignerConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.NoSuchAlgorithmException;
@@ -132,6 +139,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -147,13 +155,20 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
 import static com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder.aContentSigningWorkflow;
 import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
+import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
+import static com.otilm.core.util.builders.PadesVisibleSignatureDtoBuilder.aVisibleSignature;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static com.otilm.core.util.builders.RsaSignatureAttributesBuilder.rsaSignatureAttributes;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
@@ -168,6 +183,7 @@ import static com.otilm.core.util.builders.TokenProfileRequestDtoBuilder.aTokenP
 import static com.otilm.core.util.builders.TspProfileRequestDtoBuilder.aTspProfileRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -175,12 +191,17 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     private static final String CUSTOM_ATTR_UUID = "c1d2e3f4-0001-0002-0003-000000000004";
     private static final String CUSTOM_ATTR_NAME = "signingProfileTestAttribute";
     private static final String BASE_URL = "http://localhost";
+
+    /** A real 1x1 PNG, so the stamp fixture is something a connector could actually draw. */
+    private static final String STAMP_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
 
     @Autowired
     private SigningProfileExternalService signingProfileService;
@@ -280,6 +301,12 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     /**
      * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
@@ -1413,6 +1440,74 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
+        void persistsTheGroupCodesAndTypedDefaults_ofAManagedContentSigningWorkflow() throws Exception {
+            // given: a request naming two allowed groups and a PAdES default
+            var defaultReason = "Contract approval";
+            var requestedDefaults = aPadesParameters().withReason(defaultReason).build();
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-content-parameter-policy")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withAllowedRequestParameterGroups(SignatureParameterGroup.SIGNATURE_CONTEXT,
+                                            SignatureParameterGroup.VISIBLE_SIGNATURE_CONTENT)
+                                    .withDefaultSignatureParameters(requestedDefaults)
+                                    .build())
+                            .build());
+
+            // then: the persisted column stores the wire codes, not the enum's name(), and the defaults tree intact
+            SigningProfileVersion persisted = persistedVersion(created.getUuid(), created.getVersion());
+            assertThat(persisted.getAllowedRequestParameterGroups())
+                    .containsExactly(SignatureParameterGroup.Codes.SIGNATURE_CONTEXT,
+                            SignatureParameterGroup.Codes.VISIBLE_SIGNATURE_CONTENT);
+            assertThat(persisted.getDefaultSignatureParameters())
+                    .isInstanceOfSatisfying(PadesSignatureParametersDto.class,
+                            defaults -> assertThat(defaults.getReason()).isEqualTo(defaultReason));
+        }
+
+        @Test
+        void echoesTheConfiguredStampImage_asTheSameBase64OnGet() throws Exception {
+            // given: a PAdES default carrying a stamp image supplied as base64
+            var stampMimeType = "image/png";
+            var requestedDefaults = aPadesParameters()
+                    .withVisibleSignature(aVisibleSignature()
+                            .withImage(Base64.getDecoder().decode(STAMP_IMAGE_BASE64))
+                            .withImageMimeType(stampMimeType))
+                    .build();
+
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-content-stamp-image")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withDefaultSignatureParameters(requestedDefaults)
+                                    .build())
+                            .build());
+
+            // when
+            SigningProfileDto fetched = signingProfileService
+                    .getSigningProfile(SecuredUUID.fromString(created.getUuid()), created.getVersion());
+
+            // then
+            assertThat(((ContentSigningWorkflowDto) fetched.getWorkflow()).getDefaultSignatureParameters())
+                    .isInstanceOfSatisfying(PadesSignatureParametersDto.class, defaults -> {
+                        assertThat(Base64.getEncoder().encodeToString(defaults.getVisibleSignature().getImage()))
+                                .isEqualTo(STAMP_IMAGE_BASE64);
+                        assertThat(defaults.getVisibleSignature().getImageMimeType()).isEqualTo(stampMimeType);
+                    });
+        }
+
+        @Test
         void managedContentSigning_requiringNonRepudiation_refusesADigitalSignatureOnlyCertificate() {
             // given: defaultSigningCertificate carries digitalSignature but not nonRepudiation
             ThrowableAssert.ThrowingCallable create = () -> signingProfileService
@@ -1526,6 +1621,70 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining(
                             "family, maxLevel and timestampSource must be omitted for delegated content signing");
+        }
+
+        /** A delegated signer never sees these parameters, so nothing would enforce a stored allow-list. */
+        @Test
+        void rejectsTheAllowList_whenTheContentSigningIsDelegated() {
+            // given — a delegated profile request carrying an allow-list
+
+            // when
+            ThrowableAssert.ThrowingCallable createSigningProfile = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-parameter-groups")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withAllowedRequestParameterGroups(SignatureParameterGroup.SIGNATURE_CONTEXT)
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(createSigningProfile)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("allowedRequestParameterGroups")
+                    .hasMessageContaining("delegated");
+        }
+
+        @Test
+        void rejectsTheDefaultParameters_whenTheContentSigningIsDelegated() {
+            // given — a delegated profile request carrying default parameters
+
+            // when
+            ThrowableAssert.ThrowingCallable createSigningProfile = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-default-parameters")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withDefaultSignatureParameters(aPadesParameters().build())
+                                    .build())
+                            .build());
+
+            // then
+            assertThatThrownBy(createSigningProfile)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("defaultSignatureParameters")
+                    .hasMessageContaining("delegated");
+        }
+
+        @Test
+        void rejectsTheDefaultParameters_whenTheContentSigningIsDelegatedAndTheGroupsAreNull() {
+            // given
+            var workflow = aContentSigningWorkflow().withDefaultSignatureParameters(aPadesParameters().build()).build();
+            workflow.setAllowedRequestParameterGroups(null);
+
+            // when
+            ThrowableAssert.ThrowingCallable createSigningProfile = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-delegated-content-with-defaults-and-null-groups")
+                            .withDelegatedSigning(signerConnector.getUuid())
+                            .withContentSigning(workflow)
+                            .build());
+
+            // then
+            assertThatThrownBy(createSigningProfile)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("defaultSignatureParameters")
+                    .hasMessageContaining("delegated");
         }
 
         @Test
@@ -1874,6 +2033,38 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             ContentSigningWorkflowDto workflow = assertInstanceOf(ContentSigningWorkflowDto.class,
                     updated.getWorkflow());
             assertThat(workflow.getSignatureFormattingConnector()).isNull();
+        }
+
+        @Test
+        void clearsTheParameterPolicyColumns_whenTheWorkflowSwitchesFromManagedContentSigningToRaw() throws Exception {
+            // given: a managed content-signing profile whose allow-list and typed defaults are persisted
+            var requestedDefaults = aPadesParameters().withReason("Contract approval").build();
+            SigningProfileDto profile = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("parameter-policy-cleared-on-workflow-switch")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withContentSigning(aContentSigningWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                                    .withFamily(SignatureFamily.PADES)
+                                    .withMaxLevel(SignatureLevel.SIGNED)
+                                    .withAllowedRequestParameterGroups(SignatureParameterGroup.SIGNATURE_CONTEXT)
+                                    .withDefaultSignatureParameters(requestedDefaults)
+                                    .build())
+                            .build());
+            assertThat(persistedVersion(profile.getUuid(), profile.getVersion()).getAllowedRequestParameterGroups())
+                    .containsExactly(SignatureParameterGroup.Codes.SIGNATURE_CONTEXT);
+            SecuredUUID profileUuid = SecuredUUID.fromString(profile.getUuid());
+
+            // when: the profile switches away to a raw workflow, which carries neither field
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(profileUuid,
+                            aSigningProfileRequestFromExistingProfile(profile).withRawSigning().build());
+
+            // then: the reset block cleared both columns rather than leaving the last managed values stranded
+            SigningProfileVersion reloaded = persistedVersion(updated.getUuid(), updated.getVersion());
+            assertThat(reloaded.getAllowedRequestParameterGroups()).isEmpty();
+            assertThat(reloaded.getDefaultSignatureParameters()).isNull();
         }
 
         @Test
@@ -2611,6 +2802,343 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             SigningProfileDto updatedProfile = signingProfileService.getSigningProfile(profileUuid, null);
             assertFalse(updatedProfile.getEnabledProtocols().contains(SigningProtocol.TSP),
                     "TSP should still be absent after a no-op deactivation");
+        }
+
+        @Test
+        void dropsTsp_whenUpdatingActivatedTimestampingProfileToContentSigning() throws Exception {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
+            signingProfileService.activateTsp(uuid, SecuredUUID.fromString(defaultTspProtocol.getUuid()), BASE_URL);
+            SigningProfileRequestDto toContentSigning = aSigningProfileRequestFromExistingProfile(
+                    defaultTimestampingProfile)
+                    .withDelegatedSigning(signerConnector.getUuid())
+                    .withDelegatedContentSigning()
+                    .build();
+
+            // when
+            SigningProfileDto updated = signingProfileService.updateSigningProfile(uuid, toContentSigning);
+
+            // then
+            assertThat(updated.getEnabledProtocols()).isEmpty();
+            assertThat(signingProfileService.getSigningProfile(uuid, null).getEnabledProtocols()).isEmpty();
+            assertThat(signingProfileRepository.findByUuid(uuid).orElseThrow().getTspProfileUuid()).isNull();
+        }
+    }
+
+    // ── IlmNativeProtocol ─────────────────────────────────────────────────────
+
+    @Nested
+    class IlmNativeProtocol {
+
+        @Test
+        void addsIlmNative_whenActivatingManagedContentProfile() throws Exception {
+            // given — a managed profile, since a delegated content-signing profile is refused
+            SigningProfileDto managedContent = createManagedContentProfile("managed-content-signing-profile");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+
+            // when
+            signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThat(readEnabledProtocols(uuid)).contains(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void addsIlmNative_whenActivatingManagedRawProfile() throws Exception {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+
+            // when
+            signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThat(readEnabledProtocols(uuid)).contains(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void throwsValidation_whenActivatingDelegatedContentProfile() throws Exception {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultContentSigningProfile.getUuid());
+
+            // when
+            ThrowableAssert.ThrowingCallable activate = () -> signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThatThrownBy(activate).isInstanceOf(ValidationException.class);
+            assertThat(readEnabledProtocols(uuid)).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void throwsValidation_whenActivatingDelegatedRawProfile() throws Exception {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultDelegatedSigningProfile.getUuid());
+
+            // when
+            ThrowableAssert.ThrowingCallable activate = () -> signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThatThrownBy(activate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Signing profile 'default-delegated-signing-profile' uses delegated signing; "
+                            + "ILM_NATIVE needs a key ILM signs with.");
+            assertThat(readEnabledProtocols(uuid)).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void throwsValidation_whenActivatingTimestampingProfile() throws Exception {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultTimestampingProfile.getUuid());
+
+            // when
+            ThrowableAssert.ThrowingCallable activate = () -> signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThatThrownBy(activate).isInstanceOf(ValidationException.class);
+            assertThat(readEnabledProtocols(uuid)).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void throwsNotFound_whenActivatingUnknownProfile() {
+            // given
+            SecuredUUID unknown = SecuredUUID.fromString("00000000-0000-0000-0000-000000000003");
+
+            // when
+            ThrowableAssert.ThrowingCallable activate = () -> signingProfileService.activateIlmNative(unknown);
+
+            // then
+            assertThatThrownBy(activate).isInstanceOf(NotFoundException.class);
+        }
+
+        @Test
+        void removesIlmNative_whenDeactivatingActivatedProfile() throws Exception {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+
+            // when
+            signingProfileService.deactivateIlmNative(uuid);
+
+            // then
+            assertThat(readEnabledProtocols(uuid)).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void leavesIlmNativeOff_whenDeactivatingInactiveProfile() throws Exception {
+            // given
+            SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+
+            // when
+            Throwable failure = catchThrowable(() -> signingProfileService.deactivateIlmNative(uuid));
+
+            // then
+            assertThat(failure).isNull();
+            assertThat(readEnabledProtocols(uuid)).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void listsIlmNativeInCachedModel_whenActivating() throws Exception {
+            // given — a managed content-signing profile whose model is cached without ILM_NATIVE
+            SigningProfileDto managedContent = createManagedContentProfile("cached-managed-content");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            String profileName = managedContent.getName();
+            assertThat(readCachedModelProtocols(profileName)).doesNotContain(SigningProtocol.ILM_NATIVE);
+
+            // when
+            signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThat(readCachedModelProtocols(profileName)).contains(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void dropsIlmNativeFromCachedModel_whenDeactivating() throws Exception {
+            // given — an activated managed content-signing profile whose model is cached with ILM_NATIVE
+            SigningProfileDto managedContent = createManagedContentProfile("cached-activated-content");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            String profileName = managedContent.getName();
+            signingProfileService.activateIlmNative(uuid);
+            assertThat(readCachedModelProtocols(profileName)).contains(SigningProtocol.ILM_NATIVE);
+
+            // when
+            signingProfileService.deactivateIlmNative(uuid);
+
+            // then
+            assertThat(readCachedModelProtocols(profileName)).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void dropsIlmNative_whenUpdatingActivatedContentProfileToTimestamping() throws Exception {
+            // given
+            SigningProfileDto managedContent = createManagedContentProfile("content-to-timestamping");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(uuid,
+                            aSigningProfileRequestFromExistingProfile(managedContent)
+                                    .withStaticKeyManagedSigning(defaultTimestampingCertificate.getUuid())
+                                    .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                                    .build());
+
+            // then
+            assertThat(updated.getEnabledProtocols()).isEmpty();
+            assertThat(readEnabledProtocols(uuid)).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void dropsIlmNative_whenUpdatingActivatedManagedContentProfileToDelegated() throws Exception {
+            // given
+            SigningProfileDto managedContent = createManagedContentProfile("managed-to-delegated-content");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(uuid,
+                            aSigningProfileRequestFromExistingProfile(managedContent)
+                                    .withDelegatedSigning(signerConnector.getUuid())
+                                    .withDelegatedContentSigning()
+                                    .build());
+
+            // then
+            assertThat(updated.getEnabledProtocols()).isEmpty();
+            assertThat(readEnabledProtocols(uuid)).doesNotContain(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void keepsIlmNative_whenUpdateKeepsManagedContentProfile() throws Exception {
+            // given
+            SigningProfileDto managedContent = createManagedContentProfile("managed-content-kept");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(uuid,
+                            aSigningProfileRequestFromExistingProfile(managedContent)
+                                    .withDescription("still a managed content-signing profile")
+                                    .build());
+
+            // then
+            assertThat(updated.getEnabledProtocols()).contains(SigningProtocol.ILM_NATIVE);
+            assertThat(readEnabledProtocols(uuid)).contains(SigningProtocol.ILM_NATIVE);
+        }
+
+        @Test
+        void keepsIlmNativeDeactivated_whenAConcurrentEnableReadTheProfileFirst() throws Exception {
+            // given — an activated profile that is still disabled
+            SecuredUUID uuid = SecuredUUID.fromString(defaultManagedStaticKeySigningProfile.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+            var enable = new TransactionTemplate(transactionManager);
+
+            // when — an enable that read the profile before a deactivation committed saves it afterwards
+            enable.executeWithoutResult(status -> {
+                SigningProfile readBeforeDeactivation = signingProfileRepository.findByUuid(uuid).orElseThrow();
+                deactivateInItsOwnTransaction(uuid);
+                readBeforeDeactivation.setEnabled(true);
+                signingProfileRepository.save(readBeforeDeactivation);
+            });
+
+            // then
+            SigningProfile stored = signingProfileRepository.findByUuid(uuid).orElseThrow();
+            assertThat(stored.isIlmNativeEnabled()).isFalse();
+            assertThat(stored.isEnabled()).isTrue();
+        }
+
+        @Test
+        void resolvesUpdatedVersion_whenUpdateCommitsBetweenRecordCheckAndModelLoad() throws Exception {
+            // given — an enabled ILM_NATIVE profile whose version has a signing record, so an update bumps it
+            SigningProfileDto managedContent = createManagedContentProfile("updated-while-resolving");
+            SecuredUUID uuid = SecuredUUID.fromString(managedContent.getUuid());
+            signingProfileService.activateIlmNative(uuid);
+            signingProfileService.enableSigningProfile(uuid);
+            createSigningRecordFor(managedContent);
+            int bumpedVersion = managedContent.getVersion() + 1;
+            IlmNativeProfileResolver resolver = buildResolverUpdatingBeforeModelLoad(managedContent);
+
+            // when
+            SigningProfileModel<?, ?> resolved = runInARequest(
+                    () -> resolver.resolve(uuid.getValue(), NativeOperation.SIGN_DOCUMENT));
+
+            // then
+            assertThat(resolved.version()).isEqualTo(bumpedVersion);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private SigningProfileDto createManagedContentProfile(String name)
+                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
+            return signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName(name)
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .build());
+        }
+
+        private List<SigningProtocol> readEnabledProtocols(SecuredUUID uuid) throws NotFoundException {
+            return signingProfileService.getSigningProfile(uuid, null).getEnabledProtocols();
+        }
+
+        private List<SigningProtocol> readCachedModelProtocols(String name) throws NotFoundException {
+            return signingProfileInternalService.getSigningProfileModel(name).enabledProtocols();
+        }
+
+        private void deactivateInItsOwnTransaction(SecuredUUID uuid) {
+            TransactionTemplate deactivation = new TransactionTemplate(transactionManager);
+            deactivation.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            deactivation.executeWithoutResult(status -> {
+                try {
+                    signingProfileService.deactivateIlmNative(uuid);
+                } catch (NotFoundException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+        }
+
+        /**
+         * Builds a resolver on the real repository whose model loader, once asked for the model, first lets another
+         * request commit an update of the profile and then loads the model through the real service.
+         */
+        private IlmNativeProfileResolver buildResolverUpdatingBeforeModelLoad(SigningProfileDto profile)
+                throws NotFoundException {
+            var modelLoader = mock(SigningProfileInternalService.class);
+            when(modelLoader.loadSigningProfileModel(profile.getName())).thenAnswer(invocation -> {
+                updateInAnotherRequest(profile);
+                return signingProfileInternalService.loadSigningProfileModel(profile.getName());
+            });
+            return new IlmNativeProfileResolver(signingProfileRepository, modelLoader);
+        }
+
+        /**
+         * Commits an update that changes nothing but the version on EntityManagers of its own, as a concurrent request
+         * does: the request's EntityManager is unbound for its duration, so it cannot learn of the change.
+         */
+        private void updateInAnotherRequest(SigningProfileDto profile) throws Exception {
+            Object request = TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            try {
+                signingProfileService
+                        .updateSigningProfile(SecuredUUID.fromString(profile.getUuid()),
+                                aSigningProfileRequestFromExistingProfile(profile).build());
+            } finally {
+                TransactionSynchronizationManager.bindResource(entityManagerFactory, request);
+            }
+        }
+
+        /**
+         * Runs the call with one EntityManager bound to the thread and no transaction around it, as an open-in-view
+         * request does, so what the call reads stays managed there until it returns.
+         */
+        private <T> T runInARequest(Callable<T> call) throws Exception {
+            EntityManager bound = entityManagerFactory.createEntityManager();
+            TransactionSynchronizationManager.bindResource(entityManagerFactory, new EntityManagerHolder(bound));
+            try {
+                return call.call();
+            } finally {
+                TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+                bound.close();
+            }
         }
     }
 
@@ -3699,5 +4227,14 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .hasMessageContaining("does not support model retrieval yet");
         }
 
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Reads the persisted row directly, bypassing the DTO mapping the create/update calls already exercise. */
+    private SigningProfileVersion persistedVersion(String profileUuid, int version) {
+        return signingProfileVersionRepository
+                .findBySigningProfileUuidAndVersion(UUID.fromString(profileUuid), version)
+                .orElseThrow();
     }
 }

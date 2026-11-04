@@ -20,6 +20,7 @@ import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.service.CommentInternalService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import jakarta.persistence.EntityManager;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,12 +40,14 @@ public class TokenProfileWriter {
     private final SigningProfileVersionRepository signingProfileVersionRepository;
     private final EntityManager entityManager;
     private final ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private final KeyOperationCache keyOperationCache;
 
     public TokenProfileWriter(TokenProfileRepository tokenProfileRepository,
             TokenInstanceReferenceRepository tokenInstanceReferenceRepository, AttributeEngine attributeEngine,
             CommentInternalService commentService, CryptographicKeyRepository cryptographicKeyRepository,
             SigningProfileVersionRepository signingProfileVersionRepository, EntityManager entityManager,
-            ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter,
+            KeyOperationCache keyOperationCache) {
         this.tokenProfileRepository = tokenProfileRepository;
         this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.attributeEngine = attributeEngine;
@@ -53,6 +56,7 @@ public class TokenProfileWriter {
         this.signingProfileVersionRepository = signingProfileVersionRepository;
         this.entityManager = entityManager;
         this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
+        this.keyOperationCache = keyOperationCache;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -151,6 +155,7 @@ public class TokenProfileWriter {
                         .builder(Resource.TOKEN_PROFILE, profileUuid)
                         .connector(connectorUuid)
                         .build(), attributes);
+        keyOperationCache.forgetAttributesOf(Resource.TOKEN_PROFILE, profileUuid, connectorUuid);
     }
 
     private TokenProfile findLocked(UUID profileUuid) throws NotFoundException {

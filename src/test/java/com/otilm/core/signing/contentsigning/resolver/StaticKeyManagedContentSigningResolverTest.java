@@ -8,6 +8,7 @@ import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModelBuilder;
@@ -121,9 +122,9 @@ class StaticKeyManagedContentSigningResolverTest {
 
         // when
         ResolvedManagedContentSigningProfile resolved = (ResolvedManagedContentSigningProfile) resolver
-                .resolve(aProfile(
-                        new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID, List.of(A_FORMAT_ATTRIBUTE),
-                                SignatureFamily.CADES, SignatureLevel.SIGNED, null, null, purpose)));
+                .resolve(aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID,
+                        List.of(A_FORMAT_ATTRIBUTE), SignatureFamily.CADES, SignatureLevel.SIGNED, null, null, purpose,
+                        SignatureParameterPolicy.DENY_ALL)));
 
         // then
         assertThat(resolved.certificatePurpose()).isEqualTo(purpose);
@@ -222,7 +223,8 @@ class StaticKeyManagedContentSigningResolverTest {
     private static SigningProfileModel<?, ?> aManagedContentSigningProfile(SignatureFamily family,
             SignatureLevel maxLevel, UUID timestampSourceProfileUuid, Long documentSizeCap) {
         return aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID, List.of(A_FORMAT_ATTRIBUTE),
-                family, maxLevel, timestampSourceProfileUuid, documentSizeCap, CertificatePurposeRequirements.NONE));
+                family, maxLevel, timestampSourceProfileUuid, documentSizeCap, CertificatePurposeRequirements.NONE,
+                SignatureParameterPolicy.DENY_ALL));
     }
 
     private static SigningProfileModel<?, ?> aManagedTimestampingProfile() {
