@@ -585,7 +585,7 @@ class NotificationListenerTest {
         }
 
         @Test
-        void suppressesRetry_whenFailedAttemptsExhaustedTheRepetitions() throws Exception {
+        void suppressesRetry_whenFailedAttemptsExhaustedTheRepetitions() {
             // given
             NotificationProfileVersion version = createVersion(null, 2);
             stubExistingRow(version, createPendingNotification(version, 2, OffsetDateTime.now().minusDays(30)));
