@@ -114,6 +114,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -655,49 +657,47 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
     }
 
-    @Test
-    void testCertificateRuleEvaluatorOnCertificateRelations() throws RuleException {
-        CertificateRelation successorRelation = new CertificateRelation();
-        successorRelation.setRelationType(CertificateRelationType.RENEWAL);
-        certificate.setSuccessorRelations(Set.of(successorRelation));
-
+    @ParameterizedTest
+    @CsvSource({
+            "SUCCEEDING_CERTIFICATES, EQUALS, true",
+            "SUCCEEDING_CERTIFICATES, NOT_EQUALS, false",
+            "PRECEDING_CERTIFICATES, EQUALS, true",
+            "PRECEDING_CERTIFICATES, NOT_EQUALS, false"})
+    void evaluatesCertificateRelation_whenConditionUsesCode(FilterField filterField, FilterConditionOperator operator,
+            boolean expectedMatch) throws Exception {
+        // given
+        var matchingRelationType = CertificateRelationType.RENEWAL;
+        CertificateRelation relation = new CertificateRelation();
+        relation.setRelationType(matchingRelationType);
+        if (filterField == FilterField.SUCCEEDING_CERTIFICATES) {
+            certificate.setSuccessorRelations(Set.of(relation));
+        } else {
+            certificate.setPredecessorRelations(Set.of(relation));
+        }
         condition.setFieldSource(FilterFieldSource.PROPERTY);
-        condition.setFieldIdentifier(FilterField.SUCCEEDING_CERTIFICATES.name());
-        condition.setValue(List.of(CertificateRelationType.RENEWAL.getCode()));
-        condition.setOperator(FilterConditionOperator.EQUALS);
-        Assertions
-                .assertTrue(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
-        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
-        Assertions
-                .assertFalse(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setFieldIdentifier(filterField.name());
+        condition.setValue(List.of(matchingRelationType.getCode()));
+        condition.setOperator(operator);
 
-        CertificateRelation predecessorRelation = new CertificateRelation();
-        predecessorRelation.setRelationType(CertificateRelationType.RENEWAL);
-        certificate.setPredecessorRelations(Set.of(predecessorRelation));
+        // when
+        boolean matches = certificateTriggerEvaluator
+                .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE);
 
-        condition.setFieldIdentifier(FilterField.PRECEDING_CERTIFICATES.name());
-        condition.setOperator(FilterConditionOperator.EQUALS);
-        Assertions
-                .assertTrue(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
-        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
-        Assertions
-                .assertFalse(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        // then
+        assertThat(matches).isEqualTo(expectedMatch);
     }
 
     @Test
-    void matchesCertificateRelation_whenConditionUsesEnumConstant() throws RuleException {
+    void matchesCertificateRelation_whenConditionUsesEnumConstant() throws Exception {
         // given
+        var matchingRelationType = CertificateRelationType.RENEWAL;
         CertificateRelation successorRelation = new CertificateRelation();
-        successorRelation.setRelationType(CertificateRelationType.RENEWAL);
+        successorRelation.setRelationType(matchingRelationType);
         certificate.setSuccessorRelations(Set.of(successorRelation));
         condition.setFieldSource(FilterFieldSource.PROPERTY);
         condition.setFieldIdentifier(FilterField.SUCCEEDING_CERTIFICATES.name());
         condition.setOperator(FilterConditionOperator.EQUALS);
-        condition.setValue(List.of(CertificateRelationType.RENEWAL));
+        condition.setValue(List.of(matchingRelationType));
 
         // when
         boolean matches = certificateTriggerEvaluator
@@ -708,13 +708,14 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     }
 
     @Test
-    void matchesKeyUsage_whenConditionUsesCode() throws RuleException {
+    void matchesKeyUsage_whenConditionUsesCode() throws Exception {
         // given
-        certificate.setKeyUsage(BitMaskEnum.convertSetToBitMask(EnumSet.of(CertificateKeyUsage.DIGITAL_SIGNATURE)));
+        var matchingKeyUsage = CertificateKeyUsage.DIGITAL_SIGNATURE;
+        certificate.setKeyUsage(BitMaskEnum.convertSetToBitMask(EnumSet.of(matchingKeyUsage)));
         condition.setFieldSource(FilterFieldSource.PROPERTY);
         condition.setFieldIdentifier(FilterField.KEY_USAGE.name());
         condition.setOperator(FilterConditionOperator.EQUALS);
-        condition.setValue(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE.getCode()));
+        condition.setValue(List.of(matchingKeyUsage.getCode()));
 
         // when
         boolean matches = certificateTriggerEvaluator
