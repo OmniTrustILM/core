@@ -38,7 +38,8 @@ public class CrlWriter {
      * <p>
      * For a new CRL: inserts the CRL row (ON CONFLICT DO NOTHING), resolves the winning row's UUID, inserts the
      * entries, and writes the base-metadata columns. For an updated CRL: deletes the old entries for the existing UUID,
-     * inserts the new entries, and writes the base-metadata columns.
+     * inserts the new entries, and writes the base-metadata columns. Writing them clears the delta-metadata columns,
+     * since the entries of a delta CRL applied to the old base CRL are gone with it.
      *
      * <p>
      * Returns the UUID of the persisted row — for a new CRL under ON CONFLICT this may differ from

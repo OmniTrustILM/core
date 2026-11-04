@@ -54,6 +54,8 @@ import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.PlatformX500NameStyle;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -84,6 +86,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -94,7 +97,10 @@ import org.apache.commons.lang3.StringUtils;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERIA5String;
+import org.bouncycastle.asn1.DERPrintableString;
+import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.CRLDistPoint;
 import org.bouncycastle.asn1.x509.CRLNumber;
@@ -139,9 +145,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.otilm.core.util.builders.OcspResponseBuilder.anOcspResponse;
+import static com.otilm.core.util.builders.X509CrlBuilder.anX509Crl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -164,6 +173,9 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
     @Autowired
     private CrlEntryRepository crlEntryRepository;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     @Autowired
     private RaProfileRepository raProfileRepository;
@@ -607,13 +619,22 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         createTrustedCertEntity(cert);
         BigInteger replacedSerialNumber = BigInteger.valueOf(0x99);
         BigInteger replacementSerialNumber = BigInteger.valueOf(0xAA);
-        stubCrlPoint(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.TWO,
-                Map.of(replacedSerialNumber, CRLReason.keyCompromise)).getEncoded());
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(replacedSerialNumber, CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
         CrlEntryId replacedEntryId = new CrlEntryId(crlUuid, replacedSerialNumber.toString(16));
         assertThat(crlEntryRepository.findById(replacedEntryId)).as("entry of the first CRL").isPresent();
-        replaceStub(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.valueOf(3),
-                Map.of(replacementSerialNumber, CRLReason.affiliationChanged)).getEncoded());
+        markStoredCrlDue(cert);
+        replaceStub(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withRevocation(replacementSerialNumber, CRLReason.affiliationChanged)
+                        .build()
+                        .getEncoded());
 
         // when
         UUID refreshedCrlUuid = crlService.getCurrentCrl(cert, cert);
@@ -665,7 +686,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
         BigInteger baseCrlNumber = BigInteger.TWO;
         stubCrlPoint(deltaPath, createEmptyDeltaCRL(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate(),
-                baseCrlNumber, BigInteger.ONE).getEncoded());
+                baseCrlNumber, BigInteger.valueOf(3)).getEncoded());
 
         // when
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
@@ -701,11 +722,11 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 .getValidationChecks()
                 .get(CertificateValidationCheck.CRL_VERIFICATION);
         assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
-        assertThat(crlCheck.getMessage()).contains("Unable to get CRL with base CRL number equal to DeltaCRLIndicator");
+        assertThat(crlCheck.getMessage()).contains("lower than the base CRL number " + unpublishedBaseCrlNumber);
     }
 
     @Test
-    void reportsCrlFailed_whenDeltaCrlNamesAnotherIssuer() throws Exception {
+    void keepsBaseCrlRevocation_whenDeltaCrlNamesAnotherIssuer() throws Exception {
         // given
         long stamp = System.nanoTime();
         KeyPair issuerKeyPair = freshRsaKeyPair();
@@ -715,10 +736,19 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
         Certificate entity = createTrustedCertEntity(cert);
-        stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
         X500Principal anotherIssuerName = new X500Principal("CN=Another-Crl-Issuer");
         stubCrlPoint(deltaPath,
-                createEmptyDeltaCRL(anotherIssuerName, issuerKeyPair.getPrivate(), BigInteger.TWO, BigInteger.TWO)
+                anX509Crl(anotherIssuerName, issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.removeFromCRL)
+                        .build()
                         .getEncoded());
 
         // when
@@ -726,11 +756,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 .getCertificateValidationResult(entity.getSecuredUuid());
 
         // then
-        CertificateValidationCheckDto crlCheck = result
-                .getValidationChecks()
-                .get(CertificateValidationCheck.CRL_VERIFICATION);
-        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
-        assertThat(crlCheck.getMessage()).contains("Delta CRL issuer not same as issuer stored in CRL entity");
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
     }
 
     @Test
@@ -795,7 +821,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 .getValidationChecks()
                 .get(CertificateValidationCheck.CRL_VERIFICATION);
         assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
-        assertThat(crlCheck.getMessage()).contains("signature verifies with the issuer's public key");
+        assertThat(crlCheck.getMessage()).contains("its signature does not verify with the issuer's public key");
         assertThat(findStoredCrl(cert)).isEmpty();
         assertThat(output.getOut().lines().filter(line -> line.contains("Ignoring the CRL from " + crlUrl)))
                 .isNotEmpty()
@@ -812,11 +838,19 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRefreshForged-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
         createTrustedCertEntity(cert);
-        stubCrlPoint(urlPath, buildStaleCrl(cert, issuerKeyPair.getPrivate(), BigInteger.TWO,
-                Map.of(cert.getSerialNumber(), CRLReason.keyCompromise)).getEncoded());
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
         UUID crlUuid = crlService.getCurrentCrl(cert, cert);
+        markStoredCrlDue(cert);
         replaceStub(urlPath,
-                buildStaleCrl(cert, forgerKeyPair.getPrivate(), BigInteger.valueOf(3), Map.of()).getEncoded());
+                anX509Crl(cert.getSubjectX500Principal(), forgerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .build()
+                        .getEncoded());
 
         // when
         ThrowingCallable refreshCrl = () -> crlService.getCurrentCrl(cert, cert);
@@ -882,6 +916,1204 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
     }
 
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void reportsCrlFailed_whenCrlIsPastNextUpdate(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/stale-" + stamp + ".crl";
+        String crlUrl = LoopbackWireMock.url(mockServer) + urlPath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlStale-" + stamp,
+                List.of(crlUrl), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        Instant beyondClockSkew = Instant.now().minus(Duration.ofMinutes(10));
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withNextUpdate(beyondClockSkew)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("it is not current");
+        assertThat(findStoredCrl(cert)).isEmpty();
+        assertCrlIgnoredWithWarning(output, crlUrl);
+    }
+
+    @Test
+    void reportsCrlValid_whenCrlIsPastNextUpdateWithinClockSkew() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/skew-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlSkew-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        Instant withinClockSkew = Instant.now().minus(Duration.ofMinutes(1));
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withNextUpdate(withinClockSkew)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.VALID);
+    }
+
+    @Test
+    void reportsCrlFailed_whenCrlHasNoNextUpdate() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/no-next-update-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlNoNextUpdate-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withNextUpdate(null)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("it is not current");
+        assertThat(findStoredCrl(cert)).isEmpty();
+    }
+
+    @Test
+    void reportsCrlFailed_whenCrlHasNoCrlNumber() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/no-number-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlNoNumber-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(null)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("it has no CRL number");
+        assertThat(findStoredCrl(cert)).isEmpty();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void reportsCrlFailed_whenCrlNamesAnotherIssuer(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/other-issuer-" + stamp + ".crl";
+        String crlUrl = LoopbackWireMock.url(mockServer) + urlPath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlOtherIssuer-" + stamp,
+                List.of(crlUrl), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        X500Principal anotherIssuerName = new X500Principal("CN=Another-Crl-Issuer-" + stamp);
+        stubCrlPoint(urlPath, anX509Crl(anotherIssuerName, issuerKeyPair.getPrivate()).build().getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("it names another issuer");
+        assertThat(findStoredCrl(cert)).isEmpty();
+        assertCrlIgnoredWithWarning(output, crlUrl);
+    }
+
+    @Test
+    void reportsCrlValid_whenCrlSpellsIssuerNameDifferently() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/issuer-spelling-" + stamp + ".crl";
+        String commonName = "testCrlIssuerSpelling-" + stamp;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+        X500Name capitalizedPrintableName = new X500Name(
+                new RDN[]{new RDN(BCStyle.CN, new DERPrintableString(commonName.toUpperCase(Locale.ROOT)))});
+        X500Principal sameIssuerSpelledDifferently = new X500Principal(capitalizedPrintableName.getEncoded());
+        stubCrlPoint(urlPath, anX509Crl(sameIssuerSpelledDifferently, issuerKeyPair.getPrivate()).build().getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.VALID);
+    }
+
+    @Test
+    void keepsStoredCrl_whenRefreshedCrlIsPastNextUpdate() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/refresh-stale-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRefreshStale-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        UUID crlUuid = crlService.getCurrentCrl(cert, cert);
+        markStoredCrlDue(cert);
+        Instant beyondClockSkew = Instant.now().minus(Duration.ofMinutes(10));
+        replaceStub(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withNextUpdate(beyondClockSkew)
+                        .build()
+                        .getEncoded());
+
+        // when
+        ThrowingCallable refreshCrl = () -> crlService.getCurrentCrl(cert, cert);
+
+        // then
+        assertThatThrownBy(refreshCrl).isInstanceOf(IOException.class).hasMessageContaining("it is not current");
+        assertThat(crlEntryRepository.findById(new CrlEntryId(crlUuid, cert.getSerialNumber().toString(16))))
+                .as("revocation listed by the stored CRL")
+                .isPresent();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void keepsStoredCrl_whenRefreshedCrlHasLowerNumber(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/rollback-" + stamp + ".crl";
+        String crlUrl = LoopbackWireMock.url(mockServer) + urlPath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRollback-" + stamp,
+                List.of(crlUrl), null, BigInteger.ONE);
+        createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        UUID crlUuid = crlService.getCurrentCrl(cert, cert);
+        markStoredCrlDue(cert);
+        BigInteger lowerCrlNumber = BigInteger.TWO;
+        replaceStub(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(lowerCrlNumber)
+                        .build()
+                        .getEncoded());
+
+        // when
+        ThrowingCallable refreshCrl = () -> crlService.getCurrentCrl(cert, cert);
+
+        // then
+        assertThatThrownBy(refreshCrl)
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("is lower than the stored CRL number");
+        assertThat(crlEntryRepository.findById(new CrlEntryId(crlUuid, cert.getSerialNumber().toString(16))))
+                .as("revocation listed by the stored CRL")
+                .isPresent();
+        assertCrlIgnoredWithWarning(output, crlUrl);
+    }
+
+    @Test
+    void keepsDeltaCrlRevocation_whenRefreshedCrlPredatesAppliedDeltaCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        String commonName = "testCrlDeltaRollback-" + stamp;
+        String baseCrlUrl = LoopbackWireMock.url(mockServer) + basePath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName, List.of(baseCrlUrl),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        X509Certificate sameIssuerWithoutDeltaCrl = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName,
+                List.of(baseCrlUrl), null, BigInteger.valueOf(3));
+        createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(4))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        UUID crlUuid = crlService.getCurrentCrl(cert, cert);
+        markStoredCrlDue(cert);
+        BigInteger predatesDeltaCrl = BigInteger.valueOf(3);
+        replaceStub(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(predatesDeltaCrl)
+                        .build()
+                        .getEncoded());
+
+        // when
+        ThrowingCallable refreshCrl = () -> crlService.getCurrentCrl(sameIssuerWithoutDeltaCrl, cert);
+
+        // then
+        assertThatThrownBy(refreshCrl)
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("is lower than the stored CRL number");
+        assertThat(crlEntryRepository.findById(new CrlEntryId(crlUuid, cert.getSerialNumber().toString(16))))
+                .as("revocation listed by the applied delta CRL")
+                .isPresent();
+    }
+
+    @Test
+    void keepsDeltaCrlRevocation_whenSameRequestRefreshesCrlAfterApplyingDeltaCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        String commonName = "testCrlRequestDeltaRollback-" + stamp;
+        String baseCrlUrl = LoopbackWireMock.url(mockServer) + basePath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName, List.of(baseCrlUrl),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        X509Certificate sameIssuerWithoutDeltaCrl = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName,
+                List.of(baseCrlUrl), null, BigInteger.valueOf(3));
+        createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(sameIssuerWithoutDeltaCrl, cert);
+        markStoredCrlDue(cert);
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(4))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        X509CRL predatesDeltaCrl = anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                .withCrlNumber(BigInteger.valueOf(3))
+                .build();
+
+        // when
+        ThrowingCallable applyDeltaThenRefreshInOneRequest = () -> runInOneRequest(() -> {
+            crlService.getCurrentCrl(cert, cert);
+            replaceStub(basePath, predatesDeltaCrl.getEncoded());
+            crlService.getCurrentCrl(sameIssuerWithoutDeltaCrl, cert);
+        });
+
+        // then
+        assertThatThrownBy(applyDeltaThenRefreshInOneRequest)
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("is lower than the stored CRL number");
+        assertThat(findStoredCrlEntry(cert, cert.getSerialNumber()))
+                .as("revocation listed by the applied delta CRL")
+                .isPresent();
+    }
+
+    @Test
+    void keepsDeltaCrlRevocation_whenSameRequestRefreshesCrlItStored() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        String commonName = "testCrlRequestStoredRollback-" + stamp;
+        String baseCrlUrl = LoopbackWireMock.url(mockServer) + basePath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName, List.of(baseCrlUrl),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        X509Certificate sameIssuerWithoutDeltaCrl = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName,
+                List.of(baseCrlUrl), null, BigInteger.valueOf(3));
+        createTrustedCertEntity(cert);
+        Instant dueWithinClockSkew = Instant.now().minus(Duration.ofMinutes(1));
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withNextUpdate(dueWithinClockSkew)
+                        .withRevocation(BigInteger.valueOf(0x99), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(4))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        X509CRL predatesDeltaCrl = anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                .withCrlNumber(BigInteger.valueOf(3))
+                .build();
+
+        // when
+        ThrowingCallable storeThenRefreshInOneRequest = () -> runInOneRequest(() -> {
+            crlService.getCurrentCrl(cert, cert);
+            replaceStub(basePath, predatesDeltaCrl.getEncoded());
+            crlService.getCurrentCrl(sameIssuerWithoutDeltaCrl, cert);
+        });
+
+        // then
+        assertThatThrownBy(storeThenRefreshInOneRequest)
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("is lower than the stored CRL number");
+        assertThat(findStoredCrlEntry(cert, cert.getSerialNumber()))
+                .as("revocation listed by the applied delta CRL")
+                .isPresent();
+    }
+
+    @Test
+    void keepsStoredCrl_whenRefreshedCrlIsDeltaCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String urlPath = "/refresh-delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRefreshDelta-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
+        createTrustedCertEntity(cert);
+        stubCrlPoint(urlPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        UUID crlUuid = crlService.getCurrentCrl(cert, cert);
+        markStoredCrlDue(cert);
+        X509CRL deltaCrlListingNothing = anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                .withCrlNumber(BigInteger.valueOf(3))
+                .withDeltaCrlIndicator(BigInteger.TWO)
+                .build();
+        replaceStub(urlPath, deltaCrlListingNothing.getEncoded());
+
+        // when
+        ThrowingCallable refreshCrl = () -> crlService.getCurrentCrl(cert, cert);
+
+        // then
+        assertThatThrownBy(refreshCrl).isInstanceOf(IOException.class).hasMessageContaining("it is a delta CRL");
+        assertThat(crlEntryRepository.findById(new CrlEntryId(crlUuid, cert.getSerialNumber().toString(16))))
+                .as("revocation listed by the stored CRL")
+                .isPresent();
+    }
+
+    @Test
+    void keepsBaseCrlRevocation_whenDeltaCrlIsCompleteCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-complete-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaComplete-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        X509CRL completeCrlListingNothing = anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                .withCrlNumber(BigInteger.valueOf(3))
+                .build();
+        stubCrlPoint(deltaPath, completeCrlListingNothing.getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    void keepsBaseCrlRevocation_whenDeltaCrlIsPastNextUpdate() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-stale-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaStale-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        Instant beyondClockSkew = Instant.now().minus(Duration.ofMinutes(10));
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withNextUpdate(beyondClockSkew)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.removeFromCRL)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    void appliesNewerDeltaCrl_whenStoredDeltaCrlIsDue() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaDue-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredDeltaCrlDue(cert);
+        X509CRL newerDeltaCrl = anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                .withCrlNumber(BigInteger.valueOf(4))
+                .withDeltaCrlIndicator(BigInteger.TWO)
+                .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                .build();
+        replaceStub(deltaPath, newerDeltaCrl.getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    void skipsDeltaCrlDownload_whenStoredDeltaCrlIsCurrent() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaCurrent-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+
+        // when
+        crlService.getCurrentCrl(cert, cert);
+
+        // then
+        mockServer.verify(1, WireMock.getRequestedFor(WireMock.urlPathEqualTo(deltaPath)));
+    }
+
+    @Test
+    void clearsDeltaCrlState_whenBaseCrlIsRefreshed() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        String commonName = "testCrlDeltaReset-" + stamp;
+        String baseCrlUrl = LoopbackWireMock.url(mockServer) + basePath;
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName, List.of(baseCrlUrl),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        X509Certificate sameIssuerWithoutDeltaCrl = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName,
+                List.of(baseCrlUrl), null, BigInteger.valueOf(3));
+        createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredCrlDue(cert);
+        BigInteger refreshedCrlNumber = BigInteger.valueOf(4);
+        replaceStub(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(refreshedCrlNumber)
+                        .build()
+                        .getEncoded());
+
+        // when
+        UUID crlUuid = crlService.getCurrentCrl(sameIssuerWithoutDeltaCrl, cert);
+
+        // then
+        Crl storedCrl = crlRepository.findByUuid(SecuredUUID.fromUUID(crlUuid)).orElseThrow();
+        assertThat(storedCrl.getCrlNumber()).isEqualTo(refreshedCrlNumber.toString());
+        assertThat(storedCrl.getCrlNumberDelta()).isNull();
+        assertThat(storedCrl.getNextUpdateDelta()).isNull();
+    }
+
+    @Test
+    void appliesDeltaCrlOfRefreshedBaseCrl_whenOldDeltaCrlIsStillCurrent() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaOfRefresh-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredCrlDue(cert);
+        BigInteger refreshedCrlNumber = BigInteger.valueOf(4);
+        replaceStub(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(refreshedCrlNumber)
+                        .build()
+                        .getEncoded());
+        replaceStub(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(5))
+                        .withDeltaCrlIndicator(refreshedCrlNumber)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    void appliesNewerDeltaCrl_whenStoredDeltaCrlIsOlderThanBaseCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaLeftBehind-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        BigInteger newerBaseCrlNumber = BigInteger.valueOf(4);
+        keepStoredDeltaCrlUnderNewerBaseCrl(cert, newerBaseCrlNumber);
+        replaceStub(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(newerBaseCrlNumber)
+                        .build()
+                        .getEncoded());
+        replaceStub(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(5))
+                        .withDeltaCrlIndicator(newerBaseCrlNumber)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    void refreshesBaseCrl_whenDueDeltaCrlExtendsNewerBaseCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaNewerBase-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredDeltaCrlDue(cert);
+        BigInteger newerBaseCrlNumber = BigInteger.valueOf(4);
+        replaceStub(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(newerBaseCrlNumber)
+                        .build()
+                        .getEncoded());
+        replaceStub(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(5))
+                        .withDeltaCrlIndicator(newerBaseCrlNumber)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(findStoredCrl(cert))
+                .hasValueSatisfying(crl -> assertThat(crl.getCrlNumber()).isEqualTo(newerBaseCrlNumber.toString()));
+    }
+
+    @Test
+    void keepsStoredCrl_whenRefreshedCrlPredatesBaseCrlOfNewDeltaCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaOlderRefresh-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        BigInteger storedBaseCrlNumber = BigInteger.TWO;
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(storedBaseCrlNumber)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(storedBaseCrlNumber)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.certificateHold)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredDeltaCrlDue(cert);
+        replaceStub(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(4))
+                        .build()
+                        .getEncoded());
+        replaceStub(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(7))
+                        .withDeltaCrlIndicator(BigInteger.valueOf(6))
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(findStoredCrl(cert))
+                .hasValueSatisfying(crl -> assertThat(crl.getCrlNumber()).isEqualTo(storedBaseCrlNumber.toString()));
+    }
+
+    @Test
+    void reportsCrlFailed_whenDeltaCrlIsUnreachable() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String unansweredDeltaPath = "/delta-missing-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaUnreachable-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + unansweredDeltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("usable delta CRL").contains("it could not be read");
+    }
+
+    @Test
+    void reportsCrlFailed_whenDeltaCrlIsNotSignedByIssuer() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        KeyPair forgerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-forged-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaForgedOnly-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), forgerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("its signature does not verify with the issuer's public key");
+    }
+
+    @Test
+    void reportsCrlFailed_whenDueDeltaCrlCannotBeDownloaded() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaDueMissing-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredDeltaCrlDue(cert);
+        stopServing(deltaPath);
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("usable delta CRL").contains("it could not be read");
+    }
+
+    @Test
+    void reportsCrlFailed_whenDeltaCrlThatReleasedHoldIsNoLongerCurrent() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaReleaseExpired-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.certificateHold)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.removeFromCRL)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredDeltaCrlDue(cert);
+        Instant beyondClockSkew = Instant.now().minus(Duration.ofMinutes(10));
+        replaceStub(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withNextUpdate(beyondClockSkew)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.removeFromCRL)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("it is not current");
+    }
+
+    @Test
+    void reportsCrlFailed_whenDeltaCrlIsOlderThanStoredDeltaCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaRollback-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(5))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredDeltaCrlDue(cert);
+        BigInteger olderDeltaCrlNumber = BigInteger.valueOf(4);
+        replaceStub(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(olderDeltaCrlNumber)
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage())
+                .contains("its CRL number " + olderDeltaCrlNumber + " is lower than the stored CRL number");
+    }
+
+    @Test
+    void throwsWithoutRefreshingBaseCrl_whenDeltaCrlExtendsOlderBaseCrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaOlderBase-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(4))
+                        .build()
+                        .getEncoded());
+        BigInteger olderBaseCrlNumber = BigInteger.TWO;
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(5))
+                        .withDeltaCrlIndicator(olderBaseCrlNumber)
+                        .build()
+                        .getEncoded());
+
+        // when
+        ThrowingCallable getCurrentCrl = () -> crlService.getCurrentCrl(cert, cert);
+
+        // then
+        assertThatThrownBy(getCurrentCrl)
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("it extends base CRL number " + olderBaseCrlNumber);
+        mockServer.verify(1, WireMock.getRequestedFor(WireMock.urlPathEqualTo(basePath)));
+    }
+
+    @Test
+    void reportsCrlFailed_whenDeltaCrlHasNoUrl() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        GeneralNames directoryNameOnly = new GeneralNames(new GeneralName(new X500Name("CN=Delta-Crl-" + stamp)));
+        DistributionPoint deltaCrlPointWithoutUrl = new DistributionPoint(new DistributionPointName(directoryNameOnly),
+                null, null);
+        X509Certificate cert = createSelfSignedCertificate(issuerKeyPair, "testCrlDeltaNoUrl-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath), new DistributionPoint[]{deltaCrlPointWithoutUrl},
+                BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+        assertThat(crlCheck.getMessage()).contains("names a delta CRL without a URL");
+    }
+
+    @Test
+    void keepsHoldListedByBaseCrl_whenDeltaCrlIsUnreachable() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String unansweredDeltaPath = "/delta-missing-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMissingHold-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + unansweredDeltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.certificateHold)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        CertificateValidationCheckDto crlCheck = readCrlCheck(result);
+        assertThat(crlCheck.getStatus()).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(crlCheck.getMessage()).contains(CertificateRevocationReason.CERTIFICATE_HOLD.getLabel());
+    }
+
+    @Test
+    void appliesDeltaCrl_whenItsNumberExceedsIntegerRange() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaLongNumber-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        BigInteger baseCrlNumber = BigInteger.valueOf(Integer.MAX_VALUE - 1L);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(baseCrlNumber)
+                        .build()
+                        .getEncoded());
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(Integer.MAX_VALUE))
+                        .withDeltaCrlIndicator(baseCrlNumber)
+                        .build()
+                        .getEncoded());
+        crlService.getCurrentCrl(cert, cert);
+        markStoredDeltaCrlDue(cert);
+        BigInteger deltaCrlNumberBeyondIntRange = BigInteger.valueOf(Integer.MAX_VALUE).add(BigInteger.ONE);
+        replaceStub(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(deltaCrlNumberBeyondIntRange)
+                        .withDeltaCrlIndicator(baseCrlNumber)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(findStoredCrl(cert))
+                .hasValueSatisfying(
+                        crl -> assertThat(crl.getCrlNumberDelta()).isEqualTo(deltaCrlNumberBeyondIntRange.toString()));
+    }
+
+    @Test
+    void appliesDeltaCrl_whenItIsPastNextUpdateWithinClockSkew() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaSkew-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        Instant withinClockSkew = Instant.now().minus(Duration.ofMinutes(1));
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withNextUpdate(withinClockSkew)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
+    @Test
+    void appliesDeltaCrl_whenItRemovesCertificateNotListed() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaRemovesUnlisted-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .build()
+                        .getEncoded());
+        BigInteger unlistedSerialNumber = BigInteger.valueOf(0x77);
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withRevocation(unlistedSerialNumber, CRLReason.removeFromCRL)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+        assertThat(findStoredCrlEntry(cert, unlistedSerialNumber)).isEmpty();
+    }
+
+    @Test
+    void appliesDeltaCrlRevocation_whenItPredatesBaseCrlRevocations() throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/base-" + stamp + ".crl";
+        String deltaPath = "/delta-" + stamp + ".crl";
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaBackdated-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath),
+                List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.TWO)
+                        .withRevocation(BigInteger.valueOf(0x66), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+        Instant beforeBaseCrlRevocations = Instant.now().minus(Duration.ofDays(1));
+        stubCrlPoint(deltaPath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withCrlNumber(BigInteger.valueOf(3))
+                        .withDeltaCrlIndicator(BigInteger.TWO)
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise, beforeBaseCrlRevocations)
+                        .build()
+                        .getEncoded());
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(readCrlStatus(result)).isEqualTo(CertificateValidationStatus.REVOKED);
+    }
+
     private Certificate createTrustedCertEntity(X509Certificate cert) {
         Certificate entity = certificateService.createCertificateEntity(cert);
         entity.setTrustedCa(true);
@@ -892,34 +2124,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         KeyPairGenerator keyPairGen = KeyPairGenerator.getInstance("RSA");
         keyPairGen.initialize(2048);
         return keyPairGen.generateKeyPair();
-    }
-
-    private void replaceStub(String urlPath, byte[] body) {
-        mockServer
-                .getStubMappings()
-                .stream()
-                .filter(s -> urlPath.equals(s.getRequest().getUrlPathPattern()))
-                .findFirst()
-                .ifPresent(s -> mockServer.removeStubMapping(s));
-        stubCrlPoint(urlPath, body);
-    }
-
-    private X509CRL buildStaleCrl(X509Certificate caCert, PrivateKey caKey, BigInteger crlNumber,
-            Map<BigInteger, Integer> entries) throws CRLException, OperatorCreationException, IOException {
-        // nextUpdate in the past so getCurrentCrl re-fetches on the next call (drives the update path).
-        Date pastNextUpdate = new Date(System.currentTimeMillis() - 60_000L);
-        X509v2CRLBuilder crlGen = new X509v2CRLBuilder(
-                X500Name.getInstance(caCert.getSubjectX500Principal().getEncoded()),
-                new Date(System.currentTimeMillis() - 120_000L));
-        crlGen.setNextUpdate(pastNextUpdate);
-        crlGen.addExtension(Extension.cRLNumber, false, new CRLNumber(crlNumber));
-        for (Map.Entry<BigInteger, Integer> e : entries.entrySet()) {
-            ExtensionsGenerator extGen = new ExtensionsGenerator();
-            extGen.addExtension(Extension.reasonCode, false, org.bouncycastle.asn1.x509.CRLReason.lookup(e.getValue()));
-            crlGen.addCRLEntry(e.getKey(), new Date(), extGen.generate());
-        }
-        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption").setProvider("BC").build(caKey);
-        return new JcaX509CRLConverter().setProvider("BC").getCRL(crlGen.build(signer));
     }
 
     private void stubCrlPoint(String urlPart, byte[] body) {
@@ -1763,6 +2967,13 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     private static X509Certificate createSelfSignedCertificateWithCrl(KeyPair pair, String commonName,
             List<String> crlUrls, List<String> deltaCrlUrls, BigInteger serialNumber)
             throws CertIOException, OperatorCreationException, CertificateException {
+        DistributionPoint[] deltaCrlPoints = deltaCrlUrls == null ? null : createCrlDistributionPoints(deltaCrlUrls);
+        return createSelfSignedCertificate(pair, commonName, crlUrls, deltaCrlPoints, serialNumber);
+    }
+
+    private static X509Certificate createSelfSignedCertificate(KeyPair pair, String commonName, List<String> crlUrls,
+            DistributionPoint[] deltaCrlPoints, BigInteger serialNumber)
+            throws CertIOException, OperatorCreationException, CertificateException {
         SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfo.getInstance(pair.getPublic().getEncoded());
 
         X500Name x500Name = new X500Name("CN=" + commonName);
@@ -1770,9 +2981,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 Date.from(Instant.parse("9999-12-31T23:59:59Z")), x500Name, subjectPublicKeyInfo);
         CRLDistPoint crlDistPoint = new CRLDistPoint(createCrlDistributionPoints(crlUrls));
         certificateBuilder.addExtension(Extension.cRLDistributionPoints, false, crlDistPoint);
-        if (deltaCrlUrls != null) {
-            CRLDistPoint deltaCrlDistPoint = new CRLDistPoint(createCrlDistributionPoints(deltaCrlUrls));
-            certificateBuilder.addExtension(Extension.freshestCRL, false, deltaCrlDistPoint);
+        if (deltaCrlPoints != null) {
+            certificateBuilder.addExtension(Extension.freshestCRL, false, new CRLDistPoint(deltaCrlPoints));
         }
         ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption").build(pair.getPrivate());
         X509CertificateHolder holder = certificateBuilder.build(signer);
@@ -1796,6 +3006,10 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         return result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION).getStatus();
     }
 
+    private static CertificateValidationCheckDto readCrlCheck(CertificateValidationResultDto result) {
+        return result.getValidationChecks().get(CertificateValidationCheck.CRL_VERIFICATION);
+    }
+
     private Optional<Crl> findStoredCrl(X509Certificate selfSignedIssuer) {
         String issuerDn = X500Name
                 .getInstance(new PlatformX500NameStyle(true), selfSignedIssuer.getSubjectX500Principal().getEncoded())
@@ -1806,5 +3020,62 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     private Optional<CrlEntry> findStoredCrlEntry(X509Certificate selfSignedIssuer, BigInteger serialNumber) {
         return findStoredCrl(selfSignedIssuer)
                 .flatMap(crl -> crlEntryRepository.findById(new CrlEntryId(crl.getUuid(), serialNumber.toString(16))));
+    }
+
+    private void replaceStub(String urlPath, byte[] body) {
+        stopServing(urlPath);
+        stubCrlPoint(urlPath, body);
+    }
+
+    private void stopServing(String urlPath) {
+        mockServer
+                .getStubMappings()
+                .stream()
+                .filter(s -> urlPath.equals(s.getRequest().getUrlPathPattern()))
+                .findFirst()
+                .ifPresent(s -> mockServer.removeStubMapping(s));
+    }
+
+    /** Moves the stored CRL's next update a minute into the past, so the next check downloads the CRL again. */
+    private void markStoredCrlDue(X509Certificate selfSignedIssuer) {
+        Crl storedCrl = findStoredCrl(selfSignedIssuer).orElseThrow();
+        storedCrl.setNextUpdate(Date.from(Instant.now().minus(Duration.ofMinutes(1))));
+        crlRepository.save(storedCrl);
+    }
+
+    /**
+     * Gives the stored CRL a newer base CRL number while its current delta CRL of the older base CRL stays stored, as
+     * in a row that a base CRL refresh left without dropping the delta CRL.
+     */
+    private void keepStoredDeltaCrlUnderNewerBaseCrl(X509Certificate selfSignedIssuer, BigInteger baseCrlNumber) {
+        Crl storedCrl = findStoredCrl(selfSignedIssuer).orElseThrow();
+        storedCrl.setCrlNumber(baseCrlNumber.toString());
+        crlRepository.save(storedCrl);
+    }
+
+    /** Moves the stored delta CRL's next update a minute into the past, so the next check downloads it again. */
+    private void markStoredDeltaCrlDue(X509Certificate selfSignedIssuer) {
+        Crl storedCrl = findStoredCrl(selfSignedIssuer).orElseThrow();
+        storedCrl.setNextUpdateDelta(Date.from(Instant.now().minus(Duration.ofMinutes(1))));
+        crlRepository.save(storedCrl);
+    }
+
+    /** Runs the calls with one EntityManager bound to the thread, as open-in-view binds one to a web request. */
+    private void runInOneRequest(ThrowingCallable calls) throws Throwable {
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+        try {
+            calls.call();
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+        }
+    }
+
+    private static void assertCrlIgnoredWithWarning(CapturedOutput output, String crlUrl) {
+        assertThat(output.getOut().lines().filter(line -> line.contains("Ignoring the CRL from " + crlUrl)))
+                .isNotEmpty()
+                .allSatisfy(line -> assertThat(line).contains("WARN"));
     }
 }
