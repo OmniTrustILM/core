@@ -6,8 +6,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeContent;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
+import com.otilm.api.model.common.attribute.common.DataAttribute;
+import com.otilm.api.model.common.attribute.common.content.data.CodeBlockAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
@@ -16,6 +21,7 @@ import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectConten
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.connector.secrets.content.SecretContent;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -24,7 +30,9 @@ import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -67,8 +75,9 @@ public class OutboundSecretContainment {
     /**
      * Record the secret leaf values materialized by expanding {@code blob}, so a later echo of them in the connector's
      * response can be detected. Records ONLY genuinely secret-typed leaves — a {@link ResourceSecretContentData}'s
-     * inline {@link SecretContent} and a {@link SecretAttributeContentData}'s {@code secret} — never benign metadata,
-     * so the value-echo check cannot false-positive on a public value.
+     * inline {@link SecretContent}, a {@link SecretAttributeContentData}'s {@code secret}, and the text, file body or
+     * code of a data attribute stored encrypted, which expansion decrypts — never benign metadata, so the value-echo
+     * check cannot false-positive on a public value.
      * <p>
      * A credential/authority blob is a {@link ResourceSimpleContentData}, not a {@link ResourceSecretContentData}: its
      * secret material surfaces as a {@link SecretAttributeContentV2} nested in its attributes. Walking the blob with
@@ -98,6 +107,36 @@ public class OutboundSecretContainment {
         }
     }
 
+    /**
+     * Record the text, file body or code of each resolved attribute whose stored row is encrypted, since resolution
+     * sends it as plain content that {@link #recordExpandedSecretsFromRequest} cannot tell from a public value. Rows
+     * and attributes are matched by definition UUID, as two definitions of a connector may share a name. A number,
+     * flag, file name or language is left out, as it would match benign content.
+     */
+    public void recordProtectedValuesFromRequest(List<ObjectAttributeContent> storedRows,
+            List<RequestAttribute> resolved, Set<String> expandedSecrets) {
+        Set<UUID> protectedDefinitions = storedRows
+                .stream()
+                .filter(row -> row.encryptedContent() != null)
+                .map(ObjectAttributeContent::uuid)
+                .collect(Collectors.toSet());
+        for (RequestAttribute attribute : resolved) {
+            List<? extends AttributeContent> content = attribute.getContent();
+            if (protectedDefinitions.contains(attribute.getUuid()) && content != null) {
+                content.forEach(item -> addIfPresent(protectedText(item.getData()), expandedSecrets));
+            }
+        }
+    }
+
+    private static String protectedText(Object data) {
+        return switch (data) {
+            case String text -> text;
+            case FileAttributeContentData file -> file.getContent();
+            case CodeBlockAttributeContentData codeBlock -> codeBlock.getCode();
+            case null, default -> null;
+        };
+    }
+
     private void recordIfSecretLeaf(Object node, Set<String> sink) {
         if (node instanceof ResourceSecretContentData secret && secret.getContent() != null) {
             JsonNode tree;
@@ -120,7 +159,17 @@ public class OutboundSecretContainment {
             collectScalarStrings(tree, sink);
         } else if (node instanceof SecretAttributeContentData data) {
             addIfPresent(data.getSecret(), sink);
+        } else if (node instanceof DataAttribute attribute && isStoredEncrypted(attribute)) {
+            List<? extends AttributeContent> content = attribute.getContent();
+            if (content != null) {
+                content.forEach(item -> addIfPresent(protectedText(item.getData()), sink));
+            }
         }
+    }
+
+    private static boolean isStoredEncrypted(DataAttribute attribute) {
+        return attribute.getProperties() != null
+                && attribute.getProperties().getProtectionLevel() == ProtectionLevel.ENCRYPTED;
     }
 
     private static void addIfPresent(String value, Set<String> sink) {
@@ -251,12 +300,11 @@ public class OutboundSecretContainment {
             // The response 'attributes' arm is List<BaseAttribute> — Data/Metadata/Custom all expose content via
             // the universal getContent(); descend the base type so a secret nested in any of them is reached.
             walkSecretGraph(baseAttribute.getContent(), depth + 1, visitor, failClosedOnDepth);
-        } else if (node instanceof CredentialAttributeContentV2 credential) {
-            walkSecretGraph(credential.getData(), depth + 1, visitor, failClosedOnDepth);
         } else if (node instanceof CredentialAttributeContentData credential) {
             walkSecretGraph(credential.getAttributes(), depth + 1, visitor, failClosedOnDepth);
-        } else if (node instanceof SecretAttributeContentV2 secret) {
-            walkSecretGraph(secret.getData(), depth + 1, visitor, failClosedOnDepth);
+        } else if (node instanceof AttributeContent content) {
+            // Decryption puts a protected row's data in a base content rather than its typed one.
+            walkSecretGraph(content.getData(), depth + 1, visitor, failClosedOnDepth);
         }
     }
 

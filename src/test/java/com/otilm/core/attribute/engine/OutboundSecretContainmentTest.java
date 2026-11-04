@@ -1,22 +1,34 @@
 package com.otilm.core.attribute.engine;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.attribute.ResponseAttributeV2;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
+import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.content.data.CodeBlockAttributeContentData;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.FileAttributeContentData;
+import com.otilm.api.model.common.attribute.common.content.data.ProgrammingLanguageEnum;
+import com.otilm.api.model.common.attribute.common.content.data.ProtectionLevel;
 import com.otilm.api.model.common.attribute.common.content.data.SecretAttributeContentData;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
+import com.otilm.api.model.common.attribute.v2.content.BaseAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.IntegerAttributeContentV2;
 import com.otilm.api.model.common.attribute.v2.content.SecretAttributeContentV2;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
+import java.io.Serializable;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +36,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -32,6 +45,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** D19 (widened) outbound containment: value-echo + structural secret-shape rejection. */
 class OutboundSecretContainmentTest {
+
+    private static final String SEALED = "sealed-by-the-attribute-engine";
 
     private final OutboundSecretContainment containment = new OutboundSecretContainment(
             new com.fasterxml.jackson.databind.ObjectMapper());
@@ -68,6 +83,172 @@ class OutboundSecretContainmentTest {
         Object echoResponse = Map.of("attributes", List.of(Map.of("default", "s3cr3t-token")));
         assertThrows(OutboundSecretLeakException.class,
                 () -> containment.assertNoExpandedSecretOutbound(echoResponse, expandedSecrets));
+    }
+
+    @Test
+    void recordsTheSecret_ofASecretStoredEncrypted() {
+        // given
+        var tokenPassword = "correct-horse-battery-staple";
+        var resolved = List
+                .of(resolvedAttribute("token-password",
+                        decryptedContent(new SecretAttributeContentData(tokenPassword))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(tokenPassword);
+    }
+
+    @Test
+    void recordsTheSecretInACredential_storedEncrypted() {
+        // given
+        var credentialPassword = "correct-horse-battery-staple";
+        DataAttributeV2 password = new DataAttributeV2();
+        password.setName("password");
+        password.setContentType(AttributeContentType.SECRET);
+        password
+                .setContent(List
+                        .of(new SecretAttributeContentV2(null, new SecretAttributeContentData(credentialPassword))));
+        CredentialAttributeContentData credential = new CredentialAttributeContentData();
+        credential.setName("hsm-login");
+        credential.setAttributes(List.of(password));
+        var resolved = List.of(resolvedAttribute("token-login", decryptedContent(credential)));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(credentialPassword);
+    }
+
+    @Test
+    void recordsTheTextValue_ofACredentialAttributeStoredEncrypted() {
+        // given
+        var credentialPin = "4815162342";
+        var resolved = List
+                .of(resolvedAttribute("token-login",
+                        credentialHolding(credentialAttribute("pin", ProtectionLevel.ENCRYPTED, credentialPin))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(credentialPin);
+    }
+
+    @Test
+    void leavesOutTheValue_ofACredentialAttributeStoredInPlain() {
+        // given
+        var resolved = List
+                .of(resolvedAttribute("token-login",
+                        credentialHolding(credentialAttribute("user", ProtectionLevel.NONE, "hsm-operator"))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordExpandedSecretsFromRequest(resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).isEmpty();
+    }
+
+    @Test
+    void recordsTheTextValue_ofAnAttributeStoredEncrypted() {
+        // given
+        var tokenPin = "4815162342";
+        var pinRow = storedRow("token-pin", SEALED);
+        var resolved = List.of(resolvedFrom(pinRow, new StringAttributeContentV2(tokenPin)));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(List.of(pinRow), resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(tokenPin);
+    }
+
+    @Test
+    void recordsOnlyTheEncryptedRowsValue_whenTwoDefinitionsShareAName() {
+        // given
+        var tokenPin = "4815162342";
+        var publicAlgorithm = "SHA256withRSA";
+        var encryptedRow = storedRow("token-setting", SEALED);
+        var plainNamesake = storedRow("token-setting", null);
+        var resolved = List
+                .of(resolvedFrom(encryptedRow, new StringAttributeContentV2(tokenPin)),
+                        resolvedFrom(plainNamesake, new StringAttributeContentV2(publicAlgorithm)));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(List.of(encryptedRow, plainNamesake), resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(tokenPin);
+    }
+
+    @Test
+    void recordsTheFileBody_ofAFileStoredEncrypted() {
+        // given
+        var keystoreBody = "MIIKPAIBAzCCCfYGCSqGSIb3DQEHAaCC";
+        var keystoreRow = storedRow("token-keystore", SEALED);
+        var resolved = List
+                .of(resolvedFrom(keystoreRow,
+                        decryptedContent(fileData(keystoreBody, "token.p12", "application/x-pkcs12"))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(List.of(keystoreRow), resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(keystoreBody);
+    }
+
+    @Test
+    void recordsTheCode_ofACodeBlockStoredEncrypted() {
+        // given
+        var unlockScript = "ZWNobyAkVE9LRU5fUElO";
+        var scriptRow = storedRow("unlock-script", SEALED);
+        var resolved = List
+                .of(resolvedFrom(scriptRow, decryptedContent(
+                        new CodeBlockAttributeContentData(ProgrammingLanguageEnum.BASH, unlockScript))));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(List.of(scriptRow), resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).containsExactly(unlockScript);
+    }
+
+    @Test
+    void leavesOutTheValue_ofAnAttributeStoredInPlain() {
+        // given
+        var labelRow = storedRow("token-label", null);
+        var resolved = List.of(resolvedFrom(labelRow, new StringAttributeContentV2("primary")));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(List.of(labelRow), resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).isEmpty();
+    }
+
+    @Test
+    void leavesOutANumber_storedEncrypted() {
+        // given
+        var slotRow = storedRow("slot", SEALED);
+        var resolved = List.of(resolvedFrom(slotRow, new IntegerAttributeContentV2(1)));
+        Set<String> expandedSecrets = new HashSet<>();
+
+        // when
+        containment.recordProtectedValuesFromRequest(List.of(slotRow), resolved, expandedSecrets);
+
+        // then
+        assertThat(expandedSecrets).isEmpty();
     }
 
     @Test
@@ -270,5 +451,60 @@ class OutboundSecretContainmentTest {
         final Object payload = deep;
         assertThrows(OutboundSecretLeakException.class,
                 () -> containment.assertNoExpandedSecretOutbound(payload, new HashSet<>()));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static ObjectAttributeContent storedRow(String name, String encryptedContent) {
+        return new ObjectAttributeContent(UUID.randomUUID(), name, name, AttributeType.DATA,
+                AttributeContentType.STRING, new StringAttributeContentV2(), 2, encryptedContent);
+    }
+
+    /** Decryption returns a protected row's data in a base content, whatever the content type. */
+    private static BaseAttributeContentV2<Serializable> decryptedContent(Serializable data) {
+        return new BaseAttributeContentV2<>(null, data);
+    }
+
+    /** A credential attribute as its expansion returns it, decrypted whatever its protection level. */
+    private static DataAttributeV2 credentialAttribute(String name, ProtectionLevel protectionLevel, String value) {
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setProtectionLevel(protectionLevel);
+        DataAttributeV2 attribute = new DataAttributeV2();
+        attribute.setName(name);
+        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setProperties(properties);
+        attribute.setContent(List.of(decryptedContent(value)));
+        return attribute;
+    }
+
+    private static CredentialAttributeContentV2 credentialHolding(DataAttributeV2 attribute) {
+        CredentialAttributeContentData credential = new CredentialAttributeContentData();
+        credential.setName("hsm-login");
+        credential.setAttributes(List.of(attribute));
+        return new CredentialAttributeContentV2("hsm-login", credential);
+    }
+
+    private static FileAttributeContentData fileData(String content, String fileName, String mimeType) {
+        FileAttributeContentData data = new FileAttributeContentData();
+        data.setContent(content);
+        data.setFileName(fileName);
+        data.setMimeType(mimeType);
+        return data;
+    }
+
+    /** The attribute that resolving a stored row sends, which keeps the row's definition UUID and name. */
+    private static RequestAttribute resolvedFrom(ObjectAttributeContent row, BaseAttributeContentV2<?> content) {
+        RequestAttributeV2 attribute = new RequestAttributeV2();
+        attribute.setUuid(row.uuid());
+        attribute.setName(row.name());
+        attribute.setContent(List.of(content));
+        return attribute;
+    }
+
+    private static RequestAttribute resolvedAttribute(String name, BaseAttributeContentV2<?> content) {
+        RequestAttributeV2 attribute = new RequestAttributeV2();
+        attribute.setName(name);
+        attribute.setContent(List.of(content));
+        return attribute;
     }
 }
