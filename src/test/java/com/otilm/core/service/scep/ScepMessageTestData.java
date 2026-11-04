@@ -11,7 +11,6 @@ import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
-import java.util.Collections;
 import java.util.Hashtable;
 import java.util.List;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -26,7 +25,8 @@ import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
-import org.bouncycastle.cert.jcajce.JcaCertStore;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.cms.CMSAlgorithm;
 import org.bouncycastle.cms.CMSEnvelopedData;
 import org.bouncycastle.cms.CMSEnvelopedDataGenerator;
@@ -44,6 +44,7 @@ import org.bouncycastle.operator.OutputEncryptor;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
+import org.bouncycastle.util.CollectionStore;
 
 /**
  * SCEP wire messages for tests. The material is a P-256 signer certificate with its private key and a PKCS#10 request
@@ -68,6 +69,23 @@ public final class ScepMessageTestData {
     public static byte[] passwordEnvelopedPkcsReq() throws Exception {
         return signedMessage(envelopedPkcs10Request(Base64.getDecoder().decode(CSR_B64)), MessageType.PKCS_REQ)
                 .getEncoded();
+    }
+
+    /**
+     * A message of the type carrying the PKCS#10 request given as DER, enveloped to {@link #CHALLENGE_PASSWORD}.
+     */
+    public static byte[] passwordEnvelopedMessageWithCsr(MessageType messageType, byte[] csr) throws Exception {
+        return signedMessage(envelopedPkcs10Request(csr), messageType).getEncoded();
+    }
+
+    /**
+     * The same message signed with the EC key for the signer certificate and carrying the certificates as given,
+     * whatever keys they hold.
+     */
+    public static byte[] passwordEnvelopedPkcsReqSignedWith(PrivateKey ecSigningKey,
+            X509CertificateHolder signerCertificate, List<X509CertificateHolder> certificates) throws Exception {
+        return signedMessage(envelopedPkcs10Request(generatedCsr(null)), MessageType.PKCS_REQ, TRANSACTION_ID,
+                ecSigningKey, signerCertificate, certificates).getEncoded();
     }
 
     /**
@@ -215,16 +233,22 @@ public final class ScepMessageTestData {
 
     private static org.bouncycastle.cms.CMSSignedData signedMessage(CMSProcessableByteArray content,
             MessageType messageType, String transactionId) throws Exception {
-        Security.addProvider(new BouncyCastleProvider());
-
-        X509Certificate signerCertificate = signerCertificate();
+        X509CertificateHolder signerCertificate = new JcaX509CertificateHolder(signerCertificate());
         PrivateKey signerPrivateKey = KeyFactory
                 .getInstance("EC")
                 .generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(SIGNER_KEY_B64)));
+        return signedMessage(content, messageType, transactionId, signerPrivateKey, signerCertificate,
+                List.of(signerCertificate));
+    }
+
+    private static org.bouncycastle.cms.CMSSignedData signedMessage(CMSProcessableByteArray content,
+            MessageType messageType, String transactionId, PrivateKey ecSigningKey,
+            X509CertificateHolder signerCertificate, List<X509CertificateHolder> certificates) throws Exception {
+        Security.addProvider(new BouncyCastleProvider());
 
         ContentSigner contentSigner = new JcaContentSignerBuilder("SHA256WithECDSA")
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                .build(signerPrivateKey);
+                .build(ecSigningKey);
         JcaDigestCalculatorProviderBuilder digestProviderBuilder = new JcaDigestCalculatorProviderBuilder()
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME);
         JcaSignerInfoGeneratorBuilder signerInfoBuilder = new JcaSignerInfoGeneratorBuilder(
@@ -235,7 +259,7 @@ public final class ScepMessageTestData {
 
         CMSSignedDataGenerator signedDataGenerator = new CMSSignedDataGenerator();
         signedDataGenerator.addSignerInfoGenerator(signerInfoBuilder.build(contentSigner, signerCertificate));
-        signedDataGenerator.addCertificates(new JcaCertStore(Collections.singletonList(signerCertificate)));
+        signedDataGenerator.addCertificates(new CollectionStore<>(certificates));
 
         return signedDataGenerator.generate(content, true);
     }

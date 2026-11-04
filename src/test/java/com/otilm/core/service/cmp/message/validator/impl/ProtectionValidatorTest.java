@@ -11,6 +11,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.cmp.CmpEntityUtil;
 import com.otilm.core.service.cmp.CmpTestUtil;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
+import com.otilm.core.service.cmp.message.protection.ProtectionStrategy;
 import com.otilm.core.service.cmp.message.protection.impl.SingatureBaseProtectionStrategy;
 import java.math.BigInteger;
 import java.security.KeyPair;
@@ -48,6 +49,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import static com.otilm.core.service.cmp.message.validator.impl.SignatureProtectedMessageFixtures.onExplicitCurve;
+import static com.otilm.core.service.cmp.message.validator.impl.SignatureProtectedMessageFixtures.signatureProtectedMessage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -233,6 +236,37 @@ class ProtectionValidatorTest {
                     .isInstanceOfSatisfying(CmpProcessingException.class,
                             e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.signerNotTrusted));
             verify(configuration, never()).setProtectionCertificate(any());
+        }
+
+        @Test
+        void rejectsWithBadAlg_whenProtectionCertificateKeyIsBeyondTheBounds() throws Exception {
+            // given — the request's certificate writes out the parameters of its curve, as no supported key does
+            PKIMessage request = signatureProtectedMessage(signerKeys, onExplicitCurve(signerKeys, "secp384r1"));
+
+            // when
+            ThrowingCallable validateIn = () -> validator.validateIn(request, configuration);
+
+            // then
+            assertThatThrownBy(validateIn)
+                    .isInstanceOfSatisfying(CmpProcessingException.class,
+                            e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.badAlg));
+            verify(configuration, never()).setProtectionCertificate(any());
+        }
+
+        @Test
+        void acceptsResponse_whenItsCertificateKeyIsBeyondTheBounds() throws Exception {
+            // given — Core signed the response with the key of the profile's signing certificate, whatever its
+            // algorithm
+            PKIMessage response = signatureProtectedMessage(signerKeys, onExplicitCurve(signerKeys, "secp384r1"));
+            ProtectionStrategy signatureProtection = mock(ProtectionStrategy.class);
+            when(signatureProtection.getProtectionAlg()).thenReturn(response.getHeader().getProtectionAlg());
+            when(configuration.getProtectionStrategy()).thenReturn(signatureProtection);
+
+            // when
+            ThrowingCallable validateOut = () -> validator.validateOut(response, configuration);
+
+            // then
+            assertThatCode(validateOut).doesNotThrowAnyException();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────

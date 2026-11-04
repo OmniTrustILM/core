@@ -12,6 +12,7 @@ import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
 import java.io.IOException;
 import java.math.BigInteger;
+import java.security.InvalidAlgorithmParameterException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PublicKey;
@@ -19,6 +20,7 @@ import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.Date;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.Extension;
@@ -38,6 +40,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -308,6 +312,25 @@ class ScepServiceImplRenewalAuthenticationTest {
 
         ScepException thrown = assertThrows(ScepException.class, () -> service.authenticateRenewal(request));
         assertEquals(FailInfo.BAD_MESSAGE_CHECK, thrown.getFailInfo());
+    }
+
+    @Test
+    void rejectsWithBadMessageCheck_whenSignatureAlgorithmIsBeyondTheBounds() throws Exception {
+        // given
+        when(certificateService.getCertificateEntityByFingerprint(any()))
+                .thenReturn(inventoryCertificate(RA_PROFILE_UUID));
+        ScepRequest request = mock(ScepRequest.class);
+        when(request.getSignerCertificate()).thenReturn(clientCertificate);
+        when(request.verifySignature(any(PublicKey.class)))
+                .thenThrow(new InvalidAlgorithmParameterException("the RSASSA-PSS salt length is out of range"));
+
+        // when
+        ThrowingCallable authenticate = () -> service.authenticateRenewal(request);
+
+        // then
+        assertThatThrownBy(authenticate)
+                .isInstanceOfSatisfying(ScepException.class,
+                        thrown -> assertThat(thrown.getFailInfo()).isEqualTo(FailInfo.BAD_MESSAGE_CHECK));
     }
 
     /** Names that cannot be read withhold the waiver rather than being assumed harmless. */
