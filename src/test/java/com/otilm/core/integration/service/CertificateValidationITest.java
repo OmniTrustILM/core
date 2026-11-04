@@ -2126,20 +2126,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         return keyPairGen.generateKeyPair();
     }
 
-    private void replaceStub(String urlPath, byte[] body) {
-        stopServing(urlPath);
-        stubCrlPoint(urlPath, body);
-    }
-
-    private void stopServing(String urlPath) {
-        mockServer
-                .getStubMappings()
-                .stream()
-                .filter(s -> urlPath.equals(s.getRequest().getUrlPathPattern()))
-                .findFirst()
-                .ifPresent(s -> mockServer.removeStubMapping(s));
-    }
-
     private void stubCrlPoint(String urlPart, byte[] body) {
         mockServer
                 .stubFor(WireMock
@@ -3034,6 +3020,20 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     private Optional<CrlEntry> findStoredCrlEntry(X509Certificate selfSignedIssuer, BigInteger serialNumber) {
         return findStoredCrl(selfSignedIssuer)
                 .flatMap(crl -> crlEntryRepository.findById(new CrlEntryId(crl.getUuid(), serialNumber.toString(16))));
+    }
+
+    private void replaceStub(String urlPath, byte[] body) {
+        stopServing(urlPath);
+        stubCrlPoint(urlPath, body);
+    }
+
+    private void stopServing(String urlPath) {
+        mockServer
+                .getStubMappings()
+                .stream()
+                .filter(s -> urlPath.equals(s.getRequest().getUrlPathPattern()))
+                .findFirst()
+                .ifPresent(s -> mockServer.removeStubMapping(s));
     }
 
     /** Moves the stored CRL's next update a minute into the past, so the next check downloads the CRL again. */
