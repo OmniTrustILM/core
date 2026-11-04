@@ -201,6 +201,19 @@ public class SigningProfileControllerImpl implements SigningProfileController {
         signingProfileService.deactivateTsp(SecuredUUID.fromUUID(uuid));
     }
 
+    @Override
+    @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.ACTIVATE_PROTOCOL)
+    public void activateIlmNative(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
+        signingProfileService.activateIlmNative(SecuredUUID.fromUUID(uuid));
+    }
+
+    @Override
+    @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE,
+            operation = Operation.DEACTIVATE_PROTOCOL)
+    public void deactivateIlmNative(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
+        signingProfileService.deactivateIlmNative(SecuredUUID.fromUUID(uuid));
+    }
+
     private static String currentBaseUrl() {
         return ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
     }
