@@ -48,7 +48,7 @@ jobs:
             { echo "### Interfaces dependency"; echo ""; echo "- image test: $([ "$1" = true ] && echo runs || echo waits)"; echo "- $2"; } >> "$GITHUB_STEP_SUMMARY"
             echo "$2"
           }
-          wait_for() { decide false "$1"; fail "$1 The image test waits; then re-run all jobs on Build PR and Test Docker image."; }
+          wait_for() { decide false "$1"; fail "$1 $2, then re-run all jobs on Build PR and Test Docker image."; }
 
           if [ "$EVENT" != pull_request ]; then
             decide true "Not a pull_request event - building against the pom value."; exit 0
@@ -67,7 +67,7 @@ jobs:
           # not build against a contract the marker was meant to replace. Herestrings, not pipes: `grep -q`
           # closing the pipe early would otherwise read as "no marker" under pipefail.
           if grep -qiP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' <<<"$BODY"; then
-            wait_for "An Interfaces-Version override is present in the PR body."
+            wait_for "An Interfaces-Version override is present in the PR body." "Remove it from the PR body"
           fi
           if ! grep -qiP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' <<<"$BODY"; then
             decide true "No interfaces dependency marker - building against the pom value."; exit 0
@@ -75,7 +75,8 @@ jobs:
 
           NUM=$(grep -oiP '^Depends-On:[[:space:]]*OmniTrustILM/interfaces#\K[0-9]{1,7}(?=[[:space:]]*$)' <<<"$BODY" | head -1 || true)
           if [ -z "$NUM" ]; then
-            wait_for "A Depends-On marker for interfaces is present but not in the form build_pr.yml accepts."
+            wait_for "A Depends-On marker for interfaces is present but not in the form build_pr.yml accepts." \
+              "Rewrite it to begin the line as Depends-On: OmniTrustILM/interfaces#<number>"
           fi
 
           if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
@@ -84,7 +85,7 @@ jobs:
           read -r MERGED MSHA MAT <<<"$IPR"
 
           if [ "$MERGED" != true ]; then
-            wait_for "This PR depends on the unmerged OmniTrustILM/interfaces#${NUM}."
+            wait_for "This PR depends on the unmerged OmniTrustILM/interfaces#${NUM}." "Merge it and wait for the publish"
           fi
 
           # Merged, but the mainline SNAPSHOT carries the change only once the interfaces publish finishes; the
@@ -96,7 +97,7 @@ jobs:
           if ! grep -qE "^[0-9][0-9A-Za-z.-]*-M[0-9]+-${MSHA:0:8}\$" <<<"$VERSIONS"; then
             AGE=$(( $(date -u +%s) - $(date -u -d "${MAT:-@0}" +%s) ))
             if [ "$AGE" -lt 900 ]; then
-              wait_for "OmniTrustILM/interfaces#${NUM} merged ${AGE}s ago and its build has not published yet."
+              wait_for "OmniTrustILM/interfaces#${NUM} merged ${AGE}s ago and its build has not published yet." "Wait for it"
             fi
             echo "::warning::interfaces#${NUM} merged ${AGE}s ago with no -M build; a release-cut merge produces none. Proceeding against mainline."
           fi
