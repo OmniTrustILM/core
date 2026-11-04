@@ -38,6 +38,7 @@ import jakarta.persistence.criteria.Root;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -693,10 +694,11 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
                 || !groupMembersFilter.getForbiddenObjects().isEmpty()) {
             return getPredicateBySecurityResourceFilter(root, groupMembersFilter, "groups.uuid");
         }
-        String groupsPath = root.getJavaType().equals(CryptographicKeyItem.class)
-                ? "%s.groups".formatted(CryptographicKeyItem_.key.getName())
-                : "groups";
-        return cb.isNotNull(FilterPredicatesBuilder.prepareJoin(root, groupsPath).get("uuid"));
+        Path<Collection<?>> groups = root.getJavaType().equals(CryptographicKeyItem.class)
+                ? root.get(CryptographicKeyItem_.key.getName()).get("groups")
+                : root.get("groups");
+        // An emptiness check runs as EXISTS, where a join on the collection would repeat the object once per group.
+        return cb.isNotEmpty(groups);
     }
 
     private Predicate getPredicateBySecurityResourceFilter(Root<T> root, SecurityResourceFilter resourceFilter,

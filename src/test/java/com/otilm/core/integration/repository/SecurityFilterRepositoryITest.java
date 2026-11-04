@@ -238,6 +238,9 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         assertThat(certificateRepository.findUsingSecurityFilter(filter))
                 .extracting(UniquelyIdentifiedAndAudited::getUuid)
                 .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
+                .describedAs("an object in several groups is paged once")
+                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
 
         groupMembersFilter.addDeniedObjects(List.of(group.getUuid().toString(), secondGroup.getUuid().toString()));
 
