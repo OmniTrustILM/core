@@ -2,6 +2,7 @@ package com.otilm.core.messaging.jms.listeners;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.client.v1.NotificationInstanceSyncApiClient;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.events.data.CbomSyncedEventData;
@@ -14,7 +15,9 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
+import com.otilm.core.dao.entity.notifications.NotificationProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
+import com.otilm.core.dao.entity.notifications.PendingNotification;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRepository;
@@ -32,16 +35,22 @@ import com.otilm.core.service.notifications.NotificationObjectDataService;
 import com.otilm.core.service.notifications.NotificationSubjectResolver.SubjectRef;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.writer.PendingNotificationWriter;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,6 +63,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -406,4 +417,263 @@ class NotificationListenerTest {
                 renderedCommentNotification(ResourceEvent.COMMENT_RESOLVED, reopened)[0]);
     }
 
+    // ── NotCompliantReminders ────────────────────────────────────────────────
+
+    @Nested
+    @ExtendWith(MockitoExtension.class)
+    class NotCompliantReminders {
+
+        @Mock
+        private NotificationProfileVersionRepository versionRepository;
+        @Mock
+        private NotificationInstanceReferenceRepository instanceRefRepository;
+        @Mock
+        private PendingNotificationRepository pendingRepository;
+        @Mock
+        private NotificationInstanceSyncApiClient apiClient;
+        @Mock
+        private ConnectorApiFactory connectorApiFactory;
+        @Mock
+        private PendingNotificationWriter writer;
+        @Mock
+        private AttributeEngine attributeEngine;
+        @Mock
+        private TriggerInternalService triggerService;
+        @Mock
+        private ConnectorInternalService connectorService;
+        @Mock
+        private GroupRepository groupRepository;
+        @Mock
+        private UserManagementApiClient userClient;
+        @Mock
+        private RoleManagementApiClient roleClient;
+        @Mock
+        private ResourceObjectAssociationService objectAssociationService;
+        @Mock
+        private NotificationObjectDataService objectDataService;
+
+        private NotificationListener listener;
+
+        @BeforeEach
+        void createListener() {
+            listener = new NotificationListener(JsonMapper.builder().findAndAddModules().build(), attributeEngine,
+                    notificationService, triggerService, connectorApiFactory, connectorService, pendingRepository,
+                    versionRepository, instanceRefRepository, groupRepository, userClient, roleClient,
+                    objectAssociationService, new TransactionHandler(), writer, objectDataService);
+        }
+
+        @Test
+        void sendsAndRecordsNotification_whenProfileSetsNoReminders() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, null);
+            stubFirstSend(version);
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(apiClient).sendNotification(any(), any(), any());
+            verify(writer)
+                    .recordSent(eq(version.getNotificationProfileUuid()), eq(Resource.CERTIFICATE), any(),
+                            eq(ResourceEvent.CERTIFICATE_NOT_COMPLIANT), eq(1));
+        }
+
+        @Test
+        void suppressesNotification_whenProfileSetsNoRemindersAndAlreadyNotified() {
+            // given
+            NotificationProfileVersion version = createVersion(null, null);
+            stubExistingRow(version, createPendingNotification(version, 1, OffsetDateTime.now().minusDays(30)));
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verifyNoInteractions(instanceRefRepository, apiClient, writer);
+        }
+
+        @Test
+        void sendsReminder_whenRepetitionsRemain() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, 2);
+            stubExistingRow(version, createPendingNotification(version, 1, OffsetDateTime.now().minusDays(30)));
+            stubSendingConnector(version);
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(apiClient).sendNotification(any(), any(), any());
+        }
+
+        @Test
+        void suppressesReminder_whenRepetitionsAreExhausted() {
+            // given
+            NotificationProfileVersion version = createVersion(null, 2);
+            stubExistingRow(version, createPendingNotification(version, 2, OffsetDateTime.now().minusDays(30)));
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verifyNoInteractions(instanceRefRepository, apiClient, writer);
+        }
+
+        @Test
+        void suppressesReminder_whenFrequencyHasNotElapsed() {
+            // given
+            NotificationProfileVersion version = createVersion(Duration.ofDays(1), null);
+            stubExistingRow(version, createPendingNotification(version, 1, OffsetDateTime.now()));
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verifyNoInteractions(instanceRefRepository, apiClient, writer);
+        }
+
+        @Test
+        void sendsReminder_whenFrequencyHasElapsed() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(Duration.ofDays(1), null);
+            stubExistingRow(version, createPendingNotification(version, 1, OffsetDateTime.now().minusDays(2)));
+            stubSendingConnector(version);
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(apiClient).sendNotification(any(), any(), any());
+        }
+
+        @Test
+        void sendsOnEveryRaise_whenExpiringProfileSetsNoReminders() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, null);
+            stubFirstSend(version);
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_EXPIRING, version);
+
+            // when
+            listener.processMessage(message);
+            listener.processMessage(message);
+
+            // then
+            verify(apiClient, times(2)).sendNotification(any(), any(), any());
+            verify(writer, never()).recordSent(any(), any(), any(), any(), anyInt());
+        }
+
+        @Test
+        void recordsTheAttempt_whenFirstNotCompliantSendFails() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, 3);
+            stubFirstSend(version);
+            doThrow(new ConnectorException("connector down")).when(apiClient).sendNotification(any(), any(), any());
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(writer)
+                    .recordSent(eq(version.getNotificationProfileUuid()), eq(Resource.CERTIFICATE), any(),
+                            eq(ResourceEvent.CERTIFICATE_NOT_COMPLIANT), eq(1));
+        }
+
+        @Test
+        void suppressesRetry_whenFailedAttemptsExhaustedTheRepetitions() {
+            // given
+            NotificationProfileVersion version = createVersion(null, 2);
+            stubExistingRow(version, createPendingNotification(version, 2, OffsetDateTime.now().minusDays(30)));
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_NOT_COMPLIANT, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verifyNoInteractions(instanceRefRepository, apiClient, writer);
+        }
+
+        @Test
+        void doesNotRecordTheAttempt_whenExpiringSendFails() throws Exception {
+            // given
+            NotificationProfileVersion version = createVersion(null, 3);
+            stubFirstSend(version);
+            doThrow(new ConnectorException("connector down")).when(apiClient).sendNotification(any(), any(), any());
+            NotificationMessage message = createMessage(ResourceEvent.CERTIFICATE_EXPIRING, version);
+
+            // when
+            listener.processMessage(message);
+
+            // then
+            verify(writer, never()).recordSent(any(), any(), any(), any(), anyInt());
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static NotificationProfileVersion createVersion(Duration frequency, Integer repetitions) {
+            NotificationProfile profile = new NotificationProfile();
+            profile.setName("reminder-profile");
+
+            NotificationProfileVersion version = new NotificationProfileVersion();
+            version.setNotificationProfileUuid(UUID.randomUUID());
+            version.setVersion(1);
+            version.setRecipientType(RecipientType.NONE);
+            version.setInternalNotification(false);
+            version.setFrequency(frequency);
+            version.setRepetitions(repetitions);
+            version.setNotificationInstanceRefUuid(UUID.randomUUID());
+            version.setNotificationProfile(profile);
+            return version;
+        }
+
+        private static PendingNotification createPendingNotification(NotificationProfileVersion version,
+                int repetitions, OffsetDateTime lastSentAt) {
+            PendingNotification pending = new PendingNotification();
+            pending.setNotificationProfileUuid(version.getNotificationProfileUuid());
+            pending.setResource(Resource.CERTIFICATE);
+            pending.setVersion(version.getVersion());
+            pending.setRepetitions(repetitions);
+            pending.setLastSentAt(lastSentAt);
+            return pending;
+        }
+
+        private static NotificationMessage createMessage(ResourceEvent event, NotificationProfileVersion version) {
+            return new NotificationMessage(event, Resource.CERTIFICATE, UUID.randomUUID(),
+                    List.of(version.getNotificationProfileUuid()), List.of(), null, UUID.randomUUID(), null);
+        }
+
+        private void stubFirstSend(NotificationProfileVersion version) throws Exception {
+            when(versionRepository
+                    .findTopByNotificationProfileUuidOrderByVersionDesc(version.getNotificationProfileUuid()))
+                    .thenReturn(Optional.of(version));
+            stubSendingConnector(version);
+        }
+
+        private void stubExistingRow(NotificationProfileVersion version, PendingNotification existing) {
+            when(pendingRepository
+                    .findByNotificationProfileUuidAndResourceAndObjectUuidAndEvent(any(), any(), any(), any()))
+                    .thenReturn(existing);
+            when(versionRepository
+                    .findByNotificationProfileUuidAndVersion(version.getNotificationProfileUuid(),
+                            version.getVersion()))
+                    .thenReturn(Optional.of(version));
+        }
+
+        private void stubSendingConnector(NotificationProfileVersion version) throws Exception {
+            NotificationInstanceReference instanceRef = new NotificationInstanceReference();
+            instanceRef.setKind("WEBHOOK");
+            instanceRef.setConnectorUuid(UUID.randomUUID());
+            instanceRef.setNotificationInstanceUuid(UUID.randomUUID());
+            instanceRef.setMappedAttributes(List.of());
+            when(instanceRefRepository.findWithMappedAttributesByUuid(version.getNotificationInstanceRefUuid()))
+                    .thenReturn(Optional.of(instanceRef));
+            when(apiClient.listMappingAttributes(any(), any())).thenReturn(List.of());
+            when(connectorApiFactory.getNotificationInstanceApiClient(any())).thenReturn(apiClient);
+        }
+    }
 }

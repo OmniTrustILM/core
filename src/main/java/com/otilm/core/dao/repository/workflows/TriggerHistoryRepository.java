@@ -1,6 +1,8 @@
 package com.otilm.core.dao.repository.workflows;
 
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
 import java.util.List;
@@ -23,6 +25,25 @@ public interface TriggerHistoryRepository extends SecurityFilterRepository<Trigg
     @EntityGraph(attributePaths = {"records"})
     List<TriggerHistory> findByTriggerAssociationObjectUuidOrderByTriggerUuidAscTriggeredAtAsc(
             UUID triggerAssociationObjectUuid);
+
+    /**
+     * Whether a trigger of the event, whose conditions matched, has an execution that sets the property field named by
+     * {@code fieldIdentifier}. Whether the execution succeeded is not looked at: a trigger that addresses the field has
+     * taken it over.
+     */
+    @Query("""
+            SELECT COUNT(th) > 0 FROM TriggerHistory th, Trigger t
+            JOIN t.actions a JOIN a.executions e JOIN e.items i
+            WHERE th.eventHistoryUuid = :eventHistoryUuid
+              AND th.conditionsMatched = true
+              AND t.uuid = th.triggerUuid
+              AND e.type = :executionType
+              AND i.fieldSource = :fieldSource
+              AND i.fieldIdentifier = :fieldIdentifier
+            """)
+    boolean existsMatchedSetFieldExecution(@Param("eventHistoryUuid") UUID eventHistoryUuid,
+            @Param("executionType") ExecutionType executionType, @Param("fieldSource") FilterFieldSource fieldSource,
+            @Param("fieldIdentifier") String fieldIdentifier);
 
     @Modifying
     @Query("UPDATE TriggerHistory t SET t.triggerAssociationUuid = NULL WHERE t.triggerAssociationUuid = :uuid")

@@ -8,6 +8,9 @@ import java.util.UUID;
 
 public interface CertificateEventHistoryInternalService {
 
+    /** What the history message names an object that is not set, such as the owner before it is assigned. */
+    String UNDEFINED_OBJECT_NAME = "undefined";
+
     /**
      * Method to add event into the Certificate history.
      *
