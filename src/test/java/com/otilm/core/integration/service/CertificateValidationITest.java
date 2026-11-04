@@ -98,6 +98,7 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.DERPrintableString;
+import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
@@ -568,6 +569,42 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                                 .getStatus());
 
         mockServer.resetAll();
+    }
+
+    @Test
+    void reportsOcspFailed_whenAuthorityInfoAccessExtensionIsMalformed() throws Exception {
+        // given
+        byte[] noAccessDescriptions = new DERSequence().getEncoded();
+        Certificate endEntity = uploadEndEntityWithAuthorityInfoAccess(noAccessDescriptions);
+
+        // when
+        CertificateValidationResultDto result = certificateService
+                .getCertificateValidationResult(endEntity.getSecuredUuid());
+
+        // then
+        assertThat(result.getValidationChecks())
+                .containsOnlyKeys(CertificateValidationCheck.values())
+                .hasEntrySatisfying(CertificateValidationCheck.OCSP_VERIFICATION, ocspCheck -> {
+                    assertThat(ocspCheck.getStatus()).isEqualTo(CertificateValidationStatus.FAILED);
+                    assertThat(ocspCheck.getMessage()).contains("The authorityInfoAccess extension is malformed");
+                })
+                .hasEntrySatisfying(CertificateValidationCheck.BASIC_CONSTRAINTS,
+                        basicConstraintsCheck -> assertThat(basicConstraintsCheck.getStatus())
+                                .isEqualTo(CertificateValidationStatus.VALID));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsDecoderFailure_whenAuthorityInfoAccessExtensionIsMalformed(CapturedOutput output) throws Exception {
+        // given
+        byte[] noAccessDescriptions = new DERSequence().getEncoded();
+        Certificate endEntity = uploadEndEntityWithAuthorityInfoAccess(noAccessDescriptions);
+
+        // when
+        certificateService.getCertificateValidationResult(endEntity.getSecuredUuid());
+
+        // then
+        assertThat(output.getOut()).contains("Caused by: java.lang.IllegalArgumentException");
     }
 
     @Test
@@ -3185,5 +3222,17 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         assertThat(output.getOut().lines().filter(line -> line.contains("Ignoring the CRL from " + crlUrl)))
                 .isNotEmpty()
                 .allSatisfy(line -> assertThat(line).contains("WARN"));
+    }
+
+    /** Uploads a CA and an end-entity certificate it issued whose authorityInfoAccess extension holds the value. */
+    private Certificate uploadEndEntityWithAuthorityInfoAccess(byte[] authorityInfoAccess) throws Exception {
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        X509Certificate issuerCertificate = CertificateGeneratorHelper
+                .generateCACertificate(issuerKeyPair, "CN=Malformed-Aia-Ca");
+        X509Certificate endEntityCertificate = CertificateGeneratorHelper
+                .generateEndEntityCertificateWithAuthorityInfoAccess(issuerKeyPair, issuerCertificate,
+                        freshRsaKeyPair(), "CN=Malformed-Aia-EndEntity", authorityInfoAccess);
+        uploadCertificate(Base64.getEncoder().encodeToString(issuerCertificate.getEncoded()));
+        return uploadCertificate(Base64.getEncoder().encodeToString(endEntityCertificate.getEncoded()));
     }
 }

@@ -296,6 +296,7 @@ public class X509CertificateValidator implements ICertificateValidator {
         try {
             ocspUrls = OcspUtil.getOcspUrlFromCertificate(certificate);
         } catch (IOException e) {
+            logger.debug("Unable to retrieve the OCSP URLs", e);
             return new CertificateValidationCheckDto(CertificateValidationCheck.OCSP_VERIFICATION,
                     CertificateValidationStatus.FAILED,
                     "Failed to retrieve OCSP URL from certificate: " + e.getMessage());
