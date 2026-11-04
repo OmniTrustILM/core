@@ -115,7 +115,7 @@ class PadesVisibleSignatureCompletenessTest {
     @Test
     void namesTheFullAddress_whenAnAnchorIsDetectedByZoomAlone() {
         // given
-        PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement().withZoom(150f);
+        PadesVisibleSignaturePlacementDtoBuilder placement = aPlacement().withZoom(150);
 
         // when
         Map<SignatureParameterGroup, List<String>> missing = missingFields(visible(true, placement));
