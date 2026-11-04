@@ -22,11 +22,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.ASN1TaggedObject;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.DEROctetString;
-import org.bouncycastle.asn1.DLSequence;
 import org.bouncycastle.asn1.ocsp.OCSPObjectIdentifiers;
 import org.bouncycastle.asn1.ocsp.OCSPResponseStatus;
 import org.bouncycastle.asn1.x509.AccessDescription;
@@ -114,6 +112,12 @@ public class OcspUtil {
         return null;
     }
 
+    /**
+     * Returns the URLs of the OCSP responders that the certificate's authorityInfoAccess extension names. A malformed
+     * extension throws an {@link IOException}, so callers treat it as an OCSP source that cannot be used; BouncyCastle
+     * reports most malformed values with an unchecked exception whose type depends on what is wrong with them. That
+     * exception is kept only as the cause, since the message reaches API clients in the validation result.
+     */
     public static List<String> getOcspUrlFromCertificate(X509Certificate certificate) throws IOException {
         List<String> ocspUrls = new ArrayList<>();
         byte[] octetBytes = certificate.getExtensionValue(Extension.authorityInfoAccess.getId());
@@ -121,14 +125,12 @@ public class OcspUtil {
             return ocspUrls;
         }
 
-        ASN1Primitive fromExtensionValue = JcaX509ExtensionUtils.parseExtensionValue(octetBytes);
-        if (!(fromExtensionValue instanceof DLSequence)) {
-            return ocspUrls;
+        AccessDescription[] accessDescriptions;
+        try {
+            accessDescriptions = readAccessDescriptions(octetBytes);
+        } catch (IOException | RuntimeException e) {
+            throw new IOException("The authorityInfoAccess extension is malformed", e);
         }
-
-        AuthorityInformationAccess authorityInformationAccess = AuthorityInformationAccess
-                .getInstance(fromExtensionValue);
-        AccessDescription[] accessDescriptions = authorityInformationAccess.getAccessDescriptions();
         for (AccessDescription accessDescription : accessDescriptions) {
             boolean correctAccessMethod = accessDescription
                     .getAccessMethod()
@@ -147,6 +149,15 @@ public class OcspUtil {
         }
 
         return ocspUrls;
+    }
+
+    private static AccessDescription[] readAccessDescriptions(byte[] extensionValue) throws IOException {
+        AuthorityInformationAccess authorityInformationAccess = AuthorityInformationAccess
+                .getInstance(JcaX509ExtensionUtils.parseExtensionValue(extensionValue));
+        if (authorityInformationAccess == null) {
+            throw new IOException("its value is empty");
+        }
+        return authorityInformationAccess.getAccessDescriptions();
     }
 
     public static CertificateValidationStatus checkOcsp(X509Certificate certificate, X509Certificate issuer,
