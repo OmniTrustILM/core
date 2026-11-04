@@ -57,9 +57,8 @@ you will see while you wait, and the places people lose an afternoon.
 | --- | --- | --- |
 | `Interfaces pin` | Red | By design. It is what makes merging early impossible. |
 | `Build` | Red | The pin gate feeds into it. |
-| `test` | Skipped | The image is built from the pom and the shared workflow takes no override, so it would fail on the contract rather than on the image. `Interfaces dependency` detects the marker and makes it wait. |
-
-`Interfaces dependency` itself is **green** — it ran and decided to wait.
+| `Interfaces dependency` | Red | By design. Nothing re-runs `Test Docker image` when `interfaces` merges, so its red run is the reminder for step 5. |
+| `test` | Skipped | The image is built from the pom and the shared workflow takes no override, so it would fail on the contract rather than on the image. It runs only once `Interfaces dependency` passes. |
 
 The skipped image test is not only cosmetic: `test / Build amd64` and
 `test / Build arm64` are required checks, and while it is skipped neither is
@@ -79,7 +78,7 @@ failed-jobs re-run never re-executes it. The gate reads the cached answer and
 stays red however many times you press it. Even if it did clear, the compile and
 test evidence would still come from the snapshot build rather than from mainline.
 
-**It is two workflows, not one.** `Test Docker image` waits while a marker is
+**It is two workflows, not one.** `Test Docker image` is red while a marker is
 active and needs its own re-run afterwards — re-running only `Build PR` leaves
 the two required arch contexts unreported.
 
