@@ -414,7 +414,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             NotificationProfileVersion notificationProfileVersion, PendingNotification pendingNotification) {
         if (message.getEvent().isMonitoring() && (notificationProfileVersion.getFrequency() != null
                 || notificationProfileVersion.getRepetitions() != null
-                || message.getEvent() == ResourceEvent.CERTIFICATE_NOT_COMPLIANT)) {
+                || message.getEvent().isSingleNotificationWithoutReminders())) {
             pendingNotification = new PendingNotification();
             pendingNotification.setNotificationProfileUuid(notificationProfileVersion.getNotificationProfileUuid());
             pendingNotification.setVersion(notificationProfileVersion.getVersion());
@@ -431,7 +431,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             return true;
         }
 
-        if (event == ResourceEvent.CERTIFICATE_NOT_COMPLIANT && notificationProfileVersion.getFrequency() == null
+        if (event.isSingleNotificationWithoutReminders() && notificationProfileVersion.getFrequency() == null
                 && notificationProfileVersion.getRepetitions() == null) {
             return pendingNotification.getRepetitions() < 1;
         }
