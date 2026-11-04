@@ -17,6 +17,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TspProfileExternalService;
@@ -31,10 +32,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class TspProfileControllerImpl implements TspProfileController {
 
     private final TspProfileExternalService tspProfileService;
+    private final ObjectActionResolver objectActionResolver;
 
     @Autowired
-    public TspProfileControllerImpl(TspProfileExternalService tspProfileService) {
+    public TspProfileControllerImpl(TspProfileExternalService tspProfileService,
+            ObjectActionResolver objectActionResolver) {
         this.tspProfileService = tspProfileService;
+        this.objectActionResolver = objectActionResolver;
     }
 
     @Override
@@ -54,7 +58,9 @@ public class TspProfileControllerImpl implements TspProfileController {
     @Override
     @AuditLogged(module = Module.SIGNING, resource = Resource.TSP_PROFILE, operation = Operation.DETAIL)
     public TspProfileDto getTspProfile(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        return tspProfileService.getTspProfile(SecuredUUID.fromUUID(uuid), currentBaseUrl());
+        return objectActionResolver
+                .withAllowedActions(Resource.TSP_PROFILE, uuid,
+                        tspProfileService.getTspProfile(SecuredUUID.fromUUID(uuid), currentBaseUrl()));
     }
 
     @Override

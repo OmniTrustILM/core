@@ -19,6 +19,7 @@ import com.otilm.api.model.core.vaultprofile.VaultProfileRequestDto;
 import com.otilm.api.model.core.vaultprofile.VaultProfileUpdateRequestDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -41,6 +42,13 @@ public class VaultProfileControllerImpl implements VaultProfileController {
         webdataBinder.registerCustomEditor(SecretType.class, new SecretTypeConverter());
     }
 
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
+
     @Autowired
     public void setVaultProfileService(VaultProfileExternalService vaultProfileService) {
         this.vaultProfileService = vaultProfileService;
@@ -57,8 +65,11 @@ public class VaultProfileControllerImpl implements VaultProfileController {
             operation = Operation.DETAIL)
     public VaultProfileDetailDto getVaultProfileDetails(@LogResource(uuid = true, affiliated = true) UUID vaultUuid,
             @LogResource(uuid = true) UUID vaultProfileUuid) throws NotFoundException {
-        return vaultProfileService
-                .getVaultProfileDetails(SecuredParentUUID.fromUUID(vaultUuid), SecuredUUID.fromUUID(vaultProfileUuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.VAULT_PROFILE, vaultProfileUuid,
+                        vaultProfileService
+                                .getVaultProfileDetails(SecuredParentUUID.fromUUID(vaultUuid),
+                                        SecuredUUID.fromUUID(vaultProfileUuid)));
     }
 
     @Override

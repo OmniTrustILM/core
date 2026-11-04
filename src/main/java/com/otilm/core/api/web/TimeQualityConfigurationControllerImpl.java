@@ -18,6 +18,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SigningProfileExternalService;
@@ -31,14 +32,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class TimeQualityConfigurationControllerImpl implements TimeQualityConfigurationController {
 
     private final TimeQualityConfigurationExternalService timeQualityConfigurationService;
+    private final ObjectActionResolver objectActionResolver;
     private final SigningProfileExternalService signingProfileService;
 
     @Autowired
     public TimeQualityConfigurationControllerImpl(
             TimeQualityConfigurationExternalService timeQualityConfigurationService,
-            SigningProfileExternalService signingProfileService) {
+            SigningProfileExternalService signingProfileService, ObjectActionResolver objectActionResolver) {
         this.timeQualityConfigurationService = timeQualityConfigurationService;
         this.signingProfileService = signingProfileService;
+        this.objectActionResolver = objectActionResolver;
     }
 
     @Override
@@ -60,7 +63,9 @@ public class TimeQualityConfigurationControllerImpl implements TimeQualityConfig
     @AuditLogged(module = Module.SIGNING, resource = Resource.TIME_QUALITY_CONFIGURATION, operation = Operation.DETAIL)
     public TimeQualityConfigurationDto getTimeQualityConfiguration(@LogResource(uuid = true) UUID uuid)
             throws NotFoundException {
-        return timeQualityConfigurationService.getTimeQualityConfiguration(SecuredUUID.fromUUID(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.TIME_QUALITY_CONFIGURATION, uuid,
+                        timeQualityConfigurationService.getTimeQualityConfiguration(SecuredUUID.fromUUID(uuid)));
     }
 
     @Override

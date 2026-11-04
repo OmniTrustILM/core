@@ -20,6 +20,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -38,6 +39,13 @@ public class TokenProfileControllerImpl implements TokenProfileController {
 
     private TokenProfileExternalService tokenProfileService;
     private TokenInstanceExternalService tokenInstanceService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setTokenProfileService(TokenProfileExternalService tokenProfileService) {
@@ -73,8 +81,11 @@ public class TokenProfileControllerImpl implements TokenProfileController {
             affiliatedResource = Resource.TOKEN, operation = Operation.DETAIL)
     public TokenProfileDetailDto getTokenProfile(@LogResource(uuid = true, affiliated = true) String tokenInstanceUuid,
             @LogResource(uuid = true) String uuid) throws NotFoundException {
-        return tokenProfileService
-                .getTokenProfile(SecuredParentUUID.fromString(tokenInstanceUuid), SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.TOKEN_PROFILE, uuid,
+                        tokenProfileService
+                                .getTokenProfile(SecuredParentUUID.fromString(tokenInstanceUuid),
+                                        SecuredUUID.fromString(uuid)));
     }
 
     @Override

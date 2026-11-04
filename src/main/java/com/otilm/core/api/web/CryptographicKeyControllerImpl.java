@@ -39,6 +39,7 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.model.crypto.ExportedKeyMaterial;
 import com.otilm.core.model.crypto.ImportedKeyDetail;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -65,6 +66,13 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
     private CryptographicKeyExportExternalService cryptographicKeyExportService;
     private CryptographicKeyImportExternalService cryptographicKeyImportService;
     private TokenKeyOnboardingExternalService tokenKeyOnboardingService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setCryptographicKeyExternalService(CryptographicKeyExternalService cryptographicKeyService) {
@@ -118,14 +126,18 @@ public class CryptographicKeyControllerImpl implements CryptographicKeyControlle
             affiliatedResource = Resource.TOKEN, operation = Operation.DETAIL)
     public KeyDetailDto getKey(@LogResource(uuid = true, affiliated = true) String tokenInstanceUuid,
             @LogResource(uuid = true) String uuid) throws NotFoundException {
-        return cryptographicKeyService.getKey(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.CRYPTOGRAPHIC_KEY, uuid,
+                        cryptographicKeyService.getKey(SecuredUUID.fromString(uuid)));
     }
 
     @Override
     @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.CRYPTOGRAPHIC_KEY,
             operation = Operation.DETAIL)
     public KeyDetailDto getKey(@LogResource(uuid = true) String uuid) throws NotFoundException {
-        return cryptographicKeyService.getKey(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.CRYPTOGRAPHIC_KEY, uuid,
+                        cryptographicKeyService.getKey(SecuredUUID.fromString(uuid)));
     }
 
     @Override

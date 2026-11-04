@@ -23,6 +23,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorExternalService;
@@ -47,6 +48,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class ConnectorControllerImpl implements ConnectorController {
 
     private ConnectorExternalService connectorService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setConnectorService(ConnectorExternalService connectorService) {
@@ -86,7 +94,9 @@ public class ConnectorControllerImpl implements ConnectorController {
     @AuditLogged(module = Module.CORE, resource = Resource.CONNECTOR, operation = Operation.DETAIL)
     public ConnectorDto getConnector(@LogResource(uuid = true) @PathVariable String uuid)
             throws NotFoundException, ConnectorException {
-        return connectorService.getConnector(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.CONNECTOR, uuid,
+                        connectorService.getConnector(SecuredUUID.fromString(uuid)));
     }
 
     @Override

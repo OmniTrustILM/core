@@ -3,7 +3,6 @@ package com.otilm.core.service.impl;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.auth.UpdateUserRequestDto;
 import com.otilm.api.model.core.auth.AuthResourceDto;
-import com.otilm.api.model.core.auth.ObjectActionsDto;
 import com.otilm.api.model.core.auth.ObjectPermissionsDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.ResourceActionsDto;
@@ -83,9 +82,8 @@ public class AuthServiceImpl implements AuthExternalService {
         UserDetailDto userDetailDto = userManagementApiClient.getUserDetail(userProfileDto.getUser().getUuid());
 
         // load listing permissions
-        return new UserProfileDetailDto(userDetailDto,
-                new UserProfilePermissionsDto(getAllowedResourceListings(userProfileDto),
-                        getAllowedResourceActions(userProfileDto), getObjectActions(userProfileDto)));
+        return new UserProfileDetailDto(userDetailDto, new UserProfilePermissionsDto(
+                getAllowedResourceListings(userProfileDto), getAllowedResourceActions(userProfileDto)));
     }
 
     @Override
@@ -233,44 +231,6 @@ public class AuthServiceImpl implements AuthExternalService {
 
     private static Stream<ObjectPermissionsDto> objectsOf(ResourcePermissionsDto resourcePermissions) {
         return resourcePermissions.getObjects() == null ? Stream.empty() : resourcePermissions.getObjects().stream();
-    }
-
-    /** See {@link UserProfilePermissionsDto#getObjectActions()} for the contract this computes. */
-    private List<ObjectActionsDto> getObjectActions(UserProfileDto userProfileDto) {
-        if (Boolean.TRUE.equals(userProfileDto.getPermissions().getAllowAllResources())) {
-            return List.of();
-        }
-        Map<Resource, List<String>> declaredActions = contextRefreshListener
-                .getResources()
-                .stream()
-                .collect(Collectors
-                        .toMap(syncResource -> Resource.findByCode(syncResource.getName().getCode()),
-                                ResourceSyncRequestDto::getActions));
-
-        List<ObjectActionsDto> objectActions = new ArrayList<>();
-        mapPermissionsByResource(userProfileDto).forEach((resource, resourcePermissions) -> {
-            List<String> declared = declaredActions.getOrDefault(resource, List.of());
-            objectsOf(resourcePermissions).forEach(obj -> {
-                List<ResourceAction> actions = obj
-                        .getAllow()
-                        .stream()
-                        .filter(declared::contains)
-                        .distinct()
-                        .map(ResourceAction::findByCode)
-                        .filter(action -> action.getAccessType() != ResourceAction.AccessType.NOT_GRANTABLE)
-                        .sorted(Comparator.comparing(ResourceAction::getCode))
-                        .toList();
-                if (!actions.isEmpty()) {
-                    objectActions.add(new ObjectActionsDto(resource, obj.getUuid(), actions));
-                }
-            });
-        });
-        return objectActions
-                .stream()
-                .sorted(Comparator
-                        .comparing((ObjectActionsDto entry) -> entry.getResource().getCode())
-                        .thenComparing(ObjectActionsDto::getObjectUuid))
-                .toList();
     }
 
     /** See {@link UserProfilePermissionsDto#getAllowedActions()} for the contract this computes. */

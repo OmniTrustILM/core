@@ -18,6 +18,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CmpProfileExternalService;
@@ -34,10 +35,13 @@ public class CmpProfileControllerImpl implements CmpProfileController {
     // injectors
 
     private final CmpProfileExternalService cmpProfileService;
+    private final ObjectActionResolver objectActionResolver;
 
     @Autowired
-    public CmpProfileControllerImpl(CmpProfileExternalService cmpProfileService) {
+    public CmpProfileControllerImpl(CmpProfileExternalService cmpProfileService,
+            ObjectActionResolver objectActionResolver) {
         this.cmpProfileService = cmpProfileService;
+        this.objectActionResolver = objectActionResolver;
     }
 
     // methods
@@ -52,7 +56,9 @@ public class CmpProfileControllerImpl implements CmpProfileController {
     @Override
     @AuditLogged(module = Module.PROTOCOLS, resource = Resource.CMP_PROFILE, operation = Operation.DETAIL)
     public CmpProfileDetailDto getCmpProfile(@LogResource(uuid = true) String cmpProfileUuid) throws NotFoundException {
-        return cmpProfileService.getCmpProfile(SecuredUUID.fromString(cmpProfileUuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.CMP_PROFILE, cmpProfileUuid,
+                        cmpProfileService.getCmpProfile(SecuredUUID.fromString(cmpProfileUuid)));
     }
 
     @Override

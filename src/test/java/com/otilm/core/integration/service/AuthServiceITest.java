@@ -6,7 +6,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.auth.UpdateUserRequestDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.auth.AuthResourceDto;
-import com.otilm.api.model.core.auth.ObjectActionsDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.ResourceActionsDto;
 import com.otilm.api.model.core.auth.UserDetailDto;
@@ -358,48 +357,23 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testAuthProfileObjectActions() {
-        String certificateUuid = UUID.randomUUID().toString();
+    void testAuthProfileObjectGrantListsTheResourceButStaysOutOfAllowedActions() {
         injectProfileWithResources("""
                 [{
                     "name": "certificates",
                     "allowAllActions": false,
                     "actions": [],
-                    "objects": [
-                        {"uuid": "%s", "name": "granted",
-                         "allow": ["update", "list", "detail", "actionThisBuildNoLongerDeclares"], "deny": ["delete"]},
-                        {"uuid": "%s", "name": "undeclared only",
-                         "allow": ["actionThisBuildNoLongerDeclares"], "deny": []}
-                    ]
+                    "objects": [{"uuid": "%s", "name": "granted", "allow": ["update", "list", "detail"], "deny": []}]
                 }]
-                """.formatted(certificateUuid, UUID.randomUUID()));
+                """.formatted(UUID.randomUUID()));
 
         UserProfileDetailDto userProfileDto = authService.getAuthProfile();
 
-        assertThat(userProfileDto.getPermissions().getObjectActions())
-                .containsExactly(new ObjectActionsDto(Resource.CERTIFICATE, certificateUuid,
-                        List.of(ResourceAction.DETAIL, ResourceAction.LIST, ResourceAction.UPDATE)));
         assertThat(userProfileDto.getPermissions().getAllowedListings())
                 .describedAs("an object-level list grant lists the resource")
                 .contains(Resource.CERTIFICATE);
         assertThat(allowedActionsFor(userProfileDto, Resource.CERTIFICATE))
                 .describedAs("an object-level grant must not reach allowedActions")
-                .isEmpty();
-    }
-
-    @Test
-    void testAuthProfileObjectActionsAllowAllResources() {
-        injectProfile(true, """
-                [{
-                    "name": "certificates",
-                    "allowAllActions": false,
-                    "actions": [],
-                    "objects": [{"uuid": "%s", "name": "granted", "allow": ["detail"], "deny": []}]
-                }]
-                """.formatted(UUID.randomUUID()));
-
-        assertThat(authService.getAuthProfile().getPermissions().getObjectActions())
-                .describedAs("a role holding every resource needs no object-scoped grant reported")
                 .isEmpty();
     }
 

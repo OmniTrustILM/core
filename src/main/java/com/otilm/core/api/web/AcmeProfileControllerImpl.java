@@ -19,6 +19,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.AcmeProfileExternalService;
@@ -33,6 +34,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class AcmeProfileControllerImpl implements AcmeProfileController {
 
     private AcmeProfileExternalService acmeProfileService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setAcmeProfileService(AcmeProfileExternalService acmeProfileService) {
@@ -55,7 +63,9 @@ public class AcmeProfileControllerImpl implements AcmeProfileController {
     @Override
     @AuditLogged(module = Module.PROTOCOLS, resource = Resource.ACME_PROFILE, operation = Operation.DETAIL)
     public AcmeProfileDto getAcmeProfile(@LogResource(uuid = true) String uuid) throws NotFoundException {
-        return acmeProfileService.getAcmeProfile(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.ACME_PROFILE, uuid,
+                        acmeProfileService.getAcmeProfile(SecuredUUID.fromString(uuid)));
     }
 
     @Override

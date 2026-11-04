@@ -16,6 +16,7 @@ import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ProxyExternalService;
@@ -38,6 +39,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class ProxyControllerImpl implements ProxyController {
 
     private final ProxyExternalService proxyService;
+    private final ObjectActionResolver objectActionResolver;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -54,7 +56,8 @@ public class ProxyControllerImpl implements ProxyController {
     @Override
     @AuditLogged(module = Module.CORE, resource = Resource.PROXY, operation = Operation.DETAIL)
     public ProxyDto getProxy(@LogResource(uuid = true) String uuid) throws NotFoundException {
-        return proxyService.getProxy(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.PROXY, uuid, proxyService.getProxy(SecuredUUID.fromString(uuid)));
     }
 
     @Override

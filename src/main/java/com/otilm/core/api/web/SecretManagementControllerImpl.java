@@ -21,6 +21,7 @@ import com.otilm.api.model.core.secret.SecretUpdateRequestDto;
 import com.otilm.api.model.core.secret.SecretVersionDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -34,6 +35,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class SecretManagementControllerImpl implements SecretManagementController {
 
     private SecretExternalService secretService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setSecretService(SecretExternalService secretService) {
@@ -56,7 +64,7 @@ public class SecretManagementControllerImpl implements SecretManagementControlle
     @Override
     @AuditLogged(module = Module.SECRETS, resource = Resource.SECRET, operation = Operation.DETAIL)
     public SecretDetailDto getSecretDetails(@LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        return secretService.getSecretDetails(uuid);
+        return objectActionResolver.withAllowedActions(Resource.SECRET, uuid, secretService.getSecretDetails(uuid));
     }
 
     @Override

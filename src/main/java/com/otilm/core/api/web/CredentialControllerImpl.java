@@ -16,6 +16,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CredentialExternalService;
@@ -33,6 +34,13 @@ public class CredentialControllerImpl implements CredentialController {
 
     private CredentialExternalService credentialService;
 
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
+
     @Autowired
     public void setCredentialService(CredentialExternalService credentialService) {
         this.credentialService = credentialService;
@@ -48,7 +56,9 @@ public class CredentialControllerImpl implements CredentialController {
     @Override
     @AuditLogged(module = Module.CORE, resource = Resource.CREDENTIAL, operation = Operation.DETAIL)
     public CredentialDto getCredential(@LogResource(uuid = true) @PathVariable String uuid) throws NotFoundException {
-        return credentialService.getCredential(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.CREDENTIAL, uuid,
+                        credentialService.getCredential(SecuredUUID.fromString(uuid)));
     }
 
     @Override

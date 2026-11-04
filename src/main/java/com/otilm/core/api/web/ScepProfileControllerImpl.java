@@ -18,6 +18,7 @@ import com.otilm.api.model.core.scep.ScepProfileDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ScepProfileExternalService;
@@ -32,6 +33,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class ScepProfileControllerImpl implements ScepProfileController {
 
     private ScepProfileExternalService scepProfileService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setScepProfileService(ScepProfileExternalService scepProfileService) {
@@ -48,7 +56,9 @@ public class ScepProfileControllerImpl implements ScepProfileController {
     @Override
     @AuditLogged(module = Module.PROTOCOLS, resource = Resource.SCEP_PROFILE, operation = Operation.DETAIL)
     public ScepProfileDetailDto getScepProfile(@LogResource(uuid = true) String uuid) throws NotFoundException {
-        return scepProfileService.getScepProfile(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.SCEP_PROFILE, uuid,
+                        scepProfileService.getScepProfile(SecuredUUID.fromString(uuid)));
     }
 
     @Override

@@ -28,6 +28,7 @@ import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -44,6 +45,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class RAProfileManagementControllerImpl implements RAProfileManagementController {
 
     private RaProfileExternalService raProfileService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setRaProfileService(RaProfileExternalService raProfileService) {
@@ -79,14 +87,19 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
             operation = Operation.DETAIL)
     public RaProfileDto getRaProfile(@LogResource(uuid = true, affiliated = true) String authorityUuid,
             @LogResource(uuid = true) String raProfileUuid) throws NotFoundException {
-        return raProfileService
-                .getRaProfile(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.RA_PROFILE, raProfileUuid,
+                        raProfileService
+                                .getRaProfile(SecuredParentUUID.fromString(authorityUuid),
+                                        SecuredUUID.fromString(raProfileUuid)));
     }
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, operation = Operation.DETAIL)
     public RaProfileDto getRaProfile(@LogResource(uuid = true) String raProfileUuid) throws NotFoundException {
-        return raProfileService.getRaProfile(SecuredUUID.fromString(raProfileUuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.RA_PROFILE, raProfileUuid,
+                        raProfileService.getRaProfile(SecuredUUID.fromString(raProfileUuid)));
     }
 
     @Override

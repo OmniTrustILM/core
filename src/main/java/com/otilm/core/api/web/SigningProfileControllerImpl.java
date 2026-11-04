@@ -27,6 +27,7 @@ import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SigningProfileExternalService;
@@ -46,6 +47,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class SigningProfileControllerImpl implements SigningProfileController {
 
     private final SigningProfileExternalService signingProfileService;
+    private final ObjectActionResolver objectActionResolver;
 
     @InitBinder
     public void initBinder(final WebDataBinder webdataBinder) {
@@ -55,8 +57,10 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     }
 
     @Autowired
-    public SigningProfileControllerImpl(SigningProfileExternalService signingProfileService) {
+    public SigningProfileControllerImpl(SigningProfileExternalService signingProfileService,
+            ObjectActionResolver objectActionResolver) {
         this.signingProfileService = signingProfileService;
+        this.objectActionResolver = objectActionResolver;
     }
 
     @Override
@@ -82,7 +86,9 @@ public class SigningProfileControllerImpl implements SigningProfileController {
     @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.DETAIL)
     public SigningProfileDto getSigningProfile(@LogResource(uuid = true) UUID uuid, Integer version)
             throws NotFoundException {
-        return signingProfileService.getSigningProfile(SecuredUUID.fromUUID(uuid), version);
+        return objectActionResolver
+                .withAllowedActions(Resource.SIGNING_PROFILE, uuid,
+                        signingProfileService.getSigningProfile(SecuredUUID.fromUUID(uuid), version));
     }
 
     @Override

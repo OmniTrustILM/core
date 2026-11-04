@@ -18,6 +18,7 @@ import com.otilm.api.model.core.vault.VaultInstanceRequestDto;
 import com.otilm.api.model.core.vault.VaultInstanceUpdateRequestDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.VaultInstanceExternalService;
@@ -30,10 +31,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class VaultInstanceControllerImpl implements VaultInstanceController {
 
     private final VaultInstanceExternalService vaultInstanceService;
+    private final ObjectActionResolver objectActionResolver;
 
     @Autowired
-    public VaultInstanceControllerImpl(VaultInstanceExternalService vaultInstanceService) {
+    public VaultInstanceControllerImpl(VaultInstanceExternalService vaultInstanceService,
+            ObjectActionResolver objectActionResolver) {
         this.vaultInstanceService = vaultInstanceService;
+        this.objectActionResolver = objectActionResolver;
     }
 
     @Override
@@ -56,7 +60,8 @@ public class VaultInstanceControllerImpl implements VaultInstanceController {
     @AuditLogged(module = Module.SECRETS, resource = Resource.VAULT, operation = Operation.DETAIL)
     public VaultInstanceDetailDto getVaultInstanceDetails(@LogResource(uuid = true) UUID uuid)
             throws ConnectorException, NotFoundException, AttributeException {
-        return vaultInstanceService.getVaultInstance(uuid);
+        return objectActionResolver
+                .withAllowedActions(Resource.VAULT, uuid, vaultInstanceService.getVaultInstance(uuid));
     }
 
     @Override

@@ -46,6 +46,7 @@ import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.model.certificate.DownloadedKeystore;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ApprovalExternalService;
@@ -103,7 +104,9 @@ public class CertificateControllerImpl implements CertificateController {
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DETAIL)
     public CertificateDetailDto getCertificate(@LogResource(uuid = true) @PathVariable UUID uuid)
             throws NotFoundException, CertificateException, IOException {
-        return certificateService.getCertificate(SecuredUUID.fromUUID(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.CERTIFICATE, uuid,
+                        certificateService.getCertificate(SecuredUUID.fromUUID(uuid)));
     }
 
     @Override
@@ -340,6 +343,13 @@ public class CertificateControllerImpl implements CertificateController {
     }
 
     // SETTERs
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setCertificateService(CertificateExternalService certificateService) {

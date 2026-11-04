@@ -15,6 +15,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.service.AttributeExternalService;
 import java.net.URI;
 import java.util.List;
@@ -29,6 +30,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class GlobalMetadataControllerImpl implements GlobalMetadataController {
 
     private AttributeExternalService attributeService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setAttributeService(AttributeExternalService attributeService) {
@@ -45,7 +53,9 @@ public class GlobalMetadataControllerImpl implements GlobalMetadataController {
     @AuditLogged(module = Module.CORE, resource = Resource.GLOBAL_METADATA, operation = Operation.DETAIL)
     public GlobalMetadataDefinitionDetailDto getGlobalMetadata(@LogResource(uuid = true) String uuid)
             throws NotFoundException {
-        return attributeService.getGlobalMetadata(UUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.ATTRIBUTE, uuid,
+                        attributeService.getGlobalMetadata(UUID.fromString(uuid)));
     }
 
     @Override

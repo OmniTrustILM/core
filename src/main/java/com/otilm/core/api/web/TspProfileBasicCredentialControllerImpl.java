@@ -13,6 +13,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.TspProfileBasicCredentialExternalService;
@@ -26,6 +27,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class TspProfileBasicCredentialControllerImpl implements TspProfileBasicCredentialController {
 
     private TspProfileBasicCredentialExternalService service;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setService(TspProfileBasicCredentialExternalService service) {
@@ -45,7 +53,9 @@ public class TspProfileBasicCredentialControllerImpl implements TspProfileBasicC
             affiliatedResource = Resource.TSP_PROFILE, operation = Operation.DETAIL)
     public TspBasicCredentialDto get(@LogResource(uuid = true, affiliated = true) UUID tspProfileUuid,
             @LogResource(uuid = true) UUID uuid) throws NotFoundException {
-        return service.get(SecuredParentUUID.fromUUID(tspProfileUuid), SecuredUUID.fromUUID(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.TSP_PROFILE_BASIC_CREDENTIAL, uuid,
+                        service.get(SecuredParentUUID.fromUUID(tspProfileUuid), SecuredUUID.fromUUID(uuid)));
     }
 
     @Override

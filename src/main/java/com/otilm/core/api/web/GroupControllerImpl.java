@@ -15,6 +15,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -33,6 +34,13 @@ public class GroupControllerImpl implements GroupController {
 
     private GroupExternalService groupService;
 
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
+
     @Autowired
     public void setGroupService(GroupExternalService groupService) {
         this.groupService = groupService;
@@ -48,7 +56,8 @@ public class GroupControllerImpl implements GroupController {
     @Override
     @AuditLogged(module = Module.CORE, resource = Resource.GROUP, operation = Operation.DETAIL)
     public GroupDto getGroup(@LogResource(uuid = true) @PathVariable String uuid) throws NotFoundException {
-        return groupService.getGroup(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.GROUP, uuid, groupService.getGroup(SecuredUUID.fromString(uuid)));
     }
 
     @Override

@@ -17,6 +17,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.TokenInstanceExternalService;
@@ -30,6 +31,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class TokenInstanceControllerImpl implements TokenInstanceController {
 
     private TokenInstanceExternalService tokenInstanceService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setTokenInstanceService(TokenInstanceExternalService tokenInstanceService) {
@@ -55,7 +63,9 @@ public class TokenInstanceControllerImpl implements TokenInstanceController {
     @AuditLogged(module = Module.CRYPTOGRAPHIC_KEYS, resource = Resource.TOKEN, operation = Operation.DETAIL)
     public TokenInstanceDetailDto getTokenInstance(@LogResource(uuid = true) String uuid)
             throws ConnectorException, NotFoundException {
-        return tokenInstanceService.getTokenInstance(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.TOKEN, uuid,
+                        tokenInstanceService.getTokenInstance(SecuredUUID.fromString(uuid)));
     }
 
     @Override

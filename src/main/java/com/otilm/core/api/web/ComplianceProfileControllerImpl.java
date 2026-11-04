@@ -25,6 +25,7 @@ import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ComplianceProfileExternalService;
@@ -39,6 +40,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class ComplianceProfileControllerImpl implements ComplianceProfileController {
 
     private ComplianceProfileExternalService complianceProfileService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setComplianceProfileService(ComplianceProfileExternalService complianceProfileService) {
@@ -55,7 +63,9 @@ public class ComplianceProfileControllerImpl implements ComplianceProfileControl
     @AuditLogged(module = Module.COMPLIANCE, resource = Resource.COMPLIANCE_PROFILE, operation = Operation.DETAIL)
     public ComplianceProfileDto getComplianceProfile(@LogResource(uuid = true) String uuid)
             throws NotFoundException, ConnectorException {
-        return complianceProfileService.getComplianceProfile(SecuredUUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.COMPLIANCE_PROFILE, uuid,
+                        complianceProfileService.getComplianceProfile(SecuredUUID.fromString(uuid)));
     }
 
     @Override

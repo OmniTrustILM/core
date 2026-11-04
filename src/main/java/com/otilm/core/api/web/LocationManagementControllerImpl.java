@@ -22,6 +22,7 @@ import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -37,6 +38,13 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class LocationManagementControllerImpl implements LocationManagementController {
 
     private LocationExternalService locationService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setLocationService(LocationExternalService locationService) {
@@ -72,8 +80,9 @@ public class LocationManagementControllerImpl implements LocationManagementContr
             operation = Operation.DETAIL)
     public LocationDto getLocation(@LogResource(uuid = true, affiliated = true) String entityUuid,
             @LogResource(uuid = true) String locationUuid) throws NotFoundException {
-        return locationService
-                .getLocation(SecuredParentUUID.fromString(entityUuid), SecuredUUID.fromString(locationUuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.LOCATION, locationUuid, locationService
+                        .getLocation(SecuredParentUUID.fromString(entityUuid), SecuredUUID.fromString(locationUuid)));
     }
 
     @Override

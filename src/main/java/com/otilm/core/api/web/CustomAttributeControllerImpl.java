@@ -18,6 +18,7 @@ import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.auth.AuthEndpoint;
 import com.otilm.core.logging.LogResource;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -40,6 +41,13 @@ public class CustomAttributeControllerImpl implements CustomAttributeController 
 
     private AttributeExternalService attributeService;
     private ResourceExternalService resourceService;
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
 
     @Autowired
     public void setAttributeService(AttributeExternalService attributeService) {
@@ -68,7 +76,9 @@ public class CustomAttributeControllerImpl implements CustomAttributeController 
     @AuditLogged(module = Module.CORE, resource = Resource.CUSTOM_ATTRIBUTE, operation = Operation.DETAIL)
     public CustomAttributeDefinitionDetailDto getCustomAttribute(@LogResource(uuid = true) String uuid)
             throws NotFoundException {
-        return attributeService.getCustomAttribute(UUID.fromString(uuid));
+        return objectActionResolver
+                .withAllowedActions(Resource.ATTRIBUTE, uuid,
+                        attributeService.getCustomAttribute(UUID.fromString(uuid)));
     }
 
     @Override
