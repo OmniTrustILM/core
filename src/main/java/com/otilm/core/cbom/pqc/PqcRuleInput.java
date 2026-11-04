@@ -37,16 +37,6 @@ public record PqcRuleInput(CryptographicAssetType assetType, String algorithmFam
                 materialType, materialSize, primitive);
     }
 
-    /**
-     * The same asset with its declared size dropped, which is how the name alone is asked what it carries. A size is
-     * not part of a name, and leaving it in made an undersized {@code AES} key answer under the algorithm rule id
-     * rather than the material one an operator queries.
-     */
-    public PqcRuleInput withoutMaterialSize() {
-        return new PqcRuleInput(assetType, algorithmFamily, parameterSet, curve, mode, padding, variant, name,
-                hybridComponents, materialType, null, primitive);
-    }
-
     public PqcRuleInput withHybridComponents(List<String> components) {
         return new PqcRuleInput(assetType, algorithmFamily, parameterSet, curve, mode, padding, variant, name,
                 components, materialType, materialSize, primitive);

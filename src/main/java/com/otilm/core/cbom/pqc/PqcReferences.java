@@ -8,25 +8,36 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * What a certificate's or a protocol's references resolved to, as the rules read them: the target's stored verdict, not
- * a re-evaluation of it. One hop: a target that is itself a certificate or a protocol is read as unresolved, so no
- * chain of referrers can re-offer itself.
+ * What a key's, a certificate's or a protocol's references resolved to, as the rules read them: the target's stored
+ * verdict, not a re-evaluation of it. A target that is itself a certificate or a protocol is read as unresolved, so no
+ * chain of referrers can re-offer itself: a key reads its algorithm, a certificate its key and signature algorithm, a
+ * protocol its algorithms.
  *
  * @param cipherSuites every suite the protocol records, labelled as {@code AssetReferences#suiteLabel} labels them
+ * @param tlsGroups the groups the protocol's suites offer, as the document spells them; judged inline by name
+ * @param tlsSignatureSchemes the signature schemes the suites offer, judged inline by name
  * @param basis every target, with the verdict and the primitive it held when read -- everything the rules read of it --
  * in the order the sweep's staleness arm rebuilds it; null when nothing is referenced. Stored with the verdict, so a
  * target restamped since reads as a change
  */
 public record PqcReferences(List<Reference> subjectKeys, List<Reference> signatureAlgorithms,
-        List<Reference> suiteAlgorithms, List<String> cipherSuites, String basis) {
+        List<Reference> algorithms, List<Reference> suiteAlgorithms, List<Reference> protocolAlgorithms,
+        List<Reference> keyExchanges, List<String> cipherSuites, List<String> tlsGroups,
+        List<String> tlsSignatureSchemes, String basis) {
 
-    public static final PqcReferences NONE = new PqcReferences(List.of(), List.of(), List.of(), List.of(), null);
+    public static final PqcReferences NONE = new PqcReferences(List.of(), List.of(), List.of(), List.of(), List.of(),
+            List.of(), List.of(), List.of(), List.of(), null);
 
     public PqcReferences {
         subjectKeys = List.copyOf(subjectKeys);
         signatureAlgorithms = List.copyOf(signatureAlgorithms);
+        algorithms = List.copyOf(algorithms);
         suiteAlgorithms = List.copyOf(suiteAlgorithms);
+        protocolAlgorithms = List.copyOf(protocolAlgorithms);
+        keyExchanges = List.copyOf(keyExchanges);
         cipherSuites = List.copyOf(cipherSuites);
+        tlsGroups = List.copyOf(tlsGroups);
+        tlsSignatureSchemes = List.copyOf(tlsSignatureSchemes);
     }
 
     /**
@@ -49,13 +60,27 @@ public record PqcReferences(List<Reference> subjectKeys, List<Reference> signatu
                     && targetType != CryptographicAssetType.CERTIFICATE
                     && targetType != CryptographicAssetType.PROTOCOL;
         }
+
+        /** {@link #resolved()}, and to an algorithm: what a key's or a protocol's reference must name. */
+        public boolean resolvedToAnAlgorithm() {
+            return resolved() && targetType == CryptographicAssetType.ALGORITHM;
+        }
     }
 
     /** @param references in the order {@code CryptoAssetReferenceRepository#findElectedReferences} returns them */
     public static PqcReferences of(List<Reference> references, List<String> cipherSuites) {
+        return of(references, cipherSuites, List.of(), List.of());
+    }
+
+    public static PqcReferences of(List<Reference> references, List<String> cipherSuites, List<String> tlsGroups,
+            List<String> tlsSignatureSchemes) {
         return new PqcReferences(ofKind(references, CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY),
                 ofKind(references, CryptoAssetReferenceKind.SIGNATURE_ALGORITHM),
-                ofKind(references, CryptoAssetReferenceKind.CIPHER_SUITE_ALGORITHM), cipherSuites, basisOf(references));
+                ofKind(references, CryptoAssetReferenceKind.ALGORITHM),
+                ofKind(references, CryptoAssetReferenceKind.CIPHER_SUITE_ALGORITHM),
+                ofKind(references, CryptoAssetReferenceKind.PROTOCOL_ALGORITHM),
+                ofKind(references, CryptoAssetReferenceKind.KEY_EXCHANGE_TRANSFORM), cipherSuites, tlsGroups,
+                tlsSignatureSchemes, basisOf(references));
     }
 
     /**

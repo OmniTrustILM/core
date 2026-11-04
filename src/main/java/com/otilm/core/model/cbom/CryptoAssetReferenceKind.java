@@ -10,5 +10,11 @@ public enum CryptoAssetReferenceKind {
     /** The algorithm a certificate is signed with. */
     SIGNATURE_ALGORITHM,
     /** An algorithm one of a protocol's cipher suites names. */
-    CIPHER_SUITE_ALGORITHM
+    CIPHER_SUITE_ALGORITHM,
+    /** The algorithm a key or other cryptographic material is for. */
+    ALGORITHM,
+    /** An asset a protocol names at the protocol level, outside any cipher suite. */
+    PROTOCOL_ALGORITHM,
+    /** A key exchange method an IKEv2 proposal offers. */
+    KEY_EXCHANGE_TRANSFORM
 }

@@ -107,11 +107,7 @@ class PqcExplanationTest {
     /** A table rule missing from the catalogue would make every asset it decides unexplainable. */
     @Test
     void everyTableRuleHasACatalogueEntry() {
-        List<String> tableIds = PqcRules
-                .rulesFor(null, input -> true, input -> true)
-                .stream()
-                .map(PqcRule::id)
-                .toList();
+        List<String> tableIds = PqcRules.rulesFor(null).stream().map(PqcRule::id).toList();
         assertThat(PqcRuleCatalog.entries().stream().map(PqcRuleCatalog.Entry::id)).containsAll(tableIds);
     }
 
@@ -119,7 +115,7 @@ class PqcExplanationTest {
     @Test
     void theExclusionsAreExactlyTheNotApplicableRules() {
         List<String> notApplicable = PqcRules
-                .rulesFor(null, input -> true, input -> true)
+                .rulesFor(null)
                 .stream()
                 .filter(rule -> rule.verdict() == PqcVerdict.NOT_APPLICABLE)
                 .map(PqcRule::id)
@@ -133,17 +129,17 @@ class PqcExplanationTest {
         assertThat(exclusions).containsExactlyInAnyOrderElementsOf(notApplicable);
         assertThat(PqcRuleCatalog.entries().stream().filter(entry -> entry.tier() == PqcRuleCatalog.Tier.FALLBACK))
                 .extracting(PqcRuleCatalog.Entry::id)
-                .containsExactly(PqcRules.FAMILY_UNRESOLVED);
+                .containsExactly(PqcReferenceRules.MATERIAL_NO_ALGORITHM_RECORDED, PqcRules.FAMILY_UNRESOLVED);
     }
 
     @Test
     void anAssetIsShownOnlyTheRulesItsTypeIsTestedAgainst() {
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.CERTIFICATE)).hasSize(5);
-        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.PROTOCOL)).hasSize(4);
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.PROTOCOL)).hasSize(9);
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.UNROUTABLE)).isEmpty();
         assertThat(PqcRuleCatalog.servedFor(null)).isEmpty();
         assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.ALGORITHM)).hasSize(21);
-        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.RELATED_CRYPTO_MATERIAL)).hasSize(23);
+        assertThat(PqcRuleCatalog.servedFor(CryptographicAssetType.RELATED_CRYPTO_MATERIAL)).hasSize(7);
     }
 
     /** No rule is catalogued for the unroutable tier, which ingest no longer stores. */
@@ -159,10 +155,10 @@ class PqcExplanationTest {
 
     /**
      * Every id the coded paths can emit, independent of whether the corpus happens to reach it: the family
-     * dispositions, their component variants, and the hybrid composed from any family, for both types the paths serve.
+     * dispositions, their component variants, and the hybrid composed from any family.
      */
     @Test
-    void everyIdTheCodedPathsEmitHasAnEntryForBothTypesTheyServe() {
+    void everyIdTheCodedPathsEmitHasAnEntryForTheAlgorithmType() {
         List<String> emitted = new ArrayList<>();
         for (FamilyClass family : FamilyClass.values()) {
             emitted.add(family.ruleId());
@@ -175,13 +171,12 @@ class PqcExplanationTest {
                                 PqcRules.FAMILY_UNRESOLVED, PqcRules.ONE_TIME_SIGNATURE,
                                 PqcRules.CONSTRUCTION_UNINSTANTIATED, PqcRules.PARAMETER_SET_UNREGISTERED,
                                 PqcRules.SYMMETRIC_UNDERSIZED));
-        for (CryptographicAssetType type : List
-                .of(CryptographicAssetType.ALGORITHM, CryptographicAssetType.RELATED_CRYPTO_MATERIAL)) {
-            List<String> served = PqcRuleCatalog.servedFor(type).stream().map(PqcRuleCatalog.Entry::id).toList();
-            assertThat(emitted.stream().map(PqcRuleCatalog::entryIdOf))
-                    .describedAs("served to %s", type)
-                    .allMatch(served::contains);
-        }
+        List<String> served = PqcRuleCatalog
+                .servedFor(CryptographicAssetType.ALGORITHM)
+                .stream()
+                .map(PqcRuleCatalog.Entry::id)
+                .toList();
+        assertThat(emitted.stream().map(PqcRuleCatalog::entryIdOf)).allMatch(served::contains);
     }
 
     @Test

@@ -30,8 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * extraction index, which is what a diff needs.
  *
  * <p>
- * References are not resolved, since there is no inventory to resolve them against, so every certificate and protocol
- * reads under its no-reference deferral; the instrument measures the algorithm and material rules.
+ * References are not resolved, since there is no inventory to resolve them against, so every key, certificate and
+ * protocol reads under its no-reference deferral; the instrument measures the algorithm rules and the size arms.
  *
  * <pre>
  * mvn4 -o -B -Dtest=CorpusVerdictSnapshotTest -Dsurefire.failIfNoSpecifiedTests=false \

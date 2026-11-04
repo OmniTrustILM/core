@@ -35,8 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 /**
- * The references a certificate and a protocol make are resolved while the document is in hand and recorded against the
- * source that made them.
+ * The references a key, a certificate and a protocol make are resolved while the document is in hand and recorded
+ * against the source that made them, and each is judged by what it references.
  */
 class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
 
@@ -47,7 +47,11 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
     private static final String KEY = """
             {"type":"cryptographic-asset","bom-ref":"key-rsa","name":"RSA-2048 public key",
              "cryptoProperties":{"assetType":"related-crypto-material",
-              "relatedCryptoMaterialProperties":{"type":"public-key","size":2048}}}""";
+              "relatedCryptoMaterialProperties":{"type":"public-key","size":2048,"algorithmRef":"alg-rsa"}}}""";
+
+    private static final String RSA = """
+            {"type":"cryptographic-asset","bom-ref":"alg-rsa","name":"RSA-2048",
+             "cryptoProperties":{"assetType":"algorithm","algorithmProperties":{"primitive":"pke"}}}""";
 
     private static final String SIGNATURE = """
             {"type":"cryptographic-asset","bom-ref":"alg-sig","name":"SHA256withRSA",
@@ -106,8 +110,8 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
 
     @Test
     void aCertificateAndAProtocolRecordWhatTheirReferencesResolveTo() {
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\""), KEY, SIGNATURE,
-                AES, PROTOCOL);
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\""), KEY, RSA,
+                SIGNATURE, AES, PROTOCOL);
 
         assertThat(referencesOf(CryptographicAssetType.CERTIFICATE))
                 .extracting(CryptoAssetReference::getKind, CryptoAssetReference::getOrdinal,
@@ -128,12 +132,14 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
      */
     @Test
     void theIngestStampsCertificatesAndProtocolsFromWhatTheyReference() {
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\""), KEY, SIGNATURE,
-                AES, PROTOCOL);
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\""), KEY, RSA,
+                SIGNATURE, AES, PROTOCOL);
 
         CryptoAsset key = assetRepository.findById(named("rsa-2048 public key")).orElseThrow();
         CryptoAsset certificate = only(CryptographicAssetType.CERTIFICATE);
         assertThat(key.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(key.getPqcRuleId()).isEqualTo("MATERIAL-ALGORITHM");
+        assertThat(key.getPqcReferencedAssetUuid()).isEqualTo(named("rsa-2048"));
         assertThat(certificate.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
         assertThat(certificate.getPqcRuleId()).startsWith("CERT-");
         assertThat(certificate.getPqcReferencedAssetUuid()).isNotNull();
@@ -148,7 +154,7 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
     /** A referrer's verdict is its target's, so a target evaluated after it puts it back on the sweep's work list. */
     @Test
     void aTargetEvaluatedAfterItsReferrerPutsTheReferrerBackOnTheWorkList() {
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, RSA);
         UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
         UUID key = named("rsa-2048 public key");
         assertThat(workList()).doesNotContain(certificate, key);
@@ -165,7 +171,7 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
      */
     @Test
     void aCertificateDecidedFromItsKeysSupersededVerdictComesBackAfterTheSameSweepRestampsTheKey() {
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, RSA);
         UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
         UUID key = named("rsa-2048 public key");
         stampAsIfByAnOlderRuleSet(key, "READY", "AN-OLDER-RULE", null);
@@ -191,7 +197,7 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
     /** A target that leaves the inventory changes what the referrer's verdict rests on, so the referrer comes back. */
     @Test
     void aTargetThatLeavesTheInventoryPutsTheReferrerBackOnTheWorkList() {
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, RSA);
         UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
         UUID key = named("rsa-2048 public key");
         assertThat(workList()).isEmpty();
@@ -207,7 +213,7 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
     /** An older observation of the same document keeps neither its payload nor its references. */
     @Test
     void anOlderReplayLeavesTheReferencesOfTheNewerObservation() {
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, RSA);
 
         JsonNode older = CbomIngestTestFixtures
                 .read("{\"components\":["
@@ -235,7 +241,7 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
      */
     @Test
     void anInputWriteStampedEarlierThanTheVerdictStillPutsTheRowBackOnTheWorkList() {
-        ingest(KEY);
+        ingest(KEY, RSA);
         UUID key = named("rsa-2048 public key");
         jdbcTemplate
                 .update("UPDATE " + dbSchema + ".crypto_asset SET pqc_evaluated_at = CURRENT_TIMESTAMP + INTERVAL "
@@ -274,14 +280,19 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
     @Test
     void aCertificateResolvesAKeyThatLandsInALaterBatch() {
         JsonNode document = CbomIngestTestFixtures
-                .read("{\"components\":[" + certificate("\"subjectPublicKeyRef\":\"key-rsa\"") + "," + KEY + "]}");
+                .read("{\"components\":[" + certificate("\"subjectPublicKeyRef\":\"key-rsa\"") + "," + KEY + "," + RSA
+                        + "]}");
         assertThat(ingestService.ingest(cbom.getUuid(), document, NOW, CbomIngestTestFixtures.policy(1)))
                 .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
 
         assertThat(referencesOf(CryptographicAssetType.CERTIFICATE))
                 .extracting(CryptoAssetReference::getTargetAssetUuid)
                 .containsExactly(named("rsa-2048 public key"));
-        assertThat(only(CryptographicAssetType.CERTIFICATE).getPqcRuleId()).isEqualTo("CERT-SUBJECT-KEY");
+        assertThat(only(CryptographicAssetType.CERTIFICATE).getPqcRuleId())
+                .describedAs("the key, in its own reference batch, was restamped from its algorithm before the "
+                        + "certificate read it")
+                .isEqualTo("CERT-SUBJECT-KEY");
+        assertThat(only(CryptographicAssetType.CERTIFICATE).getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
     }
 
     /**
@@ -316,7 +327,7 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
 
     @Test
     void aNewVersionReplacesTheReferencesTheDocumentNoLongerMakes() {
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\""), KEY,
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\",\"signatureAlgorithmRef\":\"alg-sig\""), KEY, RSA,
                 SIGNATURE);
 
         Cbom newer = new Cbom();
@@ -324,22 +335,181 @@ class CryptoAssetReferenceIngestITest extends BaseSpringBootTest {
         newer.setVersion(cbom.getVersion() + 1);
         newer.setSpecVersion(cbom.getSpecVersion());
         cbom = cbomRepository.save(newer);
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, SIGNATURE);
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, RSA, SIGNATURE);
 
         assertThat(referencesOf(CryptographicAssetType.CERTIFICATE))
                 .extracting(CryptoAssetReference::getKind)
                 .containsExactly(CryptoAssetReferenceKind.SUBJECT_PUBLIC_KEY);
-        assertThat(referenceRepository.findAll()).hasSize(1);
+        assertThat(referenceRepository.findAll())
+                .describedAs("the certificate's one reference, and the key's")
+                .hasSize(2);
     }
 
     @Test
     void withdrawingTheDocumentTakesItsReferencesWithIt() {
-        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY);
-        assertThat(referenceRepository.count()).isEqualTo(1);
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, RSA);
+        assertThat(referenceRepository.count()).isEqualTo(2);
 
         detachService.withdraw(cbom.getUuid(), POLICY.assetBatchSize());
 
         assertThat(referenceRepository.count()).isZero();
+    }
+
+    // ---- keys and certificates judged by the algorithm the CBOM references ----------------------------------------
+
+    @Test
+    void aKeyReadsTheVerdictOfTheAlgorithmItsCbomReferencesAndNamesIt() {
+        ingest("""
+                {"type":"cryptographic-asset","bom-ref":"key-www","name":"www.example.com public key",
+                 "cryptoProperties":{"assetType":"related-crypto-material",
+                  "relatedCryptoMaterialProperties":{"type":"public-key","algorithmRef":"alg-ecdsa"}}}""", """
+                {"type":"cryptographic-asset","bom-ref":"alg-ecdsa","name":"ECDSA-P256",
+                 "cryptoProperties":{"assetType":"algorithm","algorithmProperties":{"primitive":"signature"}}}""");
+
+        CryptoAsset key = only(CryptographicAssetType.RELATED_CRYPTO_MATERIAL);
+        assertThat(key.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(key.getPqcRuleId()).isEqualTo("MATERIAL-ALGORITHM");
+        assertThat(key.getPqcReferencedAssetUuid()).isEqualTo(named("ecdsa-p256"));
+        assertThat(key.getPqcEvaluatedFields())
+                .containsEntry("algorithmRef", "alg-ecdsa")
+                .containsEntry("referencedRuleId", "CLASSICAL-SHOR")
+                .doesNotContainKey("algorithmFamily");
+    }
+
+    /** The key's name carries no family; its 1.7 typed entry says what it is for, and the certificate follows it. */
+    @Test
+    void aCertificateOverAPostQuantumKeySignedWithAPostQuantumAlgorithmReadsReady() {
+        ingest("""
+                {"type":"cryptographic-asset","bom-ref":"cert-root","name":"example pqc root ca",
+                 "cryptoProperties":{"assetType":"certificate","certificateProperties":{
+                  "subjectName":"CN=Example PQC Root CA","issuerName":"CN=Example PQC Root CA",
+                  "subjectPublicKeyRef":"key-root","signatureAlgorithmRef":"alg-mldsa"}}}""", """
+                {"type":"cryptographic-asset","bom-ref":"key-root","name":"root ca public key",
+                 "cryptoProperties":{"assetType":"related-crypto-material",
+                  "relatedCryptoMaterialProperties":{"type":"public-key",
+                   "relatedCryptographicAssets":[{"type":"algorithm","ref":"alg-mldsa"}]}}}""", """
+                {"type":"cryptographic-asset","bom-ref":"alg-mldsa","name":"ML-DSA-87",
+                 "cryptoProperties":{"assetType":"algorithm","algorithmProperties":{"primitive":"signature"}}}""");
+
+        assertThat(only(CryptographicAssetType.RELATED_CRYPTO_MATERIAL).getPqcVerdict()).isEqualTo(PqcVerdict.READY);
+        CryptoAsset certificate = only(CryptographicAssetType.CERTIFICATE);
+        assertThat(certificate.getPqcVerdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(certificate.getPqcRuleId()).isEqualTo("CERT-SUBJECT-KEY");
+        assertThat(workList()).isEmpty();
+    }
+
+    @Test
+    void aKeyWithoutAResolvableAlgorithmIsUnknownWhateverItsName() {
+        ingest("""
+                {"type":"cryptographic-asset","bom-ref":"key-slh","name":"slh-dsa-sha2-128s",
+                 "cryptoProperties":{"assetType":"related-crypto-material",
+                  "relatedCryptoMaterialProperties":{"type":"private-key"}}}""", """
+                {"type":"cryptographic-asset","bom-ref":"key-dangling","name":"ML-KEM-768 private key",
+                 "cryptoProperties":{"assetType":"related-crypto-material",
+                  "relatedCryptoMaterialProperties":{"type":"private-key","algorithmRef":"not-in-this-document"}}}""");
+
+        CryptoAsset unreferenced = assetRepository.findById(named("slh-dsa-sha2-128s")).orElseThrow();
+        assertThat(unreferenced.getPqcVerdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(unreferenced.getPqcRuleId()).isEqualTo("MATERIAL-NO-ALGORITHM-RECORDED");
+        assertThat(unreferenced.getPqcReason()).contains("does not record the algorithm");
+        CryptoAsset dangling = assetRepository.findById(named("ml-kem-768 private key")).orElseThrow();
+        assertThat(dangling.getPqcVerdict()).isEqualTo(PqcVerdict.UNKNOWN);
+        assertThat(dangling.getPqcRuleId()).isEqualTo("MATERIAL-ALGORITHM-UNRESOLVED");
+    }
+
+    /** An algorithm's new verdict reaches its key on one sweep and the key's certificate on the next. */
+    @Test
+    void theSweepCarriesAnAlgorithmsVerdictToItsKeyAndThenToTheCertificate() {
+        ingest(certificate("\"subjectPublicKeyRef\":\"key-rsa\""), KEY, RSA);
+        UUID certificate = only(CryptographicAssetType.CERTIFICATE).getUuid();
+        UUID key = named("rsa-2048 public key");
+        assertThat(workList()).isEmpty();
+
+        assetWriter.applyPqcVerdict(named("rsa-2048"), PqcVerdict.READY, "LATER-RULE", "re-evaluated", Map.of());
+
+        assertThat(workList()).containsExactly(key);
+        sweeper.sweep();
+        assertThat(assetRepository.findById(key).orElseThrow().getPqcVerdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(workList()).containsExactly(certificate);
+        sweeper.sweep();
+        assertThat(assetRepository.findById(certificate).orElseThrow().getPqcRuleId())
+                .isEqualTo("CERT-NO-SIGNATURE-RECORDED");
+        assertThat(workList()).isEmpty();
+    }
+
+    // ---- protocols judged by what they offer ------------------------------------------------------------------------
+
+    @Test
+    void aTls13ProtocolOfferingAClassicalGroupIsNotReadyAndNamesTheGroup() {
+        ingest(AES, tls13("\"tlsGroups\":[\"x25519\",\"secp256r1\"]"));
+
+        CryptoAsset protocol = only(CryptographicAssetType.PROTOCOL);
+        assertThat(protocol.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(protocol.getPqcRuleId()).isEqualTo("PROTOCOL-TLS-GROUP");
+        assertThat(protocol.getPqcEvaluatedFields())
+                .containsEntry("tlsGroups", List.of("x25519", "secp256r1"))
+                .containsEntry("tlsGroup", "x25519");
+    }
+
+    @Test
+    void aTls13ProtocolOfferingAClassicalGroupBesideAPostQuantumOneIsNotReady() {
+        ingest(AES, tls13("\"tlsGroups\":[\"X25519MLKEM768\",\"x25519\"]"));
+
+        CryptoAsset protocol = only(CryptographicAssetType.PROTOCOL);
+        assertThat(protocol.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(protocol.getPqcEvaluatedFields()).containsEntry("tlsGroup", "x25519");
+    }
+
+    @Test
+    void aTls13ProtocolOfferingOnlyPostQuantumGroupsAndSchemesIsReady() {
+        ingest(AES, tls13("\"tlsGroups\":[\"X25519MLKEM768\"],\"tlsSignatureSchemes\":[\"mldsa65\"]"));
+
+        CryptoAsset protocol = only(CryptographicAssetType.PROTOCOL);
+        assertThat(protocol.getPqcVerdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(protocol.getPqcEvaluatedFields()).doesNotContainKey("unresolvedRefs");
+    }
+
+    @Test
+    void anIkev2ProtocolIsJudgedByTheKeyExchangeMethodsItProposes() {
+        ingest(AES, """
+                {"type":"cryptographic-asset","bom-ref":"alg-mlkem","name":"ML-KEM-1024",
+                 "cryptoProperties":{"assetType":"algorithm","algorithmProperties":{"primitive":"kem"}}}""", """
+                {"type":"cryptographic-asset","bom-ref":"ipsec","name":"IPsec IKEv2",
+                 "cryptoProperties":{"assetType":"protocol","protocolProperties":{"type":"ikev2","version":"2",
+                  "ikev2TransformTypes":{"encr":["alg-aes"],"ke":[{"group":35,"algorithm":"alg-mlkem"}]}}}}""");
+
+        CryptoAsset protocol = only(CryptographicAssetType.PROTOCOL);
+        assertThat(protocol.getPqcVerdict()).isEqualTo(PqcVerdict.READY);
+        assertThat(protocol.getPqcRuleId()).isEqualTo("PROTOCOL-KEY-EXCHANGE");
+        assertThat(protocol.getPqcReferencedAssetUuid()).isEqualTo(named("ml-kem-1024"));
+        assertThat(referencesOf(CryptographicAssetType.PROTOCOL))
+                .extracting(CryptoAssetReference::getKind, CryptoAssetReference::getRef)
+                .containsExactly(tuple(CryptoAssetReferenceKind.KEY_EXCHANGE_TRANSFORM, "alg-mlkem"));
+    }
+
+    /** The 1.6 array names the protocol's certificate too, which is not an algorithm it offers. */
+    @Test
+    void aProtocolLevelReferenceDecidesAndOneToTheProtocolsCertificateIsNotAnOffer() {
+        ingest(AES, RSA, certificate("\"subjectPublicKeyRef\":\"key-rsa\""), """
+                {"type":"cryptographic-asset","bom-ref":"tls12","name":"TLSv1.2",
+                 "cryptoProperties":{"assetType":"protocol","protocolProperties":{"type":"tls","version":"1.2",
+                  "cipherSuites":[{"name":"TLS_RSA_WITH_AES_256_GCM_SHA384","algorithms":["alg-aes"]}],
+                  "cryptoRefArray":["cert","alg-rsa"]}}}""");
+
+        CryptoAsset protocol = only(CryptographicAssetType.PROTOCOL);
+        assertThat(protocol.getPqcVerdict()).isEqualTo(PqcVerdict.NOT_READY);
+        assertThat(protocol.getPqcRuleId()).isEqualTo("PROTOCOL-ALGORITHM");
+        assertThat(protocol.getPqcReferencedAssetUuid()).isEqualTo(named("rsa-2048"));
+        assertThat(protocol.getPqcEvaluatedFields())
+                .containsEntry("protocolAlgorithmRefs", List.of("cert", "alg-rsa"))
+                .containsEntry("protocolAlgorithmRef", "alg-rsa");
+    }
+
+    private static String tls13(String suiteMembers) {
+        return "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"tls13\",\"name\":\"TLSv1.3\","
+                + "\"cryptoProperties\":{\"assetType\":\"protocol\",\"protocolProperties\":{\"type\":\"tls\","
+                + "\"version\":\"1.3\",\"cipherSuites\":[{\"name\":\"TLS_AES_256_GCM_SHA384\","
+                + "\"identifiers\":[\"0x13\",\"0x02\"],\"algorithms\":[\"alg-aes\"]," + suiteMembers + "}]}}}";
     }
 
     private void ingest(String... components) {

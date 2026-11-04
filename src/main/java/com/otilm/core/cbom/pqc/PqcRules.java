@@ -6,7 +6,6 @@ import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 /**
@@ -50,14 +49,25 @@ public final class PqcRules {
 
     public static final String NIST_QUANTUM_SECURITY_LEVEL = "nistQuantumSecurityLevel";
 
-    /** A certificate's and a protocol's references, as the bom-refs the document recorded. */
+    /** A certificate's, a key's and a protocol's references, as the bom-refs the document recorded. */
     public static final String SUBJECT_PUBLIC_KEY_REF = "subjectPublicKeyRef";
 
     public static final String SIGNATURE_ALGORITHM_REF = "signatureAlgorithmRef";
 
+    public static final String ALGORITHM_REF = "algorithmRef";
+
     public static final String CIPHER_SUITES = "cipherSuites";
 
     public static final String CIPHER_SUITE_ALGORITHM_REFS = "cipherSuiteAlgorithmRefs";
+
+    public static final String PROTOCOL_ALGORITHM_REFS = "protocolAlgorithmRefs";
+
+    public static final String KEY_EXCHANGE_REFS = "keyExchangeRefs";
+
+    /** The names a protocol's suites offer, which the rules judge inline rather than resolve. */
+    public static final String TLS_GROUPS = "tlsGroups";
+
+    public static final String TLS_SIGNATURE_SCHEMES = "tlsSignatureSchemes";
 
     public static final String UNRESOLVED_REFS = "unresolvedRefs";
 
@@ -66,27 +76,40 @@ public final class PqcRules {
 
     public static final String CIPHER_SUITE_ALGORITHM_REF = "cipherSuiteAlgorithmRef";
 
+    public static final String PROTOCOL_ALGORITHM_REF = "protocolAlgorithmRef";
+
+    public static final String KEY_EXCHANGE_REF = "keyExchangeRef";
+
+    public static final String TLS_GROUP = "tlsGroup";
+
+    public static final String TLS_SIGNATURE_SCHEME = "tlsSignatureScheme";
+
     public static final String REFERENCED_RULE_ID = "referencedRuleId";
 
     /**
-     * The evidence values copied verbatim from the electing CBOM document -- its bom-refs and suite labels -- which a
-     * caller who may not read that document must not be served, as the elected payload itself is not.
+     * The evidence values copied verbatim from the electing CBOM document -- its bom-refs, suite labels and offered
+     * names -- which a caller who may not read that document must not be served, as the elected payload itself is not.
      */
     public static final Set<String> DOCUMENT_FIELDS = Set
-            .of(SUBJECT_PUBLIC_KEY_REF, SIGNATURE_ALGORITHM_REF, CIPHER_SUITES, CIPHER_SUITE_ALGORITHM_REFS,
-                    UNRESOLVED_REFS, CIPHER_SUITE, CIPHER_SUITE_ALGORITHM_REF);
+            .of(SUBJECT_PUBLIC_KEY_REF, SIGNATURE_ALGORITHM_REF, ALGORITHM_REF, CIPHER_SUITES,
+                    CIPHER_SUITE_ALGORITHM_REFS, PROTOCOL_ALGORITHM_REFS, KEY_EXCHANGE_REFS, TLS_GROUPS,
+                    TLS_SIGNATURE_SCHEMES, UNRESOLVED_REFS, CIPHER_SUITE, CIPHER_SUITE_ALGORITHM_REF,
+                    PROTOCOL_ALGORITHM_REF, KEY_EXCHANGE_REF, TLS_GROUP, TLS_SIGNATURE_SCHEME);
 
     /** What the rules read, in the order an explanation serves them as its inputs. */
     public static final List<String> INPUT_FIELDS = List
             .of(ASSET_TYPE, ALGORITHM_FAMILY, PRIMITIVE, PARAMETER_SET, CURVE, "mode", "padding", VARIANT, NAME,
                     HYBRID_COMPONENTS, MATERIAL_TYPE, MATERIAL_SIZE, NIST_QUANTUM_SECURITY_LEVEL,
-                    SUBJECT_PUBLIC_KEY_REF, SIGNATURE_ALGORITHM_REF, CIPHER_SUITES, CIPHER_SUITE_ALGORITHM_REFS,
-                    UNRESOLVED_REFS);
+                    SUBJECT_PUBLIC_KEY_REF, SIGNATURE_ALGORITHM_REF, ALGORITHM_REF, CIPHER_SUITES,
+                    CIPHER_SUITE_ALGORITHM_REFS, TLS_GROUPS, TLS_SIGNATURE_SCHEMES, PROTOCOL_ALGORITHM_REFS,
+                    KEY_EXCHANGE_REFS, UNRESOLVED_REFS);
 
     public static final Set<String> EVIDENCE_FIELDS = Set
             .copyOf(Stream
                     .concat(INPUT_FIELDS.stream(),
-                            Stream.of(CIPHER_SUITE, CIPHER_SUITE_ALGORITHM_REF, REFERENCED_RULE_ID))
+                            Stream
+                                    .of(CIPHER_SUITE, CIPHER_SUITE_ALGORITHM_REF, PROTOCOL_ALGORITHM_REF,
+                                            KEY_EXCHANGE_REF, TLS_GROUP, TLS_SIGNATURE_SCHEME, REFERENCED_RULE_ID))
                     .toList());
 
     /** Symmetric key or shared secret: quantum-resistant if long enough. */
@@ -162,24 +185,18 @@ public final class PqcRules {
     public static final String EVALUATION_FAILED_REASON = "The rule set could not be evaluated against this asset's "
             + "recorded properties";
 
-    /** The size arms' own fields, and every field the name decision they consult can read. */
     private static final List<String> SYMMETRIC_MATERIAL_FIELDS = List
-            .of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, ALGORITHM_FAMILY, NAME, VARIANT, HYBRID_COMPONENTS, CURVE,
-                    PARAMETER_SET);
+            .of(ASSET_TYPE, MATERIAL_TYPE, MATERIAL_SIZE, NAME);
 
     private PqcRules() {
     }
 
     /**
-     * The symmetric size arms defer to {@link PqcEvaluator}'s decision for the asset's name, so a key and the algorithm
-     * of the same name cannot be served opposite verdicts.
-     *
-     * @param nameCarriesNoFinding whether the asset's own name is free of a weak-crypto finding
-     * @param nameLeavesStrengthToSize whether the name clears or resolves no family at all, so that a size may vouch
-     * for the key; an ambiguous or uninstantiated name is a question no key length answers
+     * The symmetric size arms read the key's declared size alone. Its name is not evidence: a key is named after what
+     * it protects, and the algorithm it is for is the reference {@link PqcReferenceRules} reads, which decides beside
+     * these arms and outranks them when weaker.
      */
-    static List<PqcRule> rulesFor(AssetNormalizer normalizer, Predicate<PqcRuleInput> nameCarriesNoFinding,
-            Predicate<PqcRuleInput> nameLeavesStrengthToSize) {
+    static List<PqcRule> rulesFor(AssetNormalizer normalizer) {
         return List
                 .of(
                         // ---- Material that is not a key -----------------------------------------------------------
@@ -208,30 +225,24 @@ public final class PqcRules {
                                 List.of(ASSET_TYPE, ALGORITHM_FAMILY, NAME)),
 
                         // ---- Symmetric key material ---------------------------------------------------------------
-                        // Ready and unsized need a name that clears or names no family; weak needs only a name
-                        // without a finding, because a key under the floor is weak whichever member it belongs to.
-                        // Any other key is decided by its name, not by its size. Below 64 a bit count cannot be told
-                        // from a byte count -- 32 is either AES-256 in bytes or a broken key in bits -- so the name
-                        // carries the finding without that ambiguity.
+                        // Below 64 a bit count cannot be told from a byte count -- 32 is either AES-256 in bytes or a
+                        // broken key in bits -- so such a size reads as absent rather than as a strength.
                         new PqcRule(MATERIAL_SYMMETRIC_READY,
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameLeavesStrengthToSize.test(input)
-                                        && input.materialSize() != null
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && input.materialSize() != null
                                         && input.materialSize() >= MIN_SYMMETRIC_KEY_BITS,
                                 PqcVerdict.READY,
                                 "A symmetric key of at least " + MIN_SYMMETRIC_KEY_BITS
                                         + " bits; Grover's algorithm halves its strength but does not break it",
                                 SYMMETRIC_MATERIAL_FIELDS),
                         new PqcRule(MATERIAL_SYMMETRIC_WEAK,
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameCarriesNoFinding.test(input)
-                                        && input.materialSize() != null
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && input.materialSize() != null
                                         && input.materialSize() < MIN_SYMMETRIC_KEY_BITS,
                                 PqcVerdict.NOT_READY,
                                 "A symmetric key whose declared size is below the " + MIN_SYMMETRIC_KEY_BITS
                                         + "-bit floor this rule set holds symmetric keys to",
                                 SYMMETRIC_MATERIAL_FIELDS),
                         new PqcRule(MATERIAL_SYMMETRIC_UNSIZED,
-                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && nameLeavesStrengthToSize.test(input)
-                                        && input.materialSize() == null,
+                                input -> isMaterial(SYMMETRIC_MATERIAL, input) && input.materialSize() == null,
                                 PqcVerdict.UNKNOWN,
                                 "A symmetric key whose declared size is absent or implausible, so its strength cannot "
                                         + "be affirmed",

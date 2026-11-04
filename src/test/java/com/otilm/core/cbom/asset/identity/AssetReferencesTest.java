@@ -75,6 +75,71 @@ class AssetReferencesTest {
         assertThat(AssetReferences.of(component("{\"assetType\":\"algorithm\",\"algorithmProperties\":{}}"))).isEmpty();
     }
 
+    /** A key names the algorithm it is for: the 1.7 typed entry first, the 1.6 field only when the array names none. */
+    @Test
+    void aKeyNamesTheAlgorithmItIsFor() {
+        assertThat(AssetReferences.of(material("\"algorithmRef\":\"alg\"")))
+                .containsExactly(new AssetReferences.Reference(CryptoAssetReferenceKind.ALGORITHM, "alg", null));
+        assertThat(AssetReferences
+                .of(material("\"algorithmRef\":\"legacy\",\"relatedCryptographicAssets\":[{\"type\":\"algorithm\","
+                        + "\"ref\":\"typed\"},{\"type\":\"publicKey\",\"ref\":\"other\"}]")))
+                .extracting(AssetReferences.Reference::ref)
+                .containsExactly("typed");
+        assertThat(AssetReferences
+                .of(material("\"relatedCryptographicAssets\":[{\"type\":\"algorithm\",\"ref\":\"one\"},"
+                        + "{\"type\":\"Algorithm\",\"ref\":\"two\"}]")))
+                .extracting(AssetReferences.Reference::ref)
+                .describedAs("two of a kind are both kept, for the ingest to resolve to nothing")
+                .containsExactly("one", "two");
+        assertThat(AssetReferences.of(material("\"type\":\"secret-key\",\"size\":256"))).isEmpty();
+    }
+
+    /** At the protocol level the 1.7 typed algorithm entries count, else every entry of the 1.6 array. */
+    @Test
+    void aProtocolNamesItsProtocolLevelAlgorithmsAndItsKeyExchangeMethods() {
+        JsonNode typed = component("{\"assetType\":\"protocol\",\"protocolProperties\":{\"type\":\"tls\","
+                + "\"relatedCryptographicAssets\":[{\"type\":\"algorithm\",\"ref\":\"kex\"},"
+                + "{\"type\":\"certificate\",\"ref\":\"cert\"},{\"type\":\"algorithm\",\"ref\":\"kex\"}],"
+                + "\"cryptoRefArray\":[\"legacy\"]}}");
+        assertThat(AssetReferences.of(typed))
+                .containsExactly(
+                        new AssetReferences.Reference(CryptoAssetReferenceKind.PROTOCOL_ALGORITHM, "kex", null));
+
+        JsonNode legacy = component("{\"assetType\":\"protocol\",\"protocolProperties\":{\"type\":\"tls\","
+                + "\"relatedCryptographicAssets\":[{\"type\":\"certificate\",\"ref\":\"cert\"}],"
+                + "\"cryptoRefArray\":[\"a\",\"b\",\"a\"]}}");
+        assertThat(AssetReferences.of(legacy))
+                .extracting(AssetReferences.Reference::kind, AssetReferences.Reference::ref)
+                .containsExactly(tuple(CryptoAssetReferenceKind.PROTOCOL_ALGORITHM, "a"),
+                        tuple(CryptoAssetReferenceKind.PROTOCOL_ALGORITHM, "b"));
+
+        JsonNode ike = component("{\"assetType\":\"protocol\",\"protocolProperties\":{\"type\":\"ikev2\","
+                + "\"ikev2TransformTypes\":{\"encr\":[\"aes\"],\"ke\":[{\"group\":35,\"algorithm\":\"mlkem\"},"
+                + "{\"group\":14},\"dh14\"]}}}");
+        assertThat(AssetReferences.of(ike))
+                .extracting(AssetReferences.Reference::kind, AssetReferences.Reference::ref)
+                .containsExactly(tuple(CryptoAssetReferenceKind.KEY_EXCHANGE_TRANSFORM, "mlkem"),
+                        tuple(CryptoAssetReferenceKind.KEY_EXCHANGE_TRANSFORM, "dh14"));
+    }
+
+    @Test
+    void theNamesTheSuitesOfferAreReadOnceEachInDocumentOrder() {
+        JsonNode protocol = component("{\"assetType\":\"protocol\",\"protocolProperties\":{\"cipherSuites\":["
+                + "{\"name\":\"A\",\"tlsGroups\":[\"x25519\",\"secp256r1\"],\"tlsSignatureSchemes\":[\"ed25519\"]},"
+                + "{\"name\":\"B\",\"tlsGroups\":[\"secp256r1\",\" \",\"X25519MLKEM768\"]},{\"name\":\"C\"}]}}");
+        JsonNode properties = protocol.get("cryptoProperties").get("protocolProperties");
+
+        assertThat(AssetReferences.offeredNames(properties, "tlsGroups"))
+                .containsExactly("x25519", "secp256r1", "X25519MLKEM768");
+        assertThat(AssetReferences.offeredNames(properties, "tlsSignatureSchemes")).containsExactly("ed25519");
+        assertThat(AssetReferences.offeredNames(null, "tlsGroups")).isEmpty();
+    }
+
+    private static JsonNode material(String members) {
+        return component(
+                "{\"assetType\":\"related-crypto-material\",\"relatedCryptoMaterialProperties\":{" + members + "}}");
+    }
+
     private static JsonNode certificate(String members) {
         return component("{\"assetType\":\"certificate\",\"certificateProperties\":{" + members + "}}");
     }

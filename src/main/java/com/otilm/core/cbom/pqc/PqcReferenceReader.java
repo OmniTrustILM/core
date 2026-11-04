@@ -22,17 +22,19 @@ import org.springframework.stereotype.Component;
 @Component
 public class PqcReferenceReader {
 
+    private static final String PROTOCOL_PROPERTIES = "protocolProperties";
+
     private final CryptoAssetReferenceRepository referenceRepository;
 
     public PqcReferenceReader(CryptoAssetReferenceRepository referenceRepository) {
         this.referenceRepository = referenceRepository;
     }
 
-    /** @return the references of every certificate and protocol among the rows, by asset */
+    /** @return the references of every key, certificate and protocol among the rows, by asset */
     public Map<UUID, List<PqcReferences.Reference>> load(List<PqcStaleVerdictRow> rows) {
         List<UUID> referrers = rows
                 .stream()
-                .filter(row -> PqcReferenceRules.decides(row.assetType()))
+                .filter(row -> PqcReferenceRules.references(row.assetType()))
                 .map(PqcStaleVerdictRow::uuid)
                 .toList();
         Map<UUID, List<PqcReferences.Reference>> loaded = new HashMap<>();
@@ -45,17 +47,20 @@ public class PqcReferenceReader {
         return loaded;
     }
 
-    /** One row's references, with the suites its own payload records. */
+    /** One row's references, with the suites and the names its own payload offers. */
     public static PqcReferences forRow(PqcStaleVerdictRow row, JsonNode mergedCryptoProperties,
             Map<UUID, List<PqcReferences.Reference>> loaded) {
-        if (!PqcReferenceRules.decides(row.assetType())) {
+        if (!PqcReferenceRules.references(row.assetType())) {
             return PqcReferences.NONE;
         }
-        return PqcReferences.of(loaded.getOrDefault(row.uuid(), List.of()), cipherSuites(mergedCryptoProperties));
+        JsonNode protocol = mergedCryptoProperties == null ? null : mergedCryptoProperties.get(PROTOCOL_PROPERTIES);
+        return PqcReferences
+                .of(loaded.getOrDefault(row.uuid(), List.of()), cipherSuites(protocol),
+                        AssetReferences.offeredNames(protocol, PqcRules.TLS_GROUPS),
+                        AssetReferences.offeredNames(protocol, PqcRules.TLS_SIGNATURE_SCHEMES));
     }
 
-    private static List<String> cipherSuites(JsonNode mergedCryptoProperties) {
-        JsonNode protocol = mergedCryptoProperties == null ? null : mergedCryptoProperties.get("protocolProperties");
+    private static List<String> cipherSuites(JsonNode protocol) {
         JsonNode suites = protocol == null ? null : protocol.get("cipherSuites");
         if (suites == null || !suites.isArray()) {
             return List.of();
