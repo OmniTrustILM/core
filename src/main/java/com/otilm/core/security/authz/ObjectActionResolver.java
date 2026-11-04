@@ -2,12 +2,15 @@ package com.otilm.core.security.authz;
 
 import com.otilm.api.model.core.auth.ObjectActionsAware;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.auth.SubjectPermissionsDto;
 import com.otilm.core.auth.ContextRefreshListener;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.util.AuthHelper;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 /**
@@ -42,13 +45,21 @@ public class ObjectActionResolver {
 
     List<ResourceAction> allowedActions(Resource resource, SecuredUUID objectUuid) {
         List<ResourceAction> declared = declaredActions(resource);
-        if (Boolean.TRUE.equals(AuthHelper.getUserProfile().getPermissions().getAllowAllResources())) {
+        if (holdsAllResources()) {
             return declared;
         }
         return declared
                 .stream()
                 .filter(action -> authorizationEnforcer.isAuthorized(resource, action, objectUuid))
                 .toList();
+    }
+
+    private static boolean holdsAllResources() {
+        if (!(SecurityContextHolder.getContext().getAuthentication() instanceof PlatformAuthenticationToken)) {
+            return false;
+        }
+        SubjectPermissionsDto permissions = AuthHelper.getUserProfile().getPermissions();
+        return permissions != null && Boolean.TRUE.equals(permissions.getAllowAllResources());
     }
 
     private List<ResourceAction> declaredActions(Resource resource) {

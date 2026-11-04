@@ -91,6 +91,18 @@ class ObjectActionResolverTest {
                 .isEmpty();
     }
 
+    @Test
+    void asksTheAuthorizationCheckWhenTheProfileCarriesNoPermissions() {
+        signInWithProfile("""
+                {"user": {"uuid": "%s", "username": "tester", "enabled": true, "systemUser": false}, "roles": []}
+                """.formatted(UUID.randomUUID()));
+        when(authorizationEnforcer.isAuthorized(any(), any(), any())).thenReturn(true);
+
+        assertThat(resolver.withAllowedActions(Resource.SECRET, SECRET_UUID, new SecretDetailDto()).getAllowedActions())
+                .containsExactly(ResourceAction.DELETE, ResourceAction.DETAIL, ResourceAction.GET_SECRET_CONTENT,
+                        ResourceAction.UPDATE);
+    }
+
     private boolean isTheSecret(SecuredUUID objectUuid) {
         return objectUuid != null && SECRET_UUID.equals(objectUuid.getValue());
     }
@@ -110,6 +122,10 @@ class ObjectActionResolverTest {
                     "permissions": {"allowAllResources": %s, "resources": []}
                 }
                 """.formatted(UUID.randomUUID(), allowAllResources);
+        signInWithProfile(profile);
+    }
+
+    private static void signInWithProfile(String profile) {
         AuthenticationInfo info = new AuthenticationInfo(AuthMethod.USER_PROXY, UUID.randomUUID().toString(), "tester",
                 List.of(), profile);
         SecurityContextHolder
