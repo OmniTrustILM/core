@@ -18,7 +18,7 @@ public final class PadesVisibleSignaturePlacementDtoBuilder {
     private Float height;
     private HorizontalAlignment alignmentHorizontal;
     private VerticalAlignment alignmentVertical;
-    private Float zoom;
+    private Integer zoom;
 
     public static PadesVisibleSignaturePlacementDtoBuilder aPlacement() {
         return new PadesVisibleSignaturePlacementDtoBuilder();
@@ -64,7 +64,7 @@ public final class PadesVisibleSignaturePlacementDtoBuilder {
         return this;
     }
 
-    public PadesVisibleSignaturePlacementDtoBuilder withZoom(Float zoom) {
+    public PadesVisibleSignaturePlacementDtoBuilder withZoom(Integer zoom) {
         this.zoom = zoom;
         return this;
     }

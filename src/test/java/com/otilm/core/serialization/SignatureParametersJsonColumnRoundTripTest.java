@@ -77,13 +77,14 @@ class SignatureParametersJsonColumnRoundTripTest {
     @Test
     void survivesTheJsonColumnRecipe_whenThePlacementIsAnchored() throws Exception {
         // given
+        var zoomPercentage = 75;
         PadesSignatureParametersDto original = aPadesParameters()
                 .withVisibleSignature(aVisibleSignature()
                         .withPlacement(aPlacement()
                                 .withPage(2)
                                 .withAlignmentHorizontal(HorizontalAlignment.RIGHT)
                                 .withAlignmentVertical(VerticalAlignment.BOTTOM)
-                                .withZoom(75f)))
+                                .withZoom(zoomPercentage)))
                 .build();
 
         // when
@@ -96,7 +97,7 @@ class SignatureParametersJsonColumnRoundTripTest {
                 .getPlacement();
         assertThat(reloaded.getAlignmentHorizontal()).isEqualTo(HorizontalAlignment.RIGHT);
         assertThat(reloaded.getAlignmentVertical()).isEqualTo(VerticalAlignment.BOTTOM);
-        assertThat(reloaded.getZoom()).isEqualTo(75f);
+        assertThat(reloaded.getZoom()).isEqualTo(zoomPercentage);
         assertThat(reloaded.getOriginX()).isNull();
     }
 
