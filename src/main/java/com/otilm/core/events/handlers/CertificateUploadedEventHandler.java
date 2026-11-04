@@ -4,29 +4,39 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.EventException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.events.data.CertificateEventData;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.other.ResourceEvent;
+import com.otilm.api.model.core.search.FilterFieldSource;
+import com.otilm.api.model.core.settings.CertificateSettingsDto;
+import com.otilm.api.model.core.settings.CertificateUploadSettingsDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.workflows.EventStatus;
+import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.workflows.EventHistory;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.workflows.TriggerHistoryRepository;
+import com.otilm.core.enums.FilterField;
 import com.otilm.core.evaluator.TriggerEvaluator;
 import com.otilm.core.events.EventContext;
 import com.otilm.core.events.EventHandler;
 import com.otilm.core.events.data.EventDataBuilder;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
+import com.otilm.core.events.transaction.UploaderOwnershipEvent;
 import com.otilm.core.messaging.model.CertificateUploadEventMessageData;
 import com.otilm.core.messaging.model.EventMessage;
 import com.otilm.core.messaging.model.NotificationMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.X509ObjectToString;
@@ -36,6 +46,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import org.bouncycastle.asn1.x509.Extension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -174,6 +185,8 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             return;
         }
 
+        assignUploaderAsOwnerIfEnabled(certificate.getUuid(), eventHistory);
+
         saveEventHistory(eventHistory, EventStatus.FINISHED);
 
         if (eventMessageData.customAttributes() != null && !eventMessageData.customAttributes().isEmpty()) {
@@ -193,6 +206,38 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
                         "Certificate uploaded", "");
         applicationEventPublisher.publishEvent(new CertificateValidationEvent(certificate.getUuid()));
         sendFollowUpEventsNotifications(context);
+    }
+
+    private void assignUploaderAsOwnerIfEnabled(UUID certificateUuid, EventHistory eventHistory) {
+        PlatformSettingsDto platformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
+        CertificateSettingsDto certificates = platformSettings == null ? null : platformSettings.getCertificates();
+        CertificateUploadSettingsDto upload = certificates == null ? null : certificates.getUpload();
+        if (upload == null || !upload.isAutomaticOwnership()) {
+            return;
+        }
+        if (triggerSetsOwner(eventHistory)) {
+            return;
+        }
+        NameAndUuidDto uploader = AuthHelper.getActingUserOrNull();
+        if (uploader == null) {
+            logger
+                    .warn("Automatic ownership is on, but the uploader of certificate {} is not known. The certificate "
+                            + "has no owner.", certificateUuid);
+            return;
+        }
+        applicationEventPublisher
+                .publishEvent(new UploaderOwnershipEvent(certificateUuid, UUID.fromString(uploader.getUuid()),
+                        uploader.getName()));
+    }
+
+    /**
+     * Whether an upload trigger that applies to the certificate sets its owner, whether to a user or to nobody. Such a
+     * trigger decides the owner, so automatic ownership leaves the certificate as the trigger left it.
+     */
+    private boolean triggerSetsOwner(EventHistory eventHistory) {
+        return triggerHistoryRepository
+                .existsMatchedSetFieldExecution(eventHistory.getUuid(), ExecutionType.SET_FIELD,
+                        FilterFieldSource.PROPERTY, FilterField.OWNER.name());
     }
 
     private void saveCertificate(Certificate certificate, String fingerprint, X509Certificate x509Certificate) {

@@ -251,7 +251,7 @@ class SignatureParameterResolverTest {
     void refusesPlacement_whenTheMergedPlacementUsesTwoAddressingModes() {
         // given — a request placing the signature by coordinates and by an anchor at once
         PadesSignatureParametersDto requested = placedBy(
-                aPlacement().withPage(1).withOriginX(20f).withOriginY(30f).withZoom(100f));
+                aPlacement().withPage(1).withOriginX(20f).withOriginY(30f).withZoom(100));
 
         // when
         ThrowingCallable effectiveParameters = () -> resolver
