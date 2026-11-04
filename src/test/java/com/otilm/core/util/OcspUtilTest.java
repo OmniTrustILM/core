@@ -6,10 +6,15 @@ import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import java.io.IOException;
 import java.security.cert.X509Certificate;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.asn1.BERSequence;
+import org.bouncycastle.asn1.x509.AccessDescription;
+import org.bouncycastle.asn1.x509.GeneralName;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Named;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -43,6 +48,25 @@ class OcspUtilTest {
         assertThatThrownBy(readOcspUrls)
                 .isInstanceOfSatisfying(IOException.class, exception -> assertThat(exception.getCause()).isNotNull())
                 .hasMessage("The authorityInfoAccess extension is malformed");
+    }
+
+    @Test
+    void returnsOcspUrl_whenExtensionValueIsBerEncoded() throws Exception {
+        // given
+        var ocspUrl = "http://ocsp.example/";
+        var ocspAccess = new AccessDescription(AccessDescription.id_ad_ocsp,
+                new GeneralName(GeneralName.uniformResourceIdentifier, ocspUrl));
+        byte[] indefiniteLengthAuthorityInfoAccess = new BERSequence(ocspAccess).getEncoded();
+        X509Certificate certificate = CertificateGeneratorHelper
+                .generateEndEntityCertificateWithAuthorityInfoAccess(chain.getCaCertificateKeyPair(),
+                        chain.getCaCertificate(), chain.getEndEntityCertificateKeyPair(), "CN=Ocsp-Util-EndEntity",
+                        indefiniteLengthAuthorityInfoAccess);
+
+        // when
+        List<String> ocspUrls = OcspUtil.getOcspUrlFromCertificate(certificate);
+
+        // then
+        assertThat(ocspUrls).containsExactly(ocspUrl);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
