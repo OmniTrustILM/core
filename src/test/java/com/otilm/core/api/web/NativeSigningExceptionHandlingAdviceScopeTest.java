@@ -1,5 +1,6 @@
 package com.otilm.core.api.web;
 
+import com.jayway.jsonpath.JsonPath;
 import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.core.api.ExceptionHandlingAdvice;
 import com.otilm.core.signing.engine.error.SigningEngineException;
@@ -9,17 +10,16 @@ import java.net.ConnectException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Pins where the native signing advice answers: ahead of the global advice for the native controller, and not at all
@@ -53,13 +53,12 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
         nativeController.failWith(signerFault);
 
         // when
-        ResultActions response = mockMvc.perform(post(NATIVE_FAILURE_PATH));
+        MockHttpServletResponse response = mockMvc.perform(post(NATIVE_FAILURE_PATH)).andReturn().getResponse();
 
         // then
-        response
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.message").value(CLIENT))
-                .andExpect(header().doesNotExist(HttpHeaders.RETRY_AFTER));
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY.value());
+        assertThat(messageOf(response)).isEqualTo(CLIENT);
+        assertThat(response.containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
     }
 
     @Test
@@ -70,13 +69,12 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
         nativeController.failWith(connectorOutage);
 
         // when
-        ResultActions response = mockMvc.perform(post(NATIVE_FAILURE_PATH));
+        MockHttpServletResponse response = mockMvc.perform(post(NATIVE_FAILURE_PATH)).andReturn().getResponse();
 
         // then
-        response
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "30"))
-                .andExpect(jsonPath("$.message").value("The connector is unavailable."));
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
+        assertThat(response.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("30");
+        assertThat(messageOf(response)).isEqualTo("The connector is unavailable.");
     }
 
     @Test
@@ -86,12 +84,11 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
         unrelatedController.failWith(signerFault);
 
         // when
-        ResultActions response = mockMvc.perform(post(UNRELATED_FAILURE_PATH));
+        MockHttpServletResponse response = mockMvc.perform(post(UNRELATED_FAILURE_PATH)).andReturn().getResponse();
 
         // then
-        response
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.message").value("Internal server error."));
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR.value());
+        assertThat(messageOf(response)).isEqualTo("Internal server error.");
     }
 
     @Test
@@ -102,16 +99,19 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
         unrelatedController.failWith(connectorOutage);
 
         // when
-        ResultActions response = mockMvc.perform(post(UNRELATED_FAILURE_PATH));
+        MockHttpServletResponse response = mockMvc.perform(post(UNRELATED_FAILURE_PATH)).andReturn().getResponse();
 
         // then
-        response
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(header().doesNotExist(HttpHeaders.RETRY_AFTER))
-                .andExpect(jsonPath("$.message").value(COMMUNICATION_FAILURE));
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
+        assertThat(response.containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
+        assertThat(messageOf(response)).isEqualTo(COMMUNICATION_FAILURE);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static String messageOf(MockHttpServletResponse response) throws Exception {
+        return JsonPath.read(response.getContentAsString(), "$.message");
+    }
 
     /** A native endpoint, which the native advice covers because it is assignable to the native controller. */
     @RestController

@@ -3059,7 +3059,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             IlmNativeProfileResolver resolver = buildResolverUpdatingBeforeModelLoad(managedContent);
 
             // when
-            SigningProfileModel<?, ?> resolved = inARequest(
+            SigningProfileModel<?, ?> resolved = runInARequest(
                     () -> resolver.resolve(uuid.getValue(), NativeOperation.SIGN_DOCUMENT));
 
             // then
@@ -3131,7 +3131,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
          * Runs the call with one EntityManager bound to the thread and no transaction around it, as an open-in-view
          * request does, so what the call reads stays managed there until it returns.
          */
-        private <T> T inARequest(Callable<T> call) throws Exception {
+        private <T> T runInARequest(Callable<T> call) throws Exception {
             EntityManager bound = entityManagerFactory.createEntityManager();
             TransactionSynchronizationManager.bindResource(entityManagerFactory, new EntityManagerHolder(bound));
             try {

@@ -400,7 +400,7 @@ class ProxyClientImplTest {
         ConnectorDto connector = createConnector("proxy-001");
         CompletableFuture<ProxyMessage> future = new CompletableFuture<>();
         when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(future);
-        future.complete(proxyErrorMessage("Request timed out", "timeout"));
+        future.complete(createProxyErrorMessage("Request timed out", "timeout"));
 
         // when
         ThrowingCallable sendRequest = () -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class);
@@ -418,7 +418,7 @@ class ProxyClientImplTest {
         ConnectorDto connector = createConnector("proxy-001");
         CompletableFuture<ProxyMessage> future = new CompletableFuture<>();
         when(correlator.registerRequest(anyString(), any(Duration.class))).thenReturn(future);
-        future.complete(proxyErrorMessage("Connection refused", "connection"));
+        future.complete(createProxyErrorMessage("Connection refused", "connection"));
 
         // when
         ThrowingCallable sendRequest = () -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class);
@@ -1474,6 +1474,17 @@ class ProxyClientImplTest {
                                 .build()));
     }
 
+    private static ProxyMessage createProxyErrorMessage(String error, String errorCategory) {
+        return ProxyMessage
+                .builder()
+                .correlationId("test-corr")
+                .proxyId("proxy-001")
+                .timestamp(Instant.now())
+                .connectorResponse(
+                        ConnectorResponse.builder().statusCode(0).error(error).errorCategory(errorCategory).build())
+                .build();
+    }
+
     /**
      * A connector's error answer as the proxy forwards it: the connector's status, headers and body, if it had one,
      * with the error and category the proxy classifies the status as.
@@ -1547,16 +1558,5 @@ class ProxyClientImplTest {
                     assertThat(clientException.getHttpStatus()).isEqualTo(HttpStatus.FORBIDDEN);
                     assertThat(clientException.getConnector()).isNotNull();
                 });
-    }
-
-    private static ProxyMessage proxyErrorMessage(String error, String errorCategory) {
-        return ProxyMessage
-                .builder()
-                .correlationId("test-corr")
-                .proxyId("proxy-001")
-                .timestamp(Instant.now())
-                .connectorResponse(
-                        ConnectorResponse.builder().statusCode(0).error(error).errorCategory(errorCategory).build())
-                .build();
     }
 }
