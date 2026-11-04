@@ -126,7 +126,7 @@ jobs:
                  | grep -qE "^[0-9][0-9A-Za-z.-]*-M[0-9]+-${MSHA:0:8}\$"; then
               AGE=$(( $(date -u +%s) - $(date -u -d "${MAT:-@0}" +%s) ))
               if [ "$AGE" -lt 900 ]; then
-                fail "interfaces#${NUM} merged ${AGE}s ago but its build has not published yet. Wait for it, then re-run all jobs."
+                fail "interfaces#${NUM} merged ${AGE}s ago but its build has not published yet. Wait for it, then re-run all jobs on Build PR and Test Docker image."
               fi
               echo "::warning::interfaces#${NUM} merged ${AGE}s ago with no -M build; a release-cut merge produces none. Proceeding against mainline."
             fi
@@ -201,8 +201,8 @@ jobs:
           set -euo pipefail
           case "$MODE" in
             none) echo "No override active." ;;
-            pr)   echo "::error::Building against an unmerged interfaces PR. Merge it, wait for the publish, then re-run all jobs."; exit 1 ;;
-            explicit) echo "::error::An explicit Interfaces-Version override is active. Remove the marker from the PR body, then re-run all jobs - re-running only the failed job replays the cached resolution."; exit 1 ;;
+            pr)   echo "::error::Building against an unmerged interfaces PR. Merge it, wait for the publish, then re-run all jobs on Build PR and Test Docker image."; exit 1 ;;
+            explicit) echo "::error::An explicit Interfaces-Version override is active. Remove the marker from the PR body, then re-run all jobs on Build PR and Test Docker image - re-running only Build PR's failed job replays the cached resolution."; exit 1 ;;
             *) echo "::error::Unknown resolver mode '$MODE'"; exit 1 ;;
           esac
 

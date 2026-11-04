@@ -18,10 +18,11 @@ jobs:
   # The image is built from `mvn package` against the interfaces version in the pom, and the shared workflow below
   # takes no Maven argument. A PR whose body carries `Depends-On: OmniTrustILM/interfaces#<n>` for an unmerged
   # interfaces PR (see build_pr.yml) compiles only against that PR's snapshot, so the image build would fail on the
-  # contract rather than on the image. While the dependency is unmerged, or merged but not yet published, the image
-  # test waits; once it is published, re-running all jobs - on this workflow as well as on Build PR - runs it for
-  # real. An `Interfaces-Version:` override waits the same way. Merging stays blocked meanwhile by the `Build` job of
-  # build_pr.yml, which is red whenever a marker is active, so nothing is skipped past.
+  # contract rather than on the image. While the dependency is unmerged, or merged but not yet published, this job
+  # fails and the image test is skipped; an `Interfaces-Version:` override fails it the same way. The red run marks
+  # the re-run still owed: nothing re-triggers this workflow when the interfaces PR merges, and the skipped image test
+  # leaves its required checks pending. Once the dependency is published, or the override removed, re-run all jobs on
+  # Build PR and Test Docker image.
   interfaces-dependency:
     name: Interfaces dependency
     runs-on: ubuntu-latest
@@ -47,7 +48,7 @@ jobs:
             { echo "### Interfaces dependency"; echo ""; echo "- image test: $([ "$1" = true ] && echo runs || echo waits)"; echo "- $2"; } >> "$GITHUB_STEP_SUMMARY"
             echo "$2"
           }
-          wait_for() { echo "::notice::$1 The image test waits; then re-run all jobs on this workflow as well as on Build PR."; decide false "$1"; exit 0; }
+          wait_for() { decide false "$1"; fail "$1 The image test waits; then re-run all jobs on Build PR and Test Docker image."; }
 
           if [ "$EVENT" != pull_request ]; then
             decide true "Not a pull_request event - building against the pom value."; exit 0
