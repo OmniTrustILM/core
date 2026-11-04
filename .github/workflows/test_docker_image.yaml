@@ -48,7 +48,7 @@ jobs:
             { echo "### Interfaces dependency"; echo ""; echo "- image test: $([ "$1" = true ] && echo runs || echo waits)"; echo "- $2"; } >> "$GITHUB_STEP_SUMMARY"
             echo "$2"
           }
-          wait_for() { decide false "$1"; fail "$1 $2, then re-run all jobs on Build PR and Test Docker image."; }
+          wait_for() { local m="$1 $2, then re-run all jobs on Build PR and Test Docker image."; decide false "$m"; fail "$m"; }
 
           if [ "$EVENT" != pull_request ]; then
             decide true "Not a pull_request event - building against the pom value."; exit 0
@@ -62,10 +62,9 @@ jobs:
           # Fenced blocks and HTML comments go first; the probes are line-oriented.
           BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
 
-          # Loose probes, as in build_pr.yml: any marker-shaped line - decorated, bulleted, or mistyped - makes
-          # this wait. build_pr.yml is what tells the author which form is accepted; here the safe answer is to
-          # not build against a contract the marker was meant to replace. Herestrings, not pipes: `grep -q`
-          # closing the pipe early would otherwise read as "no marker" under pipefail.
+          # Loose probes, as in build_pr.yml: any marker-shaped line - decorated, bulleted, or mistyped - fails
+          # this job, so nothing builds against a contract the marker was meant to replace. Herestrings, not
+          # pipes: `grep -q` closing the pipe early would otherwise read as "no marker" under pipefail.
           if grep -qiP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' <<<"$BODY"; then
             wait_for "An Interfaces-Version override is present in the PR body." "Remove it from the PR body"
           fi
@@ -76,15 +75,19 @@ jobs:
           NUM=$(grep -oiP '^Depends-On:[[:space:]]*OmniTrustILM/interfaces#\K[0-9]{1,7}(?=[[:space:]]*$)' <<<"$BODY" | head -1 || true)
           if [ -z "$NUM" ]; then
             wait_for "A Depends-On marker for interfaces is present but not in the form build_pr.yml accepts." \
-              "Rewrite it to begin the line as Depends-On: OmniTrustILM/interfaces#<number>"
+              "Rewrite it as a line of its own that reads exactly Depends-On: OmniTrustILM/interfaces#<number>"
           fi
 
-          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
+          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, .state, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
             fail "Cannot read OmniTrustILM/interfaces#${NUM} - check that the number names an existing pull request."
           fi
-          read -r MERGED MSHA MAT <<<"$IPR"
+          read -r MERGED ISTATE MSHA MAT <<<"$IPR"
 
           if [ "$MERGED" != true ]; then
+            if [ "$ISTATE" = closed ]; then
+              wait_for "OmniTrustILM/interfaces#${NUM} was closed without merging." \
+                "Remove the Depends-On line, or repoint it at whatever superseded it"
+            fi
             wait_for "This PR depends on the unmerged OmniTrustILM/interfaces#${NUM}." "Merge it and wait for the publish"
           fi
 
