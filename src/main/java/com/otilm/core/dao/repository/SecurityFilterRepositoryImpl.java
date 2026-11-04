@@ -690,31 +690,44 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
     }
 
     /**
-     * Objects assigned to a group the members filter admits: any group when it restricts nothing, else the allowed
-     * groups, or every group but the forbidden ones. A subquery rather than a join on the groups collection, which
-     * would repeat an object once per group in listings that select without DISTINCT.
+     * Objects assigned to a group the members filter admits (any group, or the allowed groups when it restricts to
+     * specific ones) and to none of the forbidden groups: authorization denies an object when any of its groups is
+     * denied. Subqueries rather than a join on the groups collection, which would repeat an object once per group in
+     * listings that select without DISTINCT.
      */
     private Predicate getGroupMembersPredicate(Root<T> root, Resource resource,
             SecurityResourceFilter groupMembersFilter, CriteriaBuilder cb, CommonAbstractCriteria query) {
         if (groupMembersFilter == null) {
             return null;
         }
-        Subquery<UUID> assigned = query.subquery(UUID.class);
-        Root<GroupAssociation> association = assigned.from(GroupAssociation.class);
-        List<Predicate> conditions = new ArrayList<>();
-        conditions.add(cb.equal(association.get(GroupAssociation_.resource), resource));
-        Path<UUID> groupUuid = association.get(GroupAssociation_.groupUuid);
-        if (groupMembersFilter.areOnlySpecificObjectsAllowed()) {
-            conditions.add(groupUuid.in(groupMembersFilter.getAllowedObjects()));
-        } else if (!groupMembersFilter.getForbiddenObjects().isEmpty()) {
-            conditions.add(groupUuid.in(groupMembersFilter.getForbiddenObjects()).not());
-        }
-        assigned.select(association.get(GroupAssociation_.objectUuid)).where(conditions.toArray(Predicate[]::new));
-
         Path<UUID> objectUuid = root.getJavaType().equals(CryptographicKeyItem.class)
                 ? root.get(CryptographicKeyItem_.key.getName()).get("uuid")
                 : root.get("uuid");
-        return objectUuid.in(assigned);
+        Predicate admitted = objectUuid
+                .in(objectsAssignedTo(resource,
+                        groupMembersFilter.areOnlySpecificObjectsAllowed()
+                                ? groupMembersFilter.getAllowedObjects()
+                                : null,
+                        cb, query));
+        if (groupMembersFilter.getForbiddenObjects().isEmpty()) {
+            return admitted;
+        }
+        return cb
+                .and(admitted,
+                        objectUuid
+                                .in(objectsAssignedTo(resource, groupMembersFilter.getForbiddenObjects(), cb, query))
+                                .not());
+    }
+
+    private Subquery<UUID> objectsAssignedTo(Resource resource, List<UUID> groupUuids, CriteriaBuilder cb,
+            CommonAbstractCriteria query) {
+        Subquery<UUID> assigned = query.subquery(UUID.class);
+        Root<GroupAssociation> association = assigned.from(GroupAssociation.class);
+        Predicate ofResource = cb.equal(association.get(GroupAssociation_.resource), resource);
+        Predicate condition = groupUuids == null
+                ? ofResource
+                : cb.and(ofResource, association.get(GroupAssociation_.groupUuid).in(groupUuids));
+        return assigned.select(association.get(GroupAssociation_.objectUuid)).where(condition);
     }
 
     private Predicate getPredicateBySecurityResourceFilter(Root<T> root, SecurityResourceFilter resourceFilter,

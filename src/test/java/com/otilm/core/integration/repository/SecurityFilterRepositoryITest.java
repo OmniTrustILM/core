@@ -276,6 +276,39 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
+    void anObjectAlsoAssignedToADeniedGroupIsNotListedThroughGroupMembers() {
+        SecurityFilter filter = SecurityFilter.create();
+        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
+        resourceFilter.setResource(Resource.CERTIFICATE);
+        resourceFilter.setResourceAction(ResourceAction.LIST);
+        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
+        filter.setResourceFilter(resourceFilter);
+        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
+        groupMembersFilter.setResource(Resource.GROUP);
+        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
+        filter.setGroupMembersFilter(groupMembersFilter);
+
+        groupMembersFilter.addDeniedObjects(List.of(secondGroup.getUuid().toString()));
+        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
+                .describedAs("members on every group but a second group of the same object")
+                .containsExactly(certificateOwner.getUuid());
+
+        groupMembersFilter.setAreOnlySpecificObjectsAllowed(true);
+        groupMembersFilter.addAllowedObjects(List.of(group.getUuid().toString()));
+        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+                .describedAs("members on a specific group, denied on a second group of the same object")
+                .extracting(UniquelyIdentifiedAndAudited::getUuid)
+                .containsExactly(certificateOwner.getUuid());
+
+        groupMembersFilter.getForbiddenObjects().clear();
+        groupMembersFilter.addDeniedObjects(List.of(group.getUuid().toString()));
+        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+                .describedAs("a group both granted and denied admits nothing")
+                .extracting(UniquelyIdentifiedAndAudited::getUuid)
+                .containsExactly(certificateOwner.getUuid());
+    }
+
+    @Test
     void testSecurityFilterWithGroups() {
         SecurityFilter filter = SecurityFilter.create();
         SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();

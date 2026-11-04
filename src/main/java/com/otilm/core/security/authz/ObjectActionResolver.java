@@ -18,9 +18,11 @@ import org.springframework.stereotype.Component;
  * controls to offer.
  *
  * <p>
- * Each grantable action the resource declares is decided by {@link AuthorizationEnforcer#isAuthorized}, the same check
- * that guards the request, so ownership, group membership and object grants are honoured without restating the policy.
- * That costs one OPA request per declared action; a principal granted every resource skips them.
+ * Each grantable action the resource declares is decided by {@link AuthorizationEnforcer#isAuthorized} on the object
+ * itself, so ownership, group membership and object grants are honoured without restating the policy. A parent
+ * permission an operation also requires, such as detail on an RA profile's authority, is not checked, so a reported
+ * action can still be refused. That costs one OPA request per declared action; a principal granted every resource skips
+ * them.
  */
 @Component
 public class ObjectActionResolver {

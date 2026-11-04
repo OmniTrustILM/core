@@ -128,7 +128,7 @@ class AuthServiceITest extends BaseSpringBootTest {
         UserProfileDetailDto userProfileDto = authService.getAuthProfile();
         List<Resource> allowedListings = userProfileDto.getPermissions().getAllowedListings();
         // SETTINGS through its list grant, CERTIFICATE through its create grant + DASHBOARD and APPROVAL by default
-        Assertions.assertEquals(4, allowedListings.size());
+        assertThat(allowedListings).hasSize(4);
         Assertions.assertTrue(allowedListings.contains(Resource.DASHBOARD), "DASHBOARD must be allowed by default");
         Assertions.assertTrue(allowedListings.contains(Resource.APPROVAL), "APPROVAL must be allowed by default");
 
@@ -137,7 +137,7 @@ class AuthServiceITest extends BaseSpringBootTest {
         allowedListings = authService.getAuthProfile().getPermissions().getAllowedListings();
         // GROUP and SETTINGS through list grants, USER through the group members grant, CERTIFICATE through its create
         // grant + DASHBOARD and APPROVAL
-        Assertions.assertEquals(6, allowedListings.size());
+        assertThat(allowedListings).hasSize(6);
         Assertions.assertTrue(allowedListings.contains(Resource.DASHBOARD), "DASHBOARD must be allowed by default");
         Assertions.assertTrue(allowedListings.contains(Resource.APPROVAL), "APPROVAL must be allowed by default");
     }
@@ -357,6 +357,32 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void testAuthProfileDoesNotListAResourceWhoseObjectIsAlsoInADeniedGroup() {
+        Group allowedGroup = saveGroup("allowed");
+        Group deniedGroup = saveGroup("denied");
+        UUID secretUuid = UUID.randomUUID();
+        saveGroupAssociation(Resource.SECRET, secretUuid, allowedGroup);
+        saveGroupAssociation(Resource.SECRET, secretUuid, deniedGroup);
+        String deniedObject = """
+                {"uuid": "%s", "name": "denied", "allow": [], "deny": ["members"]}""".formatted(deniedGroup.getUuid());
+
+        injectProfileWithResources("""
+                [{"name": "groups", "allowAllActions": false, "actions": ["members"], "objects": [%s]}]
+                """.formatted(deniedObject));
+        assertThat(ownedResourcesListed())
+                .describedAs("members on every group but one the object is also assigned to")
+                .isEmpty();
+
+        injectProfileWithResources("""
+                [{"name": "groups", "allowAllActions": false, "actions": [], "objects": [
+                    {"uuid": "%s", "name": "allowed", "allow": ["members"], "deny": []}, %s]}]
+                """.formatted(allowedGroup.getUuid(), deniedObject));
+        assertThat(ownedResourcesListed())
+                .describedAs("members on a specific group, denied on another group of the same object")
+                .isEmpty();
+    }
+
+    @Test
     void testAuthProfileObjectGrantListsTheResourceButStaysOutOfAllowedActions() {
         injectProfileWithResources("""
                 [{
@@ -403,9 +429,13 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     private void saveGroupAssociation(Resource resource, Group group) {
+        saveGroupAssociation(resource, UUID.randomUUID(), group);
+    }
+
+    private void saveGroupAssociation(Resource resource, UUID objectUuid, Group group) {
         GroupAssociation association = new GroupAssociation();
         association.setResource(resource);
-        association.setObjectUuid(UUID.randomUUID());
+        association.setObjectUuid(objectUuid);
         association.setGroupUuid(group.getUuid());
         groupAssociationRepository.save(association);
     }
