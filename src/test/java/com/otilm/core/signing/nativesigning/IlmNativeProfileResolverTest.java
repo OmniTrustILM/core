@@ -6,6 +6,8 @@ import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningProfileGateRow;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
@@ -139,8 +141,8 @@ class IlmNativeProfileResolverTest {
                 .withName(NAME)
                 .withUuid(uuid)
                 .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
-                .withWorkflow(
-                        new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null, null, null))
+                .withWorkflow(new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null, null,
+                        CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL))
                 .withSigningScheme(new StaticKeyManagedSigning(UUID.randomUUID(), List.of()))
                 .build();
     }
