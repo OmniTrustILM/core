@@ -676,6 +676,47 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     }
 
     @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsDecoderFailure_whenCrlDistributionPointsExtensionIsMalformed(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        List<String> noDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlMalformedLogged-" + stamp,
+                noDistributionPoints, null, BigInteger.ONE);
+        Certificate entity = createTrustedCertEntity(cert);
+
+        // when
+        certificateService.getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(output.getOut()).contains("Caused by: java.lang.IllegalArgumentException");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsDecoderFailure_whenStoredCrlKeepsCertificateRevoked(CapturedOutput output) throws Exception {
+        // given
+        long stamp = System.nanoTime();
+        KeyPair issuerKeyPair = freshRsaKeyPair();
+        String basePath = "/malformed-delta-logged-base-" + stamp + ".crl";
+        List<String> noDeltaCrlDistributionPoints = List.of();
+        X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMalformedLogged-" + stamp,
+                List.of(LoopbackWireMock.url(mockServer) + basePath), noDeltaCrlDistributionPoints, BigInteger.TWO);
+        Certificate entity = createTrustedCertEntity(cert);
+        stubCrlPoint(basePath,
+                anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                        .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
+                        .build()
+                        .getEncoded());
+
+        // when
+        certificateService.getCertificateValidationResult(entity.getSecuredUuid());
+
+        // then
+        assertThat(output.getOut()).contains("Caused by: java.lang.IllegalArgumentException");
+    }
+
+    @Test
     void replacesCrlEntries_whenRefreshedCrlHasHigherNumber() throws Exception {
         // given
         long stamp = System.nanoTime();

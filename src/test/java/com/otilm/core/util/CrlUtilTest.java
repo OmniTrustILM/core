@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Named;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Named.named;
 
@@ -25,9 +26,8 @@ class CrlUtilTest {
 
         // then
         assertThatThrownBy(readCrlUrls)
-                .isInstanceOf(IOException.class)
-                .hasMessage("The freshestCRL extension is malformed")
-                .hasCauseInstanceOf(Exception.class);
+                .isInstanceOfSatisfying(IOException.class, exception -> assertThat(exception.getCause()).isNotNull())
+                .hasMessage("The freshestCRL extension is malformed");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

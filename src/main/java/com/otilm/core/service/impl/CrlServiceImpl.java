@@ -166,8 +166,8 @@ public class CrlServiceImpl implements CrlService {
             throw deltaCrlFailure;
         }
         logger
-                .debug("Serial number {} stays revoked as the stored CRL lists it, though no delta CRL applies: {}",
-                        serialNumber, deltaCrlFailure.getMessage());
+                .debug("Serial number {} stays revoked as the stored CRL lists it, though no delta CRL applies",
+                        serialNumber, deltaCrlFailure);
     }
 
     /**
