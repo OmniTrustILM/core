@@ -93,6 +93,7 @@ import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataReques
 import com.otilm.api.model.connector.cryptography.v2.operations.VerifyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.CipherDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.SignatureDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.data.SignatureResponseItemV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.data.VerificationResponseItemV2Dto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -2298,7 +2299,7 @@ class KeyProviderV2AdapterTest {
             when(operationsClient.listSignAttributes(any(), any()))
                     .thenReturn(List.of(dataAttributeDefinition("digest", true)));
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of(stringAttribute("digest", "SHA256")));
@@ -2338,7 +2339,7 @@ class KeyProviderV2AdapterTest {
             stubAttributes(Resource.TOKEN_PROFILE, profile.uuid(), profileRows, resolvedProfile);
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
 
@@ -2380,7 +2381,7 @@ class KeyProviderV2AdapterTest {
                 return List.of();
             });
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
 
             // when
@@ -2401,7 +2402,7 @@ class KeyProviderV2AdapterTest {
             when(operationsClient.listSignAttributes(any(), any()))
                     .thenReturn(List.of(dataAttributeDefinition("digest", true)));
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
             SignDataRequestDto request = signRequest(List.of(stringAttribute("digest", "SHA256")));
@@ -2421,7 +2422,7 @@ class KeyProviderV2AdapterTest {
             when(operationsClient.listSignAttributes(any(), any()))
                     .thenReturn(List.of(dataAttributeDefinition("digest", true)));
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
             adapter.signData(keyItem, signRequest(List.of(stringAttribute("digest", "SHA256"))));
@@ -2443,7 +2444,7 @@ class KeyProviderV2AdapterTest {
             when(operationsClient.listSignAttributes(any(), any()))
                     .thenReturn(definitionsWithDefault(expandedSecret), List.of());
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             CryptographicKeyItemOperationModel keyItem = v2KeyItem(metadata("handle"));
             OutboundSecretLeakException refusal = catchThrowableOfType(OutboundSecretLeakException.class,
@@ -2524,7 +2525,7 @@ class KeyProviderV2AdapterTest {
                             .of(SignatureAlgorithmAttribute.definition(List.of(algorithm)),
                                     dataAttributeDefinition("context", false)));
             SignDataResponseV2Dto response = new SignDataResponseV2Dto();
-            response.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            response.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(response));
             SignDataRequestDto request = signRequest(submitted);
 
@@ -2567,7 +2568,7 @@ class KeyProviderV2AdapterTest {
             tracking.setOperationMeta(metadata("operation-handle"));
             SignDataResponseV2Dto empty = new SignDataResponseV2Dto();
             SignDataResponseV2Dto withSignaturesAndOperationMeta = new SignDataResponseV2Dto();
-            withSignaturesAndOperationMeta.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            withSignaturesAndOperationMeta.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             withSignaturesAndOperationMeta.setOperationMeta(metadata("operation-handle"));
             SignDataResponseV2Dto withEmptySignatureList = new SignDataResponseV2Dto();
             withEmptySignatureList.setSignatures(List.of());
@@ -2618,8 +2619,9 @@ class KeyProviderV2AdapterTest {
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
             body
                     .setSignatures(List
-                            .of(new SignatureDataV2Dto(new byte[]{1}, "0"), new SignatureDataV2Dto(new byte[]{2}, "1"),
-                                    new SignatureDataV2Dto(new byte[]{3}, "2")));
+                            .of(new SignatureResponseItemV2Dto(new byte[]{1}, "0"),
+                                    new SignatureResponseItemV2Dto(new byte[]{2}, "1"),
+                                    new SignatureResponseItemV2Dto(new byte[]{3}, "2")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of());
@@ -2647,8 +2649,8 @@ class KeyProviderV2AdapterTest {
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
             body
                     .setSignatures(List
-                            .of(new SignatureDataV2Dto(new byte[]{2}, "1"),
-                                    new SignatureDataV2Dto(new byte[]{1}, "0")));
+                            .of(new SignatureResponseItemV2Dto(new byte[]{2}, "1"),
+                                    new SignatureResponseItemV2Dto(new byte[]{1}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of());
@@ -2673,8 +2675,8 @@ class KeyProviderV2AdapterTest {
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
             body
                     .setSignatures(List
-                            .of(new SignatureDataV2Dto(new byte[]{1}, "0"),
-                                    new SignatureDataV2Dto(new byte[]{2}, "0")));
+                            .of(new SignatureResponseItemV2Dto(new byte[]{1}, "0"),
+                                    new SignatureResponseItemV2Dto(new byte[]{2}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of());
@@ -2692,7 +2694,7 @@ class KeyProviderV2AdapterTest {
             // given
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{1}, "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{1}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of());
@@ -2711,7 +2713,7 @@ class KeyProviderV2AdapterTest {
             when(operationsClient.listSignAttributes(any(), any()))
                     .thenReturn(List.of(dataAttributeDefinition("digest", false)));
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of());
@@ -2737,7 +2739,7 @@ class KeyProviderV2AdapterTest {
             // given
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[]{7}, returnedIdentifier)));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, returnedIdentifier)));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of());
@@ -2759,8 +2761,8 @@ class KeyProviderV2AdapterTest {
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
             body
                     .setSignatures(List
-                            .of(new SignatureDataV2Dto(new byte[]{1}, "0"),
-                                    new SignatureDataV2Dto(new byte[]{2}, respelledPositionOne)));
+                            .of(new SignatureResponseItemV2Dto(new byte[]{1}, "0"),
+                                    new SignatureResponseItemV2Dto(new byte[]{2}, respelledPositionOne)));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of());
@@ -2815,7 +2817,7 @@ class KeyProviderV2AdapterTest {
             // given
             when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
             SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureDataV2Dto(new byte[0], "0")));
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[0], "0")));
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
             SignDataRequestDto request = new SignDataRequestDto();
             request.setSignatureAttributes(List.of());
