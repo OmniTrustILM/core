@@ -26,6 +26,7 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.settings.CertificateRegistrationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateRequestAttributesSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
+import com.otilm.api.model.core.settings.CertificateUploadSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.EventSettingsDto;
 import com.otilm.api.model.core.settings.EventsSettingsDto;
@@ -67,6 +68,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class SettingServiceITest extends BaseSpringBootTest {
 
@@ -457,6 +460,45 @@ class SettingServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(3, edited.getCertificates().getRegistration().getMaxFailedAttempts());
         Assertions.assertNotNull(edited.getCertificates().getValidation());
         Assertions.assertTrue(edited.getCertificates().getValidation().getEnabled());
+    }
+
+    @Test
+    void returnsAutomaticOwnershipOff_whenSettingWasNeverStored() {
+        // given — no certificate upload setting has been stored
+
+        // when
+        PlatformSettingsDto settings = settingService.getPlatformSettings();
+
+        // then
+        assertThat(settings.getCertificates().getUpload().isAutomaticOwnership()).isFalse();
+    }
+
+    @Test
+    void storesAutomaticOwnership_whenUpdateTurnsItOn() {
+        // given
+        var turnedOn = uploadSettings(true);
+
+        // when
+        updateCertificateSettings(turnedOn);
+
+        // then
+        PlatformSettingsDto settings = settingService.getPlatformSettings();
+        assertThat(settings.getCertificates().getUpload().isAutomaticOwnership()).isTrue();
+        assertThat(settings.getCertificates().getValidation().getEnabled()).isTrue();
+    }
+
+    @Test
+    void keepsAutomaticOwnership_whenUpdateOmitsUploadGroup() {
+        // given
+        updateCertificateSettings(uploadSettings(true));
+        var withoutUploadGroup = new CertificateSettingsUpdateDto();
+        withoutUploadGroup.setRegistration(new CertificateRegistrationSettingsUpdateDto());
+
+        // when
+        updateCertificateSettings(withoutUploadGroup);
+
+        // then
+        assertThat(settingService.getPlatformSettings().getCertificates().getUpload().isAutomaticOwnership()).isTrue();
     }
 
     @Test
@@ -1210,4 +1252,19 @@ class SettingServiceITest extends BaseSpringBootTest {
         return dto;
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static CertificateSettingsUpdateDto uploadSettings(boolean automaticOwnership) {
+        CertificateUploadSettingsUpdateDto upload = new CertificateUploadSettingsUpdateDto();
+        upload.setAutomaticOwnership(automaticOwnership);
+        CertificateSettingsUpdateDto certificateSettings = new CertificateSettingsUpdateDto();
+        certificateSettings.setUpload(upload);
+        return certificateSettings;
+    }
+
+    private void updateCertificateSettings(CertificateSettingsUpdateDto certificateSettings) {
+        PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+        update.setCertificates(certificateSettings);
+        settingService.updatePlatformSettings(update);
+    }
 }

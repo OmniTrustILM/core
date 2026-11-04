@@ -48,7 +48,7 @@ public final class PadesParametersFixtures {
                                 .withHeight(60f)
                                 .withAlignmentHorizontal(HorizontalAlignment.RIGHT)
                                 .withAlignmentVertical(VerticalAlignment.BOTTOM)
-                                .withZoom(100f))
+                                .withZoom(100))
                         .withStyle(aStyle()
                                 .withTextColor("#171717")
                                 .withTextBackgroundColor("#FFFFFF")

@@ -260,7 +260,7 @@ public class CertificateServiceImpl
             CertificateInternalService,
             AttributeResourceService {
 
-    private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = "undefined";
+    private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = CertificateEventHistoryInternalService.UNDEFINED_OBJECT_NAME;
 
     private static final String NOT_ISSUED_SUFFIX = " (Not Issued)";
 
