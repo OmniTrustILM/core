@@ -27,7 +27,9 @@ public class IlmNativeProfileResolver {
 
     /**
      * Checks the profile record before the model loads, so a profile whose model cannot be built is still refused with
-     * the gate's reason, then checks the model, which may come from the cache.
+     * the gate's reason, then checks the model, which may come from the cache. The gate columns are read as scalars
+     * because an entity read here would stay managed for the rest of an open-in-view request, so the model loader's
+     * {@code findByName} would return it as read and miss an update committed in between.
      *
      * @throws NotFoundException if no profile has the UUID, or the profile was renamed while it resolved
      * @throws ValidationException if the profile cannot serve the operation

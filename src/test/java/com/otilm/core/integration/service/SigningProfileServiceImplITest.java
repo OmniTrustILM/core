@@ -2819,9 +2819,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             SigningProfileDto updated = signingProfileService.updateSigningProfile(uuid, toContentSigning);
 
             // then
-            assertThat(updated.getEnabledProtocols()).doesNotContain(SigningProtocol.TSP);
-            assertThat(signingProfileService.getSigningProfile(uuid, null).getEnabledProtocols())
-                    .doesNotContain(SigningProtocol.TSP);
+            assertThat(updated.getEnabledProtocols()).isEmpty();
+            assertThat(signingProfileService.getSigningProfile(uuid, null).getEnabledProtocols()).isEmpty();
             assertThat(signingProfileRepository.findByUuid(uuid).orElseThrow().getTspProfileUuid()).isNull();
         }
     }

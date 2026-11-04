@@ -25,11 +25,6 @@ public interface SigningProfileRepository extends SecurityFilterRepository<Signi
     @Query("SELECT s.name FROM SigningProfile s ORDER BY s.name")
     List<String> findAllNames();
 
-    /**
-     * Reads the profile's gate columns as scalars. An entity read here would stay managed for the rest of an
-     * open-in-view request, and a later {@link #findByName} in that request would return it as it was read, missing an
-     * update that committed in between.
-     */
     @Query("""
             SELECT new com.otilm.core.model.signing.SigningProfileGateRow(
                 s.name, s.ilmNativeEnabled, s.enabled, s.workflowType, s.signingScheme)

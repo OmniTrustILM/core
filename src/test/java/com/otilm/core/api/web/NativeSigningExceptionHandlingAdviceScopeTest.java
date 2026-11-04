@@ -57,7 +57,7 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
 
         // then
         assertThat(response.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY.value());
-        assertThat(messageOf(response)).isEqualTo(CLIENT);
+        assertThat(readMessage(response)).isEqualTo(CLIENT);
         assertThat(response.containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
     }
 
@@ -74,7 +74,7 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
         // then
         assertThat(response.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
         assertThat(response.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("30");
-        assertThat(messageOf(response)).isEqualTo("The connector is unavailable.");
+        assertThat(readMessage(response)).isEqualTo("The connector is unavailable.");
     }
 
     @Test
@@ -88,7 +88,7 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
 
         // then
         assertThat(response.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR.value());
-        assertThat(messageOf(response)).isEqualTo("Internal server error.");
+        assertThat(readMessage(response)).isEqualTo("Internal server error.");
     }
 
     @Test
@@ -104,12 +104,12 @@ class NativeSigningExceptionHandlingAdviceScopeTest {
         // then
         assertThat(response.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
         assertThat(response.containsHeader(HttpHeaders.RETRY_AFTER)).isFalse();
-        assertThat(messageOf(response)).isEqualTo(COMMUNICATION_FAILURE);
+        assertThat(readMessage(response)).isEqualTo(COMMUNICATION_FAILURE);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static String messageOf(MockHttpServletResponse response) throws Exception {
+    private static String readMessage(MockHttpServletResponse response) throws Exception {
         return JsonPath.read(response.getContentAsString(), "$.message");
     }
 
