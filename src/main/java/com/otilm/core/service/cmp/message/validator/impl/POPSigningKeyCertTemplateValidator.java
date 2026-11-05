@@ -6,6 +6,7 @@ import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.validator.Validator;
 import com.otilm.core.util.CryptographyUtil;
+import com.otilm.core.util.SignatureVerificationBounds;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -112,8 +113,9 @@ public class POPSigningKeyCertTemplateValidator implements Validator<PKIMessage,
     private PublicKey getPublicKey(ASN1OctetString tid, SubjectPublicKeyInfo subjectPublicKeyInfo)
             throws CmpProcessingException {
         try {
+            SignatureVerificationBounds.requireSupportedPublicKey(subjectPublicKeyInfo);
             return CryptographyUtil.decodePublicKey(subjectPublicKeyInfo);
-        } catch (InvalidKeySpecException | NoSuchAlgorithmException e) {
+        } catch (InvalidKeyException | InvalidKeySpecException | NoSuchAlgorithmException e) {
             throw new CmpProcessingException(tid, PKIFailureInfo.badPOP, ImplFailureInfo.CMPVALPOP501, e);
         }
     }

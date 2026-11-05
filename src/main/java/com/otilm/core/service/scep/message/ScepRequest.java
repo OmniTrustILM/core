@@ -6,10 +6,13 @@ import com.otilm.api.model.core.scep.FailInfo;
 import com.otilm.api.model.core.scep.MessageType;
 import com.otilm.core.provider.key.PlatformPrivateKey;
 import com.otilm.core.util.CryptographyUtil;
+import com.otilm.core.util.SignatureVerificationBounds;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.Provider;
 import java.security.ProviderException;
@@ -190,20 +193,42 @@ public class ScepRequest {
         SignerInformationStore signerInfos = cmsSignedData.getSignerInfos();
         Collection<SignerInformation> signers = signerInfos.getSigners();
         List<X509Certificate> certificates = new ArrayList<>();
+        boolean skippedForItsKey = false;
         for (SignerInformation signer : signers) {
             try {
                 Collection<X509CertificateHolder> matches = certStore.getMatches(signer.getSID());
                 for (X509CertificateHolder holder : matches) {
-                    certificates.add(new JcaX509CertificateConverter().getCertificate(holder));
+                    if (hasSupportedKey(holder)) {
+                        certificates.add(new JcaX509CertificateConverter().getCertificate(holder));
+                    } else {
+                        skippedForItsKey = true;
+                    }
                 }
             } catch (java.security.cert.CertificateException e) {
                 logger.error(e.getMessage());
             }
         }
         if (certificates.isEmpty()) {
+            if (skippedForItsKey) {
+                throw new ScepException("The key of the signer certificate is not supported", FailInfo.BAD_ALG);
+            }
             throw new ScepException("No Signer Information available on the request");
         }
         this.signerCertificate = certificates.get(0);
+    }
+
+    /**
+     * Converting a certificate builds its key, of whatever algorithm the client chose, so a certificate whose key is
+     * beyond the bounds is skipped before it is converted.
+     */
+    private static boolean hasSupportedKey(X509CertificateHolder certificate) {
+        try {
+            SignatureVerificationBounds.requireSupportedPublicKey(certificate.getSubjectPublicKeyInfo());
+            return true;
+        } catch (InvalidKeyException e) {
+            logger.debug("Skipping a signer certificate of the SCEP request: {}", e.getMessage());
+            return false;
+        }
     }
 
     private void checkContentType() throws IOException, ScepException {
@@ -375,12 +400,27 @@ public class ScepRequest {
         }
         try {
             if (messageType.equals(MessageType.PKCS_REQ) || messageType.equals(MessageType.RENEWAL_REQ)) {
-                pkcs10Request = new JcaPKCS10CertificationRequest(decryptedData);
+                JcaPKCS10CertificationRequest request = new JcaPKCS10CertificationRequest(decryptedData);
+                requireBoundedRequest(request);
+                pkcs10Request = request;
             }
         } catch (IOException e) {
             String errorMessage = "Failed to load decrypted PKCS#10 request";
             logger.error(errorMessage + ": ", e);
             throw new ScepException(errorMessage, e, FailInfo.BAD_REQUEST);
+        }
+    }
+
+    /**
+     * The proof of possession verifies the signature of the request with its public key, and enrolment builds its
+     * public keys, both possibly before the client is authenticated, so a request beyond the bounds is refused here.
+     */
+    private static void requireBoundedRequest(JcaPKCS10CertificationRequest request) throws ScepException {
+        try {
+            SignatureVerificationBounds.requireBoundedRequest(request);
+        } catch (InvalidKeyException | InvalidAlgorithmParameterException e) {
+            throw new ScepException("The PKCS#10 request uses a key or a signature algorithm that is not supported", e,
+                    FailInfo.BAD_ALG);
         }
     }
 
@@ -444,9 +484,15 @@ public class ScepRequest {
         return pkcs10Request.isSignatureValid(contentVerifierProvider);
     }
 
-    public boolean verifySignature(PublicKey publicKey) throws CMSException, OperatorCreationException {
+    public boolean verifySignature(PublicKey publicKey)
+            throws CMSException, OperatorCreationException, InvalidAlgorithmParameterException {
         CMSSignedData cmsSignedData = new CMSSignedData(message);
-        return cmsSignedData.verifySignatures(new ScepVerifierProvider(publicKey));
+        for (SignerInformation signer : cmsSignedData.getSignerInfos().getSigners()) {
+            SignatureVerificationBounds
+                    .requireBoundedSignatureAlgorithm(signer.toASN1Structure().getDigestEncryptionAlgorithm());
+        }
+        // SCEP defines no countersignatures, and BouncyCastle would verify each one with the algorithm that it states
+        return cmsSignedData.verifySignatures(new ScepVerifierProvider(publicKey), true);
     }
 
 }

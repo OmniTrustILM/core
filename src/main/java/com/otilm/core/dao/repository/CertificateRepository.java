@@ -6,7 +6,6 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.aop.CertificateRepositoryCacheEvictionAspect;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.custom.CustomCertificateRepository;
 import jakarta.persistence.LockModeType;
@@ -140,8 +139,6 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
     Optional<Certificate> findForSigningByUuid(UUID uuid);
 
     Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
-
-    Certificate findByCertificateContent(CertificateContent certificateContent);
 
     Optional<Certificate> findByFingerprint(String fingerprint);
 

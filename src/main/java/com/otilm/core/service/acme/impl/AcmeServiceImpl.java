@@ -857,13 +857,11 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .getPayloadAsRequestObject(jwsRequest.getJwsObject(), CertificateRevocationRequest.class);
         logger.debug("Certificate revocation is triggered with the payload: {}", request.toString());
 
-        String base64UrlCertificate = request.getCertificate();
-        X509Certificate x509Certificate = CertificateUtil.getX509CertificateFromBase64Url(base64UrlCertificate);
-        String base64Certificate = CertificateUtil.getBase64FromX509Certificate(x509Certificate);
+        byte[] certificateDer = Base64.getUrlDecoder().decode(request.getCertificate());
 
         ClientCertificateRevocationDto revokeRequest = new ClientCertificateRevocationDto();
 
-        Certificate cert = certificateService.getCertificateEntityByContent(base64Certificate);
+        Certificate cert = loadCertificateToRevoke(certificateDer);
         LoggingHelper
                 .putLogResourceInfo(com.otilm.api.model.core.auth.Resource.CERTIFICATE, false,
                         cert.getUuid().toString(), X509CertificateEntity.from(cert).getSubjectDn());
@@ -879,7 +877,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
         if (jwsRequest.isJwkPresent()) { // signed with the key pair of the certificate
             logger.debug("Validating revocation request signed with the key pair of the certificate");
-            PublicKey certPublicKey = x509Certificate.getPublicKey();
+            PublicKey certPublicKey = CertificateUtil.getX509Certificate(certificateDer).getPublicKey();
             PublicKey jwsPublicKey = jwsRequest.getPublicKey();
 
             String pemPubKeyCert = AcmePublicKeyProcessor.publicKeyPemStringFromObject(certPublicKey);
@@ -1848,6 +1846,22 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .findWithContextByChallengeId(challengeId)
                 .orElseThrow(() -> new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.SERVER_INTERNAL,
                         "Requested challenge is not found"));
+    }
+
+    /**
+     * Finds the certificate by the fingerprint of the DER encoding that the client sent, without parsing it. A request
+     * signed with the key of the certificate needs no account, and parsing builds the public key of the certificate,
+     * which costs seconds for a large key.
+     */
+    private Certificate loadCertificateToRevoke(byte[] certificateDer) throws AcmeProblemDocumentException {
+        try {
+            return certificateService.getCertificateEntityByFingerprint(CertificateUtil.getThumbprint(certificateDer));
+        } catch (NotFoundException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
+                    "Requested certificate is not found");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
     }
 
     private void validateAccount(String accountId) throws AcmeProblemDocumentException {

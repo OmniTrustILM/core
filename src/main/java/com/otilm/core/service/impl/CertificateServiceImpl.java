@@ -867,13 +867,6 @@ public class CertificateServiceImpl
     }
 
     @Override
-    // This method does not need security as it is not exposed by the controllers. This method also does not use uuid
-    public Certificate getCertificateEntityByContent(String content) {
-        CertificateContent certificateContent = certificateContentRepository.findByContent(content);
-        return certificateRepository.findByCertificateContent(certificateContent);
-    }
-
-    @Override
     // This method does not need security as it is used only by the internal services for certificate related operations
     public Certificate getCertificateEntityByFingerprint(String fingerprint) throws NotFoundException {
         return certificateRepository

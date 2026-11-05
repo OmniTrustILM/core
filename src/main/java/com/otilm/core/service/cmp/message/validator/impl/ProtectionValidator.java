@@ -125,7 +125,7 @@ public class ProtectionValidator implements BiValidator<Void, Void> {
         } else if (PKCSObjectIdentifiers.id_PBMAC1.equals(protectionAlg.getAlgorithm())) {
             new ProtectionPBMac1Validator().validate(request, configuration);
         } else {
-            new ProtectionSignatureValidator().validate(request, configuration);
+            new ProtectionSignatureValidator(true).validate(request, configuration);
             configuration.setProtectionCertificate(trustedProtectionCertificate(request, configuration));
         }
         return null;
@@ -223,7 +223,7 @@ public class ProtectionValidator implements BiValidator<Void, Void> {
         } else if (PKCSObjectIdentifiers.id_PBMAC1.getId().equals(protectionAlgId)) {
             new ProtectionPBMac1Validator().validate(response, configuration);
         } else {
-            new ProtectionSignatureValidator().validate(response, configuration);
+            new ProtectionSignatureValidator(false).validate(response, configuration);
         }
 
         return null;
