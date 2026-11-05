@@ -343,7 +343,7 @@ public class DiscoveryProcessTickWorker {
         workWriter
                 .reschedule(discoveryUuid, DiscoveryWorkType.PROCESS, 0,
                         OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
-        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.PROCESS, 0));
+        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.PROCESS, 0, null));
     }
 
     /**

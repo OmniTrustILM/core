@@ -62,8 +62,7 @@ class DiscoveryWorkRepositoryITest extends BaseSpringBootTest {
         workRepository.schedule(UUID.randomUUID(), runUuid, DiscoveryWorkType.DRAIN.name(), NOW.minusMinutes(1));
         workRepository.schedule(UUID.randomUUID(), runUuid, DiscoveryWorkType.STATUS.name(), NOW.minusMinutes(10));
 
-        List<DiscoveryWork> due = workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(NOW, PageRequest.of(0, 10));
+        List<DiscoveryWork> due = workRepository.findClaimable(NOW, NOW, PageRequest.of(0, 10));
 
         assertThat(due)
                 .extracting(DiscoveryWork::getWorkType)

@@ -91,12 +91,12 @@ discovery:
     # How far out a worker parks the agenda row when it direct-publishes the next tick itself, so a due-now row
     # cannot let the sweep publish a competing one. Must exceed one tick's duration.
     continuation-backstop: ${DISCOVERY_WORK_CONTINUATION_BACKSTOP:PT1M}
-    # Least time a claimed row waits before the sweep may publish it again, so a tick slower than its own rung is
-    # not published twice while it runs. Above the slowest connector call -- the connection-acquisition, connect
-    # and response timeouts under connector.api-client, taken together -- and above every ladder's last rung, so an
-    # idle tick of any type settles here. Only idle ticks wait on it: a drain with more to fetch direct-publishes
-    # its continuation.
-    claim-floor: ${DISCOVERY_WORK_CLAIM_FLOOR:PT50S}
+    # How long a claimed row stays leased to the tick it was published for. The tick renews the lease while it works
+    # and releases it when it reschedules, so this bounds how long a row whose tick died or was lost waits before the
+    # sweep claims it again. Must outlast the slowest connector call -- the connection-acquisition, connect and
+    # response timeouts under connector.api-client, taken together -- plus staging what it returned, or the sweep
+    # publishes a second tick while the first is still running.
+    lease-duration: ${DISCOVERY_WORK_LEASE_DURATION:PT2M}
     # How long a stopped run waits between status polls. It reports nothing new while paused, but it is still
     # watched: its connector can still fail or cancel it.
     stopped-poll-interval: ${DISCOVERY_WORK_STOPPED_POLL_INTERVAL:PT5M}
@@ -115,9 +115,8 @@ discovery:
       # claim and publish it twice.
       #
       # STATUS has its own ladder: it is the tick that brings back the connector's counters and its view of the run,
-      # so its last rung is how stale a run's progress can be and how late Core learns a scan finished. DRAIN already
-      # calls the same connector every claim-floor, so a slower rung buys nothing. max-attempts rises with the shorter
-      # rungs to keep the same wall-clock allowance for a connector that stops answering.
+      # so its last rung is how stale a run's progress can be and how late Core learns a scan finished. max-attempts
+      # rises with the shorter rungs to keep the same wall-clock allowance for a connector that stops answering.
       STATUS:
         delays:
           - PT1S

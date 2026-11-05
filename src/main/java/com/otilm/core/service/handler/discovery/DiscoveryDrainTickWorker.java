@@ -199,7 +199,7 @@ public class DiscoveryDrainTickWorker {
         // finished taking over. The handle is replayed onto the detached entity purely to make this one call.
         run.setCheckpoint(handover.get().releasedHandle());
         sendFullAck(run, page.getHighestSequence());
-        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.PROCESS, 0));
+        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.PROCESS, 0, null));
     }
 
     /**
@@ -296,7 +296,7 @@ public class DiscoveryDrainTickWorker {
         workWriter
                 .reschedule(discoveryUuid, DiscoveryWorkType.DRAIN, 0,
                         OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
-        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.DRAIN, 0));
+        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.DRAIN, 0, null));
     }
 
     /**

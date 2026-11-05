@@ -184,7 +184,7 @@ public class DiscoveryStatusTickWorker {
                                 discoveryUuid, polledAs, locked.getStatus());
                 return false;
             }
-            // Two status calls for one run can be in flight at once: a call slower than the claim floor is published
+            // Two status calls for one run can be in flight at once: a call that outlives its lease is published
             // again. The connector's highest sequence never decreases, so an answer carrying less than what is already
             // recorded was taken earlier -- applying it would put older counters back, stamped as freshly recorded.
             if (arrivedOutOfOrder(locked, status)) {
@@ -321,7 +321,7 @@ public class DiscoveryStatusTickWorker {
                 run.setStatus(DiscoveryStatus.STOPPED);
                 // Back off rather than keep the live cadence: a stopped run reports nothing new, and the reaper lets
                 // one stay stopped for days. Polled at the live rung it would ask a paused connector the same question
-                // every claim-floor for that whole window.
+                // every thirty seconds for that whole window.
                 workWriter
                         .reschedule(run.getUuid(), DiscoveryWorkType.STATUS, 0,
                                 OffsetDateTime.now(ZoneOffset.UTC).plus(stoppedPollInterval));

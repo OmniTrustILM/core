@@ -16,10 +16,25 @@ import org.springframework.stereotype.Repository;
 public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UUID> {
 
     /**
-     * Rows due for a tick, soonest first. No row locking: the sweep's cluster-wide advisory lock already serializes
-     * access.
+     * Rows due for a tick that no tick holds, soonest first: never leased, or leased by a tick whose lease has run out.
+     * No row locking: the sweep's cluster-wide advisory lock already serializes access.
      */
-    List<DiscoveryWork> findByNextDueAtLessThanEqualOrderByNextDueAt(OffsetDateTime cutoff, Pageable pageable);
+    @Query("SELECT w FROM DiscoveryWork w WHERE w.nextDueAt <= :dueCutoff "
+            + "AND (w.leaseToken IS NULL OR w.leaseExpiresAt <= :now) ORDER BY w.nextDueAt")
+    List<DiscoveryWork> findClaimable(@Param("dueCutoff") OffsetDateTime dueCutoff, @Param("now") OffsetDateTime now,
+            Pageable pageable);
+
+    /**
+     * Leases a row to a new tick: a fresh token, the attempt it is charged at, and a due time no earlier than the
+     * lease's end, so the row comes due again only once the lease could have run out.
+     */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.leaseToken = :leaseToken, w.leaseExpiresAt = :leasedUntil, "
+            + "w.attempt = :attempt, w.nextDueAt = :leasedUntil "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType")
+    void claim(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            @Param("leaseToken") UUID leaseToken, @Param("attempt") int attempt,
+            @Param("leasedUntil") OffsetDateTime leasedUntil);
 
     /**
      * Inserts the pending row for a run and work type, or re-arms an existing one.

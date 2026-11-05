@@ -38,7 +38,7 @@ class DiscoveryWorkListenerTest {
     void statusTick_reachesTheStatusWorkerWithItsAttemptCount() {
         UUID runUuid = UUID.randomUUID();
 
-        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.STATUS, 4));
+        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.STATUS, 4, null));
 
         verify(statusWorker).tick(runUuid, 4);
     }
@@ -47,7 +47,7 @@ class DiscoveryWorkListenerTest {
     void drainTick_reachesTheDrainWorkerWithItsAttemptCount() {
         UUID runUuid = UUID.randomUUID();
 
-        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.DRAIN, 2));
+        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.DRAIN, 2, null));
 
         verify(drainWorker).tick(runUuid, 2);
         verifyNoInteractions(statusWorker);
@@ -57,7 +57,7 @@ class DiscoveryWorkListenerTest {
     void processTick_reachesTheProcessWorkerWithItsAttemptCount() {
         UUID runUuid = UUID.randomUUID();
 
-        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.PROCESS, 7));
+        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.PROCESS, 7, null));
 
         verify(processWorker).tick(runUuid, 7);
         verifyNoInteractions(statusWorker, drainWorker);
@@ -70,7 +70,8 @@ class DiscoveryWorkListenerTest {
 
         // Letting this out would put the broker's redelivery loop on top of the agenda's backoff ladder,
         // retrying at the broker's cadence instead of the run's.
-        assertThatCode(() -> listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.STATUS, 0)))
+        assertThatCode(
+                () -> listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.STATUS, 0, null)))
                 .doesNotThrowAnyException();
     }
 }

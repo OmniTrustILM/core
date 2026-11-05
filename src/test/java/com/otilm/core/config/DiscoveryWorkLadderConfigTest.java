@@ -29,17 +29,6 @@ class DiscoveryWorkLadderConfigTest {
                 .isNotNull();
     }
 
-    @Test
-    void theSlowestStatusRungSitsAtOrBelowTheClaimFloor() {
-        Properties shipped = shipped();
-        Duration claimFloor = Duration.parse(withoutPlaceholder(shipped.getProperty("discovery.work.claim-floor")));
-
-        assertThat(slowestRung(shipped, STATUS_DELAYS))
-                .describedAs("a status rung above the claim floor is the run's progress staleness, and the drain "
-                        + "tick is already calling the same provider at the floor")
-                .isLessThanOrEqualTo(claimFloor);
-    }
-
     /**
      * Shorter rungs must not quietly shorten how long an unanswering provider is tolerated: the budget is counted in
      * attempts, so halving the interval halves the wall-clock allowance unless the count rises with it.
@@ -55,23 +44,29 @@ class DiscoveryWorkLadderConfigTest {
     }
 
     /**
-     * The floor must outlast a connector call's whole allowance: acquiring a connection, connecting, and waiting for
-     * the response. {@code DiscoveryWorkClaimer#parkFor} explains why a tick outliving its rung is published twice.
+     * A lease shorter than one tick's worst case lets the sweep reclaim a row whose tick is still at the connector, and
+     * publish it a second time. The worst case is a connector call's whole allowance (acquiring a connection,
+     * connecting, waiting for the response) plus staging what it returned, before the tick renews the lease.
      */
     @Test
-    void theClaimFloorOutlastsTheSlowestConnectorCall() {
+    void theLeaseOutlastsTheSlowestConnectorCall() {
+        // given
         Properties shipped = shipped();
         Duration slowestCall = Stream
                 .of("connector.api-client.pending-acquire-timeout", "connector.api-client.connect-timeout",
                         "connector.api-client.response-timeout")
                 .map(key -> DurationStyle.detectAndParse(withoutPlaceholder(shipped.getProperty(key))))
                 .reduce(Duration.ZERO, Duration::plus);
-        Duration claimFloor = Duration.parse(withoutPlaceholder(shipped.getProperty("discovery.work.claim-floor")));
+        Duration stagingMargin = Duration.ofSeconds(30);
 
-        assertThat(claimFloor)
-                .describedAs("a floor at or below the slowest connector call lets the sweep publish a tick whose "
-                        + "predecessor is still at the connector")
-                .isGreaterThan(slowestCall);
+        // when
+        Duration lease = Duration.parse(withoutPlaceholder(shipped.getProperty("discovery.work.lease-duration")));
+
+        // then
+        assertThat(lease)
+                .describedAs("a lease at or below the slowest tick lets the sweep publish a tick whose predecessor "
+                        + "is still at the connector")
+                .isGreaterThan(slowestCall.plus(stagingMargin));
     }
 
     private static Duration slowestRung(Properties shipped, String delaysKey) {

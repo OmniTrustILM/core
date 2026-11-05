@@ -53,8 +53,17 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Advances an agenda row's {@code attempt}/{@code next_due_at}. {@code REQUIRED} (not {@code REQUIRES_NEW}) so it
-     * joins the sweep claimer's lock-holding transaction — a row is claimed and rescheduled atomically, or neither.
+     * Leases an agenda row to the tick the sweep is about to publish. {@code REQUIRED} (not {@code REQUIRES_NEW}) so it
+     * joins the sweep claimer's lock-holding transaction — a row is read and claimed atomically, or neither.
+     */
+    @Transactional
+    public void claim(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, int attempt,
+            OffsetDateTime leasedUntil) {
+        workRepository.claim(discoveryUuid, workType, leaseToken, attempt, leasedUntil);
+    }
+
+    /**
+     * Advances an agenda row's {@code attempt}/{@code next_due_at}.
      */
     @Transactional
     public void reschedule(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, OffsetDateTime nextDueAt) {

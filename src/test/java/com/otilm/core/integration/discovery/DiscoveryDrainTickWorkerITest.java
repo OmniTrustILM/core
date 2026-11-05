@@ -93,7 +93,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
         assertThat(publishedTicks())
                 .as("the sweep's cadence is the recovery latency, not the drain's throughput ceiling")
-                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.DRAIN, 0));
+                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.DRAIN, 0, null));
         assertThat(drainRow(run).getNextDueAt())
                 .as("parked as a backstop, not due-now: a due-now row is one the sweep would claim and publish "
                         + "itself, racing the tick this worker just published")
@@ -151,7 +151,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
                 .isNull();
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
         assertThat(publishedTicks())
-                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0));
+                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0, null));
         // The contract's full acknowledgement, and the only call that licences the connector to discard the
         // run's state: a drain at afterSequence == highestSequence, sent once the handover is durable.
         verify(client).acknowledge(any(), eq(2L));
@@ -187,7 +187,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(reloaded.getCheckpoint()).isNull();
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
         assertThat(publishedTicks())
-                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0));
+                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0, null));
     }
 
     @Test

@@ -138,7 +138,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
                 .as("a batch that leaves work behind must not end the run")
                 .isEqualTo(DiscoveryStatus.PROCESSING);
         assertThat(publishedTicks())
-                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0));
+                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0, null));
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
     }
 

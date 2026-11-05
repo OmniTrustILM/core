@@ -101,7 +101,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -1459,8 +1458,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
 
     private boolean hasWork(DiscoveryWorkType workType) {
         return workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(OffsetDateTime.now(ZoneOffset.UTC).plusDays(30),
-                        PageRequest.of(0, 100))
+                .findAll()
                 .stream()
                 .anyMatch(
                         work -> work.getDiscoveryUuid().equals(discovery.getUuid()) && work.getWorkType() == workType);

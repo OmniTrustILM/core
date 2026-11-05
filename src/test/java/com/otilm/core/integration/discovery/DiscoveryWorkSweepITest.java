@@ -6,6 +6,7 @@ import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryMessage;
+import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryMessageRepository;
@@ -134,6 +135,56 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
                 .hasSize(1);
     }
 
+    @Test
+    void skipsADueRow_whenItsLeaseIsLive() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).minusHours(1));
+        var liveUntil = OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(1);
+        leaseRow(runUuid, DiscoveryWorkType.STATUS, UUID.randomUUID(), liveUntil);
+
+        // when
+        List<DiscoveryWorkMessage> claimed = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC));
+
+        // then
+        assertThat(claimed).isEmpty();
+    }
+
+    @Test
+    void takesADueRowWithANewToken_whenItsLeaseHasExpired() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).minusHours(1));
+        var expiredToken = UUID.randomUUID();
+        leaseRow(runUuid, DiscoveryWorkType.STATUS, expiredToken, OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(1));
+
+        // when
+        List<DiscoveryWorkMessage> claimed = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC));
+
+        // then
+        assertThat(claimed)
+                .singleElement()
+                .extracting(DiscoveryWorkMessage::leaseToken)
+                .isNotNull()
+                .isNotEqualTo(expiredToken);
+    }
+
+    @Test
+    void carriesTheTokenTheRowHolds_whenClaimingIt() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC).minusHours(1));
+        var beforeClaim = OffsetDateTime.now(ZoneOffset.UTC);
+
+        // when
+        List<DiscoveryWorkMessage> claimed = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC));
+
+        // then
+        DiscoveryWork row = workRepository.findAll().get(0);
+        assertThat(claimed).singleElement().extracting(DiscoveryWorkMessage::leaseToken).isEqualTo(row.getLeaseToken());
+        assertThat(row.getLeaseExpiresAt()).isAfter(beforeClaim);
+    }
+
     // ------------------------------------------------------------------ reaper: work lost
 
     @Test
@@ -250,6 +301,13 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
         run.setConnectorName("network-discovery");
         run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         return discoveryRepository.saveAndFlush(run);
+    }
+
+    /** Puts a row under a lease as a claim on another node would have, without going through the sweep. */
+    private void leaseRow(UUID runUuid, DiscoveryWorkType workType, UUID token, OffsetDateTime expiresAt) {
+        new JdbcTemplate(testDataSource)
+                .update("UPDATE " + dbSchema + ".discovery_work SET lease_token = ?, lease_expires_at = ? "
+                        + "WHERE discovery_uuid = ? AND work_type = ?", token, expiresAt, runUuid, workType.name());
     }
 
     /** {@code i_cre} is database-audited and not writable through the entity, so age runs at the SQL level. */
