@@ -5,6 +5,7 @@ import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.RuleException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
@@ -282,9 +283,11 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                     return evaluateAbsentValue(operator);
                 }
                 if (filterField == FilterField.APPROVAL_STATUS) {
-                    // ApprovalStatusEnum lacks @JsonValue, so rule filters store its constant names.
-                    objectValue = ((Enum<?>) objectValue).name();
-                } else if (filterField.getEnumClass() != null) {
+                    String statusName = ((Enum<?>) objectValue).name();
+                    List<Object> statusNames = approvalStatusNames(conditionValue);
+                    return comparison.test(statusName, statusNames);
+                }
+                if (filterField.getEnumClass() != null) {
                     objectValue = ((IPlatformEnum) objectValue).getCode();
                 }
                 return comparison.test(objectValue, conditionValue);
@@ -368,6 +371,24 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                     "Condition on field '%s' is not set properly: operator '%s' cannot be applied to it"
                             .formatted(filterField.getLabel(), operator.getLabel()));
         };
+    }
+
+    /**
+     * ApprovalStatusEnum has no {@code @JsonValue}, so rule filters offer and store its constant names, while a
+     * condition written with a status code was the only form that matched before. A code in the condition therefore
+     * stands for its constant, and both forms keep their meaning.
+     */
+    private static List<Object> approvalStatusNames(Object conditionValue) {
+        return ((Collection<?>) conditionValue).stream().map(TriggerEvaluator::approvalStatusName).toList();
+    }
+
+    private static Object approvalStatusName(Object value) {
+        for (ApprovalStatusEnum status : ApprovalStatusEnum.values()) {
+            if (status.getCode().equals(value)) {
+                return status.name();
+            }
+        }
+        return value;
     }
 
     private static BiPredicate<Object, Object> comparisonFor(FilterFieldType fieldType,

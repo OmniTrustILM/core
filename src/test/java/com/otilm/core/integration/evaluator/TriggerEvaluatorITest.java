@@ -114,6 +114,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Autowired
@@ -400,6 +402,42 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
         condition.setOperator(FilterConditionOperator.EMPTY);
         Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+    }
+
+    @Test
+    void meetsEquals_whenApprovalStatusConditionHoldsTheStatusCode() throws Exception {
+        // given
+        var approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        var pendingCode = ApprovalStatusEnum.PENDING.getCode();
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(List.of(pendingCode));
+
+        // when
+        boolean met = approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL);
+
+        // then
+        assertThat(met).isTrue();
+    }
+
+    @Test
+    void failsNotEquals_whenApprovalStatusConditionHoldsTheStatusCode() throws Exception {
+        // given
+        var approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        var pendingCode = ApprovalStatusEnum.PENDING.getCode();
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(List.of(pendingCode));
+
+        // when
+        boolean met = approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL);
+
+        // then
+        assertThat(met).isFalse();
     }
 
     @Test
