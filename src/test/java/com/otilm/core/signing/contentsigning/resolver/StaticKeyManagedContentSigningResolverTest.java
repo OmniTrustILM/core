@@ -4,6 +4,7 @@ import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.signing.SigningProtocol;
@@ -24,6 +25,8 @@ import com.otilm.core.signing.contentsigning.TimestampSourceResolver;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
+import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
+import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.builders.RequestAttributeV3Builder;
 import java.util.List;
 import java.util.Set;
@@ -55,6 +58,8 @@ class StaticKeyManagedContentSigningResolverTest {
     private ConnectorInternalService connectorService;
     @Mock
     private TimestampSourceResolver timestampSourceResolver;
+    @Mock
+    private FormattingAttributeDefinitions formattingAttributeDefinitions;
 
     @InjectMocks
     private StaticKeyManagedContentSigningResolver resolver;
@@ -67,7 +72,20 @@ class StaticKeyManagedContentSigningResolverTest {
             .withName("format-attribute")
             .withStringContent("value")
             .build();
+    private static final BaseAttribute A_FORMAT_ATTRIBUTE_DEFINITION = DataAttributeV3Builder
+            .aDataAttribute()
+            .withUuid(UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+            .withName("format-attribute")
+            .build();
     private static final ApiClientConnectorInfo CONNECTOR_INFO = mock(ApiClientConnectorInfo.class);
+
+    @BeforeEach
+    void defineTheFormatAttribute() throws Exception {
+        // lenient: tests that stop before the formatter leave its definitions unread
+        lenient()
+                .when(formattingAttributeDefinitions.forContentSigning(any(), any()))
+                .thenReturn(List.of(A_FORMAT_ATTRIBUTE_DEFINITION));
+    }
 
     @Test
     void supportsOnlyManagedContentSigningWorkflows() {
