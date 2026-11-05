@@ -35,6 +35,7 @@ import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
+import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -52,6 +53,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
+import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -108,11 +110,18 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class TriggerEvaluatorITest extends BaseSpringBootTest {
 
@@ -651,47 +660,56 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
     }
 
-    @Test
-    void testCertificateEvaluatorOnEnumListBitmask() throws RuleException {
-        certificate
-                .setKeyUsage(BitMaskEnum
-                        .convertSetToBitMask(EnumSet
-                                .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
-                                        CertificateKeyUsage.KEY_AGREEMENT)));
+    @ParameterizedTest
+    @CsvSource({
+            "SUCCEEDING_CERTIFICATES, EQUALS, true",
+            "SUCCEEDING_CERTIFICATES, NOT_EQUALS, false",
+            "PRECEDING_CERTIFICATES, EQUALS, true",
+            "PRECEDING_CERTIFICATES, NOT_EQUALS, false"})
+    void evaluatesCertificateRelation_whenConditionUsesCode(FilterField filterField, FilterConditionOperator operator,
+            boolean expectedMatch) throws Exception {
+        // given
+        var matchingRelationType = CertificateRelationType.RENEWAL;
+        CertificateRelation relation = new CertificateRelation();
+        relation.setRelationType(matchingRelationType);
+        if (filterField == FilterField.SUCCEEDING_CERTIFICATES) {
+            certificate.setSuccessorRelations(Set.of(relation));
+        } else {
+            certificate.setPredecessorRelations(Set.of(relation));
+        }
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setFieldIdentifier(filterField.name());
+        condition.setValue(List.of(matchingRelationType.getCode()));
+        condition.setOperator(operator);
+
+        // when
+        boolean matches = certificateTriggerEvaluator
+                .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE);
+
+        // then
+        assertThat(matches).isEqualTo(expectedMatch);
+    }
+
+    @ParameterizedTest
+    @MethodSource("keyUsageConditionCases")
+    void evaluatesKeyUsage_whenConditionUsesCodes(FilterConditionOperator operator,
+            List<CertificateKeyUsage> requestedKeyUsages, boolean expectedMatch) throws Exception {
+        // given
+        var presentKeyUsages = EnumSet
+                .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
+                        CertificateKeyUsage.KEY_AGREEMENT);
+        certificate.setKeyUsage(BitMaskEnum.convertSetToBitMask(presentKeyUsages));
         condition.setFieldSource(FilterFieldSource.PROPERTY);
         condition.setFieldIdentifier(FilterField.KEY_USAGE.name());
-        condition.setOperator(FilterConditionOperator.EQUALS);
-        condition
-                .setValue(List
-                        .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
-                                CertificateKeyUsage.KEY_AGREEMENT));
-        Assertions
-                .assertTrue(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
-        condition.setValue(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT));
-        Assertions
-                .assertTrue(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
-        condition
-                .setValue(List
-                        .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
-                                CertificateKeyUsage.KEY_CERT_SIGN));
-        Assertions
-                .assertTrue(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
-        condition.setValue(List.of(CertificateKeyUsage.KEY_CERT_SIGN));
-        Assertions
-                .assertFalse(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
-        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
-        condition.setValue(List.of(CertificateKeyUsage.KEY_CERT_SIGN));
-        Assertions
-                .assertTrue(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
-        condition.setValue(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT));
-        Assertions
-                .assertFalse(certificateTriggerEvaluator
-                        .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+        condition.setOperator(operator);
+        condition.setValue(requestedKeyUsages.stream().map(CertificateKeyUsage::getCode).toList());
+
+        // when
+        boolean matches = certificateTriggerEvaluator
+                .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE);
+
+        // then
+        assertThat(matches).isEqualTo(expectedMatch);
     }
 
     @Test
@@ -2111,6 +2129,39 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .findFirst()
                 .orElseThrow();
         Assertions.assertEquals("dataValueV2", attr.getContent().getFirst().getData().toString());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> keyUsageConditionCases() {
+        return Stream
+                .of(Arguments
+                        .of(FilterConditionOperator.EQUALS,
+                                List
+                                        .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
+                                                CertificateKeyUsage.KEY_AGREEMENT),
+                                true),
+                        Arguments
+                                .of(FilterConditionOperator.EQUALS,
+                                        List
+                                                .of(CertificateKeyUsage.DIGITAL_SIGNATURE,
+                                                        CertificateKeyUsage.KEY_ENCIPHERMENT),
+                                        true),
+                        Arguments
+                                .of(FilterConditionOperator.EQUALS, List
+                                        .of(CertificateKeyUsage.DIGITAL_SIGNATURE, CertificateKeyUsage.KEY_ENCIPHERMENT,
+                                                CertificateKeyUsage.KEY_CERT_SIGN),
+                                        true),
+                        Arguments.of(FilterConditionOperator.EQUALS, List.of(CertificateKeyUsage.KEY_CERT_SIGN), false),
+                        Arguments
+                                .of(FilterConditionOperator.NOT_EQUALS, List.of(CertificateKeyUsage.KEY_CERT_SIGN),
+                                        true),
+                        Arguments
+                                .of(FilterConditionOperator.NOT_EQUALS,
+                                        List
+                                                .of(CertificateKeyUsage.DIGITAL_SIGNATURE,
+                                                        CertificateKeyUsage.KEY_ENCIPHERMENT),
+                                        false));
     }
 
 }
