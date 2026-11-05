@@ -121,6 +121,10 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
         LoggingHelper
                 .putLogResourceInfo(Resource.CERTIFICATE, false, dbCertificate.getUuid().toString(),
                         dbCertificate.getSubjectDn());
+        if (configuration.isProtectedByAnotherCertificate(dbCertificate)) {
+            throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized,
+                    "re-key operation failed: the request is not protected by the certificate it updates");
+        }
         PublicKey dbPublicKey = convertCertificate(tid, dbCertificate).getPublicKey();
 
         if (dbPublicKey.toString().equals(reqPublicKey.toString())) {// re-key is only about public keys change

@@ -27,6 +27,7 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIMessage;
@@ -38,12 +39,18 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 public class KurMessageHandlerTest {
@@ -166,6 +173,50 @@ public class KurMessageHandlerTest {
         assertEquals(PKIFailureInfo.badDataFormat, response.getFailureInfo());
         assertTrue(response.getMessage().contains(new DEROctetString(trxId.getBytes()).toString()));
         assertTrue(response.getMessage().contains("current certificate (in database) cannot parsed"));
+    }
+
+    @Test
+    void rejectsWithNotAuthorized_whenSignedByAnotherCertificate() throws Exception {
+        // given
+        PKIMessage request = CmpTestUtil
+                .createKur("779", x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
+                .toASN1Structure();
+        ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfile, raProfile, request,
+                certificateKeyService, null, null);
+        Certificate anotherCertificate = aCertificate().withUuid(UUID.randomUUID()).build();
+        configuration.setProtectionCertificate(anotherCertificate);
+        given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
+
+        // when
+        ThrowingCallable handle = () -> tested.handle(request, configuration);
+
+        // then
+        assertThatThrownBy(handle)
+                .isInstanceOfSatisfying(CmpProcessingException.class,
+                        e -> assertThat(e.getFailureInfo()).isEqualTo(PKIFailureInfo.notAuthorized));
+        verifyNoInteractions(clientOperationService);
+    }
+
+    @Test
+    void rekeysCertificate_whenSignedByTheCertificateItUpdates() throws Exception {
+        // given
+        PKIMessage request = CmpTestUtil
+                .createKur("779", x509Certificate.getSerialNumber(), CmpTestUtil.generateKeyPairEC())
+                .toASN1Structure();
+        ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfile, raProfile, request,
+                certificateKeyService, null, null);
+        configuration.setProtectionCertificate(issuedCertificated);
+        given(certificateRepository.findBySerialNumberIgnoreCase(any())).willReturn(Optional.of(issuedCertificated));
+        given(clientOperationService.rekeyCertificate(any(), any(), any(), any()))
+                .willReturn(new ClientCertificateDataResponseDto());
+
+        // when
+        ClientCertificateDataResponseDto response = tested.handle(request, configuration);
+
+        // then
+        assertThat(response).isNotNull();
+        verify(clientOperationService)
+                .rekeyCertificate(any(), any(), eq(issuedCertificated.getUuid().toString()), any());
     }
 
 }

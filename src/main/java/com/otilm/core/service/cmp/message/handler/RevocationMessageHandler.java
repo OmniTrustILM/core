@@ -147,6 +147,10 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                 LoggingHelper
                         .putLogResourceInfo(Resource.CERTIFICATE, false, certificate.getUuid().toString(),
                                 certificate.getSubjectDn());
+                if (configuration.isProtectedByAnotherCertificate(certificate)) {
+                    throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized,
+                            "SN=" + serialNumber + " | revocation is not protected by the certificate it revokes");
+                }
                 revokeCertificate(tid, revocation, certificate, configuration);
                 PollResult pollResult = pollFeature
                         .pollCertificate(tid, certificate.getSerialNumber(), certificate.getUuid().toString(),
@@ -175,9 +179,12 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                 String freeText = e instanceof CmpProcessingException && e.getMessage() != null
                         ? e.getMessage()
                         : "problem with revocation";
+                int failInfo = e instanceof CmpProcessingException processingException
+                        ? processingException.getFailureInfo()
+                        : PKIFailureInfo.systemFailure;
                 revocationResponseBuilder
                         .add(new PKIStatusInfo(PKIStatus.rejection, new PKIFreeText(freeText),
-                                new PKIFailureInfo(PKIFailureInfo.systemFailure)), certId);
+                                new PKIFailureInfo(failInfo)), certId);
             }
         }
         if (revocationCount != 0) {
