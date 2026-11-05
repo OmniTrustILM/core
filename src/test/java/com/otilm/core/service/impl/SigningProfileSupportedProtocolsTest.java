@@ -3,6 +3,7 @@ package com.otilm.core.service.impl;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -38,5 +39,17 @@ class SigningProfileSupportedProtocolsTest {
     void offersTheTimestampingProtocolForTimestampingProfiles(SigningWorkflowType workflowType) {
         // when / then
         assertThat(service.listSupportedProtocols(workflowType)).containsExactly(SigningProtocol.TSP);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SigningWorkflowType.class, names = {"CONTENT_SIGNING", "RAW_SIGNING"})
+    void offersOnlyIlmNative_whenWorkflowSignsContentOrRawData(SigningWorkflowType workflowType) {
+        // given — a content-signing or raw-signing workflow
+
+        // when
+        List<SigningProtocol> offered = service.listSupportedProtocols(workflowType);
+
+        // then
+        assertThat(offered).containsExactly(SigningProtocol.ILM_NATIVE);
     }
 }

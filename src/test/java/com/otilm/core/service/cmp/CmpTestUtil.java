@@ -168,6 +168,24 @@ public class CmpTestUtil {
         return createPkiMessageBuilder(transactionId, body).build(msgSigner);
     }
 
+    /**
+     * A signature-protected message whose first extraCerts entry is {@code signerCertificate}, the CMP protection
+     * certificate. A 16-byte senderNonce: the full handlePost path runs HeaderValidator, which rejects a short one.
+     */
+    public static ProtectedPKIMessage createSignatureBasedMessage(String transactionId, KeyPair signerKeys,
+            X509CertificateHolder signerCertificate, PKIBody body) throws Exception {
+        String signAlgorithmName = CertTestUtil.getSigningAlgNameFromKeyAlg(signerKeys.getPrivate().getAlgorithm());
+        ContentSigner msgSigner = new JcaContentSignerBuilder(signAlgorithmName)
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .build(signerKeys.getPrivate());
+        byte[] senderNonce = new byte[16];
+        new SecureRandom().nextBytes(senderNonce);
+        return createPkiMessageBuilder(transactionId, body)
+                .setSenderNonce(senderNonce)
+                .addCMPCertificate(signerCertificate)
+                .build(msgSigner);
+    }
+
     public static ProtectedPKIMessage createMacBasedMessage(String transactionId, String sharedSecret, PKIBody body)
             throws CRMFException, CMPException {
         JcePKMACValuesCalculator jcePkmacCalc = new JcePKMACValuesCalculator();

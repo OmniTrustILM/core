@@ -314,6 +314,30 @@ public class CertificateGeneratorHelper {
         return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
     }
 
+    /**
+     * Generates an end-entity certificate signed by the given CA whose authorityInfoAccess extension carries
+     * {@code authorityInfoAccess} as its value byte for byte, so a test can give it a malformed value.
+     */
+    public static X509Certificate generateEndEntityCertificateWithAuthorityInfoAccess(KeyPair caKeyPair,
+            X509Certificate caCert, KeyPair eeKeyPair, String subjectDn, byte[] authorityInfoAccess) throws Exception {
+
+        X500Name issuer = new X500Name(caCert.getSubjectX500Principal().getName());
+        X500Name subject = new X500Name(subjectDn);
+        BigInteger serial = BigInteger.valueOf(System.currentTimeMillis());
+        Date start = new Date();
+        Date end = new Date(System.currentTimeMillis() + 365 * 86400000L);
+
+        X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(issuer, serial, start, end, subject,
+                eeKeyPair.getPublic());
+
+        builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
+        builder.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature));
+        builder.addExtension(Extension.authorityInfoAccess, false, authorityInfoAccess);
+
+        ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSA").build(caKeyPair.getPrivate());
+        return new JcaX509CertificateConverter().getCertificate(builder.build(signer));
+    }
+
     public static OCSPResp generateOCSPResponse(X509Certificate issuerCert, PrivateKey issuerKey,
             X509Certificate certToCheck, CertificateStatus status) throws Exception {
         // Digest calculator for CertificateID

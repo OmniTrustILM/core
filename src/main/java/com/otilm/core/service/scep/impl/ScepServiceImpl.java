@@ -1182,7 +1182,13 @@ public class ScepServiceImpl implements ScepExternalService {
         }
     }
 
-    private void verifyProofOfPossession(ScepRequest scepRequest) throws ScepException {
+    /**
+     * Checks the signature of the PKCS#10 request, which proves possession of the key it asks a certificate for. A
+     * RenewalReq is signed with the key of the certificate it renews, not the key its PKCS#10 request names, so the
+     * signature is checked for both message types (RFC 8894 §7.6).
+     */
+    // package-private for unit tests
+    void verifyProofOfPossession(ScepRequest scepRequest) throws ScepException {
 
         // Throw exception if the request type is not renewal or issuing a new certificate
         if (!scepRequest.getMessageType().equals(MessageType.RENEWAL_REQ)
@@ -1190,15 +1196,13 @@ public class ScepServiceImpl implements ScepExternalService {
             throw new ScepException("Unsupported Operation", FailInfo.BAD_REQUEST);
         }
 
-        if (scepRequest.getMessageType().equals(MessageType.PKCS_REQ)) {
-            try {
-                if (!scepRequest.verifyRequest()) {
-                    throw new ScepException("Failed to verify PKCS#10 request POP, invalid signature",
-                            FailInfo.BAD_REQUEST);
-                }
-            } catch (PKCSException | NoSuchAlgorithmException | InvalidKeySpecException | OperatorCreationException e) {
-                throw new ScepException("Failed to verify PKCS#10 request POP", FailInfo.BAD_REQUEST);
+        try {
+            if (!scepRequest.verifyRequest()) {
+                throw new ScepException("Failed to verify PKCS#10 request POP, invalid signature",
+                        FailInfo.BAD_REQUEST);
             }
+        } catch (PKCSException | NoSuchAlgorithmException | InvalidKeySpecException | OperatorCreationException e) {
+            throw new ScepException("Failed to verify PKCS#10 request POP", e, FailInfo.BAD_REQUEST);
         }
     }
 

@@ -40,6 +40,7 @@ import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
@@ -64,6 +65,7 @@ import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.verifyingPublicKey;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -285,6 +287,36 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
 
         assertScepFormatted(response);
         assertEquals(String.valueOf(FailInfo.BAD_REQUEST.getValue()), attribute(response, ScepConstants.id_failInfo));
+    }
+
+    /**
+     * A renewal whose PKCS#10 request is signed with another key is refused, although its known transaction would
+     * answer PENDING.
+     */
+    @Test
+    void rejectsRenewalReq_whenCsrIsSignedWithAnotherKey() throws Exception {
+        // given
+        registerSignerCertificate();
+        Certificate pending = storeCertificate(
+                selfSignedEcCertificate(KeyPairGenerator.getInstance("EC").generateKeyPair()), null, raProfile);
+        pending.setState(CertificateState.PENDING_ISSUE);
+        certificateRepository.save(pending);
+        storeTransaction(pending.getUuid());
+        PrivateKey anotherRsaKey = KeyPairGenerator.getInstance("RSA").generateKeyPair().getPrivate();
+        byte[] renewalWithCsrSignedByAnotherKey = ScepMessageTestData
+                .passwordEnvelopedMessageWithCsrSignedBy(MessageType.RENEWAL_REQ, anotherRsaKey, "SHA256withRSA");
+
+        // when
+        ResponseEntity<Object> response = scepService
+                .handlePost(SCEP_PROFILE_NAME, ScepServiceImpl.SCEP_OPERATION_PKI_OPERATION,
+                        renewalWithCsrSignedByAnotherKey);
+
+        // then
+        assertScepFormatted(response);
+        assertThat(attribute(response, ScepConstants.id_pkiStatus))
+                .isEqualTo(String.valueOf(PkiStatus.FAILURE.getValue()));
+        assertThat(attribute(response, ScepConstants.id_failInfo))
+                .isEqualTo(String.valueOf(FailInfo.BAD_REQUEST.getValue()));
     }
 
     private void storeTransaction(UUID certificateUuid) {

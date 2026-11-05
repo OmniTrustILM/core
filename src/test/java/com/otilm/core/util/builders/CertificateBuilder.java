@@ -4,6 +4,7 @@ import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
@@ -41,9 +42,11 @@ public final class CertificateBuilder {
     private UUID issuerCertificateUuid;
     private CertificateState state;
     private CertificateValidationStatus validationStatus;
+    private ComplianceStatus complianceStatus;
     private CertificateSubjectType subjectType;
     private List<CertificateKeyUsage> keyUsage;
     private Date notBefore;
+    private Date notAfter;
     private Boolean archived;
     private List<String> extendedKeyUsageOids;
     private Boolean extendedKeyUsageCritical;
@@ -127,6 +130,11 @@ public final class CertificateBuilder {
         return this;
     }
 
+    public CertificateBuilder withComplianceStatus(ComplianceStatus complianceStatus) {
+        this.complianceStatus = complianceStatus;
+        return this;
+    }
+
     public CertificateBuilder withSubjectType(CertificateSubjectType subjectType) {
         this.subjectType = subjectType;
         return this;
@@ -139,6 +147,11 @@ public final class CertificateBuilder {
 
     public CertificateBuilder withNotBefore(Date notBefore) {
         this.notBefore = notBefore;
+        return this;
+    }
+
+    public CertificateBuilder withNotAfter(Date notAfter) {
+        this.notAfter = notAfter;
         return this;
     }
 
@@ -248,6 +261,9 @@ public final class CertificateBuilder {
         if (validationStatus != null) {
             certificate.setValidationStatus(validationStatus);
         }
+        if (complianceStatus != null) {
+            certificate.setComplianceStatus(complianceStatus);
+        }
         if (subjectType != null) {
             certificate.setSubjectType(subjectType);
         }
@@ -256,6 +272,9 @@ public final class CertificateBuilder {
         }
         if (notBefore != null) {
             certificate.setNotBefore(notBefore);
+        }
+        if (notAfter != null) {
+            certificate.setNotAfter(notAfter);
         }
         if (archived != null) {
             certificate.setArchived(archived);

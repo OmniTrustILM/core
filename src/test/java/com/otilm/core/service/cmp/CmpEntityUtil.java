@@ -16,7 +16,10 @@ import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
+import com.otilm.core.util.CertificateUtil;
+import java.io.IOException;
 import java.math.BigInteger;
+import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.bouncycastle.asn1.DEROctetString;
@@ -25,6 +28,8 @@ import org.bouncycastle.cert.cmp.CMPException;
 import org.bouncycastle.operator.DigestCalculator;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.util.Arrays;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 public class CmpEntityUtil {
 
@@ -71,6 +76,24 @@ public class CmpEntityUtil {
         cmpProfile.setResponseProtectionMethod(ProtectionMethod.SIGNATURE);
         cmpProfile.setSigningCertificate(signingCertificate);
         return cmpProfile;
+    }
+
+    /**
+     * The inventory record behind a CMP protection certificate that Core trusts: {@code certificate} issued for the RA
+     * profile {@code raProfileUuid}, validated as valid, with its validity period.
+     */
+    public static Certificate createProtectionCertificate(X509CertificateHolder certificate, UUID raProfileUuid)
+            throws IOException, NoSuchAlgorithmException {
+        Certificate protectionCertificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withFingerprint(CertificateUtil.getThumbprint(certificate.getEncoded()))
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withNotBefore(certificate.getNotBefore())
+                .withNotAfter(certificate.getNotAfter())
+                .build();
+        protectionCertificate.setRaProfileUuid(raProfileUuid);
+        return protectionCertificate;
     }
 
     public static CertificateContent createEmptyCertContent() {
