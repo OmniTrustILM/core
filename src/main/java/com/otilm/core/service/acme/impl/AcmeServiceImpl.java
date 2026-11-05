@@ -1863,10 +1863,10 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     /**
      * The bytes of a member that RFC 8555 carries as base64url, such as the CSR to finalize an order with or the
-     * certificate to revoke. A member that is missing or not base64url is refused as malformed.
+     * certificate to revoke. A member that is missing, empty or not base64url is refused as malformed.
      */
     private static byte[] decodeBase64Url(String value, String member) throws AcmeProblemDocumentException {
-        if (value == null) {
+        if (value == null || value.isEmpty()) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, member + " is missing");
         }
         try {

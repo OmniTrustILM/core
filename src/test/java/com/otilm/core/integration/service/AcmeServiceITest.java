@@ -1199,23 +1199,25 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .isEqualTo(AuthorizationStatus.PENDING);
     }
 
-    @Test
-    void refusesBeforeSettlingStaleStatuses_whenFinalizePayloadDoesNotMap() throws Exception {
+    @ParameterizedTest
+    @MethodSource("finalizePayloadsWithoutACsr")
+    void refusesBeforeSettlingStaleStatuses_whenFinalizePayloadCarriesNoCsr(String payloadWithoutACsr)
+            throws Exception {
         // given
         orderLeftOpenBehindFailedAuthorization("orderStaleMalformedFin", "authStaleMalformedFin", OrderStatus.READY);
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/order/orderStaleMalformedFin/finalize");
-        String payloadThatIsNotAnObject = "[]";
-        String requestJson = signedWithAccountKey(payloadThatIsNotAnObject, requestUri, baseUri);
+        String requestJson = signedWithAccountKey(payloadWithoutACsr, requestUri, baseUri);
 
         // when
         ThrowingCallable finalize = () -> acmeService
                 .finalizeOrder(ACME_PROFILE_NAME, "orderStaleMalformedFin", requestJson, requestUri, false);
 
         // then
-        assertThatThrownBy(finalize)
-                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
-                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+        assertThatThrownBy(finalize).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+        });
         assertThat(acmeOrderRepository.findByOrderId("orderStaleMalformedFin").orElseThrow().getStatus())
                 .isEqualTo(OrderStatus.READY);
     }
@@ -2268,7 +2270,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
         AcmeProblemDocumentException refused = Assertions
                 .assertThrows(AcmeProblemDocumentException.class, () -> acmeService
                         .finalizeOrder(ACME_PROFILE_NAME, "orderForeignFin",
-                                signedByOtherAccount("{\"csr\":\"\"}", requestUri, baseUri), requestUri, false));
+                                signedByOtherAccount("{\"csr\":\"MIIB\"}", requestUri, baseUri), requestUri, false));
 
         Assertions.assertEquals(Problem.UNAUTHORIZED.getType(), refused.getProblemDocument().getType());
         Assertions
@@ -2653,6 +2655,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
                         Arguments.of(named("a JSON array", "[]"), malformedPayload),
                         Arguments.of(named("a payload without a CSR", "{}"), "CSR is missing"),
                         Arguments.of(named("a null CSR", "{\"csr\":null}"), "CSR is missing"),
+                        Arguments.of(named("an empty CSR", "{\"csr\":\"\"}"), "CSR is missing"),
                         Arguments
                                 .of(named("a CSR in base64 instead of base64url", "{\"csr\":\"MII+/w==\"}"),
                                         "CSR is not base64url-encoded"));
@@ -2683,10 +2686,15 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .collect(Collectors.joining(",", "[", "]"));
     }
 
+    private static Stream<Named<String>> finalizePayloadsWithoutACsr() {
+        return Stream.of(named("a payload that is not a JSON object", "[]"), named("an empty CSR", "{\"csr\":\"\"}"));
+    }
+
     private static Stream<Arguments> payloadsWithoutAUsableCertificate() {
         return Stream
                 .of(Arguments.of(named("a payload that is not a JSON object", "revoke"), "malformed"),
                         Arguments.of(named("a payload without a certificate", "{\"reason\":0}"), "missing"),
+                        Arguments.of(named("an empty certificate", "{\"certificate\":\"\",\"reason\":0}"), "missing"),
                         Arguments
                                 .of(named("a certificate in base64 instead of base64url",
                                         "{\"certificate\":\"MII+/w==\",\"reason\":0}"), "base64url"),
