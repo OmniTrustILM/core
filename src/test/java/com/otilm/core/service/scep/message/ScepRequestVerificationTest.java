@@ -224,6 +224,21 @@ class ScepRequestVerificationTest {
             return derOf(new CertificationRequest(signed.getCertificationRequestInfo(), signatureAlgorithm,
                     signed.getSignature()));
         }
+
+        /**
+         * A CSR that carries the public key and, unless it is null, the alternative public key with the alternative
+         * signature attributes that go with it, signed with unrelated keys, so that its signatures do not verify.
+         */
+        private static byte[] csrCarrying(SubjectPublicKeyInfo publicKey, SubjectPublicKeyInfo alternativePublicKey)
+                throws Exception {
+            PKCS10CertificationRequestBuilder builder = new PKCS10CertificationRequestBuilder(new X500Name(SUBJECT),
+                    publicKey);
+            ContentSigner unrelatedSigner = signerOf(ecKeyPair(), ECDSA_SIGNATURE);
+            PKCS10CertificationRequest csr = alternativePublicKey == null
+                    ? builder.build(unrelatedSigner)
+                    : builder.build(unrelatedSigner, alternativePublicKey, unrelatedSigner);
+            return csr.getEncoded();
+        }
     }
 
     // ── VerifyRequest ─────────────────────────────────────────────────────────
@@ -411,21 +426,6 @@ class ScepRequestVerificationTest {
     /** A request of the type that carries the CSR, which it envelopes to the challenge password. */
     private static ScepRequest requestCarrying(MessageType messageType, byte[] csr) throws Exception {
         return new ScepRequest(ScepMessageTestData.passwordEnvelopedMessageWithCsr(messageType, csr));
-    }
-
-    /**
-     * A CSR that carries the public key and, unless it is null, the alternative public key with the alternative
-     * signature attributes that go with it, signed with unrelated keys, so that its signatures do not verify.
-     */
-    private static byte[] csrCarrying(SubjectPublicKeyInfo publicKey, SubjectPublicKeyInfo alternativePublicKey)
-            throws Exception {
-        PKCS10CertificationRequestBuilder builder = new PKCS10CertificationRequestBuilder(new X500Name(SUBJECT),
-                publicKey);
-        ContentSigner unrelatedSigner = signerOf(ecKeyPair(), ECDSA_SIGNATURE);
-        PKCS10CertificationRequest csr = alternativePublicKey == null
-                ? builder.build(unrelatedSigner)
-                : builder.build(unrelatedSigner, alternativePublicKey, unrelatedSigner);
-        return csr.getEncoded();
     }
 
     private static CertificationRequest signedCsr(KeyPair keyPair, String signatureAlgorithm) throws Exception {
