@@ -441,6 +441,40 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     }
 
     @Test
+    void meetsNotEmpty_whenApprovalStatusConditionHasNoValue() throws Exception {
+        // given
+        var approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(null);
+
+        // when
+        boolean met = approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL);
+
+        // then
+        assertThat(met).isTrue();
+    }
+
+    @Test
+    void failsEmpty_whenApprovalStatusConditionHasNoValue() throws Exception {
+        // given
+        var approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(null);
+
+        // when
+        boolean met = approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL);
+
+        // then
+        assertThat(met).isFalse();
+    }
+
+    @Test
     void testCommentRuleEvaluatorOnProperties() throws RuleException {
         Comment comment = new Comment();
         comment.setResource(Resource.RA_PROFILE);

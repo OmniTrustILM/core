@@ -284,7 +284,7 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
                 }
                 if (filterField == FilterField.APPROVAL_STATUS) {
                     String statusName = ((Enum<?>) objectValue).name();
-                    List<Object> statusNames = approvalStatusNames(conditionValue);
+                    Object statusNames = approvalStatusNames(conditionValue);
                     return comparison.test(statusName, statusNames);
                 }
                 if (filterField.getEnumClass() != null) {
@@ -378,8 +378,11 @@ public class TriggerEvaluator<T extends UniquelyIdentifiedObject> implements ITr
      * condition written with a status code was the only form that matched before. A code in the condition therefore
      * stands for its constant, and both forms keep their meaning.
      */
-    private static List<Object> approvalStatusNames(Object conditionValue) {
-        return ((Collection<?>) conditionValue).stream().map(TriggerEvaluator::approvalStatusName).toList();
+    private static Object approvalStatusNames(Object conditionValue) {
+        if (!(conditionValue instanceof Collection<?> values)) {
+            return conditionValue;
+        }
+        return values.stream().map(TriggerEvaluator::approvalStatusName).toList();
     }
 
     private static Object approvalStatusName(Object value) {
