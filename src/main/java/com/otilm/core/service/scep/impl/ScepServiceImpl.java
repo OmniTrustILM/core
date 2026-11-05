@@ -68,6 +68,7 @@ import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.RandomUtil;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -1333,7 +1334,7 @@ public class ScepServiceImpl implements ScepExternalService {
             if (!scepRequest.verifySignature(scepRequest.getSignerCertificate().getPublicKey())) {
                 throw new ScepException("SCEP Request signature verification failed", FailInfo.BAD_MESSAGE_CHECK);
             }
-        } catch (OperatorCreationException | CMSException e) {
+        } catch (OperatorCreationException | CMSException | InvalidAlgorithmParameterException e) {
             logger.debug("Failed to verify the signature of the SCEP request", e);
             throw new ScepException("Failed to verify the SCEP request signature", FailInfo.BAD_MESSAGE_CHECK);
         }
