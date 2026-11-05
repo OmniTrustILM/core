@@ -89,6 +89,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
 import javax.naming.directory.BasicAttributes;
@@ -98,7 +99,10 @@ import org.bouncycastle.operator.OperatorCreationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -107,6 +111,7 @@ import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
@@ -718,8 +723,12 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     private String buildNewOrderRequestJSON(URI requestUri, String baseUri) throws JOSEException {
-        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(
-                new Payload("{\"identifiers\":[{\"type\":\"dns\",\"value\":\"debian10.acme.local\"}]}"));
+        return buildNewOrderRequestJSON(requestUri, baseUri,
+                "{\"identifiers\":[{\"type\":\"dns\",\"value\":\"debian10.acme.local\"}]}");
+    }
+
+    private String buildNewOrderRequestJSON(URI requestUri, String baseUri, String payload) throws JOSEException {
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(payload));
         jwsObjectJSON
                 .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
                         .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
@@ -758,6 +767,54 @@ class AcmeServiceITest extends BaseSpringBootTest {
         JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload("dfgdrtyufghgjghktyfghdtu"));
         jwsObjectJSON.sign(new JWSHeader.Builder(JWSAlgorithm.RS256).build(), rsa2048Signer);
         return jwsObjectJSON.serializeFlattened();
+    }
+
+    @Test
+    void storesRequestedValidity_whenTimestampsAreRfc3339() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/new-order");
+        var notBeforeTwoHoursEastOfUtc = "2026-11-05T12:00:00.123+02:00";
+        var sameInstantInUtc = Instant.parse("2026-11-05T10:00:00.123Z");
+        var notAfterInUtc = "2027-11-05T10:00:00Z";
+        String requestJson = buildNewOrderRequestJSON(requestUri, baseUri,
+                "{\"identifiers\":[{\"type\":\"dns\",\"value\":\"debian10.acme.local\"}],\"notBefore\":\""
+                        + notBeforeTwoHoursEastOfUtc + "\",\"notAfter\":\"" + notAfterInUtc + "\"}");
+
+        // when
+        ResponseEntity<Order> order = acmeService.newOrder(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        String orderUrl = Objects.requireNonNull(order.getHeaders().getLocation()).toString();
+        AcmeOrder stored = acmeOrderRepository
+                .findByOrderId(orderUrl.substring(orderUrl.lastIndexOf('/') + 1))
+                .orElseThrow();
+        assertThat(stored.getNotBefore().toInstant()).isEqualTo(sameInstantInUtc);
+        assertThat(stored.getNotAfter().toInstant()).isEqualTo(Instant.parse(notAfterInUtc));
+    }
+
+    @ParameterizedTest
+    @MethodSource("notBeforeValuesThatAreNotTimestampsInRange")
+    void refusesAsMalformedWithoutAddingAnOrder_whenNotBeforeIsNotTimestampInRange(String notBefore) throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/new-order");
+        String requestJson = buildNewOrderRequestJSON(requestUri, baseUri,
+                "{\"identifiers\":[{\"type\":\"dns\",\"value\":\"debian10.acme.local\"}],\"notBefore\":\"" + notBefore
+                        + "\"}");
+        long ordersBefore = acmeOrderRepository.count();
+
+        // when
+        ThrowingCallable newOrder = () -> acmeService.newOrder(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(newOrder).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+            assertThat(refused.getProblemDocument().getDetail())
+                    .isEqualTo("notBefore is not an RFC 3339 timestamp from 1970 to 9999");
+        });
+        assertThat(acmeOrderRepository.count()).isEqualTo(ordersBefore);
     }
 
     @Test
@@ -2185,5 +2242,11 @@ class AcmeServiceITest extends BaseSpringBootTest {
     private static void assertRefusedAsUnauthorized(AcmeProblemDocumentException refused) {
         assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
         assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.UNAUTHORIZED.getType());
+    }
+
+    private static Stream<Named<String>> notBeforeValuesThatAreNotTimestampsInRange() {
+        return Stream
+                .of(named("text that is not a timestamp", "not-a-date"), named("an empty string", ""),
+                        named("an instant from before the Gregorian calendar", "1500-03-10T12:00:00Z"));
     }
 }
