@@ -54,6 +54,7 @@ import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
+import com.otilm.core.service.registration.RegistrationChallengeGate;
 import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.registration.RegistrationIdentityMatcher;
 import com.otilm.core.service.scep.ScepExternalService;
@@ -154,6 +155,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private CertificateRepository certificateRepository;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private RegistrationChallengeStore registrationChallengeStore;
+    private RegistrationChallengeGate registrationChallengeGate;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private ClientOperationInternalService clientOperationService;
     private ClientOperationExternalService clientOperationExternalService;
@@ -217,6 +219,11 @@ public class ScepServiceImpl implements ScepExternalService {
     @Autowired
     public void setRegistrationChallengeStore(RegistrationChallengeStore registrationChallengeStore) {
         this.registrationChallengeStore = registrationChallengeStore;
+    }
+
+    @Autowired
+    public void setRegistrationChallengeGate(RegistrationChallengeGate registrationChallengeGate) {
+        this.registrationChallengeGate = registrationChallengeGate;
     }
 
     @Autowired
@@ -555,12 +562,9 @@ public class ScepServiceImpl implements ScepExternalService {
             Certificate matchedRegistration) {
         if (scepTransactionRepository
                 .existsByTransactionIdAndScepProfile(scepRequest.getTransactionId(), scepProfile)) {
-            // The registration was matched on identity alone, so a transaction of another certificate is refused
-            // like an unknown identity: answering it would let a known transaction ID reveal registered identities.
-            if (matchedRegistration != null && !isTransactionOf(scepRequest.getTransactionId(), matchedRegistration)) {
-                logger
-                        .info("SCEP registration enrolment rejected: transaction {} belongs to another certificate than registration {}",
-                                scepRequest.getTransactionId(), matchedRegistration.getUuid());
+            // The registration was matched on identity alone, so anything but a verified retry is refused like an
+            // unknown identity: answering it would let a known transaction ID reveal registered identities.
+            if (matchedRegistration != null && !isVerifiedRetry(scepRequest, matchedRegistration)) {
                 return buildFailedResponse(new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK),
                         scepRequest.getTransactionId());
             }
@@ -1007,6 +1011,27 @@ public class ScepServiceImpl implements ScepExternalService {
         // current profile — matching the exists-check in resolveResponse, so a poll never resolves another
         // profile's transaction (and, in registration mode, never recovers another registration's challenge).
         return scepTransactionRepository.findByTransactionIdAndScepProfile(transactionId, scepProfile).orElse(null);
+    }
+
+    /**
+     * Whether a request matched to a registration retries that registration's own completion: its transaction belongs
+     * to the registration and its challenge verifies. The challenge goes through the gate, so a wrong one is counted
+     * towards the lockout as at the completion.
+     */
+    private boolean isVerifiedRetry(ScepRequest scepRequest, Certificate registration) {
+        if (!isTransactionOf(scepRequest.getTransactionId(), registration)) {
+            logger
+                    .info("SCEP registration enrolment rejected: transaction {} belongs to another certificate than registration {}",
+                            scepRequest.getTransactionId(), registration.getUuid());
+            return false;
+        }
+        try {
+            return registrationChallengeGate
+                    .verify(registration.getUuid(), scepRequest.getChallengePassword(), CertificateEvent.ISSUE);
+        } catch (ValidationException e) {
+            logger.info("SCEP registration retry rejected: {}", e.getMessage());
+            return false;
+        }
     }
 
     private boolean isTransactionOf(String transactionId, Certificate registration) {

@@ -545,6 +545,23 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesRetryAsAFailedAttempt_whenItsChallengeIsWrong() throws Exception {
+        // given
+        Certificate placeholder = registeredPlaceholder(SUBJECT_DN, null, CHALLENGE);
+        postPkiOperation(enrolment(SUBJECT_DN, null, CHALLENGE));
+        var retryWithAWrongChallenge = enrolment(SUBJECT_DN, null, "wrong-challenge");
+
+        // when
+        ResponseEntity<Object> response = postPkiOperation(retryWithAWrongChallenge);
+
+        // then
+        assertRegistrationRejection(response);
+        assertThat(
+                authorizationRepository.findByCertificateUuid(placeholder.getUuid()).orElseThrow().getFailedAttempts())
+                .isEqualTo(1);
+    }
+
+    @Test
     void ambiguousRegistrationsAreRejected() throws Exception {
         registeredPlaceholder("CN=fleet", Map.of("dNSName", List.of("a.example")), CHALLENGE);
         registeredPlaceholder("CN=fleet", Map.of("dNSName", List.of("a.example")), CHALLENGE);
