@@ -9,8 +9,14 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSObjectJSON;
 import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.Payload;
+import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.jwk.AsymmetricJWK;
+import com.nimbusds.jose.jwk.Curve;
+import com.nimbusds.jose.jwk.ECKey;
+import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.nimbusds.jose.util.Base64URL;
 import com.otilm.api.exception.AcmeProblemDocumentException;
@@ -66,6 +72,7 @@ import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.ChallengeValidationResult;
 import com.otilm.core.service.writer.AcmeChallengeWriter;
 import com.otilm.core.util.AcmeCommonHelper;
+import com.otilm.core.util.AcmePublicKeyProcessor;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
@@ -1391,6 +1398,25 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesAsMalformed_whenInnerKeyChangeOldKeyIsSymmetric() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String symmetricOldKey = "{\"kty\":\"oct\",\"k\":\"AQAB\"}";
+        String innerPayload = "{\"account\":\"" + baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID + "\",\"oldKey\":"
+                + symmetricOldKey + "}";
+        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, innerPayload);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
     void refusesAsMalformed_whenInnerKeyChangeJwsNamesAnAccountInsteadOfItsKey() throws Exception {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
@@ -1752,6 +1778,24 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .keyRollover(RA_PROFILE_NAME, buildKeyRolloverRequestJSON(requestUri, RA_BASE_URI + RA_PROFILE_NAME),
                         requestUri, true);
         assertKeyRollover(response);
+    }
+
+    @ParameterizedTest
+    @MethodSource("keyChangesToAnotherKeyType")
+    void replacesAccountKey_whenNewKeyHasAnotherType(JWK accountKey, JWK newKey) throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        useAsAccountKey(accountKey);
+        String requestJson = buildKeyChangeRequestJSON(requestUri, baseUri, accountKey, newKey);
+
+        // when
+        ResponseEntity<?> response = acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getPublicKey())
+                .isEqualTo(encodedPublicKeyOf(newKey));
     }
 
     private void assertKeyRollover(ResponseEntity<?> response) {
@@ -2701,5 +2745,58 @@ class AcmeServiceITest extends BaseSpringBootTest {
                         Arguments
                                 .of(named("a certificate that is a JSON object", "{\"certificate\":{},\"reason\":0}"),
                                         "malformed"));
+    }
+
+    private static Stream<Arguments> keyChangesToAnotherKeyType() throws JOSEException {
+        return Stream
+                .of(Arguments
+                        .of(named("an RSA account key", new RSAKeyGenerator(2048).generate()),
+                                named("a new EC key", new ECKeyGenerator(Curve.P_256).generate())),
+                        Arguments
+                                .of(named("an EC account key", new ECKeyGenerator(Curve.P_256).generate()),
+                                        named("a new RSA key", new RSAKeyGenerator(2048).generate())));
+    }
+
+    /** Makes the given key, which carries its private part, the key of the fixture's account. */
+    private void useAsAccountKey(JWK key) throws JOSEException {
+        AcmeAccount account = acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow();
+        account.setPublicKey(encodedPublicKeyOf(key));
+        acmeAccountRepository.save(account);
+    }
+
+    private static String encodedPublicKeyOf(JWK key) throws JOSEException {
+        return AcmePublicKeyProcessor.publicKeyPemStringFromObject(((AsymmetricJWK) key).toPublicKey());
+    }
+
+    /**
+     * A key change of the fixture's account from {@code accountKey}, which signs the outer JWS, to {@code newKey},
+     * which signs the inner one. Both keys carry their private part, and each signs with an algorithm of its own type.
+     */
+    private String buildKeyChangeRequestJSON(URI requestUri, String baseUri, JWK accountKey, JWK newKey)
+            throws JOSEException {
+        String account = baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID;
+        JWSObjectJSON innerJws = new JWSObjectJSON(
+                new Payload("{\"account\":\"" + account + "\",\"oldKey\":" + accountKey.toPublicJWK() + "}"));
+        innerJws
+                .sign(new JWSHeader.Builder(signingAlgorithmOf(newKey))
+                        .jwk(newKey.toPublicJWK())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), signerOf(newKey));
+        JWSObjectJSON outerJws = new JWSObjectJSON(new Payload(innerJws.serializeFlattened()));
+        outerJws
+                .sign(new JWSHeader.Builder(signingAlgorithmOf(accountKey))
+                        .keyID(account)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), signerOf(accountKey));
+        return outerJws.serializeFlattened();
+    }
+
+    private static JWSAlgorithm signingAlgorithmOf(JWK key) {
+        return key instanceof ECKey ? JWSAlgorithm.ES256 : JWSAlgorithm.RS256;
+    }
+
+    private static JWSSigner signerOf(JWK key) throws JOSEException {
+        return key instanceof ECKey ecKey ? new ECDSASigner(ecKey) : new RSASSASigner(key.toRSAKey());
     }
 }
