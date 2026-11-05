@@ -23,6 +23,7 @@ import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator.Ending;
 import com.otilm.core.service.handler.discovery.KeyDiscoveredHandler.KeyImportOutcome;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.AuthHelper;
 import java.time.Duration;
@@ -105,7 +106,9 @@ public class DiscoveryProcessTickWorker {
         this.continuationBackstop = continuationBackstop;
     }
 
-    public void tick(UUID discoveryUuid, int attempt) {
+    public void tick(DiscoveryWorkTick tick) {
+        UUID discoveryUuid = tick.discoveryUuid();
+        int attempt = tick.attempt();
         Discovery run = discoveryRepository.findByUuid(discoveryUuid).orElse(null);
         if (run == null) {
             logger.debug("Dropping process tick for discovery {}: the run no longer exists", discoveryUuid);
@@ -131,16 +134,18 @@ public class DiscoveryProcessTickWorker {
                                 discoveryUuid, contents);
         if (!batch.isEmpty()) {
             importBatch(run, attempt, batch);
+            // A batch can run long; the keys and the decision after it must not run past the lease.
+            tick.renew();
         }
         importStagedKeys(run);
 
         long remaining = backlogOf(discoveryUuid);
         if (remaining == 0) {
-            finish(discoveryUuid);
+            finish(tick);
         } else if (remaining < before) {
-            continueProcessing(discoveryUuid, remaining);
+            continueProcessing(tick, remaining);
         } else {
-            stall(discoveryUuid, attempt, remaining);
+            stall(tick, remaining);
         }
     }
 
@@ -335,14 +340,13 @@ public class DiscoveryProcessTickWorker {
     /**
      * Commits the agenda row as the backstop, then publishes the next batch directly (see {@link DiscoveryWorkWriter}).
      */
-    private void continueProcessing(UUID discoveryUuid, long remaining) {
+    private void continueProcessing(DiscoveryWorkTick tick, long remaining) {
+        UUID discoveryUuid = tick.discoveryUuid();
         logger.debug("Discovery {} has {} item(s) left to process", discoveryUuid, remaining);
         // Reported here, not by the pipeline, which sees only one batch and would report each as 100% complete.
         discoveryWriter
                 .updateProgressMessage(discoveryUuid, "Importing discovered items (%d remaining)".formatted(remaining));
-        workWriter
-                .reschedule(discoveryUuid, DiscoveryWorkType.PROCESS, 0,
-                        OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
+        tick.reschedule(0, OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
         workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.PROCESS, 0, null));
     }
 
@@ -350,7 +354,9 @@ public class DiscoveryProcessTickWorker {
      * A tick that accounted for nothing. Rather than publishing again — which would turn a stalled run into a tight
      * loop on the broker — the row climbs its backoff ladder until the budget ends the run instead.
      */
-    private void stall(UUID discoveryUuid, int attempt, long remaining) {
+    private void stall(DiscoveryWorkTick tick, long remaining) {
+        UUID discoveryUuid = tick.discoveryUuid();
+        int attempt = tick.attempt();
         int next = attempt + 1;
         if (next >= workProperties.scheduleFor(DiscoveryWorkType.PROCESS).maxAttempts()) {
             recordQuietly(discoveryUuid, "the keys this run never reached",
@@ -364,8 +370,8 @@ public class DiscoveryProcessTickWorker {
         logger
                 .warn("Process tick {} for discovery {} accounted for none of its {} remaining item(s); backing off",
                         attempt, discoveryUuid, remaining);
-        workWriter
-                .reschedule(discoveryUuid, DiscoveryWorkType.PROCESS, next,
+        tick
+                .reschedule(next,
                         OffsetDateTime
                                 .now(ZoneOffset.UTC)
                                 .plus(workProperties.scheduleFor(DiscoveryWorkType.PROCESS).delayFor(next)));
@@ -374,11 +380,12 @@ public class DiscoveryProcessTickWorker {
     /**
      * Ends the run, or discovers it is not finished after all and keeps processing.
      */
-    private void finish(UUID discoveryUuid) {
+    private void finish(DiscoveryWorkTick tick) {
+        UUID discoveryUuid = tick.discoveryUuid();
         if (!terminator.endWith(discoveryUuid, this::decideEnding)) {
             long late = backlogOf(discoveryUuid);
             if (late > 0) {
-                continueProcessing(discoveryUuid, late);
+                continueProcessing(tick, late);
             }
         }
     }

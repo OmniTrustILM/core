@@ -37,6 +37,62 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
             @Param("leasedUntil") OffsetDateTime leasedUntil);
 
     /**
+     * Extends the lease of the tick holding {@code leaseToken}.
+     *
+     * @return 1 while the row still holds the token, 0 once a reclaim, a lifecycle change or the row's deletion took it
+     */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.leaseExpiresAt = :leasedUntil "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.leaseToken = :leaseToken")
+    int renewLease(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            @Param("leaseToken") UUID leaseToken, @Param("leasedUntil") OffsetDateTime leasedUntil);
+
+    /**
+     * Leases a row no tick holds to {@code leaseToken}, leaving its schedule alone.
+     *
+     * @return 1 when the row was free and is now leased, 0 when a live lease holds it or the row is gone
+     */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.leaseToken = :leaseToken, w.leaseExpiresAt = :leasedUntil "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType "
+            + "AND (w.leaseToken IS NULL OR w.leaseExpiresAt <= :now)")
+    int leaseIfFree(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            @Param("leaseToken") UUID leaseToken, @Param("leasedUntil") OffsetDateTime leasedUntil,
+            @Param("now") OffsetDateTime now);
+
+    /**
+     * Schedules the row's next tick and frees it, if the tick holding {@code leaseToken} still holds it.
+     */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.attempt = :attempt, w.nextDueAt = :nextDueAt, w.leaseToken = NULL, "
+            + "w.leaseExpiresAt = NULL "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.leaseToken = :leaseToken")
+    int rescheduleLeased(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            @Param("leaseToken") UUID leaseToken, @Param("attempt") int attempt,
+            @Param("nextDueAt") OffsetDateTime nextDueAt);
+
+    /**
+     * Frees the row without touching its schedule, if the tick holding {@code leaseToken} still holds it.
+     */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.leaseToken = NULL, w.leaseExpiresAt = NULL "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.leaseToken = :leaseToken")
+    int releaseLease(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            @Param("leaseToken") UUID leaseToken);
+
+    /**
+     * Passes the row from the tick holding {@code leaseToken} straight to its continuation under {@code nextToken}: a
+     * fresh budget, and due again only once the continuation's lease could have run out.
+     */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.leaseToken = :nextToken, w.leaseExpiresAt = :leasedUntil, w.attempt = 0, "
+            + "w.nextDueAt = :leasedUntil "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.leaseToken = :leaseToken")
+    int handOverLease(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            @Param("leaseToken") UUID leaseToken, @Param("nextToken") UUID nextToken,
+            @Param("leasedUntil") OffsetDateTime leasedUntil);
+
+    /**
      * Inserts the pending row for a run and work type, or re-arms an existing one.
      */
     @Modifying

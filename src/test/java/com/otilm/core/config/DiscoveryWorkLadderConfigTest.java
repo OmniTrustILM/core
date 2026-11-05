@@ -1,10 +1,16 @@
 package com.otilm.core.config;
 
+import com.otilm.core.messaging.jms.configuration.StatusPollProperties.PollSchedule;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.core.io.FileSystemResource;
@@ -44,6 +50,29 @@ class DiscoveryWorkLadderConfigTest {
     }
 
     /**
+     * An unanswered drain or processing tick waits only its own rung before the next try, so the attempt budget alone
+     * sets how long a connector that stopped answering, or a batch that keeps failing, is tolerated.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"DRAIN", "PROCESS"})
+    void theDrainAndProcessBudgetsKeepTheirWallClockAllowance(String workType) {
+        // given
+        Properties shipped = shipped();
+        String prefix = "discovery.work.by-type." + workType;
+        int maxAttempts = Integer.parseInt(shipped.getProperty(prefix + ".max-attempts"));
+        PollSchedule ladder = new PollSchedule(rungs(shipped, prefix + ".delays"), maxAttempts);
+
+        // when
+        Duration tolerated = IntStream
+                .rangeClosed(1, maxAttempts)
+                .mapToObj(ladder::delayFor)
+                .reduce(Duration.ZERO, Duration::plus);
+
+        // then
+        assertThat(tolerated).isGreaterThanOrEqualTo(Duration.ofMinutes(80));
+    }
+
+    /**
      * A lease shorter than one tick's worst case lets the sweep reclaim a row whose tick is still at the connector, and
      * publish it a second time. The worst case is a connector call's whole allowance (acquiring a connection,
      * connecting, waiting for the response) plus staging what it returned, before the tick renews the lease.
@@ -67,6 +96,15 @@ class DiscoveryWorkLadderConfigTest {
                 .describedAs("a lease at or below the slowest tick lets the sweep publish a tick whose predecessor "
                         + "is still at the connector")
                 .isGreaterThan(slowestCall.plus(stagingMargin));
+    }
+
+    private static List<Duration> rungs(Properties shipped, String delaysKey) {
+        List<Duration> rungs = new ArrayList<>();
+        for (int i = 0; shipped.getProperty(delaysKey + "[" + i + "]") != null; i++) {
+            rungs.add(Duration.parse(shipped.getProperty(delaysKey + "[" + i + "]")));
+        }
+        assertThat(rungs).describedAs("%s must list at least one rung", delaysKey).isNotEmpty();
+        return rungs;
     }
 
     private static Duration slowestRung(Properties shipped, String delaysKey) {

@@ -35,10 +35,12 @@ import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator.Ending;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.AuthHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
+import com.otilm.core.util.seeders.DiscoveryWorkTickSeeder;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -108,6 +110,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkRepository workRepository;
     @Autowired
+    private DiscoveryWorkTickSeeder tickSeeder;
+    @Autowired
     private DiscoveryWriter discoveryWriter;
     @Autowired
     private DiscoveryWorkWriter workWriter;
@@ -132,7 +136,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 3);
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(reload(run).getStatus())
                 .as("a batch that leaves work behind must not end the run")
@@ -147,12 +151,12 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         Discovery run = processingRun();
         stageKeys(run, 2);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
         // The backlog spans both staging stores. Counting certificates alone ends a keys-only run the moment it
         // starts processing, with every key still staged and nothing in the inventory.
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
         assertThat(importedKeyItems(run)).as("both staged keys reached the inventory").isEqualTo(2);
@@ -166,12 +170,12 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageKeys(run, 2);
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         // Ending here would leave the second key staged with nothing to come back for it.
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
         assertThat(importedKeyItems(run)).isEqualTo(2);
@@ -182,7 +186,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         Discovery run = processingRun();
         stageUnusableKey(run);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         DiscoveryItem failed = keyItemsOf(run).getFirst();
         assertThat(failed.getProcessedError()).isNotNull();
@@ -203,8 +207,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         Discovery run = processingRun();
         ingestor.applyDrainPage(run.getUuid(), drainedKeys());
 
-        worker.tick(run.getUuid(), 0);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
+        worker.tick(tickOf(run, 0));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
         assertThat(importedKeyItems(run)).isEqualTo(2);
@@ -222,7 +226,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         // Any failure of the page as a whole, rather than of one key: here the run may not create keys at all.
         denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         DiscoveryItem untouched = keyItemsOf(run).getFirst();
         assertThat(untouched.getProcessedError()).as("a row the tick never judged carries no reason").isNull();
@@ -242,10 +246,10 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         Discovery run = processingRun();
         stageKeys(run, 1);
         denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         allowResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
-        worker.tick(run.getUuid(), 1);
+        worker.tick(tickOf(run, 1));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
     }
@@ -257,7 +261,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.CREATE);
         int lastAttempt = workProperties.scheduleFor(DiscoveryWorkType.PROCESS).maxAttempts() - 1;
 
-        worker.tick(run.getUuid(), lastAttempt);
+        worker.tick(tickOf(run, lastAttempt));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.WARNING);
         // Left without a reason, the row would read as waiting on a run that has ended.
@@ -272,7 +276,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         doThrow(new IllegalStateException("no such user")).when(authHelper).authenticateAsUser(RUN_OWNER);
 
         // Escaping the tick would leave the attempt where it was, so the budget that ends a failing run never runs out.
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(processRow(run).getAttempt()).isEqualTo(1);
         assertThat(messages(run))
@@ -286,7 +290,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 1);
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         // A tick arrives on a JMS thread with no principal, so without this the pipeline's CERTIFICATE:CREATE
         // check refuses every batch (see DiscoveryProcessTickWorker#authenticateAsTheRunsUser).
@@ -299,7 +303,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 3);
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         // The import pipeline counts progress against the batch it was handed. For a v2 run that batch is not
         // the run, so every batch would finish at 100% while the backlog is still draining.
@@ -312,9 +316,9 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 3);
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
-        worker.tick(run.getUuid(), 0);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
+        worker.tick(tickOf(run, 0));
+        worker.tick(tickOf(run, 0));
 
         assertThat(claimedBatchSizes).containsExactly(1, 1, 1);
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
@@ -328,7 +332,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificatesSharingContent(run, 3);
         stampsOneRowThenDies();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         // A stamped row is an outcome, and the cursor is the only record of progress there is: reclaiming it
         // would run its triggers, histories and validation a second time.
@@ -338,7 +342,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
                 .isZero();
 
         importsCleanly();
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(claimedBatchSizes)
                 .as("the second tick claims the remainder, never the stamped row")
@@ -359,7 +363,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 2);
         doThrow(new IllegalStateException("pod died mid-batch")).when(importHandler).processBatch(any(), anyList());
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         // Nothing stamped its rows, so the backlog is exactly what it was: the cursor is the only progress
         // record, and a batch that never committed made none.
@@ -381,7 +385,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         // What the pipeline does with a row it never reached: records the reason, leaves processed false.
         importsWithoutStamping();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         // Publishing here is what turns a stalled run into a tight loop against the broker, re-running the whole
         // import pipeline forever and never ending the run.
@@ -398,7 +402,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         importsWithoutStamping();
         int lastAttempt = workProperties.scheduleFor(DiscoveryWorkType.PROCESS).maxAttempts() - 1;
 
-        worker.tick(run.getUuid(), lastAttempt);
+        worker.tick(tickOf(run, lastAttempt));
 
         // The budget ends the run with a reason naming what was left behind, rather than backing off forever.
         Discovery reloaded = reload(run);
@@ -417,7 +421,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
                 .recordProcessedError(List.of(staged.get(0).getUuid()), "the import transaction was rolled back");
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.WARNING);
         verify(importHandler, never()).processBatch(any(), anyList());
@@ -431,7 +435,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificatesSharingContent(run, 3);
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(claimedBatchSizes).as("the group travels together, whatever the batch size says").containsExactly(3);
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
@@ -446,7 +450,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 1);
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(claimedBatchSizes)
                 .as("the oversized group travels whole, and nothing else rides along with it")
@@ -458,7 +462,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     void emptyBacklogWithNoFailures_endsTheRunCompleted() throws Exception {
         Discovery run = processingRun();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.COMPLETED);
@@ -473,7 +477,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 2);
         importsWith(new DiscoveryRunCounts(1, 0, 0, 0, false));
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(messages(run))
                 .as("an operator watching a long run sees what is going wrong while it is still going wrong")
@@ -496,8 +500,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         importsWith(new DiscoveryRunCounts(1, 0, 0, 0, false));
 
         // Two ticks, each its own transaction: the second aggregates onto what the first committed.
-        worker.tick(run.getUuid(), 0);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
+        worker.tick(tickOf(run, 0));
 
         assertThat(messages(run))
                 .filteredOn(message -> DiscoveryMessageCode.INVENTORY_GAP.code().equals(message.getCode()))
@@ -515,7 +519,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 1);
         stampsEveryRowThenDies();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         // The rows are imported and the backlog is empty, so no later tick will revisit this failure. Filing it
         // as retryable would leave the only record of it at a severity the ending ignores.
@@ -534,7 +538,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 3);
         stampsEveryRowThenDies();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         // Two rows are left, but none belongs to the batch that failed, so nothing will ever retry it.
         assertThat(backlog(run)).isEqualTo(2);
@@ -544,8 +548,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
                 .doesNotContain(DiscoveryMessageCode.BATCH_PROCESSING_FAILED.code());
 
         importsCleanly();
-        worker.tick(run.getUuid(), 0);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
+        worker.tick(tickOf(run, 0));
 
         assertThat(backlog(run)).isZero();
         assertThat(reload(run).getStatus())
@@ -559,7 +563,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         stageCertificates(run, 1);
         importsCleanly();
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(messages(run))
                 .as("only the terminal line, so a clean run's log is not noise")
@@ -579,8 +583,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         importsCleanly();
         discoveryWriter.markProcessed(List.of(staged.get(0).getUuid()), "Import rolled back: the chain was incomplete");
 
-        worker.tick(run.getUuid(), 0);
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.WARNING);
@@ -595,7 +598,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         discoveryRepository.saveAndFlush(run);
         stageCertificates(run, 1);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         verify(importHandler, never()).processBatch(any(), anyList());
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
@@ -607,17 +610,25 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
         run.setStatus(DiscoveryStatus.COMPLETED);
         discoveryRepository.saveAndFlush(run);
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         assertThat(agenda(run)).isEmpty();
         verify(importHandler, never()).processBatch(any(), anyList());
     }
 
     @Test
-    void tickForADeletedRun_isDroppedWithoutFailing() {
-        worker.tick(UUID.randomUUID(), 0);
+    void dropsTheTick_whenItsRunWasDeletedWhileItWasQueued() throws Exception {
+        // given
+        Discovery run = processingRun();
+        DiscoveryWorkTick admitted = tickOf(run, 0);
+        discoveryRepository.delete(run);
 
+        // when
+        worker.tick(admitted);
+
+        // then
         assertThat(workRepository.findAll()).isEmpty();
+        verify(importHandler, never()).processBatch(any(), anyList());
     }
 
     @Test
@@ -628,7 +639,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
                 .append(run.getUuid(), DiscoveryMessageSeverity.WARNING, DiscoveryMessageCode.VALIDATION_NOT_REQUESTED,
                         "Validation of the discovered certificates could not be requested.");
 
-        worker.tick(run.getUuid(), 0);
+        worker.tick(tickOf(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.WARNING);
@@ -715,6 +726,10 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
             claimedBatchSizes.add(((List<?>) invocation.getArgument(1)).size());
             return new DiscoveryRunCounts(0, 0, 1, 0, false);
         }).when(importHandler).processBatch(any(), anyList());
+    }
+
+    private DiscoveryWorkTick tickOf(Discovery run, int attempt) {
+        return tickSeeder.admittedTick(run.getUuid(), DiscoveryWorkType.PROCESS, attempt);
     }
 
     private DiscoveryWork processRow(Discovery run) {

@@ -63,6 +63,57 @@ public class DiscoveryWorkWriter {
     }
 
     /**
+     * Extends the lease of the tick holding {@code leaseToken} to {@code leasedUntil}.
+     *
+     * @return whether the row still held the token
+     */
+    @Transactional
+    public boolean renewLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken,
+            OffsetDateTime leasedUntil) {
+        return workRepository.renewLease(discoveryUuid, workType, leaseToken, leasedUntil) > 0;
+    }
+
+    /**
+     * Leases the row to {@code leaseToken} until {@code leasedUntil}, if no live lease holds it at {@code now}.
+     *
+     * @return whether the row is now leased to the token
+     */
+    @Transactional
+    public boolean leaseIfFree(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken,
+            OffsetDateTime leasedUntil, OffsetDateTime now) {
+        return workRepository.leaseIfFree(discoveryUuid, workType, leaseToken, leasedUntil, now) > 0;
+    }
+
+    /**
+     * Schedules the row's next tick and frees it, if the tick holding {@code leaseToken} still holds it. Joins the
+     * caller's transaction, so the schedule commits with the run state that decided it.
+     */
+    @Transactional
+    public void rescheduleLeased(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, int attempt,
+            OffsetDateTime nextDueAt) {
+        workRepository.rescheduleLeased(discoveryUuid, workType, leaseToken, attempt, nextDueAt);
+    }
+
+    /**
+     * Frees the row without touching its schedule, if the tick holding {@code leaseToken} still holds it.
+     */
+    @Transactional
+    public void releaseLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken) {
+        workRepository.releaseLease(discoveryUuid, workType, leaseToken);
+    }
+
+    /**
+     * Passes the row from the tick holding {@code leaseToken} to its continuation under {@code nextToken}.
+     *
+     * @return whether the tick still held the row, and so handed it over
+     */
+    @Transactional
+    public boolean handOverLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, UUID nextToken,
+            OffsetDateTime leasedUntil) {
+        return workRepository.handOverLease(discoveryUuid, workType, leaseToken, nextToken, leasedUntil) > 0;
+    }
+
+    /**
      * Advances an agenda row's {@code attempt}/{@code next_due_at}.
      */
     @Transactional

@@ -15,6 +15,7 @@ import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -86,7 +87,9 @@ public class DiscoveryDrainTickWorker {
         this.maxBytes = maxBytes;
     }
 
-    public void tick(UUID discoveryUuid, int attempt) {
+    public void tick(DiscoveryWorkTick tick) {
+        UUID discoveryUuid = tick.discoveryUuid();
+        int attempt = tick.attempt();
         Discovery run = discoveryRepository.findByUuid(discoveryUuid).orElse(null);
         if (run == null) {
             logger.debug("Dropping drain tick for discovery {}: the run no longer exists", discoveryUuid);
@@ -125,6 +128,8 @@ public class DiscoveryDrainTickWorker {
             return;
         }
 
+        // The connector call may have taken most of the lease; staging must not run past it.
+        tick.renew();
         boolean advanced;
         try {
             advanced = ingestor.applyDrainPage(discoveryUuid, page);
@@ -136,7 +141,7 @@ public class DiscoveryDrainTickWorker {
             handleUnstageable(discoveryUuid, attempt, e);
             return;
         }
-        continueAfter(discoveryUuid, run, attempt, page, advanced);
+        continueAfter(tick, run, page, advanced);
     }
 
     /**
@@ -169,29 +174,30 @@ public class DiscoveryDrainTickWorker {
      * Decides the run's next drain step from what the page said, and — where the answer is "there is more, now" —
      * publishes that step rather than waiting for a sweep to notice.
      */
-    private void continueAfter(UUID discoveryUuid, Discovery run, int attempt, DiscoveryResultsResponseDto page,
+    private void continueAfter(DiscoveryWorkTick tick, Discovery run, DiscoveryResultsResponseDto page,
             boolean advanced) {
+        UUID discoveryUuid = tick.discoveryUuid();
         if (Boolean.TRUE.equals(page.getMore())) {
             if (advanced) {
-                drainAgain(discoveryUuid, "the connector reports more items");
+                drainAgain(tick, "the connector reports more items");
             } else {
                 // "More to come" that carried nothing new is a connector repeating itself. Publishing again
                 // would spin as fast as it answers, so this climbs the ladder and eventually ends the run.
-                awaitTheRest(discoveryUuid, attempt, page.getHighestSequence());
+                awaitTheRest(tick, page.getHighestSequence());
             }
             return;
         }
         if (!DiscoveryRunState.COMPLETED.getCode().equals(run.getConnectorState())) {
             // The connector is still producing. Nothing more is ready this moment, so fall back to the
             // ladder's slowest cadence with the budget refreshed by this successful page.
-            idleUntilNextDue(discoveryUuid);
+            idleUntilNextDue(tick);
             return;
         }
         // The swap is the only catch-up check there is, and deliberately so: it re-asserts the cursor against
         // highestSequence under the run row's lock, which a separate pre-check could only do without one.
         Optional<Handover> handover = swapToProcessing(discoveryUuid, page.getHighestSequence());
         if (handover.isEmpty()) {
-            awaitTheRest(discoveryUuid, attempt, page.getHighestSequence());
+            awaitTheRest(tick, page.getHighestSequence());
             return;
         }
         // Strictly after the handover commits. The acknowledgement lets the connector discard the run's whole
@@ -228,17 +234,17 @@ public class DiscoveryDrainTickWorker {
      * due-now retry would be an unbounded stream of {@code results} calls against a connector that may never catch up.
      * Spending the budget ends the run with a reason instead.
      */
-    private void awaitTheRest(UUID discoveryUuid, int attempt, Long highestSequence) {
-        int next = attempt + 1;
+    private void awaitTheRest(DiscoveryWorkTick tick, Long highestSequence) {
+        int next = tick.attempt() + 1;
         if (next >= workProperties.scheduleFor(DiscoveryWorkType.DRAIN).maxAttempts()) {
             terminator
-                    .endConnectorOwned(discoveryUuid, DiscoveryStatus.FAILED,
+                    .endConnectorOwned(tick.discoveryUuid(), DiscoveryStatus.FAILED,
                             "The connector reported %d item(s) but never handed them all over"
                                     .formatted(highestSequence));
             return;
         }
-        workWriter
-                .reschedule(discoveryUuid, DiscoveryWorkType.DRAIN, next,
+        tick
+                .reschedule(next,
                         OffsetDateTime
                                 .now(ZoneOffset.UTC)
                                 .plus(workProperties.scheduleFor(DiscoveryWorkType.DRAIN).delayFor(next)));
@@ -291,27 +297,24 @@ public class DiscoveryDrainTickWorker {
      * page earned back — and then publishes the follow-up tick directly. Committed first, so a publish that never lands
      * is still picked up; see {@link DiscoveryWorkWriter} for why the row is due one backstop interval out.
      */
-    private void drainAgain(UUID discoveryUuid, String why) {
+    private void drainAgain(DiscoveryWorkTick tick, String why) {
+        UUID discoveryUuid = tick.discoveryUuid();
         logger.debug("Draining discovery {} again immediately: {}", discoveryUuid, why);
-        workWriter
-                .reschedule(discoveryUuid, DiscoveryWorkType.DRAIN, 0,
-                        OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
+        tick.reschedule(0, OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
         workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.DRAIN, 0, null));
     }
 
     /**
-     * Refreshes the budget a successful page earned without speeding the cadence up: the counter drops to the rung
-     * where the ladder already reached its slowest delay, exactly as a clear status answer does.
+     * Refreshes the budget a successful page earned without speeding the cadence up, exactly as a clear status answer
+     * does: see {@link DiscoveryTickBudget#refresh}.
      */
-    private void idleUntilNextDue(UUID discoveryUuid) {
-        workWriter
-                .resetAttempt(discoveryUuid, DiscoveryWorkType.DRAIN,
-                        workProperties.scheduleFor(DiscoveryWorkType.DRAIN).ceilingAttempt());
+    private void idleUntilNextDue(DiscoveryWorkTick tick) {
+        budget.refresh(tick);
     }
 
     /**
-     * A tick the connector did not answer. Below the budget the run keeps its agenda row; a direct-published
-     * continuation that fails gets one turn at its own cadence before the sweep's claimer takes over the ladder.
+     * A tick the connector did not answer. Below the budget the tick stays unresolved, and the listener moves the row
+     * one rung up its backoff ladder.
      */
     private void handleUnanswered(UUID discoveryUuid, int attempt, Throwable e) {
         if (!budget
