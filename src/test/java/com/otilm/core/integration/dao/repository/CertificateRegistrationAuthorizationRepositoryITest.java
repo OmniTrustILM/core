@@ -9,6 +9,7 @@ import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import java.time.OffsetDateTime;
@@ -31,6 +32,8 @@ class CertificateRegistrationAuthorizationRepositoryITest extends BaseSpringBoot
     private CertificateRegistrationAuthorizationRepository authorizationRepository;
     @Autowired
     private CertificateRepository certificateRepository;
+    @Autowired
+    private X509CertificateRepository x509CertificateRepository;
     @Autowired
     private RaProfileRepository raProfileRepository;
     @Autowired
@@ -72,7 +75,7 @@ class CertificateRegistrationAuthorizationRepositoryITest extends BaseSpringBoot
         Certificate underOtherProfile = persistCertificate(CertificateState.REGISTERED, otherRaProfileUuid);
         persistAuthorizationFor(underOtherProfile.getUuid(), RegistrationState.ACTIVE);
 
-        assertThat(certificateRepository
+        assertThat(x509CertificateRepository
                 .findRegisteredWithActiveRegistrationAuthorizationByRaProfileUuidAndSubjectDnNormalized(raProfileUuid,
                         CertificateUtil.normalizeStoredSubjectDn("CN=lookup-subject")))
                 .extracting(Certificate::getUuid)
@@ -87,7 +90,7 @@ class CertificateRegistrationAuthorizationRepositoryITest extends BaseSpringBoot
         Certificate otherSubject = persistCertificate(CertificateState.REGISTERED, raProfileUuid, "CN=other-subject");
         persistAuthorizationFor(otherSubject.getUuid(), RegistrationState.ACTIVE);
 
-        assertThat(certificateRepository
+        assertThat(x509CertificateRepository
                 .findRegisteredWithActiveRegistrationAuthorizationByRaProfileUuidAndSubjectDnNormalized(raProfileUuid,
                         CertificateUtil.normalizeStoredSubjectDn("CN=lookup-subject")))
                 .extracting(Certificate::getUuid)
@@ -100,7 +103,7 @@ class CertificateRegistrationAuthorizationRepositoryITest extends BaseSpringBoot
         Certificate sanOnly = persistCertificate(CertificateState.REGISTERED, raProfileUuid, null);
         persistAuthorizationFor(sanOnly.getUuid(), RegistrationState.ACTIVE);
 
-        assertThat(certificateRepository
+        assertThat(x509CertificateRepository
                 .findRegisteredWithActiveRegistrationAuthorizationByRaProfileUuidAndSubjectDnNormalized(raProfileUuid,
                         ""))
                 .extracting(Certificate::getUuid)
@@ -121,7 +124,7 @@ class CertificateRegistrationAuthorizationRepositoryITest extends BaseSpringBoot
         legacyNullNormalized = certificateRepository.save(legacyNullNormalized);
         persistAuthorizationFor(legacyNullNormalized.getUuid(), RegistrationState.ACTIVE);
 
-        assertThat(certificateRepository
+        assertThat(x509CertificateRepository
                 .findRegisteredWithActiveRegistrationAuthorizationByRaProfileUuidAndSubjectDnNormalized(raProfileUuid,
                         CertificateUtil.normalizeStoredSubjectDn("CN=different-subject")))
                 .extracting(Certificate::getUuid)

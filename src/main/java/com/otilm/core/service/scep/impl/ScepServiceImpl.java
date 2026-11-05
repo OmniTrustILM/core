@@ -39,6 +39,7 @@ import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
 import com.otilm.core.intune.scepvalidation.IntuneConfigProperties;
@@ -154,6 +155,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private ScepTransactionRepository scepTransactionRepository;
     private ScepRegistrationTrackingWriter scepRegistrationTrackingWriter;
     private CertificateRepository certificateRepository;
+    private X509CertificateRepository x509CertificateRepository;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private RegistrationChallengeStore registrationChallengeStore;
     private RegistrationChallengeGate registrationChallengeGate;
@@ -209,6 +211,11 @@ public class ScepServiceImpl implements ScepExternalService {
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setX509CertificateRepository(X509CertificateRepository x509CertificateRepository) {
+        this.x509CertificateRepository = x509CertificateRepository;
     }
 
     @Autowired
@@ -1072,7 +1079,7 @@ public class ScepServiceImpl implements ScepExternalService {
             logger.info("SCEP registration enrolment rejected: unable to read the CSR identity", e);
             throw new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK);
         }
-        List<Certificate> candidates = certificateRepository
+        List<X509CertificateEntity> candidates = x509CertificateRepository
                 .findRegisteredWithActiveRegistrationAuthorizationByRaProfileUuidAndSubjectDnNormalized(
                         raProfile.getUuid(),
                         CertificateUtil.normalizeSubjectDn(scepRequest.getPkcs10Request().getSubject()));
@@ -1080,7 +1087,6 @@ public class ScepServiceImpl implements ScepExternalService {
                 .match(scepRequest.getPkcs10Request().getSubject(), csrSans,
                         candidates
                                 .stream()
-                                .map(X509CertificateEntity::from)
                                 .map(c -> new RegistrationIdentityMatcher.Candidate(c.getUuid(), c.getSubjectDn(),
                                         c.getSubjectAlternativeNames()))
                                 .toList());

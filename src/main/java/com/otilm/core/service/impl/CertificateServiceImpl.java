@@ -117,6 +117,7 @@ import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.ProtocolCertificateAssociationsRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
@@ -288,6 +289,7 @@ public class CertificateServiceImpl
     private PlatformTransactionManager transactionManager;
 
     private CertificateRepository certificateRepository;
+    private X509CertificateRepository x509CertificateRepository;
     private CertificateChainService chainService;
     private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
@@ -452,6 +454,11 @@ public class CertificateServiceImpl
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setX509CertificateRepository(X509CertificateRepository x509CertificateRepository) {
+        this.x509CertificateRepository = x509CertificateRepository;
     }
 
     @Autowired
@@ -877,7 +884,7 @@ public class CertificateServiceImpl
     @Override
     public Certificate getCertificateEntityByIssuerDnNormalizedAndSerialNumber(String issuerDn, String serialNumber)
             throws NotFoundException {
-        return certificateRepository
+        return x509CertificateRepository
                 .findByIssuerDnNormalizedAndSerialNumber(issuerDn, serialNumber)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, issuerDn + " " + serialNumber));
     }
@@ -1270,7 +1277,7 @@ public class CertificateServiceImpl
                                         new ArrayList<>(certificateRepository.findDistinctSignatureAlgorithm())),
                         SearchHelper
                                 .prepareSearch(FilterField.ALT_SIGNATURE_ALGORITHM,
-                                        new ArrayList<>(certificateRepository.findDistinctAltSignatureAlgorithm())),
+                                        new ArrayList<>(x509CertificateRepository.findDistinctAltSignatureAlgorithm())),
                         SearchHelper.prepareSearch(FilterField.NOT_AFTER),
                         SearchHelper.prepareSearch(FilterField.NOT_BEFORE),
                         SearchHelper.prepareSearch(FilterField.SUBJECTDN),
@@ -1299,13 +1306,13 @@ public class CertificateServiceImpl
                                         new ArrayList<>(certificateRepository.findDistinctPublicKeyAlgorithm())),
                         SearchHelper
                                 .prepareSearch(FilterField.ALT_PUBLIC_KEY_ALGORITHM,
-                                        new ArrayList<>(certificateRepository.findDistinctAltPublicKeyAlgorithm())),
+                                        new ArrayList<>(x509CertificateRepository.findDistinctAltPublicKeyAlgorithm())),
                         SearchHelper
                                 .prepareSearch(FilterField.KEY_SIZE,
                                         new ArrayList<>(certificateRepository.findDistinctKeySize())),
                         SearchHelper
                                 .prepareSearch(FilterField.ALT_KEY_SIZE,
-                                        new ArrayList<>(certificateRepository.findDistinctAltKeySize())),
+                                        new ArrayList<>(x509CertificateRepository.findDistinctAltKeySize())),
                         SearchHelper
                                 .prepareSearch(FilterField.KEY_USAGE,
                                         Arrays
@@ -2418,13 +2425,12 @@ public class CertificateServiceImpl
         if (publicKeyFingerprint == null) {
             return;
         }
-        for (Certificate certificate : certificateRepository
+        for (X509CertificateEntity certificate : x509CertificateRepository
                 .findByPublicKeyFingerprintOrAltKeyFingerprint(publicKeyFingerprint, publicKeyFingerprint)) {
             if (publicKeyFingerprint.equals(certificate.getPublicKeyFingerprint())) {
                 certificate.setKeyUuid(keyUuid);
             }
-            if (X509CertificateEntity.fromOrNull(certificate) instanceof X509CertificateEntity x509Certificate
-                    && publicKeyFingerprint.equals(x509Certificate.getAltKeyFingerprint())) {
+            if (publicKeyFingerprint.equals(certificate.getAltKeyFingerprint())) {
                 certificate.setAltKeyUuid(keyUuid);
             }
             certificateRepository.save(certificate);
