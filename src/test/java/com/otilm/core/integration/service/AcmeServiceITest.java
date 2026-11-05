@@ -1166,7 +1166,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .findByAccountId(ACME_ACCOUNT_ID_VALID)
                 .orElseThrow()
                 .getPublicKey();
-        String innerJws = innerKeyChangeJws(requestUri, baseUri, new RSAKeyGenerator(2048).generate());
+        String innerJws = buildInnerKeyChangeJws(requestUri, baseUri, new RSAKeyGenerator(2048).generate());
         String requestJson = signedByOtherAccount(innerJws, requestUri, baseUri);
 
         // when
@@ -1191,7 +1191,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .orElseThrow()
                 .getPublicKey();
         RSAKey attackerKey = new RSAKeyGenerator(2048).generate();
-        String innerJws = innerKeyChangeJws(requestUri, baseUri, attackerKey);
+        String innerJws = buildInnerKeyChangeJws(requestUri, baseUri, attackerKey);
         String requestJson = signedWithJwk(innerJws, requestUri, attackerKey.toPublicJWK(),
                 new RSASSASigner(attackerKey));
 
@@ -2143,7 +2143,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
      */
     private String buildKeyRolloverRequestJSON(URI requestUri, String baseUri, JWSSigner innerSigner)
             throws JOSEException {
-        String innerJws = innerKeyChangeJws(requestUri, baseUri, newRsa2048PublicJWK, innerSigner);
+        String innerJws = buildInnerKeyChangeJws(requestUri, baseUri, newRsa2048PublicJWK, innerSigner);
         JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(innerJws));
         jwsObjectJSON
                 .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
@@ -2155,15 +2155,15 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     /** The inner JWS of a key change of the fixture's account to the given key, which signs it. */
-    private String innerKeyChangeJws(URI requestUri, String baseUri, RSAKey newKey) throws JOSEException {
-        return innerKeyChangeJws(requestUri, baseUri, newKey.toPublicJWK(), new RSASSASigner(newKey));
+    private String buildInnerKeyChangeJws(URI requestUri, String baseUri, RSAKey newKey) throws JOSEException {
+        return buildInnerKeyChangeJws(requestUri, baseUri, newKey.toPublicJWK(), new RSASSASigner(newKey));
     }
 
     /**
      * The inner JWS of a key change of the fixture's account: it names the account and its current public key as the
      * old key, and carries the new key as its JWK and the signature of the given signer.
      */
-    private String innerKeyChangeJws(URI requestUri, String baseUri, RSAKey newPublicJWK, JWSSigner signer)
+    private String buildInnerKeyChangeJws(URI requestUri, String baseUri, RSAKey newPublicJWK, JWSSigner signer)
             throws JOSEException {
         String account = baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID;
         JWSObjectJSON innerJwsObjectJSON = new JWSObjectJSON(
