@@ -17,9 +17,6 @@ import static org.junit.jupiter.api.Named.named;
 
 class AcmeJwsRequestTest {
 
-    /** The base64url encoding of the protected header {@code {"alg":"RS256"}}. */
-    private static final String PROTECTED_HEADER = "eyJhbGciOiJSUzI1NiJ9";
-
     /** A protected header that names an account, so a body carrying it is refused for nothing else. */
     private static final String HEADER_NAMING_AN_ACCOUNT = base64Url(
             "{\"alg\":\"RS256\",\"kid\":\"https://acme.example/acct/1\"}");
@@ -50,9 +47,9 @@ class AcmeJwsRequestTest {
                 .of(named("the JSON null literal", "null"), named("an empty object", "{}"),
                         named("a body without the protected header", "{\"payload\":\"\",\"signature\":\"c2ln\"}"),
                         named("a body without the payload",
-                                "{\"protected\":\"" + PROTECTED_HEADER + "\",\"signature\":\"c2ln\"}"),
+                                "{\"protected\":\"" + HEADER_NAMING_AN_ACCOUNT + "\",\"signature\":\"c2ln\"}"),
                         named("a body without the signature",
-                                "{\"protected\":\"" + PROTECTED_HEADER + "\",\"payload\":\"\"}"),
+                                "{\"protected\":\"" + HEADER_NAMING_AN_ACCOUNT + "\",\"payload\":\"\"}"),
                         named("a boolean where the signature is expected",
                                 "{\"protected\":\"" + HEADER_NAMING_AN_ACCOUNT
                                         + "\",\"payload\":\"\",\"signature\":false}"),

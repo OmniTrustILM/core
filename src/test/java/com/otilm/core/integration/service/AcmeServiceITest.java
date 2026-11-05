@@ -1064,8 +1064,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
     void refusesAsMalformed_whenNewAccountPayloadHasFieldOfWrongType() throws Exception {
         // given
         URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/new-account");
-        String requestJson = signedWithJwk("{\"contact\":{},\"termsOfServiceAgreed\":true}", requestUri,
-                newRsa2048PublicJWK, newRsa2048Signer);
+        String contactThatIsAnObject = "{\"contact\":{},\"termsOfServiceAgreed\":true}";
+        String requestJson = signedWithJwk(contactThatIsAnObject, requestUri, newRsa2048PublicJWK, newRsa2048Signer);
 
         // when
         ThrowingCallable newAccount = () -> acmeService.newAccount(ACME_PROFILE_NAME, requestJson, requestUri, false);
@@ -1081,7 +1081,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
-        String requestJson = signedWithAccountKey("{\"contact\":{}}", requestUri, baseUri);
+        String contactThatIsAnObject = "{\"contact\":{}}";
+        String requestJson = signedWithAccountKey(contactThatIsAnObject, requestUri, baseUri);
 
         // when
         ThrowingCallable update = () -> acmeService
@@ -1098,7 +1099,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/new-order");
-        String requestJson = signedWithAccountKey("{\"identifiers\":{}}", requestUri, baseUri);
+        String identifiersThatAreAnObject = "{\"identifiers\":{}}";
+        String requestJson = signedWithAccountKey(identifiersThatAreAnObject, requestUri, baseUri);
 
         // when
         ThrowingCallable newOrder = () -> acmeService.newOrder(ACME_PROFILE_NAME, requestJson, requestUri, false);
@@ -1114,7 +1116,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
-        String requestJson = signedWithAccountKey("[[\"status\",\"deactivated\"]]", requestUri, baseUri);
+        String arrayOfMemberPairs = "[[\"status\",\"deactivated\"]]";
+        String requestJson = signedWithAccountKey(arrayOfMemberPairs, requestUri, baseUri);
 
         // when
         ThrowingCallable update = () -> acmeService
@@ -1244,7 +1247,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/key-change");
-        String requestJson = signedWithAccountKey("rollover", requestUri, baseUri);
+        String payloadThatIsNotJson = "rollover";
+        String requestJson = signedWithAccountKey(payloadThatIsNotJson, requestUri, baseUri);
 
         // when
         ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
@@ -1260,7 +1264,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/key-change");
-        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, "rollover");
+        String innerPayloadThatIsNotJson = "rollover";
+        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, innerPayloadThatIsNotJson);
 
         // when
         ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
@@ -1276,7 +1281,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/key-change");
-        String requestJson = signedWithAccountKey("{}", requestUri, baseUri);
+        String objectWithoutJwsMembers = "{}";
+        String requestJson = signedWithAccountKey(objectWithoutJwsMembers, requestUri, baseUri);
 
         // when
         ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
@@ -1363,6 +1369,25 @@ class AcmeServiceITest extends BaseSpringBootTest {
         assertThatThrownBy(keyChange)
                 .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
                         AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformed_whenInnerKeyChangeJwsHasNullUrl() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String innerHeaderWithNullUrl = "{\"alg\":\"RS256\",\"jwk\":" + newRsa2048PublicJWK.toJSONString()
+                + ",\"url\":null}";
+        String requestJson = buildKeyRolloverRequestJSONWithInnerHeader(requestUri, baseUri, innerHeaderWithNullUrl);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+        });
     }
 
     @Test
@@ -2584,6 +2609,19 @@ class AcmeServiceITest extends BaseSpringBootTest {
                         .jwk(newRsa2048PublicJWK)
                         .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
                         .build(), newRsa2048Signer);
+        return signedWithAccountKey(innerJwsObjectJSON.serializeFlattened(), requestUri, baseUri);
+    }
+
+    /**
+     * A key change of the fixture's account whose inner JWS, signed with the new key, carries the given protected
+     * header as written, so a member a header builder would drop, such as a null {@code url}, reaches the server.
+     */
+    private String buildKeyRolloverRequestJSONWithInnerHeader(URI requestUri, String baseUri, String innerHeaderJson)
+            throws Exception {
+        String account = baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID;
+        JWSObjectJSON innerJwsObjectJSON = new JWSObjectJSON(
+                new Payload("{\"account\":\"" + account + "\",\"oldKey\":" + rsa2048PublicJWK + "}"));
+        innerJwsObjectJSON.sign(JWSHeader.parse(Base64URL.encode(innerHeaderJson)), newRsa2048Signer);
         return signedWithAccountKey(innerJwsObjectJSON.serializeFlattened(), requestUri, baseUri);
     }
 

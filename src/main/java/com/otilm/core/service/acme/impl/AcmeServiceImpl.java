@@ -115,6 +115,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -1170,11 +1171,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
                     "Inner JWS does not contain jwk");
         }
-        if (!jwsInnerObject
-                .getHeader()
-                .toJSONObject()
-                .getOrDefault("url", "innerUrl")
-                .equals(jwsRequestObject.getHeader().toJSONObject().getOrDefault("url", "outerUrl"))) {
+        if (!Objects
+                .equals(jwsInnerObject.getHeader().toJSONObject().getOrDefault("url", "innerUrl"),
+                        jwsRequestObject.getHeader().toJSONObject().getOrDefault("url", "outerUrl"))) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
                     "URL in inner and outer JWS are different");
         }
