@@ -2,6 +2,7 @@ package com.otilm.core.service.acme.impl;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSObject;
+import com.nimbusds.jose.jwk.AsymmetricJWK;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.util.Base64URL;
 import com.otilm.api.exception.AcmeProblemDocumentException;
@@ -473,27 +474,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
             throw AcmeJsonProcessor.malformedPayload();
         }
 
-        JWK oldKeyJwk = parseOldKey(keyChange.oldKey());
-        PublicKey newKey;
-        PublicKey oldKey;
-        try {
-            String keyType = innerJws.getJwk().getKeyType().toString();
-            if (keyType.equals(AcmeConstants.RSA_KEY_TYPE_NOTATION)) {
-                newKey = innerJws.getJwk().toRSAKey().toPublicKey();
-                oldKey = oldKeyJwk.toRSAKey().toPublicKey();
-            } else if (keyType.equals(AcmeConstants.EC_KEY_TYPE_NOTATION)) {
-                newKey = innerJws.getJwk().toECKey().toPublicKey();
-                oldKey = oldKeyJwk.toECKey().toPublicKey();
-            } else {
-                logger.error("Unsupported Key Type: {}", keyType);
-                throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
-                        "Unsupported Key Type");
-            }
-        } catch (JOSEException e) {
-            logger.error("Error while parsing JWS: {}", e.getMessage());
-            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
-                    "JWS Malformed. Error while decoding the JWS Object");
-        }
+        PublicKey newKey = innerJws.getPublicKey();
+        PublicKey oldKey = parseOldKey(keyChange.oldKey());
 
         String account = keyChange.account();
         String accountId = account.substring(account.lastIndexOf('/') + 1);
@@ -1900,17 +1882,19 @@ public class AcmeServiceImpl implements AcmeExternalService {
     }
 
     /**
-     * The old key of a key change. A key that is not a JWK is refused as a malformed payload, including one for which
-     * nimbus throws an unchecked exception, such as a NullPointerException for an RSA key whose other primes lack their
-     * members.
+     * The public key of the old key of a key change, converted by its own type. A key that is not a JWK of a public key
+     * is refused as a malformed payload, including one for which nimbus throws an unchecked exception, such as a
+     * NullPointerException for an RSA key whose other primes lack their members.
      */
-    private static JWK parseOldKey(Map<String, Object> oldKey) throws AcmeProblemDocumentException {
+    private static PublicKey parseOldKey(Map<String, Object> oldKey) throws AcmeProblemDocumentException {
         try {
-            return JWK.parse(oldKey);
-        } catch (ParseException | RuntimeException e) {
+            if (JWK.parse(oldKey) instanceof AsymmetricJWK asymmetricJwk) {
+                return asymmetricJwk.toPublicKey();
+            }
+        } catch (ParseException | JOSEException | RuntimeException e) {
             logger.error("Error while parsing JWS: {}", e.getMessage());
-            throw AcmeJsonProcessor.malformedPayload();
         }
+        throw AcmeJsonProcessor.malformedPayload();
     }
 
     /** The payload of the inner JWS of a key change (RFC 8555 section 7.3.5). */
