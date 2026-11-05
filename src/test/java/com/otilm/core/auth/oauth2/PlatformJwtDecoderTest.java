@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -42,6 +43,7 @@ class PlatformJwtDecoderTest {
     @AfterEach
     void restore() {
         new SettingsCache().cacheSettings(SettingsSection.AUTHENTICATION, previousSettings);
+        MDC.clear();
         AuthenticationSnapshotRequestHolder.clear();
         SecurityContextHolder.clearContext();
     }
