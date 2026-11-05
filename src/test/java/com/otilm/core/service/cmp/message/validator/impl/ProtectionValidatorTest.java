@@ -263,10 +263,10 @@ class ProtectionValidatorTest {
             when(configuration.getProtectionStrategy()).thenReturn(signatureProtection);
 
             // when
-            ThrowingCallable validateOut = () -> validator.validateOut(response, configuration);
+            Void result = validator.validateOut(response, configuration);
 
             // then
-            assertThatCode(validateOut).doesNotThrowAnyException();
+            assertThat(result).isNull();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────

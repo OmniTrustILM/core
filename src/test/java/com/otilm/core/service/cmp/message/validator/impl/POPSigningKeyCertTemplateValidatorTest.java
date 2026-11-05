@@ -34,7 +34,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.SignatureVerificationBoundsFixtures.rsaPublicKeyInfo;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mockStatic;
@@ -85,10 +84,10 @@ class POPSigningKeyCertTemplateValidatorTest {
         PKIMessage request = initializationRequestCarrying(publicKey, keyPair);
 
         // when
-        ThrowingCallable validate = () -> validator.validate(request, configuration);
+        Void result = validator.validate(request, configuration);
 
         // then
-        assertThatCode(validate).doesNotThrowAnyException();
+        assertThat(result).isNull();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

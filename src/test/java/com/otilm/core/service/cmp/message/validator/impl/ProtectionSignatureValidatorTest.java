@@ -26,7 +26,6 @@ import static com.otilm.core.service.cmp.message.validator.impl.SignatureProtect
 import static com.otilm.core.service.cmp.message.validator.impl.SignatureProtectedMessageFixtures.signatureProtectedMessage;
 import static com.otilm.core.util.SignatureVerificationBoundsFixtures.rsaPublicKeyInfo;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
@@ -79,10 +78,10 @@ class ProtectionSignatureValidatorTest {
         PKIMessage request = signatureProtectedMessage(signerKeyPair, signerKey);
 
         // when
-        ThrowingCallable validate = () -> requestValidator.validate(request, configuration);
+        Void result = requestValidator.validate(request, configuration);
 
         // then
-        assertThatCode(validate).doesNotThrowAnyException();
+        assertThat(result).isNull();
     }
 
     @Test
@@ -92,10 +91,10 @@ class ProtectionSignatureValidatorTest {
         PKIMessage response = signatureProtectedMessage(signerKeyPair, onExplicitCurve(signerKeyPair, "secp256r1"));
 
         // when
-        ThrowingCallable validate = () -> responseValidator.validate(response, configuration);
+        Void result = responseValidator.validate(response, configuration);
 
         // then
-        assertThatCode(validate).doesNotThrowAnyException();
+        assertThat(result).isNull();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

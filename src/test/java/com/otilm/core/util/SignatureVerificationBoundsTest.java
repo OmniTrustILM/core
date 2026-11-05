@@ -60,8 +60,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 import static com.otilm.core.util.SignatureVerificationBoundsFixtures.compositeSignatureAlgorithm;
 import static com.otilm.core.util.SignatureVerificationBoundsFixtures.pssSignatureAlgorithm;
 import static com.otilm.core.util.SignatureVerificationBoundsFixtures.rsaPublicKeyInfo;
-import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Named.named;
 
 class SignatureVerificationBoundsTest {
@@ -106,10 +107,10 @@ class SignatureVerificationBoundsTest {
             // given — a key of a supported algorithm, an RSA key within the caps or one that no key builder builds
 
             // when
-            ThrowingCallable require = () -> SignatureVerificationBounds.requireSupportedPublicKey(publicKey);
+            Throwable failure = catchThrowable(() -> SignatureVerificationBounds.requireSupportedPublicKey(publicKey));
 
             // then
-            assertThatCode(require).doesNotThrowAnyException();
+            assertThat(failure).isNull();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────
@@ -296,6 +297,16 @@ class SignatureVerificationBoundsTest {
                             named("an RSA key whose bit string is not a whole number of bytes",
                                     new SubjectPublicKeyInfo(rsaEncryption, new DERBitString(new byte[]{1, 2, 4}, 2))));
         }
+
+        private static KeyPair generatedKeyPair(String algorithm) throws Exception {
+            return KeyPairGenerator.getInstance(algorithm, BouncyCastleProvider.PROVIDER_NAME).generateKeyPair();
+        }
+
+        private static byte[] concatenated(byte[] first, byte[] second) {
+            byte[] both = Arrays.copyOf(first, first.length + second.length);
+            System.arraycopy(second, 0, both, first.length, second.length);
+            return both;
+        }
     }
 
     // ── RequireBoundedSignatureAlgorithm ──────────────────────────────────────
@@ -322,11 +333,11 @@ class SignatureVerificationBoundsTest {
             // given — a signature algorithm whose work the key of the signer bounds
 
             // when
-            ThrowingCallable require = () -> SignatureVerificationBounds
-                    .requireBoundedSignatureAlgorithm(signatureAlgorithm);
+            Throwable failure = catchThrowable(
+                    () -> SignatureVerificationBounds.requireBoundedSignatureAlgorithm(signatureAlgorithm));
 
             // then
-            assertThatCode(require).doesNotThrowAnyException();
+            assertThat(failure).isNull();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────
@@ -424,10 +435,10 @@ class SignatureVerificationBoundsTest {
             PKCS10CertificationRequest request = requestCarrying(publicKeyInfoOf(keyPair.getPublic()), alternativeKey);
 
             // when
-            ThrowingCallable require = () -> SignatureVerificationBounds.requireBoundedRequest(request);
+            Throwable failure = catchThrowable(() -> SignatureVerificationBounds.requireBoundedRequest(request));
 
             // then
-            assertThatCode(require).doesNotThrowAnyException();
+            assertThat(failure).isNull();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────────
@@ -496,15 +507,5 @@ class SignatureVerificationBoundsTest {
 
     private static KeyPair rsaKeyPair(int bits) throws Exception {
         return CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, new RSAKeyGenParameterSpec(bits, F4));
-    }
-
-    private static KeyPair generatedKeyPair(String algorithm) throws Exception {
-        return KeyPairGenerator.getInstance(algorithm, BouncyCastleProvider.PROVIDER_NAME).generateKeyPair();
-    }
-
-    private static byte[] concatenated(byte[] first, byte[] second) {
-        byte[] both = Arrays.copyOf(first, first.length + second.length);
-        System.arraycopy(second, 0, both, first.length, second.length);
-        return both;
     }
 }
