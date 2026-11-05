@@ -75,6 +75,8 @@ class AcmeCommonHelperTest {
                         named("a time without seconds", "2026-11-05T10:00Z"),
                         named("a year of more than four digits", "+10000-01-01T00:00:00Z"),
                         named("an instant before 1970", "1969-12-31T23:59:59Z"),
-                        named("an instant after 9999 in UTC", "9999-12-31T23:30:00-01:00"));
+                        named("an instant after 9999 in UTC", "9999-12-31T23:30:00-01:00"),
+                        named("a fraction finer than nanoseconds", "2026-11-05T10:00:00.0000000000Z"),
+                        named("an offset beyond 18 hours", "2026-11-05T10:00:00+19:00"));
     }
 }

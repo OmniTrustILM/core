@@ -87,10 +87,12 @@ public class AcmeCommonHelper {
     }
 
     /**
-     * The instant an RFC 3339 timestamp names, or null for none. {@link Instant#parse} reads it, so a leap second is
-     * the last second of its day.
+     * The instant an RFC 3339 timestamp names, or null for none. {@link Instant#parse} reads it: a leap second is the
+     * last second of its day, and a fraction finer than nanoseconds or an offset beyond ±18:00, which no time zone
+     * uses, is not supported.
      *
-     * @throws DateTimeException when the text is not such a timestamp, or names an instant before 1970 or after 9999
+     * @throws DateTimeException when the text is not a supported timestamp, or names an instant before 1970 or after
+     * 9999
      */
     public static Date getDateFromString(String date) {
         if (date == null) {

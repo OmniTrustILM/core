@@ -722,22 +722,6 @@ class AcmeServiceITest extends BaseSpringBootTest {
         assertNewOrder(order);
     }
 
-    private String buildNewOrderRequestJSON(URI requestUri, String baseUri) throws JOSEException {
-        return buildNewOrderRequestJSON(requestUri, baseUri,
-                "{\"identifiers\":[{\"type\":\"dns\",\"value\":\"debian10.acme.local\"}]}");
-    }
-
-    private String buildNewOrderRequestJSON(URI requestUri, String baseUri, String payload) throws JOSEException {
-        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(payload));
-        jwsObjectJSON
-                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
-                        .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
-                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
-                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
-                        .build(), rsa2048Signer);
-        return jwsObjectJSON.serializeFlattened();
-    }
-
     private void assertNewOrder(ResponseEntity<Order> order) {
         // status code is 201
         Assertions.assertEquals(HttpStatus.CREATED, order.getStatusCode());
@@ -812,7 +796,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
             assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
             assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
             assertThat(refused.getProblemDocument().getDetail())
-                    .isEqualTo("notBefore is not an RFC 3339 timestamp from 1970 to 9999");
+                    .isEqualTo("notBefore is not a supported RFC 3339 timestamp from 1970 to 9999");
         });
         assertThat(acmeOrderRepository.count()).isEqualTo(ordersBefore);
     }
@@ -2062,6 +2046,22 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private String buildNewOrderRequestJSON(URI requestUri, String baseUri) throws JOSEException {
+        return buildNewOrderRequestJSON(requestUri, baseUri,
+                "{\"identifiers\":[{\"type\":\"dns\",\"value\":\"debian10.acme.local\"}]}");
+    }
+
+    private String buildNewOrderRequestJSON(URI requestUri, String baseUri, String payload) throws JOSEException {
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(payload));
+        jwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), rsa2048Signer);
+        return jwsObjectJSON.serializeFlattened();
+    }
 
     /**
      * The state an instance without failure propagation leaves behind: the challenge is invalid, nothing else is.

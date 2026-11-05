@@ -1239,15 +1239,15 @@ public class AcmeServiceImpl implements AcmeExternalService {
     }
 
     /**
-     * A timestamp the order requests (RFC 8555 section 7.4), or null when the member is absent. A value that is not an
-     * RFC 3339 timestamp from 1970 to 9999 is refused as malformed.
+     * A timestamp the order requests (RFC 8555 section 7.4), or null when the member is absent. A value that is not a
+     * supported RFC 3339 timestamp from 1970 to 9999 is refused as malformed.
      */
     private static Date readOrderTimestamp(String value, String member) throws AcmeProblemDocumentException {
         try {
             return AcmeCommonHelper.getDateFromString(value);
         } catch (DateTimeException e) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
-                    member + " is not an RFC 3339 timestamp from 1970 to 9999");
+                    member + " is not a supported RFC 3339 timestamp from 1970 to 9999");
         }
     }
 
