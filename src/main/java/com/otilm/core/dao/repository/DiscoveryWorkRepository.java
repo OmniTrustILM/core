@@ -109,25 +109,29 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
             @Param("leasedUntil") OffsetDateTime leasedUntil);
 
     /**
-     * Inserts the pending row for a run and work type, or re-arms an existing one.
+     * Inserts the pending row for a run and work type, or re-arms an existing one. Re-arming frees the row: a tick
+     * still holding it worked the run as it was before, and its writes must not land.
      */
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}discovery_work (uuid, discovery_uuid, work_type, attempt, next_due_at)
             VALUES (:uuid, :discoveryUuid, :workType, 0, :nextDueAt)
-            ON CONFLICT (discovery_uuid, work_type) DO UPDATE SET next_due_at = EXCLUDED.next_due_at, attempt = 0
+            ON CONFLICT (discovery_uuid, work_type) DO UPDATE SET next_due_at = EXCLUDED.next_due_at, attempt = 0,
+                lease_token = NULL, lease_expires_at = NULL
             """, nativeQuery = true)
     void schedule(@Param("uuid") UUID uuid, @Param("discoveryUuid") UUID discoveryUuid,
             @Param("workType") String workType, @Param("nextDueAt") OffsetDateTime nextDueAt);
 
     /**
-     * Brings a row forward to {@code nextDueAt} without resetting its attempt counter.
+     * Brings a row forward to {@code nextDueAt} without resetting its attempt counter, and frees it, so the next sweep
+     * claims it even while a tick from before the change still holds it.
      */
     @Modifying
     @Query(value = """
             INSERT INTO {h-schema}discovery_work (uuid, discovery_uuid, work_type, attempt, next_due_at)
             VALUES (:uuid, :discoveryUuid, :workType, 0, :nextDueAt)
-            ON CONFLICT (discovery_uuid, work_type) DO UPDATE SET next_due_at = EXCLUDED.next_due_at
+            ON CONFLICT (discovery_uuid, work_type) DO UPDATE SET next_due_at = EXCLUDED.next_due_at,
+                lease_token = NULL, lease_expires_at = NULL
             """, nativeQuery = true)
     void expedite(@Param("uuid") UUID uuid, @Param("discoveryUuid") UUID discoveryUuid,
             @Param("workType") String workType, @Param("nextDueAt") OffsetDateTime nextDueAt);
@@ -139,11 +143,12 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
             @Param("attempt") int attempt, @Param("nextDueAt") OffsetDateTime nextDueAt);
 
     /**
-     * Lowers an agenda row's attempt counter to {@code attempt} when it is currently above it.
+     * Lowers an agenda row's attempt counter to {@code attempt} when it is currently above it, and frees the row.
      */
     @Modifying
-    @Query("UPDATE DiscoveryWork w SET w.attempt = :attempt "
-            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.attempt > :attempt")
+    @Query("UPDATE DiscoveryWork w SET w.attempt = CASE WHEN w.attempt > :attempt THEN :attempt ELSE w.attempt END, "
+            + "w.leaseToken = NULL, w.leaseExpiresAt = NULL "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType")
     void resetAttemptTo(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
             @Param("attempt") int attempt);
 

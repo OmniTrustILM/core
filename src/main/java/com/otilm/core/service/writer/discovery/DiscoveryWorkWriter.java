@@ -37,7 +37,7 @@ public class DiscoveryWorkWriter {
 
     /**
      * Schedules the run's pending row for {@code workType}, due at {@code nextDueAt}, or re-arms an existing one — a
-     * fresh start, counter included.
+     * fresh start, counter and lease included.
      */
     @Transactional
     public void schedule(UUID discoveryUuid, DiscoveryWorkType workType, OffsetDateTime nextDueAt) {
@@ -55,7 +55,8 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Brings the run's {@code workType} work forward to {@code nextDueAt} without refreshing what it has already spent.
+     * Brings the run's {@code workType} work forward to {@code nextDueAt} without refreshing what it has already spent,
+     * and frees the row from any tick that holds it.
      */
     @Transactional
     public void expedite(UUID discoveryUuid, DiscoveryWorkType workType, OffsetDateTime nextDueAt) {
@@ -132,8 +133,8 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Lowers an agenda row's attempt counter to {@code attempt} if it is above {@code attempt} — how a clear connector
-     * answer refreshes the attempt budget without restarting the backoff ramp.
+     * Lowers an agenda row's attempt counter to {@code attempt} if it is above {@code attempt}, refreshing the budget
+     * without restarting the backoff ramp, and frees the row from any tick that holds it.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void resetAttempt(UUID discoveryUuid, DiscoveryWorkType workType, int attempt) {

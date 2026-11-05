@@ -185,6 +185,66 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
         assertThat(row.getLeaseExpiresAt()).isAfter(beforeClaim);
     }
 
+    // ------------------------------------------------------------------ lifecycle clears the lease
+
+    @Test
+    void claimsALeasedRowAtOnce_whenItIsExpedited() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.STOPPED).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
+        var staleTickToken = UUID.randomUUID();
+        leaseRow(runUuid, DiscoveryWorkType.STATUS, staleTickToken, OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(1));
+
+        // when
+        workWriter.expedite(runUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
+
+        // then
+        assertThat(workRepository.findAll().get(0).getLeaseToken()).isNull();
+        assertThat(claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC)))
+                .as("a resume must not wait out the lease of a tick that read the run before it")
+                .singleElement()
+                .extracting(DiscoveryWorkMessage::leaseToken)
+                .isNotEqualTo(staleTickToken);
+    }
+
+    @Test
+    void clearsALiveLease_whenTheRowIsScheduledAfresh() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
+        leaseRow(runUuid, DiscoveryWorkType.DRAIN, UUID.randomUUID(),
+                OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(1));
+
+        // when
+        workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
+
+        // then
+        DiscoveryWork row = workRepository.findAll().get(0);
+        assertThat(row.getLeaseToken()).isNull();
+        assertThat(row.getLeaseExpiresAt()).isNull();
+    }
+
+    @Test
+    void clearsALiveLease_whenTheAttemptIsResetFromBelowTheTarget() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
+        var attemptBelowTarget = 1;
+        workWriter
+                .reschedule(runUuid, DiscoveryWorkType.STATUS, attemptBelowTarget,
+                        OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5));
+        leaseRow(runUuid, DiscoveryWorkType.STATUS, UUID.randomUUID(),
+                OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(1));
+
+        // when
+        workWriter.resetAttempt(runUuid, DiscoveryWorkType.STATUS, 4);
+
+        // then
+        DiscoveryWork row = workRepository.findAll().get(0);
+        assertThat(row.getLeaseToken()).isNull();
+        assertThat(row.getAttempt()).as("a reset only ever lowers the counter").isEqualTo(attemptBelowTarget);
+    }
+
     // ------------------------------------------------------------------ reaper: work lost
 
     @Test
