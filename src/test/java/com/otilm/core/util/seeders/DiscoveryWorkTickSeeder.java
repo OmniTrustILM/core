@@ -34,7 +34,7 @@ public class DiscoveryWorkTickSeeder {
      * @throws IllegalStateException when the run has no agenda row of {@code workType}: a tick for a row that does not
      * exist is never admitted
      */
-    public DiscoveryWorkTick admittedTick(UUID discoveryUuid, DiscoveryWorkType workType, int attempt) {
+    public DiscoveryWorkTick admitTick(UUID discoveryUuid, DiscoveryWorkType workType, int attempt) {
         DiscoveryWork row = workRepository
                 .findAll()
                 .stream()

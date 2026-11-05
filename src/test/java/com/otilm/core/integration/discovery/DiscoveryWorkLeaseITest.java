@@ -1,12 +1,7 @@
 package com.otilm.core.integration.discovery;
 
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
-import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
-import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryWork;
-import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
-import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.listeners.discovery.DiscoveryWorkClaimer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
@@ -15,7 +10,7 @@ import com.otilm.core.service.writer.discovery.DiscoveryWorkLease;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.DiscoveryInterfaceFixture;
+import com.otilm.core.util.seeders.DiscoveryRunSeeder;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -45,18 +40,14 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkRepository workRepository;
     @Autowired
-    private DiscoveryRepository discoveryRepository;
-    @Autowired
-    private ConnectorRepository connectorRepository;
-    @Autowired
-    private ConnectorInterfaceRepository connectorInterfaceRepository;
+    private DiscoveryRunSeeder runSeeder;
     @Autowired
     private DataSource testDataSource;
 
     @Test
     void refusesATick_whenAReclaimReplacedItsToken() {
         // given
-        UUID runUuid = dueDrainRow();
+        UUID runUuid = seedDueDrainRow();
         DiscoveryWorkMessage firstClaim = claimOne();
         expireLease(runUuid, DiscoveryWorkType.DRAIN);
         DiscoveryWorkMessage reclaim = claimOne();
@@ -72,7 +63,7 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
     @Test
     void refusesASecondCopyOfAMessage_whenTheFirstCopyWasAdmitted() {
         // given
-        dueDrainRow();
+        seedDueDrainRow();
         DiscoveryWorkMessage deliveredTwice = claimOne();
         lease.admit(deliveredTwice).orElseThrow();
 
@@ -86,7 +77,7 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
     @Test
     void refusesATokenlessTick_whenTheRowHoldsALiveLease() {
         // given
-        UUID runUuid = dueDrainRow();
+        UUID runUuid = seedDueDrainRow();
         claimOne();
         var fromAnOlderCore = new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.DRAIN, 0, null);
 
@@ -100,7 +91,7 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
     @Test
     void admitsATokenlessTickUnderANewToken_whenTheRowIsUnleased() {
         // given
-        UUID runUuid = dueDrainRow();
+        UUID runUuid = seedDueDrainRow();
         var fromAnOlderCore = new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.DRAIN, 0, null);
 
         // when
@@ -108,23 +99,23 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
 
         // then
         assertThat(admitted).isPresent();
-        assertThat(admitted.get().token()).isNotNull().isEqualTo(drainRow(runUuid).getLeaseToken());
+        assertThat(admitted.get().token()).isNotNull().isEqualTo(readDrainRow(runUuid).getLeaseToken());
     }
 
     @Test
     void changesNothing_whenATickWhoseTokenWasReplacedReschedules() {
         // given
-        UUID runUuid = dueDrainRow();
+        UUID runUuid = seedDueDrainRow();
         DiscoveryWorkTick outlivedTick = lease.admit(claimOne()).orElseThrow();
         expireLease(runUuid, DiscoveryWorkType.DRAIN);
         DiscoveryWorkMessage reclaim = claimOne();
-        DiscoveryWork afterReclaim = drainRow(runUuid);
+        DiscoveryWork afterReclaim = readDrainRow(runUuid);
 
         // when
         outlivedTick.reschedule(42, OffsetDateTime.now(ZoneOffset.UTC).plusDays(1));
 
         // then
-        DiscoveryWork row = drainRow(runUuid);
+        DiscoveryWork row = readDrainRow(runUuid);
         assertThat(row.getLeaseToken()).isEqualTo(reclaim.leaseToken());
         assertThat(row.getAttempt()).isEqualTo(afterReclaim.getAttempt());
         assertThat(row.getNextDueAt().toInstant()).isEqualTo(afterReclaim.getNextDueAt().toInstant());
@@ -133,25 +124,26 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
     @Test
     void clearsTheLease_whenATickReschedules() {
         // given
-        UUID runUuid = dueDrainRow();
+        UUID runUuid = seedDueDrainRow();
         DiscoveryWorkTick tick = lease.admit(claimOne()).orElseThrow();
+        var nextAttempt = 2;
         var nextDueAt = OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(5).truncatedTo(ChronoUnit.MICROS);
 
         // when
-        tick.reschedule(2, nextDueAt);
+        tick.reschedule(nextAttempt, nextDueAt);
 
         // then
-        DiscoveryWork row = drainRow(runUuid);
+        DiscoveryWork row = readDrainRow(runUuid);
         assertThat(row.getLeaseToken()).isNull();
         assertThat(row.getLeaseExpiresAt()).isNull();
-        assertThat(row.getAttempt()).isEqualTo(2);
+        assertThat(row.getAttempt()).isEqualTo(nextAttempt);
         assertThat(row.getNextDueAt().toInstant()).isEqualTo(nextDueAt.toInstant());
     }
 
     @Test
     void extendsTheLease_whenATickRenews() {
         // given
-        UUID runUuid = dueDrainRow();
+        UUID runUuid = seedDueDrainRow();
         DiscoveryWorkTick tick = lease.admit(claimOne()).orElseThrow();
         var almostOver = OffsetDateTime.now(ZoneOffset.UTC).plusSeconds(5);
         setLeaseExpiry(runUuid, DiscoveryWorkType.DRAIN, almostOver);
@@ -160,24 +152,14 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
         tick.renew();
 
         // then
-        assertThat(drainRow(runUuid).getLeaseExpiresAt()).isAfter(almostOver.plusMinutes(1));
+        assertThat(readDrainRow(runUuid).getLeaseExpiresAt()).isAfter(almostOver.plusMinutes(1));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** A committed v2 run with one DRAIN row, already due. */
-    private UUID dueDrainRow() {
-        Discovery run = new Discovery();
-        run.setName("v2-scan-" + UUID.randomUUID());
-        run.setKind("IP-HostName");
-        run.setStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
-                .v2Interface(connectorRepository, connectorInterfaceRepository);
-        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
-        run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
-        UUID runUuid = discoveryRepository.saveAndFlush(run).getUuid();
+    private UUID seedDueDrainRow() {
+        UUID runUuid = runSeeder.seedV2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
         workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
         return runUuid;
     }
@@ -188,7 +170,7 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
         return claimed.get(0);
     }
 
-    private DiscoveryWork drainRow(UUID runUuid) {
+    private DiscoveryWork readDrainRow(UUID runUuid) {
         return workRepository
                 .findAll()
                 .stream()

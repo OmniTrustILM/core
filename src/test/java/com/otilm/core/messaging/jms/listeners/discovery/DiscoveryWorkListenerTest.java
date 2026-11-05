@@ -63,7 +63,7 @@ class DiscoveryWorkListenerTest {
     @Test
     void runsTheStatusWorker_whenAStatusTickIsAdmitted() {
         // given
-        var message = message(DiscoveryWorkType.STATUS, 4);
+        var message = buildMessage(DiscoveryWorkType.STATUS, 4);
         DiscoveryWorkTick tick = admit(message);
 
         // when
@@ -77,7 +77,7 @@ class DiscoveryWorkListenerTest {
     @Test
     void runsTheDrainWorker_whenADrainTickIsAdmitted() {
         // given
-        var message = message(DiscoveryWorkType.DRAIN, 2);
+        var message = buildMessage(DiscoveryWorkType.DRAIN, 2);
         DiscoveryWorkTick tick = admit(message);
 
         // when
@@ -91,7 +91,7 @@ class DiscoveryWorkListenerTest {
     @Test
     void runsTheProcessWorker_whenAProcessTickIsAdmitted() {
         // given
-        var message = message(DiscoveryWorkType.PROCESS, 7);
+        var message = buildMessage(DiscoveryWorkType.PROCESS, 7);
         DiscoveryWorkTick tick = admit(message);
 
         // when
@@ -105,7 +105,7 @@ class DiscoveryWorkListenerTest {
     @Test
     void neverRunsAWorker_whenTheTicksTokenIsNoLongerTheRows() {
         // given
-        var staleMessage = message(DiscoveryWorkType.DRAIN, 0);
+        var staleMessage = buildMessage(DiscoveryWorkType.DRAIN, 0);
         when(lease.admit(staleMessage)).thenReturn(Optional.empty());
 
         // when
@@ -119,7 +119,7 @@ class DiscoveryWorkListenerTest {
     void reschedulesTheTickToItsNextRung_whenTheWorkerLeftItUnresolved() {
         // given
         var unresolvedAttempt = 1;
-        var message = message(DiscoveryWorkType.DRAIN, unresolvedAttempt);
+        var message = buildMessage(DiscoveryWorkType.DRAIN, unresolvedAttempt);
         DiscoveryWorkTick tick = admit(message);
         var beforeTick = OffsetDateTime.now();
 
@@ -138,7 +138,7 @@ class DiscoveryWorkListenerTest {
     @Test
     void leavesTheTickAlone_whenTheWorkerResolvedIt() {
         // given
-        var message = message(DiscoveryWorkType.STATUS, 0);
+        var message = buildMessage(DiscoveryWorkType.STATUS, 0);
         DiscoveryWorkTick tick = admit(message);
         when(tick.resolved()).thenReturn(true);
 
@@ -152,7 +152,8 @@ class DiscoveryWorkListenerTest {
     @Test
     void swallowsAWorkerFailure_soTheAgendaOwnsTheRetry() {
         // given
-        var message = message(DiscoveryWorkType.STATUS, 0);
+        var failingAttempt = 0;
+        var message = buildMessage(DiscoveryWorkType.STATUS, failingAttempt);
         DiscoveryWorkTick tick = admit(message);
         doThrow(new IllegalStateException("connector blew up")).when(statusWorker).tick(tick);
 
@@ -161,12 +162,12 @@ class DiscoveryWorkListenerTest {
 
         // then
         assertThatCode(processMessage).doesNotThrowAnyException();
-        verify(tick).reschedule(eq(1), any(OffsetDateTime.class));
+        verify(tick).reschedule(eq(failingAttempt + 1), any(OffsetDateTime.class));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static DiscoveryWorkMessage message(DiscoveryWorkType workType, int attempt) {
+    private static DiscoveryWorkMessage buildMessage(DiscoveryWorkType workType, int attempt) {
         return new DiscoveryWorkMessage(UUID.randomUUID(), workType, attempt, UUID.randomUUID());
     }
 

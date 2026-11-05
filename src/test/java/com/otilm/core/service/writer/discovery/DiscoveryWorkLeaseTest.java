@@ -157,22 +157,23 @@ class DiscoveryWorkLeaseTest {
         @Test
         void resolvesTheTick_whenItReschedulesOutsideATransaction() {
             // given
-            DiscoveryWorkTick tick = admittedTick(DiscoveryWorkType.STATUS, 1);
+            DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.STATUS, 1);
+            var nextAttempt = 2;
 
             // when
-            tick.reschedule(2, OffsetDateTime.now().plusSeconds(5));
+            tick.reschedule(nextAttempt, OffsetDateTime.now().plusSeconds(5));
 
             // then
             assertThat(tick.resolved()).isTrue();
             verify(workWriter)
-                    .rescheduleLeased(eq(tick.discoveryUuid()), eq(DiscoveryWorkType.STATUS), eq(tick.token()), eq(2),
-                            any(OffsetDateTime.class));
+                    .rescheduleLeased(eq(tick.discoveryUuid()), eq(DiscoveryWorkType.STATUS), eq(tick.token()),
+                            eq(nextAttempt), any(OffsetDateTime.class));
         }
 
         @Test
         void resolvesTheTick_whenTheTransactionItReschedulesInCommits() {
             // given
-            DiscoveryWorkTick tick = admittedTick(DiscoveryWorkType.STATUS, 1);
+            DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.STATUS, 1);
             TransactionSynchronizationManager.initSynchronization();
             tick.reschedule(0, OffsetDateTime.now().plusMinutes(5));
             assertThat(tick.resolved()).as("nothing is settled before the surrounding transaction commits").isFalse();
@@ -187,7 +188,7 @@ class DiscoveryWorkLeaseTest {
         @Test
         void leavesTheTickUnresolved_whenTheTransactionItReschedulesInRollsBack() {
             // given
-            DiscoveryWorkTick tick = admittedTick(DiscoveryWorkType.STATUS, 1);
+            DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.STATUS, 1);
             TransactionSynchronizationManager.initSynchronization();
             tick.reschedule(0, OffsetDateTime.now().plusMinutes(5));
 
@@ -203,7 +204,7 @@ class DiscoveryWorkLeaseTest {
         @Test
         void resolvesTheTick_whenItReleasesItsLeaseOnly() {
             // given
-            DiscoveryWorkTick tick = admittedTick(DiscoveryWorkType.DRAIN, 4);
+            DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.DRAIN, 4);
 
             // when
             tick.releaseOnly();
@@ -222,7 +223,7 @@ class DiscoveryWorkLeaseTest {
         @Test
         void handsTheRowOverUnderANewToken_whenTheTickStillHoldsIt() {
             // given
-            DiscoveryWorkTick tick = admittedTick(DiscoveryWorkType.DRAIN, 5);
+            DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.DRAIN, 5);
             when(workWriter.handOverLease(any(), any(), any(), any(), any())).thenReturn(true);
 
             // when
@@ -243,7 +244,7 @@ class DiscoveryWorkLeaseTest {
         @Test
         void handsNothingOver_whenTheTicksTokenWasReplaced() {
             // given
-            DiscoveryWorkTick tick = admittedTick(DiscoveryWorkType.PROCESS, 0);
+            DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.PROCESS, 0);
             when(workWriter.handOverLease(any(), any(), any(), any(), any())).thenReturn(false);
 
             // when
@@ -256,7 +257,7 @@ class DiscoveryWorkLeaseTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private DiscoveryWorkTick admittedTick(DiscoveryWorkType workType, int attempt) {
+    private DiscoveryWorkTick admitTick(DiscoveryWorkType workType, int attempt) {
         var message = new DiscoveryWorkMessage(UUID.randomUUID(), workType, attempt, UUID.randomUUID());
         when(workWriter.swapLease(any(), any(), any(), any(), any())).thenReturn(true);
         return lease.admit(message).orElseThrow();

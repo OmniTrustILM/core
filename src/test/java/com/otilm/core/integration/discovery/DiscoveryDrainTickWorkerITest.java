@@ -88,16 +88,20 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     private DiscoveryWorkWriter workWriter;
 
     @Test
-    void pageWithMoreToCome_stagesItAndPublishesTheFollowUpTickItself() throws Exception {
+    void stagesThePageAndPublishesTheNextTickItself_whenThePageSaysThereIsMore() throws Exception {
+        // given
         Discovery run = runStillScanning();
         armDrainRow(run, 0);
+        var lastSequenceOnThePage = 2L;
         when(client.results(any(), anyInt(), anyLong()))
-                .thenReturn(page(9L, true, keyItem(1, "key-a"), keyItem(2, "key-b")));
+                .thenReturn(page(9L, true, keyItem(1, "key-a"), keyItem(lastSequenceOnThePage, "key-b")));
 
-        worker.tick(tickOf(run, 0));
+        // when
+        worker.tick(admitTick(run, 0));
 
+        // then
         assertThat(stagedRefs(run)).containsExactlyInAnyOrder("key-a", "key-b");
-        assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
+        assertThat(reload(run).getLastAppliedSequence()).isEqualTo(lastSequenceOnThePage);
         assertThat(publishedTicks())
                 .as("the sweep's cadence is the recovery latency, not the drain's throughput ceiling")
                 .singleElement()
@@ -105,8 +109,8 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
                         DiscoveryWorkMessage::attempt)
                 .containsExactly(run.getUuid(), DiscoveryWorkType.DRAIN, 0);
         assertThat(drainRow(run).getNextDueAt())
-                .as("parked as a backstop, not due-now: a due-now row is one the sweep would claim and publish "
-                        + "itself, racing the tick this worker just published")
+                .as("due again only once the continuation's lease could have run out, so the sweep does not "
+                        + "publish a second tick beside the one this worker just published")
                 .isAfter(OffsetDateTime.now(ZoneOffset.UTC));
     }
 
@@ -115,7 +119,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         // given
         Discovery run = runStillScanning();
         armDrainRow(run, 0);
-        DiscoveryWorkTick tick = tickOf(run, 0);
+        DiscoveryWorkTick tick = admitTick(run, 0);
         when(client.results(any(), anyInt(), anyLong())).thenReturn(page(9L, true, keyItem(1, "key-a")));
 
         // when
@@ -138,9 +142,9 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
                 .thenReturn(page(3L, true, keyItem(2, "key-b")))
                 .thenReturn(page(3L, false, keyItem(3, "key-c")));
 
-        worker.tick(tickOf(run, 0));
-        worker.tick(tickOf(run, 0));
-        worker.tick(tickOf(run, 0));
+        worker.tick(admitTick(run, 0));
+        worker.tick(admitTick(run, 0));
+        worker.tick(admitTick(run, 0));
 
         assertThat(stagedRefs(run)).containsExactlyInAnyOrder("key-a", "key-b", "key-c");
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(3);
@@ -155,7 +159,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         armDrainRow(run, 40);
         when(client.results(any(), anyInt(), anyLong())).thenReturn(page(0L, false));
 
-        worker.tick(tickOf(run, 40));
+        worker.tick(admitTick(run, 40));
 
         verify(workProducer, never()).produceMessage(any());
         assertThat(drainRow(run).getAttempt())
@@ -164,15 +168,19 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void fullyDrainedCompletedRun_swapsToProcessingWithOneProcessRow() throws Exception {
+    void handsTheRunToProcessingUnderOneLeasedProcessRow_whenTheCompletedRunIsFullyDrained() throws Exception {
+        // given
         Discovery run = runTheConnectorFinished();
         armDrainRow(run, 0);
         workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
+        var highestSequence = 2L;
         when(client.results(any(), anyInt(), anyLong()))
-                .thenReturn(page(2L, false, keyItem(1, "key-a"), keyItem(2, "key-b")));
+                .thenReturn(page(highestSequence, false, keyItem(1, "key-a"), keyItem(highestSequence, "key-b")));
 
-        worker.tick(tickOf(run, 0));
+        // when
+        worker.tick(admitTick(run, 0));
 
+        // then
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
         assertThat(reloaded.getCheckpoint())
@@ -186,7 +194,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(agenda(run).getFirst().getLeaseToken()).isNotNull();
         // The contract's full acknowledgement, and the only call that licences the connector to discard the
         // run's state: a drain at afterSequence == highestSequence, sent once the handover is durable.
-        verify(client).acknowledge(any(), eq(2L));
+        verify(client).acknowledge(any(), eq(highestSequence));
     }
 
     @Test
@@ -196,7 +204,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         when(client.results(any(), anyInt(), anyLong()))
                 .thenReturn(page(4L, false, keyItem(1, "key-a"), keyItem(2, "key-b")));
 
-        worker.tick(tickOf(run, 0));
+        worker.tick(admitTick(run, 0));
 
         // Acknowledging here would tell the connector it may discard items 3 and 4 — the very ones Core is
         // still waiting for.
@@ -204,14 +212,17 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void acknowledgementThatFails_leavesTheHandoverStanding() throws Exception {
+    void keepsTheHandover_whenTheFullAcknowledgementFails() throws Exception {
+        // given
         Discovery run = runTheConnectorFinished();
         armDrainRow(run, 0);
         when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, keyItem(1, "key-a")));
         doThrow(new ConnectorException("connection reset")).when(client).acknowledge(any(), anyLong());
 
-        worker.tick(tickOf(run, 0));
+        // when
+        worker.tick(admitTick(run, 0));
 
+        // then
         // Best-effort by design: the connector retains the run's state for 24 hours regardless, so a failed ack
         // costs retention, not data. Rolling the handover back would cost the import instead.
         Discovery reloaded = reload(run);
@@ -232,7 +243,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         when(client.results(any(), anyInt(), anyLong()))
                 .thenReturn(page(4L, false, keyItem(1, "key-a"), keyItem(2, "key-b")));
 
-        worker.tick(tickOf(run, 0));
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
@@ -251,7 +262,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         armDrainRow(run, 0);
         when(client.results(any(), anyInt(), anyLong())).thenThrow(notFound());
 
-        worker.tick(tickOf(run, 0));
+        worker.tick(admitTick(run, 0));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
@@ -265,7 +276,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         armDrainRow(run, 0);
         when(client.results(any(), anyInt(), anyLong())).thenThrow(new ConnectorException("connection reset"));
 
-        worker.tick(tickOf(run, 99));
+        worker.tick(admitTick(run, 99));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
@@ -279,7 +290,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         armDrainRow(run, 2);
         when(client.results(any(), anyInt(), anyLong())).thenThrow(new ConnectorException("connection reset"));
 
-        worker.tick(tickOf(run, 2));
+        worker.tick(admitTick(run, 2));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
         assertThat(drainRow(run).getAttempt()).isEqualTo(2);
@@ -294,7 +305,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         armDrainRow(run, 0);
         workWriter.schedule(run.getUuid(), DiscoveryWorkType.PROCESS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
 
-        worker.tick(tickOf(run, 0));
+        worker.tick(admitTick(run, 0));
 
         // Taking the whole agenda here would delete the PROCESS row that drives the remaining import, and the
         // reaper would then read a live run with no work as lost and fail it.
@@ -310,7 +321,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         malformed.setItems(List.of());
         when(client.results(any(), anyInt(), anyLong())).thenReturn(malformed);
 
-        worker.tick(tickOf(run, 0));
+        worker.tick(admitTick(run, 0));
 
         // Reading a missing "more" as "no more items" would hand a half-drained run to processing and release
         // the connector handle, which is permanent silent loss.
@@ -327,7 +338,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         malformed.setItems(List.of());
         when(client.results(any(), anyInt(), anyLong())).thenReturn(malformed);
 
-        worker.tick(tickOf(run, 99));
+        worker.tick(admitTick(run, 99));
 
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
@@ -346,7 +357,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         noItemsField.setHighestSequence(0L);
         when(client.results(any(), anyInt(), anyLong())).thenReturn(noItemsField);
 
-        worker.tick(tickOf(run, 0));
+        worker.tick(admitTick(run, 0));
 
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.DRAIN);
@@ -361,7 +372,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         // Passes every contract check, so nothing skips it.
         when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, unstageableKeyItem(1)));
 
-        worker.tick(tickOf(run, 0));
+        worker.tick(admitTick(run, 0));
 
         // Contained here rather than left to the listener's log-and-acknowledge: the agenda row survives for the
         // sweep's claimer to push up the ladder, and the cursor is untouched by the rolled-back page.
@@ -377,7 +388,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         armDrainRow(run, 0);
         when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, unstageableKeyItem(1)));
 
-        worker.tick(tickOf(run, 99));
+        worker.tick(admitTick(run, 99));
 
         // The connector answered, and answered correctly. Reporting this as "the connector stopped handing over
         // items" would send an operator to the wrong system.
@@ -389,19 +400,22 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void staleFailureAfterHandover_leavesTheProcessingRunAlone() throws Exception {
+    void leavesTheProcessingRunAlone_whenADrainAdmittedBeforeTheHandoverRunsAfterIt() throws Exception {
+        // given
         Discovery run = runTheConnectorFinished();
         armDrainRow(run, 0);
-        DiscoveryWorkTick admittedBeforeHandover = tickOf(run, 0);
+        DiscoveryWorkTick admittedBeforeHandover = admitTick(run, 0);
         run.setStatus(DiscoveryStatus.PROCESSING);
         discoveryRepository.saveAndFlush(run);
         workWriter.deleteForRun(run.getUuid(), DiscoveryWorkType.DRAIN);
         workWriter.schedule(run.getUuid(), DiscoveryWorkType.PROCESS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
 
+        // when
         // A drain request that went out before the handover, answering 404 after it. Ending the run here would
         // fail a healthy import and delete the PROCESS row driving it.
         worker.tick(admittedBeforeHandover);
 
+        // then
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
     }
@@ -461,8 +475,8 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
                         OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
     }
 
-    private DiscoveryWorkTick tickOf(Discovery run, int attempt) {
-        return tickSeeder.admittedTick(run.getUuid(), DiscoveryWorkType.DRAIN, attempt);
+    private DiscoveryWorkTick admitTick(Discovery run, int attempt) {
+        return tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.DRAIN, attempt);
     }
 
     private DiscoveryWork drainRow(Discovery run) {

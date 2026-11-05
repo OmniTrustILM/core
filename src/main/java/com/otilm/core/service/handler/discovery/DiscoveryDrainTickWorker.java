@@ -183,8 +183,8 @@ public class DiscoveryDrainTickWorker {
             return;
         }
         if (!DiscoveryRunState.COMPLETED.getCode().equals(run.getConnectorState())) {
-            // The connector is still producing. Nothing more is ready this moment, so fall back to the
-            // ladder's slowest cadence with the budget refreshed by this successful page.
+            // The connector is still producing. Nothing more is ready this moment, so climb the ladder towards
+            // its slowest rung, with the budget refreshed by this successful page.
             idleUntilNextDue(tick);
             return;
         }

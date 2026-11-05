@@ -55,12 +55,12 @@ class DiscoveryWorkLadderConfigTest {
      */
     @ParameterizedTest
     @ValueSource(strings = {"DRAIN", "PROCESS"})
-    void theDrainAndProcessBudgetsKeepTheirWallClockAllowance(String workType) {
+    void toleratesEightyMinutesOfFailedTicks_onTheShippedDrainAndProcessLadders(String workType) {
         // given
         Properties shipped = shipped();
         String prefix = "discovery.work.by-type." + workType;
         int maxAttempts = Integer.parseInt(shipped.getProperty(prefix + ".max-attempts"));
-        PollSchedule ladder = new PollSchedule(rungs(shipped, prefix + ".delays"), maxAttempts);
+        PollSchedule ladder = new PollSchedule(readRungs(shipped, prefix + ".delays"), maxAttempts);
 
         // when
         Duration tolerated = IntStream
@@ -78,7 +78,7 @@ class DiscoveryWorkLadderConfigTest {
      * connecting, waiting for the response) plus staging what it returned, before the tick renews the lease.
      */
     @Test
-    void theLeaseOutlastsTheSlowestConnectorCall() {
+    void outlastsTheSlowestConnectorCallAndStaging_withTheShippedLease() {
         // given
         Properties shipped = shipped();
         Duration slowestCall = Stream
@@ -98,7 +98,9 @@ class DiscoveryWorkLadderConfigTest {
                 .isGreaterThan(slowestCall.plus(stagingMargin));
     }
 
-    private static List<Duration> rungs(Properties shipped, String delaysKey) {
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static List<Duration> readRungs(Properties shipped, String delaysKey) {
         List<Duration> rungs = new ArrayList<>();
         for (int i = 0; shipped.getProperty(delaysKey + "[" + i + "]") != null; i++) {
             rungs.add(Duration.parse(shipped.getProperty(delaysKey + "[" + i + "]")));
