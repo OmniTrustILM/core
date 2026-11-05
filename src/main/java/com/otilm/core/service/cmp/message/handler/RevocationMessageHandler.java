@@ -179,9 +179,12 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                 String freeText = e instanceof CmpProcessingException && e.getMessage() != null
                         ? e.getMessage()
                         : "problem with revocation";
+                int failInfo = e instanceof CmpProcessingException processingException
+                        ? processingException.getFailureInfo()
+                        : PKIFailureInfo.systemFailure;
                 revocationResponseBuilder
                         .add(new PKIStatusInfo(PKIStatus.rejection, new PKIFreeText(freeText),
-                                new PKIFailureInfo(PKIFailureInfo.systemFailure)), certId);
+                                new PKIFailureInfo(failInfo)), certId);
             }
         }
         if (revocationCount != 0) {

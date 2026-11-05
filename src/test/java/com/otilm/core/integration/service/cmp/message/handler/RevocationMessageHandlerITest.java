@@ -60,6 +60,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.PKIBody;
+import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIMessage;
 import org.bouncycastle.asn1.cmp.PKIStatus;
 import org.bouncycastle.asn1.cmp.PKIStatusInfo;
@@ -662,9 +663,31 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         // then
         PKIStatusInfo status = ((RevRepContent) response.getBody().getContent()).getStatus()[0];
         assertThat(status.getStatus().intValueExact()).isEqualTo(PKIStatus.REJECTION);
+        assertThat(status.getFailInfo().intValue()).isEqualTo(PKIFailureInfo.notAuthorized);
         assertThat(status.getStatusString().getStringAtUTF8(0).getString())
                 .contains("not protected by the certificate it revokes");
         verifyNoInteractions(clientOperationService);
+    }
+
+    @Test
+    @Transactional
+    void rejectsWithCertRevoked_whenCertificateIsAlreadyRevoked() throws Exception {
+        // given — the shared certificate is already revoked
+        PKIMessage request = CmpTestUtil
+                .createSignatureBasedMessage("792", CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        CmpTestUtil.createRevocationBody(x509Certificate.getSerialNumber()))
+                .toASN1Structure();
+
+        // when
+        PKIMessage response = testedHandler
+                .handle(request, new Mobile3gppProfileContext(cmpProfileSigPrt, raProfile, request,
+                        certificateKeyService, null, null));
+
+        // then
+        PKIStatusInfo status = ((RevRepContent) response.getBody().getContent()).getStatus()[0];
+        assertThat(status.getStatus().intValueExact()).isEqualTo(PKIStatus.REJECTION);
+        assertThat(status.getFailInfo().intValue()).isEqualTo(PKIFailureInfo.certRevoked);
+        assertThat(status.getStatusString().getStringAtUTF8(0).getString()).contains("already revoked");
     }
 
     @Test
