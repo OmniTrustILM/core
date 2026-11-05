@@ -18,11 +18,11 @@ import static org.junit.jupiter.api.Named.named;
 class AcmeJwsRequestTest {
 
     /** A protected header that names an account, so a body carrying it is refused for nothing else. */
-    private static final String HEADER_NAMING_AN_ACCOUNT = base64Url(
+    private static final String HEADER_NAMING_AN_ACCOUNT = encodeBase64Url(
             "{\"alg\":\"RS256\",\"kid\":\"https://acme.example/acct/1\"}");
 
     /** A protected header whose key lists another prime of the RSA modulus without any of its members. */
-    private static final String HEADER_WITH_A_MALFORMED_KEY = base64Url(
+    private static final String HEADER_WITH_A_MALFORMED_KEY = encodeBase64Url(
             "{\"alg\":\"RS256\",\"jwk\":{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\",\"oth\":[{}]}}");
 
     @ParameterizedTest
@@ -69,7 +69,7 @@ class AcmeJwsRequestTest {
                                 + HEADER_WITH_A_MALFORMED_KEY + "\",\"payload\":\"\",\"signature\":\"c2ln\"}"));
     }
 
-    private static String base64Url(String json) {
+    private static String encodeBase64Url(String json) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
     }
 }

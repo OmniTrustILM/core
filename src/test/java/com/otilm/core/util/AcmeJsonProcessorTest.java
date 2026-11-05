@@ -36,7 +36,7 @@ class AcmeJsonProcessorTest {
             // given
             var certificate = "MIIB";
             var reason = 1;
-            JWSObject jwsObject = jwsObjectCarrying(
+            JWSObject jwsObject = createJwsObjectCarrying(
                     "{\"certificate\":\"" + certificate + "\",\"reason\":" + reason + ",\"unknown\":true}");
 
             // when
@@ -52,7 +52,7 @@ class AcmeJsonProcessorTest {
         @MethodSource("payloadsThatDoNotMapToTheirType")
         void refusesAsMalformed_whenPayloadDoesNotMapToItsType(String payload, Class<?> type) {
             // given
-            JWSObject jwsObject = jwsObjectCarrying(payload);
+            JWSObject jwsObject = createJwsObjectCarrying(payload);
 
             // when
             ThrowingCallable read = () -> AcmeJsonProcessor.getPayloadAsRequestObject(jwsObject, type);
@@ -129,7 +129,7 @@ class AcmeJsonProcessorTest {
         void returnsMembers_whenPayloadIsJsonObject() throws Exception {
             // given
             var accountUrl = "https://acme.example/acct/1";
-            JWSObject jwsObject = jwsObjectCarrying("{\"account\":\"" + accountUrl + "\"}");
+            JWSObject jwsObject = createJwsObjectCarrying("{\"account\":\"" + accountUrl + "\"}");
 
             // when
             Map<String, Object> members = AcmeJsonProcessor.getPayloadAsJsonObject(jwsObject);
@@ -142,7 +142,7 @@ class AcmeJsonProcessorTest {
         @MethodSource("payloadsThatAreNotJsonObjects")
         void refusesAsMalformed_whenPayloadIsNotJsonObject(String payload) {
             // given
-            JWSObject jwsObject = jwsObjectCarrying(payload);
+            JWSObject jwsObject = createJwsObjectCarrying(payload);
 
             // when
             ThrowingCallable read = () -> AcmeJsonProcessor.getPayloadAsJsonObject(jwsObject);
@@ -166,7 +166,7 @@ class AcmeJsonProcessorTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static JWSObject jwsObjectCarrying(String payload) {
+    private static JWSObject createJwsObjectCarrying(String payload) {
         return new JWSObject(new JWSHeader(JWSAlgorithm.ES256), new Payload(payload));
     }
 

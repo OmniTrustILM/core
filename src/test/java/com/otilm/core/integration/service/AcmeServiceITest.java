@@ -1112,7 +1112,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void refusesAsMalformedAndKeepsAccountValid_whenAccountUpdatePayloadIsJsonArray() throws Exception {
+    void refusesAsMalformed_whenAccountUpdatePayloadIsJsonArray() throws Exception {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
@@ -1133,8 +1133,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @MethodSource("finalizePayloadsWithoutAUsableCsr")
-    void refusesAsMalformedAndKeepsOrderReady_whenFinalizePayloadCarriesNoUsableCsr(String payload, String detail)
-            throws Exception {
+    void refusesAsMalformed_whenFinalizePayloadCarriesNoUsableCsr(String payload, String detail) throws Exception {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/order/" + ORDER_ID_VALID + "/finalize");
@@ -1160,8 +1159,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @MethodSource("authorizationPayloadsThatDoNotMap")
-    void refusesAsMalformedAndKeepsAuthorizationPending_whenAuthorizationPayloadDoesNotMap(String payload)
-            throws Exception {
+    void refusesAsMalformed_whenAuthorizationPayloadDoesNotMap(String payload) throws Exception {
         // given
         pendingDnsChallenge(pendingOrder("orderArray"), "authArray", "challengeArray", "tokenArray");
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
@@ -1329,7 +1327,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void refusesAsMalformedAndKeepsAccountKey_whenInnerKeyChangeOldKeyIsJsonArray() throws Exception {
+    void refusesAsMalformed_whenInnerKeyChangeOldKeyIsJsonArray() throws Exception {
         // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/key-change");
@@ -1338,7 +1336,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .orElseThrow()
                 .getPublicKey();
         String innerPayload = "{\"account\":\"" + baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID + "\",\"oldKey\":"
-                + jsonArrayOfMemberPairs(rsa2048PublicJWK) + "}";
+                + convertToJsonArrayOfMemberPairs(rsa2048PublicJWK) + "}";
         String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, innerPayload);
 
         // when
@@ -2676,7 +2674,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     /** The members of the key as a JSON array of name and value pairs, which Gson would read as an object. */
-    private static String jsonArrayOfMemberPairs(RSAKey key) {
+    private static String convertToJsonArrayOfMemberPairs(RSAKey key) {
         return key
                 .toJSONObject()
                 .entrySet()
