@@ -26,8 +26,6 @@ import java.util.Map;
  */
 public class AcmeCommonHelper {
 
-    private static final Integer COMMON_EXPIRES_IN_SECONDS = 10 * 60 * 60;
-
     /** The timestamp format the ACME wire objects carry, in UTC. */
     private static final DateTimeFormatter WIRE_TIMESTAMP_FORMAT = DateTimeFormatter
             .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SS'Z'")
@@ -39,10 +37,6 @@ public class AcmeCommonHelper {
      */
     private static final Instant EARLIEST_TIMESTAMP = Instant.EPOCH;
     private static final Instant LATEST_TIMESTAMP = Instant.parse("9999-12-31T23:59:59.999999999Z");
-
-    public static Date getDefaultExpires() {
-        return new Date(new Date().getTime() + COMMON_EXPIRES_IN_SECONDS);
-    }
 
     public static String keyAuthorizationGenerator(String token, String publicKey) throws NoSuchAlgorithmException {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
