@@ -4,6 +4,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
@@ -67,7 +68,7 @@ class CertificateChainLinkingITest extends BaseSpringBootTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         CertificateUtil.prepareIssuedCertificate(certificate, x509);
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());

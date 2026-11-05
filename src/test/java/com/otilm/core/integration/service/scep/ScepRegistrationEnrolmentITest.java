@@ -27,6 +27,7 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -362,7 +363,7 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     private UUID savedCertificate() {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setState(CertificateState.REGISTERED);
         certificate.setRaProfile(raProfile);
         return certificateRepository.save(certificate).getUuid();
@@ -549,7 +550,7 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     private Certificate registeredPlaceholder(String subjectDn, Map<String, List<String>> sans, String challenge) {
-        Certificate placeholder = new Certificate();
+        X509CertificateEntity placeholder = new X509CertificateEntity();
         placeholder.setSubjectDn(subjectDn);
         placeholder.setSubjectDnNormalized(CertificateUtil.normalizeStoredSubjectDn(subjectDn));
         if (sans != null) {
@@ -602,7 +603,8 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
      */
     private void registerSignerCertificate() throws Exception {
         X509Certificate signerCertificate = ScepMessageTestData.signerCertificate();
-        Certificate certificate = storeCertificate(signerCertificate, null, raProfile);
+        X509CertificateEntity certificate = X509CertificateEntity
+                .from(storeCertificate(signerCertificate, null, raProfile));
         certificate.setSubjectDn(new X500Name(ScepMessageTestData.SUBJECT_DN).toString());
         certificate.setNotBefore(new Date(System.currentTimeMillis() - 30L * 24 * 3600 * 1000));
         certificate.setNotAfter(new Date(System.currentTimeMillis() + 10L * 24 * 3600 * 1000));
@@ -619,7 +621,7 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
         content.setFingerprint(fingerprint);
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());
         certificate.setFingerprint(fingerprint);

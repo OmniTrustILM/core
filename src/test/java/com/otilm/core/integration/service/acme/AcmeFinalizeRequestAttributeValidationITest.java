@@ -21,10 +21,10 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeNonce;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
@@ -139,7 +139,7 @@ class AcmeFinalizeRequestAttributeValidationITest extends BaseSpringBootTest {
         certificateContent.setContent(b64Certificate);
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCertificateContent(certificateContent);
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.VALID);

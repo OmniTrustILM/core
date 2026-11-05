@@ -7,6 +7,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRelationId;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -112,7 +113,7 @@ class CmpRegistrationResolverTest {
     }
 
     private Certificate registeredCertificate() {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(CERT_UUID);
         certificate.setState(CertificateState.REGISTERED);
         certificate.setRaProfileUuid(RA_PROFILE_UUID);

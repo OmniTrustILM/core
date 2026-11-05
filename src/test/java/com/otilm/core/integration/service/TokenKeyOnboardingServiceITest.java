@@ -46,12 +46,12 @@ import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.KeyImportState;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -491,7 +491,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
     /** A hybrid certificate whose alternative key carries the public key. */
     private UUID hybridCertificateWithAlternativeKey(PublicKey altPublicKey) throws Exception {
-        Certificate certificate = issuedCertificateCarrying(rsaPublicKey()).build();
+        X509CertificateEntity certificate = X509CertificateEntity
+                .from(issuedCertificateCarrying(rsaPublicKey()).build());
         certificate.setHybridCertificate(true);
         certificate.setAltKeyFingerprint(fingerprintOf(altPublicKey));
         return certificateRepository.saveAndFlush(certificate).getUuid();

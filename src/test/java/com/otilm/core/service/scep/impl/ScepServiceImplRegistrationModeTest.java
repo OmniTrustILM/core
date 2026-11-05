@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
@@ -310,7 +311,7 @@ class ScepServiceImplRegistrationModeTest {
     }
 
     private Certificate registeredCertificate(String subjectDn, String serializedSans) {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(CANDIDATE_UUID);
         certificate.setSubjectDn(subjectDn);
         certificate.setSubjectAlternativeNames(serializedSans);

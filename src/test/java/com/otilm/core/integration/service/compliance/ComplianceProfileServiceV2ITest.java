@@ -26,7 +26,6 @@ import com.otilm.api.model.core.other.ResourceObjectDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
@@ -35,6 +34,7 @@ import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -901,7 +901,7 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
 
     @Test
     void testDisassociateProfile() throws NotFoundException {
-        Certificate archivedCertificate = new Certificate();
+        X509CertificateEntity archivedCertificate = new X509CertificateEntity();
         archivedCertificate.setArchived(true);
         archivedCertificate.setRaProfileUuid(associatedRaProfileUuid);
         archivedCertificate.setComplianceStatus(ComplianceStatus.OK);
@@ -910,7 +910,7 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
         certificateContentRepository.save(certificateContent);
         archivedCertificate.setCertificateContent(certificateContent);
         certificateRepository.save(archivedCertificate);
-        Certificate notArchivedCertificate = new Certificate();
+        X509CertificateEntity notArchivedCertificate = new X509CertificateEntity();
         notArchivedCertificate.setRaProfileUuid(associatedRaProfileUuid);
         notArchivedCertificate.setComplianceStatus(ComplianceStatus.OK);
         CertificateContent certificateContent2 = new CertificateContent();

@@ -46,7 +46,6 @@ import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.auth.ContextRefreshListener;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
@@ -56,6 +55,7 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
 import com.otilm.core.dao.entity.DiscoveryMessage;
 import com.otilm.core.dao.entity.FunctionGroup;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
@@ -2107,7 +2107,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     private void knownCertificate() throws Exception {
-        Certificate known = new Certificate();
+        X509CertificateEntity known = new X509CertificateEntity();
         known
                 .setFingerprint(CertificateUtil
                         .getThumbprint(CertificateUtil.parseCertificate(CERTIFICATE_BASE64).getEncoded()));

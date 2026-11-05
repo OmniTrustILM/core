@@ -16,7 +16,7 @@ import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3
 import com.otilm.api.model.common.attribute.v3.content.TimeAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.AttributeEngine;
-import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.serialization.AttributeContentJson;
@@ -324,7 +324,7 @@ class RepairDateAttributeContentMigrationITest extends BaseMigrationTest {
 
     private UUID certificateWriting(UUID definitionUuid, AttributeContent content)
             throws NotFoundException, AttributeException {
-        UUID certificateUuid = certificateRepository.save(new Certificate()).getUuid();
+        UUID certificateUuid = certificateRepository.save(new X509CertificateEntity()).getUuid();
         attributeEngine
                 .updateObjectCustomAttributeContent(Resource.CERTIFICATE, certificateUuid, definitionUuid, null,
                         List.of(content), attributeEngine.loadCustomAttributesSecurityResourceFilter());

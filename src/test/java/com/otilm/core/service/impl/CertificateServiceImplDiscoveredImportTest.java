@@ -3,6 +3,7 @@ package com.otilm.core.service.impl;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.events.handlers.discovery.DiscoveredCertificateImport;
@@ -89,7 +90,7 @@ class CertificateServiceImplDiscoveredImportTest {
 
     @Test
     void adoptsTheCommittedRowWhenTheInsertLostTheRace() throws Exception {
-        Certificate winner = new Certificate();
+        X509CertificateEntity winner = new X509CertificateEntity();
         winner.setUuid(UUID.randomUUID());
         // Absent when the method first looks, present by the time it re-reads: what the losing side observes, and
         // the only ordering under which the conflict-resolving insert reports nothing inserted.
@@ -113,7 +114,7 @@ class CertificateServiceImplDiscoveredImportTest {
     void stampsTheColumnsTheNativeInsertBypasses() throws Exception {
         when(certificateRepository.findByFingerprint(anyString()))
                 .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(new Certificate()));
+                .thenReturn(Optional.of(new X509CertificateEntity()));
 
         service.createDiscoveredCertificateAtomic(x509Certificate);
 
@@ -133,7 +134,7 @@ class CertificateServiceImplDiscoveredImportTest {
 
     @Test
     void skipsBothInsertsWhenTheCertificateIsAlreadyKnown() throws Exception {
-        Certificate existing = new Certificate();
+        X509CertificateEntity existing = new X509CertificateEntity();
         existing.setUuid(UUID.randomUUID());
         when(certificateRepository.findByFingerprint(anyString())).thenReturn(Optional.of(existing));
 

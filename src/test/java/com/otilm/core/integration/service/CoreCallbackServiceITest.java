@@ -12,8 +12,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Credential;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
@@ -115,12 +115,12 @@ class CoreCallbackServiceITest extends BaseSpringBootTest {
 
     @Test
     void testCoreGetResourcesCertificates() throws NotFoundException {
-        Certificate certificate1 = new Certificate();
+        X509CertificateEntity certificate1 = new X509CertificateEntity();
         certificate1.setState(CertificateState.ISSUED);
         certificate1.setCommonName("cn1");
         certificate1.setArchived(false);
         certificateRepository.save(certificate1);
-        Certificate certificate2 = new Certificate();
+        X509CertificateEntity certificate2 = new X509CertificateEntity();
         certificate2.setState(CertificateState.REJECTED);
         certificate2.setArchived(false);
         certificateRepository.save(certificate2);
@@ -177,12 +177,12 @@ class CoreCallbackServiceITest extends BaseSpringBootTest {
      */
     @Test
     void coreGetResources_certificate_restrictedPrincipal_seesOnlyAuthorizedSubset() throws NotFoundException {
-        Certificate certificate1 = new Certificate();
+        X509CertificateEntity certificate1 = new X509CertificateEntity();
         certificate1.setState(CertificateState.ISSUED);
         certificate1.setCommonName("cn1");
         certificate1.setArchived(false);
         certificate1 = certificateRepository.save(certificate1);
-        Certificate certificate2 = new Certificate();
+        X509CertificateEntity certificate2 = new X509CertificateEntity();
         certificate2.setState(CertificateState.ISSUED);
         certificate2.setCommonName("cn2");
         certificate2.setArchived(false);
@@ -202,7 +202,7 @@ class CoreCallbackServiceITest extends BaseSpringBootTest {
      */
     @Test
     void coreGetResources_certificate_noGrants_returnsEmpty() throws NotFoundException {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setState(CertificateState.ISSUED);
         certificate.setCommonName("cn");
         certificate.setArchived(false);
@@ -249,17 +249,17 @@ class CoreCallbackServiceITest extends BaseSpringBootTest {
      */
     @Test
     void coreGetResources_certificate_multiGrant_returnsAllAuthorized() throws NotFoundException {
-        Certificate certificate1 = new Certificate();
+        X509CertificateEntity certificate1 = new X509CertificateEntity();
         certificate1.setState(CertificateState.ISSUED);
         certificate1.setCommonName("cn1");
         certificate1.setArchived(false);
         certificate1 = certificateRepository.save(certificate1);
-        Certificate certificate2 = new Certificate();
+        X509CertificateEntity certificate2 = new X509CertificateEntity();
         certificate2.setState(CertificateState.ISSUED);
         certificate2.setCommonName("cn2");
         certificate2.setArchived(false);
         certificate2 = certificateRepository.save(certificate2);
-        Certificate certificate3 = new Certificate();
+        X509CertificateEntity certificate3 = new X509CertificateEntity();
         certificate3.setState(CertificateState.ISSUED);
         certificate3.setCommonName("cn3");
         certificate3.setArchived(false);

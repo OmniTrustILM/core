@@ -8,6 +8,8 @@ import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.util.CertificateTestUtil;
 import java.math.BigInteger;
 import java.security.KeyPair;
@@ -60,7 +62,7 @@ class RenewContentSeederTest {
         Certificate oldCertificate = certificateEntity(CertificateTestUtil
                 .createCertificateWithSubjectAndSans("CN=old.example.com",
                         new GeneralName(GeneralName.dNSName, "old.example.com")));
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
 
         // when
         Optional<X509RequestContent> seeded = RenewContentSeeder.seed(oldCertificate, newCertificate, null);
@@ -79,7 +81,7 @@ class RenewContentSeederTest {
         // given — a renew DTO with no CSR of its own; a CA-rewritten DN travels on the certificate, not the CSR
         Certificate oldCertificate = certificateEntity(
                 CertificateTestUtil.createCertificateWithSubjectAndSans("CN=rewritten-by-ca.example.com"));
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         newCertificate.setCertificateRequest(csrEntity(pkcs10("CN=as-requested.example.com")));
 
         // when
@@ -99,7 +101,7 @@ class RenewContentSeederTest {
                 .createCertificateWithSubjectAndSans("CN=old.example.com",
                         new GeneralName(GeneralName.dNSName, "old.example.com")));
         String supplied = pkcs10("CN=new.example.com");
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         newCertificate.setCertificateRequest(csrEntity(supplied));
 
         // when
@@ -117,7 +119,7 @@ class RenewContentSeederTest {
         // given — a request DTO carrying a CSR, but no stored request on the successor to read it back from
         Certificate oldCertificate = certificateEntity(
                 CertificateTestUtil.createCertificateWithSubjectAndSans("CN=old.example.com"));
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
 
         // when
         Optional<X509RequestContent> seeded = RenewContentSeeder
@@ -138,7 +140,8 @@ class RenewContentSeederTest {
                         new GeneralName(GeneralName.x400Address, new DERSequence())));
 
         // when
-        Optional<X509RequestContent> seeded = RenewContentSeeder.seed(oldCertificate, new Certificate(), null);
+        Optional<X509RequestContent> seeded = RenewContentSeeder
+                .seed(oldCertificate, new X509CertificateEntity(), null);
 
         // then — the connector falls back to parsing the CSR the wire already carries
         assertThat(seeded).isEmpty();
@@ -147,13 +150,14 @@ class RenewContentSeederTest {
     @Test
     void seedsNothing_whenTheStoredCertificateCannotBeParsed() {
         // given
-        Certificate oldCertificate = new Certificate();
+        X509CertificateEntity oldCertificate = new X509CertificateEntity();
         CertificateContent content = new CertificateContent();
         content.setContent("bm90LWEtY2VydA==");
         oldCertificate.setCertificateContent(content);
 
         // when
-        Optional<X509RequestContent> seeded = RenewContentSeeder.seed(oldCertificate, new Certificate(), null);
+        Optional<X509RequestContent> seeded = RenewContentSeeder
+                .seed(oldCertificate, new X509CertificateEntity(), null);
 
         // then — a broken predecessor must not fail a renew that works today
         assertThat(seeded).isEmpty();
@@ -209,7 +213,7 @@ class RenewContentSeederTest {
         Certificate oldCertificate = certificateEntity(
                 CertificateTestUtil.createCertificateWithSubjectAndSans("CN=old.example.com"));
         String supplied = pkcs10WithEku("CN=new.example.com");
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         newCertificate.setCertificateRequest(csrEntity(supplied));
 
         // when
@@ -232,7 +236,7 @@ class RenewContentSeederTest {
                 CertificateTestUtil.createCertificateWithSubjectAndSans("CN=old.example.com"));
         String supplied = pkcs10WithRawKeyUsage("CN=new.example.com",
                 new DERBitString(new byte[]{(byte) 0x80, (byte) 0x40}, 6));
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         newCertificate.setCertificateRequest(csrEntity(supplied));
 
         // when
@@ -251,7 +255,8 @@ class RenewContentSeederTest {
         Certificate oldCertificate = certificateEntity(CertificateTestUtil.createCertificateWithSubjectAndSans(""));
 
         // when
-        Optional<X509RequestContent> seeded = RenewContentSeeder.seed(oldCertificate, new Certificate(), null);
+        Optional<X509RequestContent> seeded = RenewContentSeeder
+                .seed(oldCertificate, new X509CertificateEntity(), null);
 
         // then
         assertThat(seeded).isEmpty();
@@ -274,7 +279,8 @@ class RenewContentSeederTest {
         Certificate oldCertificate = certificateEntity(certificateWithRawSanExtension(new byte[]{0x01, 0x02, 0x03}));
 
         // when
-        Optional<X509RequestContent> seeded = RenewContentSeeder.seed(oldCertificate, new Certificate(), null);
+        Optional<X509RequestContent> seeded = RenewContentSeeder
+                .seed(oldCertificate, new X509CertificateEntity(), null);
 
         // then — renew falls back to the CSR rather than failing
         assertThat(seeded).isEmpty();
@@ -289,7 +295,8 @@ class RenewContentSeederTest {
                         new GeneralName(GeneralName.dNSName, "old.example.com")));
 
         // when
-        Optional<X509RequestContent> seeded = RenewContentSeeder.seed(oldCertificate, new Certificate(), null);
+        Optional<X509RequestContent> seeded = RenewContentSeeder
+                .seed(oldCertificate, new X509CertificateEntity(), null);
 
         // then — the CSR beside the content carries the true subject
         assertThat(seeded).isEmpty();
@@ -301,7 +308,7 @@ class RenewContentSeederTest {
         Certificate oldCertificate = certificateEntity(
                 CertificateTestUtil.createCertificateWithSubjectAndSans("CN=old.example.com"));
         String supplied = pkcs10(multiValuedSubject());
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         newCertificate.setCertificateRequest(csrEntity(supplied));
 
         // when
@@ -320,7 +327,8 @@ class RenewContentSeederTest {
                 CertificateTestUtil.createCertificateWithSubjectAndSans("CN=old.example.com,OU=First,OU=Second"));
 
         // when
-        Optional<X509RequestContent> seeded = RenewContentSeeder.seed(oldCertificate, new Certificate(), null);
+        Optional<X509RequestContent> seeded = RenewContentSeeder
+                .seed(oldCertificate, new X509CertificateEntity(), null);
 
         // then
         assertThat(seeded).isPresent();
@@ -332,13 +340,13 @@ class RenewContentSeederTest {
     private static Certificate certificateEntity(X509Certificate certificate) throws Exception {
         CertificateContent content = new CertificateContent();
         content.setContent(Base64.getEncoder().encodeToString(certificate.getEncoded()));
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = new X509CertificateEntity();
         entity.setCertificateContent(content);
         return entity;
     }
 
     private static CertificateRequestEntity csrEntity(String base64Csr) throws NoSuchAlgorithmException {
-        CertificateRequestEntity entity = new CertificateRequestEntity();
+        X509CertificateRequestEntity entity = new X509CertificateRequestEntity();
         entity.setContent(base64Csr);
         entity.setCertificateRequestFormat(CertificateRequestFormat.PKCS10);
         return entity;

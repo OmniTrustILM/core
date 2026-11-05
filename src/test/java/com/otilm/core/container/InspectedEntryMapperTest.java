@@ -6,7 +6,7 @@ import com.otilm.api.model.client.inspection.InspectedEntryKind;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.container.ContainerFixtures.Chain;
-import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.key.normalization.KeyDescription;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.util.CertificateUtil;
@@ -64,7 +64,7 @@ class InspectedEntryMapperTest {
         X509CertificateHolder certificate = ContainerFixtures
                 .selfSignedWithExtension(ContainerFixtures.ec(), "C=CZ,O=Example,CN=Leaf",
                         Extension.subjectAlternativeName, names.getEncoded());
-        Certificate recorded = new Certificate();
+        X509CertificateEntity recorded = new X509CertificateEntity();
         CertificateUtil
                 .prepareIssuedCertificate(recorded, new JcaX509CertificateConverter().getCertificate(certificate));
         ContainerEntry entry = onlyEntryOf(ContainerFixtures.pem(LF, certificate));

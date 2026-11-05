@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service.writer;
 
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.writer.CertificateChainWriter;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -29,16 +30,17 @@ class CertificateChainWriterTxITest extends BaseSpringBootTest {
 
     @Test
     void applyIssuerReferencePersistsFieldsAndRefreshesUpdated() {
-        Certificate cert = persistMinimalCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistMinimalCertificate());
         // Reload from DB so initialUpdated reflects the DB-stored value.
-        cert = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
+        cert = X509CertificateEntity.from(certificateRepository.findByUuid(cert.getUuid()).orElseThrow());
         OffsetDateTime initialUpdated = cert.getUpdated();
         assertThat(initialUpdated).as("fixture row must have a non-null updated timestamp after insert").isNotNull();
 
         UUID issuerUuid = UUID.randomUUID();
         chainWriter.applyIssuerReference(cert.getUuid(), "ABCDEF", issuerUuid);
 
-        Certificate reloaded = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
+        X509CertificateEntity reloaded = X509CertificateEntity
+                .from(certificateRepository.findByUuid(cert.getUuid()).orElseThrow());
         assertThat(reloaded.getIssuerSerialNumber()).isEqualTo("ABCDEF");
         assertThat(reloaded.getIssuerCertificateUuid()).isEqualTo(issuerUuid);
         assertThat(reloaded.getUpdated()).as("updated must remain non-null after targeted UPDATE").isNotNull();
@@ -47,20 +49,21 @@ class CertificateChainWriterTxITest extends BaseSpringBootTest {
 
     @Test
     void clearIssuerReferenceNullsBothIssuerFields() {
-        Certificate cert = persistMinimalCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistMinimalCertificate());
         cert.setIssuerSerialNumber("ABCDEF");
         cert.setIssuerCertificateUuid(UUID.randomUUID());
         certificateRepository.save(cert);
 
         chainWriter.clearIssuerReference(cert.getUuid());
 
-        Certificate reloaded = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
+        X509CertificateEntity reloaded = X509CertificateEntity
+                .from(certificateRepository.findByUuid(cert.getUuid()).orElseThrow());
         assertThat(reloaded.getIssuerSerialNumber()).isNull();
         assertThat(reloaded.getIssuerCertificateUuid()).isNull();
     }
 
     private Certificate persistMinimalCertificate() {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setCommonName("writerTxTest");
         cert.setSerialNumber(UUID.randomUUID().toString());
         cert.setFingerprint(UUID.randomUUID().toString());

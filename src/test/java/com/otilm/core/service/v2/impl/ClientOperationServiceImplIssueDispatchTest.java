@@ -14,8 +14,9 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -120,11 +121,11 @@ class ClientOperationServiceImplIssueDispatchTest {
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setAuthorityInstanceReference(authority);
 
-        CertificateRequestEntity request = new CertificateRequestEntity();
+        X509CertificateRequestEntity request = new X509CertificateRequestEntity();
         request.setContent(Base64.getEncoder().encodeToString("csr".getBytes()));
 
         certUuid = UUID.randomUUID();
-        certificate = new Certificate();
+        certificate = new X509CertificateEntity();
         certificate.setUuid(certUuid);
         certificate.setState(CertificateState.REQUESTED);
         certificate.setRaProfile(raProfile);

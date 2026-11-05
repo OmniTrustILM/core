@@ -12,7 +12,6 @@ import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfile;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -26,6 +25,7 @@ import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfile;
@@ -112,7 +112,8 @@ public class CommentableHostObjects {
 
     public UUID create(Resource resource) {
         return switch (resource) {
-            case CERTIFICATE -> context.getBean(CertificateRepository.class).save(new Certificate()).getUuid();
+            case CERTIFICATE ->
+                context.getBean(CertificateRepository.class).save(new X509CertificateEntity()).getUuid();
             case CRYPTOGRAPHIC_KEY -> {
                 CryptographicKey key = new CryptographicKey();
                 key.setName("tst-key");

@@ -3,6 +3,7 @@ package com.otilm.core.integration.service.writer;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.writer.CertificateValidationWriter;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -75,7 +76,7 @@ class CertificateValidationWriterTxITest extends BaseSpringBootTest {
     }
 
     private Certificate persistMinimalCertificate() {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setCommonName("validationWriterTxTest");
         cert.setSerialNumber(UUID.randomUUID().toString());
         cert.setFingerprint(UUID.randomUUID().toString());

@@ -8,8 +8,8 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -117,7 +117,7 @@ class V3IdentifyITest extends BaseSpringBootTest {
                                 .withBody("{\"meta\": []}")));
 
         CertificateContent content = certificateContentRepository.save(new CertificateContent());
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setSubjectDn("CN=identify-" + UUID.randomUUID());
         certificate.setIssuerDn("CN=test-issuer");
         certificate.setSerialNumber(UUID.randomUUID().toString());

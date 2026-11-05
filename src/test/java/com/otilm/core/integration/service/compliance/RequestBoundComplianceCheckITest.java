@@ -8,6 +8,7 @@ import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.model.compliance.ComplianceResultDto;
@@ -123,7 +124,7 @@ class RequestBoundComplianceCheckITest extends BaseComplianceTest {
         certificateRequest.setComplianceStatus(ComplianceStatus.NOK);
         certificateRequest.setComplianceResult(new ComplianceResultDto());
         UUID requestUuid = certificateRequestRepository.save(certificateRequest).getUuid();
-        Certificate pending = new Certificate();
+        X509CertificateEntity pending = new X509CertificateEntity();
         pending.setState(CertificateState.REQUESTED);
         pending.setCertificateRequestUuid(requestUuid);
         pending.setRaProfileUuid(unassociatedRaProfileUuid);
@@ -199,7 +200,7 @@ class RequestBoundComplianceCheckITest extends BaseComplianceTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         CertificateUtil.prepareIssuedCertificate(certificate, x509);
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());

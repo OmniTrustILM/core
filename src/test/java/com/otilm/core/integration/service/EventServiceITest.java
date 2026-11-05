@@ -22,10 +22,10 @@ import com.otilm.api.model.core.workflows.ObjectEventHistoryDto;
 import com.otilm.api.model.core.workflows.TriggerHistoryObjectSummaryDto;
 import com.otilm.api.model.core.workflows.TriggerRequestDto;
 import com.otilm.api.model.core.workflows.TriggerType;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.workflows.EventHistory;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
 import com.otilm.core.dao.repository.CertificateContentRepository;
@@ -489,7 +489,7 @@ class EventServiceITest extends BaseSpringBootTest {
         content.setContent(UUID.randomUUID().toString());
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setSubjectDn("CN=test");
         certificate.setIssuerDn("CN=issuer");
         certificate.setSerialNumber(UUID.randomUUID().toString());

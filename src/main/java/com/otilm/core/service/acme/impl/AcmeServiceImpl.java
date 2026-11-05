@@ -45,6 +45,7 @@ import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
@@ -865,7 +866,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         Certificate cert = certificateService.getCertificateEntityByContent(base64Certificate);
         LoggingHelper
                 .putLogResourceInfo(com.otilm.api.model.core.auth.Resource.CERTIFICATE, false,
-                        cert.getUuid().toString(), cert.getSubjectDn());
+                        cert.getUuid().toString(), X509CertificateEntity.from(cert).getSubjectDn());
         if (cert.isArchived()) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.ARCHIVED);
         }

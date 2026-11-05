@@ -3,6 +3,7 @@ package com.otilm.core.integration.migration;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CustomOidEntryRepository;
@@ -174,14 +175,14 @@ class RegistrationSubjectDnNormalizedMigrationITest extends BaseMigrationTest {
     }
 
     private Certificate persist(CertificateState state, String subjectDn, String subjectDnNormalized) {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setState(state);
         certificate.setSubjectDn(subjectDn);
         certificate.setSubjectDnNormalized(subjectDnNormalized);
         return certificateRepository.save(certificate);
     }
 
-    private Certificate reload(Certificate certificate) {
-        return certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+    private X509CertificateEntity reload(Certificate certificate) {
+        return X509CertificateEntity.from(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow());
     }
 }

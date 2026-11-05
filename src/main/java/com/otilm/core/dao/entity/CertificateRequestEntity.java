@@ -8,11 +8,13 @@ import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.util.CertificateUtil;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
+import jakarta.persistence.DiscriminatorColumn;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
+import jakarta.persistence.Inheritance;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -25,7 +27,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
 
 @Getter
@@ -34,9 +35,11 @@ import org.hibernate.type.SqlTypes;
 @RequiredArgsConstructor
 @Entity
 @Table(name = "certificate_request")
-public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited implements ComplianceSubject {
+@Inheritance
+@DiscriminatorColumn(name = "certificate_type")
+public abstract class CertificateRequestEntity extends UniquelyIdentifiedAndAudited implements ComplianceSubject {
 
-    @Column(name = "certificate_type", nullable = false)
+    @Column(name = "certificate_type", nullable = false, insertable = false, updatable = false)
     @Enumerated(EnumType.STRING)
     private CertificateType certificateType;
 
@@ -47,14 +50,8 @@ public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited imple
     @Column(name = "public_key_algorithm")
     private String publicKeyAlgorithm;
 
-    @Column(name = "alt_public_key_algorithm")
-    private String altPublicKeyAlgorithm;
-
     @Column(name = "signature_algorithm")
     private String signatureAlgorithm;
-
-    @Column(name = "alt_signature_algorithm")
-    private String altSignatureAlgorithm;
 
     @Column(name = "fingerprint", nullable = false)
     private String fingerprint;
@@ -64,15 +61,6 @@ public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited imple
 
     @Column(name = "common_name")
     private String commonName;
-
-    @Column(name = "subject_dn")
-    private String subjectDn;
-
-    @Column(name = "subject_alternative_names")
-    private String subjectAlternativeNames;
-
-    @Column(name = "key_usage", nullable = false)
-    private int keyUsage;
 
     @Column(name = "compliance_result", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
@@ -136,15 +124,6 @@ public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited imple
         if (o == null) {
             return false;
         }
-        Class<?> oEffectiveClass = o instanceof HibernateProxy proxy
-                ? proxy.getHibernateLazyInitializer().getPersistentClass()
-                : o.getClass();
-        Class<?> thisEffectiveClass = this instanceof HibernateProxy proxy
-                ? proxy.getHibernateLazyInitializer().getPersistentClass()
-                : this.getClass();
-        if (thisEffectiveClass != oEffectiveClass) {
-            return false;
-        }
         if (!(o instanceof CertificateRequestEntity that)) {
             return false;
         }
@@ -153,8 +132,6 @@ public class CertificateRequestEntity extends UniquelyIdentifiedAndAudited imple
 
     @Override
     public final int hashCode() {
-        return this instanceof HibernateProxy proxy
-                ? proxy.getHibernateLazyInitializer().getPersistentClass().hashCode()
-                : getClass().hashCode();
+        return CertificateRequestEntity.class.hashCode();
     }
 }

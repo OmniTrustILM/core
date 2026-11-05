@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -128,7 +129,7 @@ public class CertConfirmMessageHandlerTest {
         String certBase64 = Base64.getEncoder().encodeToString(x509certificate.getEncoded());
         CertificateContent content = new CertificateContent();
         content.setContent(certBase64);
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setCertificateContent(content);
         CmpTransaction transaction = new CmpTransaction();
         transaction.setCertificate(cert);
@@ -176,7 +177,7 @@ public class CertConfirmMessageHandlerTest {
                 .makeV3Certificate(BigInteger.valueOf(987654321), otherKp, "CN=Other", otherKp, "CN=Other");
         CertificateContent content = new CertificateContent();
         content.setContent(Base64.getEncoder().encodeToString(otherCert.getEncoded()));
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setCertificateContent(content);
         CmpTransaction transaction = new CmpTransaction();
         transaction.setCertificate(cert);
@@ -205,7 +206,7 @@ public class CertConfirmMessageHandlerTest {
 
         CertificateContent garbage = new CertificateContent();
         garbage.setContent("not-valid-base64-cert-content");
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setCertificateContent(garbage);
         CmpTransaction transaction = new CmpTransaction();
         transaction.setCertificate(cert);

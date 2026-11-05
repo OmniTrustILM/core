@@ -4,6 +4,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -29,7 +30,7 @@ class FindEligibleDescendantCertificatesITest extends BaseSpringBootTest {
 
     private Certificate buildCert(Certificate issuer, boolean hasContent, CertificateValidationStatus status,
             boolean archived, RaProfile raProfile) {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setFingerprint(UUID.randomUUID().toString());
         cert.setValidationStatus(status);
         cert.setArchived(archived);

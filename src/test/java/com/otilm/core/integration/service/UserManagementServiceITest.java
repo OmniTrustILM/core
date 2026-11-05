@@ -24,6 +24,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.ListView;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.GroupRepository;
@@ -100,7 +101,7 @@ class UserManagementServiceITest extends BaseSpringBootTest {
 
     @Test
     void testDoNotUseArchivedCertificates() {
-        Certificate archivedCertificate = new Certificate();
+        X509CertificateEntity archivedCertificate = new X509CertificateEntity();
         archivedCertificate.setArchived(true);
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("content");
@@ -519,7 +520,7 @@ class UserManagementServiceITest extends BaseSpringBootTest {
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("content-" + fingerprint);
         certificateContentRepository.save(certificateContent);
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setState(CertificateState.ISSUED);
         certificate.setFingerprint(fingerprint);
         certificate.setCertificateContent(certificateContent);

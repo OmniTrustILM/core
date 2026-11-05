@@ -21,6 +21,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeNonce;
 import com.otilm.core.dao.entity.notifications.NotificationProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
@@ -111,41 +112,41 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
         scheduledJobInfo = new ScheduledJobInfo("updateCertificateStatusJob");
 
         // A certificate with status expired
-        Certificate expiredStatusCert = new Certificate();
+        X509CertificateEntity expiredStatusCert = new X509CertificateEntity();
         expiredStatusCert.setStatusValidationTimestamp(null);
         setCertificateContent(expiredStatusCert);
         expiredStatusCert.setValidationStatus(CertificateValidationStatus.EXPIRED);
         certificateRepository.save(expiredStatusCert);
 
         // A certificate which has not been validated yet
-        notValidatedCert = new Certificate();
+        notValidatedCert = new X509CertificateEntity();
         notValidatedCert.setStatusValidationTimestamp(null);
         setCertificateContent(notValidatedCert);
         notValidatedCert.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
         certificateRepository.save(notValidatedCert);
 
         // A certificate which has been validated in the last day
-        alreadyValidatedCert = new Certificate();
+        alreadyValidatedCert = new X509CertificateEntity();
         alreadyValidatedCert.setStatusValidationTimestamp(OffsetDateTime.now());
         setCertificateContent(alreadyValidatedCert);
         alreadyValidatedCert.setValidationStatus(CertificateValidationStatus.INVALID);
         certificateRepository.save(alreadyValidatedCert);
 
         // A certificate which has been validated later than before one day
-        certToRevalidate = new Certificate();
+        certToRevalidate = new X509CertificateEntity();
         certToRevalidate.setStatusValidationTimestamp(OffsetDateTime.now().minusHours(25));
         setCertificateContent(certToRevalidate);
         certToRevalidate.setValidationStatus(CertificateValidationStatus.INVALID);
         certificateRepository.save(certToRevalidate);
 
         // A certificate which has been validated later than before two days
-        certToRevalidate2 = new Certificate();
+        certToRevalidate2 = new X509CertificateEntity();
         certToRevalidate2.setStatusValidationTimestamp(OffsetDateTime.now().minusDays(3));
         setCertificateContent(certToRevalidate2);
         certToRevalidate2.setValidationStatus(CertificateValidationStatus.INVALID);
         certificateRepository.save(certToRevalidate2);
 
-        Certificate archivedCertificate = new Certificate();
+        X509CertificateEntity archivedCertificate = new X509CertificateEntity();
         archivedCertificate.setArchived(true);
         setCertificateContent(archivedCertificate);
         archivedCertificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
@@ -202,7 +203,7 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
         RaProfileCertificateValidationSettingsUpdateDto validationUpdateDto = new RaProfileCertificateValidationSettingsUpdateDto();
 
         // Certificate which has RA Profile with validation disabled
-        Certificate certificateWithRaProfileValidationDisabled = new Certificate();
+        X509CertificateEntity certificateWithRaProfileValidationDisabled = new X509CertificateEntity();
         certificateWithRaProfileValidationDisabled.setStatusValidationTimestamp(OffsetDateTime.now().minusDays(2));
         validationUpdateDto.setEnabled(false);
         certificateWithRaProfileValidationDisabled.setRaProfile(getRaProfile(validationUpdateDto));
@@ -211,7 +212,7 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
         certificateRepository.save(certificateWithRaProfileValidationDisabled);
 
         // Certificate which has RA Profile with validation enabled and default settings
-        Certificate certificateWithRaProfileValidationEnabledDefault = new Certificate();
+        X509CertificateEntity certificateWithRaProfileValidationEnabledDefault = new X509CertificateEntity();
         certificateWithRaProfileValidationEnabledDefault.setStatusValidationTimestamp(null);
         validationUpdateDto.setEnabled(true);
         certificateWithRaProfileValidationEnabledDefault.setRaProfile(getRaProfile(validationUpdateDto));
@@ -220,7 +221,7 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
         certificateRepository.save(certificateWithRaProfileValidationEnabledDefault);
 
         // Certificate which has RA Profile with validation enabled and custom settings
-        Certificate certificateWithRaProfileValidationEnabledCustom = new Certificate();
+        X509CertificateEntity certificateWithRaProfileValidationEnabledCustom = new X509CertificateEntity();
         certificateWithRaProfileValidationEnabledCustom.setStatusValidationTimestamp(null);
         validationUpdateDto.setFrequency(2);
         certificateWithRaProfileValidationEnabledCustom.setRaProfile(getRaProfile(validationUpdateDto));
@@ -229,7 +230,7 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
         certificateRepository.save(certificateWithRaProfileValidationEnabledCustom);
 
         // Certificate which has RA Profile with enabled set to null
-        Certificate certificateWithRaProfileValidationEnabledNull = new Certificate();
+        X509CertificateEntity certificateWithRaProfileValidationEnabledNull = new X509CertificateEntity();
         certificateWithRaProfileValidationEnabledNull.setValidationStatus(null);
         validationUpdateDto.setEnabled(null);
         certificateWithRaProfileValidationEnabledNull.setRaProfile(getRaProfile(validationUpdateDto));
@@ -347,7 +348,7 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
 
     private Certificate createCertificateForExpiringEventTest(CertificateValidationStatus status,
             Certificate predecessorCertificate) {
-        Certificate certificateEntity = new Certificate();
+        X509CertificateEntity certificateEntity = new X509CertificateEntity();
         CertificateContent content = new CertificateContent();
         content.setContent(String.valueOf(Math.random()));
         certificateContentRepository.save(content);

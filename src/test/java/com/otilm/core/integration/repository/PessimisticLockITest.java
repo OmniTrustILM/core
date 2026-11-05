@@ -1,8 +1,8 @@
 package com.otilm.core.integration.repository;
 
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -53,7 +53,7 @@ public class PessimisticLockITest extends BaseSpringBootTest {
 
     @Test
     void certificateLockQueryTakesTheRowLock() {
-        UUID uuid = certificateRepository.save(new Certificate()).getUuid();
+        UUID uuid = certificateRepository.save(new X509CertificateEntity()).getUuid();
         assertRowLockedWhile("certificate", uuid,
                 () -> certificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow());
     }

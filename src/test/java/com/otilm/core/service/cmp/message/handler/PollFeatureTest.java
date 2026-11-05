@@ -4,6 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
@@ -307,7 +308,7 @@ class PollFeatureTest {
     }
 
     private static Certificate certificateInState(UUID uuid, CertificateState state) {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setUuid(uuid);
         cert.setState(state);
         cert.setSerialNumber("01");

@@ -10,6 +10,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.util.MetaDefinitions;
 
 import java.util.Date;
@@ -21,11 +22,11 @@ import java.util.UUID;
  * test. Persistence goes through {@code CertificateRepository}, not this builder — the builder never touches the
  * database.
  * <p>
- * Defaults match a bare {@code new Certificate()}: every field is left unset. Unlike most builders this one carries no
- * "valid defaults", because these service tests deliberately exercise the whole certificate lifecycle — issued,
- * pending, not-yet-issued, revoked — and rely on absent identity (null {@code commonName} renders as the empty-name
- * placeholder) and absent {@code state}. A field is written only when its {@code withXxx} is called, so building with
- * no overrides is behaviourally identical to {@code new Certificate()}.
+ * Defaults match a bare {@code new X509CertificateEntity()}: every field is left unset. Unlike most builders this one
+ * carries no "valid defaults", because these service tests deliberately exercise the whole certificate lifecycle —
+ * issued, pending, not-yet-issued, revoked — and rely on absent identity (null {@code commonName} renders as the
+ * empty-name placeholder) and absent {@code state}. A field is written only when its {@code withXxx} is called, so
+ * building with no overrides is behaviourally identical to {@code new X509CertificateEntity()}.
  */
 public final class CertificateBuilder {
 
@@ -220,8 +221,8 @@ public final class CertificateBuilder {
         return this;
     }
 
-    public Certificate build() {
-        Certificate certificate = new Certificate();
+    public X509CertificateEntity build() {
+        X509CertificateEntity certificate = new X509CertificateEntity();
         if (uuid != null) {
             certificate.setUuid(uuid);
         }

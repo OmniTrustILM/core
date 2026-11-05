@@ -72,6 +72,7 @@ import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
@@ -123,8 +124,8 @@ import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
-import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
+import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
@@ -226,8 +227,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private EventProducer eventProducer;
     private CertificateStatusPollWriter pollWriter;
     private CertificatePendingIssueClaimWriter pendingIssueClaimWriter;
-    private CertificateRegistrationWriter certificateRegistrationWriter;
     private CertificatePendingRevokeWriter pendingRevokeWriter;
+    private CertificateRegistrationWriter certificateRegistrationWriter;
     private CertificateRegistrationRepository certificateRegistrationRepository;
     private CertificateLocationRepository certificateLocationRepository;
     private AuthorityProviderAdapterFactory adapterFactory;
@@ -291,11 +292,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
-    @Autowired
     public void setPendingRevokeWriter(CertificatePendingRevokeWriter pendingRevokeWriter) {
         this.pendingRevokeWriter = pendingRevokeWriter;
     }
 
+    @Autowired
     public void setPendingIssueClaimWriter(CertificatePendingIssueClaimWriter pendingIssueClaimWriter) {
         this.pendingIssueClaimWriter = pendingIssueClaimWriter;
     }
@@ -1596,7 +1597,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             CertificateRequestContent identityContent = capabilityService
                     .supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)
                     && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)
-                            ? RegisterWireBuilder.buildIdentityContent(certificate.getSubjectDn())
+                            ? RegisterWireBuilder
+                                    .buildIdentityContent(X509CertificateEntity.from(certificate).getSubjectDn())
                             : null;
             managed.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
@@ -2457,7 +2459,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         UUID altTokenProfileUuid = null;
         List<RequestAttribute> altSignatureAttributes = null;
-        if (oldCertificate.isHybridCertificate() && request.getAltKeyUuid() == null) {
+        if (X509CertificateEntity.from(oldCertificate).isHybridCertificate() && request.getAltKeyUuid() == null) {
             throw new ValidationException("Missing alternative key for re-keying of hybrid certificate");
         }
         if (request.getAltKeyUuid() != null) {
@@ -3142,7 +3144,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         // Since altKeyUuid will not be null at this point, we only need to check if for hybrid certificate there is a
         // different key used for rekey
-        if (certificate.isHybridCertificate()) {
+        if (X509CertificateEntity.from(certificate).isHybridCertificate()) {
             if (altKeyUuid != null && altKeyUuid.equals(certificate.getAltKeyUuid())) {
                 throw new ValidationException(ValidationError
                         .create("Rekey operation not permitted. Cannot use same alternative key to rekey certificate"));

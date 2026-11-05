@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
 import com.otilm.core.model.crypto.CryptographicKeyItemBasicModel;
 import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
@@ -325,7 +326,7 @@ class CryptographicKeyDtoMapperTest {
         CryptographicKey key = key();
         UUID certificateUuid = UUID.randomUUID();
         String certificateName = "signing.example.test";
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(certificateUuid);
         certificate.setCommonName(certificateName);
         key.setCertificates(Set.of(certificate));
@@ -468,7 +469,7 @@ class CryptographicKeyDtoMapperTest {
     }
 
     private static Certificate certificate(String commonName) {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(UUID.randomUUID());
         certificate.setCommonName(commonName);
         return certificate;

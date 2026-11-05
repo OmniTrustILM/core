@@ -1,6 +1,6 @@
 package com.otilm.core.service.handler;
 
-import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import java.security.KeyPairGenerator;
@@ -94,7 +94,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
             throws NoSuchAlgorithmException {
         List<UUID> uuids = List.of(UUID.randomUUID());
         UUID keyUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCommonName("example.com");
 
         when(certificateRepository.findFirstByUuidIn(uuids)).thenReturn(certificate);
@@ -114,7 +114,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
             throws NoSuchAlgorithmException {
         List<UUID> uuids = List.of(UUID.randomUUID());
         UUID keyUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCommonName("example.com");
 
         when(certificateRepository.findFirstByUuidIn(uuids)).thenReturn(certificate);
@@ -134,7 +134,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
             throws NoSuchAlgorithmException {
         List<UUID> uuids = List.of(UUID.randomUUID());
         UUID keyUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCommonName("example.com");
 
         when(certificateRepository.findFirstByUuidIn(uuids)).thenReturn(certificate);
@@ -151,7 +151,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
     void uploadDiscoveredCertificateKey_whenCommonNameNull_namesKeyBySerialNumber() throws NoSuchAlgorithmException {
         List<UUID> uuids = List.of(UUID.randomUUID());
         UUID keyUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCommonName(null);
         certificate.setSerialNumber("AB12CD");
 

@@ -1,9 +1,9 @@
 package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
@@ -48,7 +48,7 @@ class UniqueCryptographicKeyItemFingerprintITest extends BaseMigrationTest {
         publicKey1.setFormat(KeyFormat.SPKI);
         cryptographicKeyItemRepository.save(publicKey1);
 
-        Certificate certificate1 = new Certificate();
+        X509CertificateEntity certificate1 = new X509CertificateEntity();
         certificate1.setKeyUuid(keyWithPair1.getUuid());
         certificateRepository.save(certificate1);
 
@@ -64,7 +64,7 @@ class UniqueCryptographicKeyItemFingerprintITest extends BaseMigrationTest {
         publicKey2.setFormat(KeyFormat.RAW);
         cryptographicKeyItemRepository.save(publicKey2);
 
-        Certificate certificate2 = new Certificate();
+        X509CertificateEntity certificate2 = new X509CertificateEntity();
         certificate2.setKeyUuid(keyWithPair2.getUuid());
         certificate2.setAltKeyUuid(keyWithPair2.getUuid());
         certificateRepository.save(certificate2);
@@ -117,9 +117,11 @@ class UniqueCryptographicKeyItemFingerprintITest extends BaseMigrationTest {
         Assertions.assertTrue(cryptographicKeyItemRepository.existsById(privateKey1.getUuid()));
         Assertions.assertTrue(cryptographicKeyItemRepository.existsById(publicKey1.getUuid()));
 
-        certificate1 = certificateRepository.findByUuid(certificate1.getUuid()).orElseThrow();
+        certificate1 = X509CertificateEntity
+                .from(certificateRepository.findByUuid(certificate1.getUuid()).orElseThrow());
         Assertions.assertEquals(keyWithPair1.getUuid(), certificate1.getKeyUuid());
-        certificate2 = certificateRepository.findByUuid(certificate2.getUuid()).orElseThrow();
+        certificate2 = X509CertificateEntity
+                .from(certificateRepository.findByUuid(certificate2.getUuid()).orElseThrow());
         Assertions.assertEquals(keyWithPair1.getUuid(), certificate2.getKeyUuid());
         Assertions.assertEquals(keyWithPair1.getUuid(), certificate2.getAltKeyUuid());
 

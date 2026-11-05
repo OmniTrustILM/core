@@ -5,6 +5,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -112,7 +113,8 @@ class CertificateRegistrationAuthorizationRepositoryITest extends BaseSpringBoot
         // A placeholder written by an old instance during a rolling upgrade (after the one-shot backfill)
         // carries no normalized subject; the lookup must still surface it for the caller's identity match
         // rather than leave it permanently unmatchable, even when the presented subject differs.
-        Certificate legacyNullNormalized = aCertificate().withState(CertificateState.REGISTERED).build();
+        X509CertificateEntity legacyNullNormalized = X509CertificateEntity
+                .from(aCertificate().withState(CertificateState.REGISTERED).build());
         legacyNullNormalized.setRaProfileUuid(raProfileUuid);
         legacyNullNormalized.setSubjectDn("CN=lookup-subject");
         legacyNullNormalized.setSubjectDnNormalized(null);
@@ -138,7 +140,7 @@ class CertificateRegistrationAuthorizationRepositoryITest extends BaseSpringBoot
     }
 
     private Certificate persistCertificate(CertificateState state, UUID raProfileUuid, String subjectDn) {
-        Certificate certificate = aCertificate().withState(state).build();
+        X509CertificateEntity certificate = X509CertificateEntity.from(aCertificate().withState(state).build());
         certificate.setRaProfileUuid(raProfileUuid);
         certificate.setSubjectDn(subjectDn);
         certificate.setSubjectDnNormalized(CertificateUtil.normalizeStoredSubjectDn(subjectDn));

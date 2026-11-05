@@ -24,6 +24,7 @@ import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
@@ -291,14 +292,15 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
     }
 
     private Certificate savePurposeCert(CertificateKeyUsage... keyUsages) throws Exception {
-        Certificate cert = saveCert(CertificateTestUtil.createCertificateWithoutEku(), createKey());
+        X509CertificateEntity cert = X509CertificateEntity
+                .from(saveCert(CertificateTestUtil.createCertificateWithoutEku(), createKey()));
         cert.setUsage(List.of(keyUsages));
         cert.setExtendedKeyUsage(null);
         return certificateRepository.save(cert);
     }
 
     private Certificate savePurposeCertWithEku(String... oids) throws Exception {
-        Certificate cert = savePurposeCert(CertificateKeyUsage.DIGITAL_SIGNATURE);
+        X509CertificateEntity cert = X509CertificateEntity.from(savePurposeCert(CertificateKeyUsage.DIGITAL_SIGNATURE));
         cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(oids)));
         return certificateRepository.save(cert);
     }
@@ -347,7 +349,7 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
         CertificateContent content = CmpEntityUtil.createCertContent(CertificateUtil.getThumbprint(x509), pem);
         certificateContentRepository.save(content);
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         CertificateUtil.prepareIssuedCertificate(cert, x509);
         cert.setCertificateContent(content);
         cert.setKey(key);
@@ -367,8 +369,9 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
             SigningWorkflowType workflowType, boolean qualifiedTimestamp, Boolean qcCompliance, boolean expectedResult)
             throws Exception {
         CryptographicKey key = buildAndSaveKey(publicKeys, privateKeys, withTokenProfile, withTokenInstanceReference);
-        Certificate cert = buildAndSaveCert(key, certState, validationStatus, archived, extendedKeyUsages,
-                extendedKeyUsageCritical, qcCompliance);
+        X509CertificateEntity cert = X509CertificateEntity
+                .from(buildAndSaveCert(key, certState, validationStatus, archived, extendedKeyUsages,
+                        extendedKeyUsageCritical, qcCompliance));
 
         List<UUID> found = queryUuids(workflowType, qualifiedTimestamp);
 
@@ -429,7 +432,7 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
         CertificateContent content = CmpEntityUtil.createCertContent(CertificateUtil.getThumbprint(x509), pem);
         certificateContentRepository.save(content);
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         CertificateUtil.prepareIssuedCertificate(cert, x509);
         cert.setCertificateContent(content);
         cert.setKey(key);

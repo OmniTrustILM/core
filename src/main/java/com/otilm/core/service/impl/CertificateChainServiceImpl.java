@@ -2,6 +2,7 @@ package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateChainService;
 import com.otilm.core.service.CertificateInternalService;
@@ -81,10 +82,10 @@ public class CertificateChainServiceImpl implements CertificateChainService {
         }
         boolean issuerInInventory = false;
         for (Certificate issuer : certificateRepository
-                .findBySubjectDnNormalized(certificate.getIssuerDnNormalized())) {
+                .findBySubjectDnNormalized(X509CertificateEntity.from(certificate).getIssuerDnNormalized())) {
             X509Certificate issCert = parseOrNull(issuer.getCertificateContent().getContent());
             if (issCert != null && verifySignature(subCert, issCert)) {
-                certificate.setIssuerSerialNumber(issuer.getSerialNumber());
+                X509CertificateEntity.from(certificate).setIssuerSerialNumber(issuer.getSerialNumber());
                 certificate.setIssuerCertificateUuid(issuer.getUuid());
                 chainWriter.applyIssuerReference(certificate.getUuid(), issuer.getSerialNumber(), issuer.getUuid());
                 issuerInInventory = true;
@@ -104,7 +105,9 @@ public class CertificateChainServiceImpl implements CertificateChainService {
                     nextInChain = certificateService.createCertificateAtomic(chainCertificate, false);
                     assert nextInChain != null;
                     previousCertificate.setIssuerCertificateUuid(nextInChain.getUuid());
-                    previousCertificate.setIssuerSerialNumber(nextInChain.getSerialNumber());
+                    X509CertificateEntity
+                            .from(previousCertificate)
+                            .setIssuerSerialNumber(nextInChain.getSerialNumber());
                     chainWriter
                             .applyIssuerReference(previousCertificate.getUuid(), nextInChain.getSerialNumber(),
                                     nextInChain.getUuid());
@@ -183,7 +186,7 @@ public class CertificateChainServiceImpl implements CertificateChainService {
             } else {
                 // Dangling FK — clear the references and return an incomplete chain.
                 lastCertificate.setIssuerCertificateUuid(null);
-                lastCertificate.setIssuerSerialNumber(null);
+                X509CertificateEntity.from(lastCertificate).setIssuerSerialNumber(null);
                 chainWriter.clearIssuerReference(lastCertificate.getUuid());
                 break;
             }

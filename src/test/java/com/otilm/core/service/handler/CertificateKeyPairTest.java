@@ -5,6 +5,7 @@ import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -38,7 +39,7 @@ class CertificateKeyPairTest {
 
     @Test
     void of_findsNothingForACertificateWithoutAKey() {
-        assertThat(CertificateKeyPair.of(new Certificate())).isEmpty();
+        assertThat(CertificateKeyPair.of(new X509CertificateEntity())).isEmpty();
     }
 
     @Test
@@ -105,7 +106,7 @@ class CertificateKeyPairTest {
         CryptographicKey key = new CryptographicKey();
         key.setUuid(UUID.randomUUID());
         key.setItems(Set.copyOf(Stream.of(items).toList()));
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setKey(key);
         certificate.setPublicKeyFingerprint(publicKeyFingerprint);
         return certificate;

@@ -34,6 +34,7 @@ import com.otilm.core.dao.entity.Crl;
 import com.otilm.core.dao.entity.CrlEntry;
 import com.otilm.core.dao.entity.CrlEntryId;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -193,13 +194,13 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     @Autowired
     private CertificateUploadedEventHandler certificateUploadedEventHandler;
 
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
 
     private Certificate caCertificate;
 
-    private Certificate chainIncompleteCertificate;
+    private X509CertificateEntity chainIncompleteCertificate;
 
-    private Certificate chainCompleteCertificate;
+    private X509CertificateEntity chainCompleteCertificate;
 
     private WireMockServer mockServer;
 
@@ -219,7 +220,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         certificateContent.setContent(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new Certificate();
+        certificate = new X509CertificateEntity();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCertificate");
         certificate.setSerialNumber("123456789");
@@ -265,12 +266,12 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         certificateRepository.save(caCertificate);
 
         String chainCertificateContent = "MIICjTCCAjOgAwIBAgIQf/NXf/Y8fKN+BkL4yLhikDAKBggqhkjOPQQDAjBQMSQwIgYDVQQLExtHbG9iYWxTaWduIEVDQyBSb290IENBIC0gUjQxEzARBgNVBAoTCkdsb2JhbFNpZ24xEzARBgNVBAMTCkdsb2JhbFNpZ24wHhcNMjMxMjEzMDkwMDAwWhcNMjkwMjIwMTQwMDAwWjA7MQswCQYDVQQGEwJVUzEeMBwGA1UEChMVR29vZ2xlIFRydXN0IFNlcnZpY2VzMQwwCgYDVQQDEwNXRTIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQ1fh/yFO2QfeGeKjRDhsHVlugncN+eBMupyoZ5CwhNRorCdKS72b/u/SPXOPNL71QX4b7nylUlqAwwrC1dTqFRo4IBAjCB/zAOBgNVHQ8BAf8EBAMCAYYwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFHW+xHeuifZEN33PsWgfHRrr3DRZMB8GA1UdIwQYMBaAFFSwe61FuOJAf/sKbvu+M8k8o4TVMDYGCCsGAQUFBwEBBCowKDAmBggrBgEFBQcwAoYaaHR0cDovL2kucGtpLmdvb2cvZ3NyNC5jcnQwLQYDVR0fBCYwJDAioCCgHoYcaHR0cDovL2MucGtpLmdvb2cvci9nc3I0LmNybDATBgNVHSAEDDAKMAgGBmeBDAECATAKBggqhkjOPQQDAgNIADBFAiBbsQQLhG0VbSTee24xTExpfZjtvxSr0QUeF5ynbsLfsAIhALzHr/nsu7YViuT13ZNVPKTQ4UWHvxnqxJZRGRgNHE4w";
-        chainIncompleteCertificate = certificateService
-                .createCertificate(chainCertificateContent, CertificateType.X509);
+        chainIncompleteCertificate = X509CertificateEntity
+                .from(certificateService.createCertificate(chainCertificateContent, CertificateType.X509));
 
         String chainCompleteCertificateContent = "MIIFFjCCAv6gAwIBAgIRAJErCErPDBinU/bWLiWnX1owDQYJKoZIhvcNAQELBQAwTzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2VhcmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMjAwOTA0MDAwMDAwWhcNMjUwOTE1MTYwMDAwWjAyMQswCQYDVQQGEwJVUzEWMBQGA1UEChMNTGV0J3MgRW5jcnlwdDELMAkGA1UEAxMCUjMwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7AhUozPaglNMPEuyNVZLD+ILxmaZ6QoinXSaqtSu5xUyxr45r+XXIo9cPR5QUVTVXjJ6oojkZ9YI8QqlObvU7wy7bjcCwXPNZOOftz2nwWgsbvsCUJCWH+jdxsxPnHKzhm+/b5DtFUkWWqcFTzjTIUu61ru2P3mBw4qVUq7ZtDpelQDRrK9O8ZutmNHz6a4uPVymZ+DAXXbpyb/uBxa3Shlg9F8fnCbvxK/eG3MHacV3URuPMrSXBiLxgZ3Vms/EY96Jc5lP/Ooi2R6X/ExjqmAl3P51T+c8B5fWmcBcUr2Ok/5mzk53cU6cG/kiFHaFpriV1uxPMUgP17VGhi9sVAgMBAAGjggEIMIIBBDAOBgNVHQ8BAf8EBAMCAYYwHQYDVR0lBBYwFAYIKwYBBQUHAwIGCCsGAQUFBwMBMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFBQusxe3WFbLrlAJQOYfr52LFMLGMB8GA1UdIwQYMBaAFHm0WeZ7tuXkAXOACIjIGlj26ZtuMDIGCCsGAQUFBwEBBCYwJDAiBggrBgEFBQcwAoYWaHR0cDovL3gxLmkubGVuY3Iub3JnLzAnBgNVHR8EIDAeMBygGqAYhhZodHRwOi8veDEuYy5sZW5jci5vcmcvMCIGA1UdIAQbMBkwCAYGZ4EMAQIBMA0GCysGAQQBgt8TAQEBMA0GCSqGSIb3DQEBCwUAA4ICAQCFyk5HPqP3hUSFvNVneLKYY611TR6WPTNlclQtgaDqw+34IL9fzLdwALduO/ZelN7kIJ+m74uyA+eitRY8kc607TkC53wlikfmZW4/RvTZ8M6UK+5UzhK8jCdLuMGYL6KvzXGRSgi3yLgjewQtCPkIVz6D2QQzCkcheAmCJ8MqyJu5zlzyZMjAvnnAT45tRAxekrsu94sQ4egdRCnbWSDtY7kh+BImlJNXoB1lBMEKIq4QDUOXoRgffuDghje1WrG9ML+Hbisq/yFOGwXD9RiX8F6sw6W4avAuvDszue5L3sz85K+EC4Y/wFVDNvZo4TYXao6Z0f+lQKc0t8DQYzk1OXVu8rp2yJMC6alLbBfODALZvYH7n7do1AZls4I9d1P4jnkDrQoxB3UqQ9hVl3LEKQ73xF1OyK5GhDDX8oVfGKF5u+decIsH4YaTw7mP3GFxJSqv3+0lUFJoi5Lc5da149p90IdshCExroL1+7mryIkXPeFM5TgO9r0rvZaBFOvV2z0gp35Z0+L4WPlbuEjN/lxPFin+HlUjr8gRsI3qfJOQFy/9rKIJR0Y/8Omwt/8oTWgy1mdeHmmjk7j1nYsvC9JSQ6ZvMldlTTKB3zhThV1+XWYp6rjd5JW1zbVWEkLNxE7GJThEUG3szgBVGP7pSWTUTsqXnLRbwHOoq7hHwg==";
-        chainCompleteCertificate = certificateService
-                .createCertificate(chainCompleteCertificateContent, CertificateType.X509);
+        chainCompleteCertificate = X509CertificateEntity
+                .from(certificateService.createCertificate(chainCompleteCertificateContent, CertificateType.X509));
     }
 
     @AfterEach
@@ -347,7 +348,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
         // Set issuer with different classic key and alt key to test signature not verified
         X509Certificate x509CertificateIssuer = CertificateTestUtil.createHybridCertificate();
-        Certificate issuerCertificate = new Certificate();
+        X509CertificateEntity issuerCertificate = new X509CertificateEntity();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent(Base64.getEncoder().encodeToString(x509CertificateIssuer.getEncoded()));
         certificateContentRepository.save(certificateContent);
@@ -616,7 +617,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                         LoopbackWireMock.url(mockServer) + "/p1b-" + stamp + ".crl");
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlNone-" + stamp, crlUrls, null,
                 BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
 
         var result = certificateService.getCertificateValidationResult(entity.getSecuredUuid());
         Assertions
@@ -632,7 +633,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String urlPath = "/p2-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlEmpty-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(urlPath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
 
         // when
@@ -652,7 +653,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         List<String> noDistributionPoints = List.of();
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlMalformed-" + stamp, noDistributionPoints,
                 null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
 
         // when
         CertificateValidationResultDto result = certificateService
@@ -673,7 +674,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         List<String> noDeltaCrlDistributionPoints = List.of();
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMalformed-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath), noDeltaCrlDistributionPoints, BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate()).build().getEncoded());
 
@@ -697,7 +698,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair,
                 "testCrlDeltaMalformedRevoked-" + stamp, List.of(LoopbackWireMock.url(mockServer) + basePath),
                 noDeltaCrlDistributionPoints, BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
@@ -720,7 +721,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         List<String> noDistributionPoints = List.of();
         X509Certificate cert = createSelfSignedCertificateWithCrl("testCrlMalformedLogged-" + stamp,
                 noDistributionPoints, null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
 
         // when
         certificateService.getCertificateValidationResult(entity.getSecuredUuid());
@@ -739,7 +740,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         List<String> noDeltaCrlDistributionPoints = List.of();
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMalformedLogged-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath), noDeltaCrlDistributionPoints, BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withRevocation(cert.getSerialNumber(), CRLReason.keyCompromise)
@@ -802,7 +803,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlRevoked-" + stamp, List
                 .of(LoopbackWireMock.url(mockServer) + unansweredPath, LoopbackWireMock.url(mockServer) + listingPath),
                 null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         X509CRL revokingCrl = addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
                 createEmptyCRL(cert, issuerKeyPair.getPrivate()),
                 Map.of(cert.getSerialNumber(), CRLReason.keyCompromise));
@@ -852,7 +853,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaBad-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath, createEmptyCRL(cert, issuerKeyPair.getPrivate()).getEncoded());
         BigInteger unpublishedBaseCrlNumber = BigInteger.valueOf(3);
         stubCrlPoint(deltaPath, createEmptyDeltaCRL(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate(),
@@ -880,7 +881,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaIssuer-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -914,7 +915,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaApply-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         BigInteger removedSerialNumber = BigInteger.valueOf(123);
         BigInteger changedSerialNumber = BigInteger.valueOf(1234);
         X509CRL baseCrl = addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
@@ -954,7 +955,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String crlUrl = LoopbackWireMock.url(mockServer) + urlPath;
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlForged-" + stamp,
                 List.of(crlUrl), null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(urlPath, createEmptyCRL(cert, forgerKeyPair.getPrivate()).getEncoded());
 
         // when
@@ -1018,7 +1019,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaForged-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
                         createEmptyCRL(cert, issuerKeyPair.getPrivate()),
@@ -1047,7 +1048,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMissing-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + unansweredDeltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 addRevocationToCRL(issuerKeyPair.getPrivate(), "SHA256WithRSAEncryption",
                         createEmptyCRL(cert, issuerKeyPair.getPrivate()),
@@ -1071,7 +1072,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String crlUrl = LoopbackWireMock.url(mockServer) + urlPath;
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlStale-" + stamp,
                 List.of(crlUrl), null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         Instant beyondClockSkew = Instant.now().minus(Duration.ofMinutes(10));
         stubCrlPoint(urlPath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
@@ -1099,7 +1100,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String urlPath = "/skew-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlSkew-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         Instant withinClockSkew = Instant.now().minus(Duration.ofMinutes(1));
         stubCrlPoint(urlPath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
@@ -1123,7 +1124,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String urlPath = "/no-next-update-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlNoNextUpdate-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(urlPath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withNextUpdate(null)
@@ -1149,7 +1150,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String urlPath = "/no-number-" + stamp + ".crl";
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlNoNumber-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(urlPath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(null)
@@ -1177,7 +1178,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String crlUrl = LoopbackWireMock.url(mockServer) + urlPath;
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlOtherIssuer-" + stamp,
                 List.of(crlUrl), null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         X500Principal anotherIssuerName = new X500Principal("CN=Another-Crl-Issuer-" + stamp);
         stubCrlPoint(urlPath, anX509Crl(anotherIssuerName, issuerKeyPair.getPrivate()).build().getEncoded());
 
@@ -1202,7 +1203,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         String commonName = "testCrlIssuerSpelling-" + stamp;
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName,
                 List.of(LoopbackWireMock.url(mockServer) + urlPath), null, BigInteger.ONE);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         X500Name capitalizedPrintableName = new X500Name(
                 new RDN[]{new RDN(BCStyle.CN, new DERPrintableString(commonName.toUpperCase(Locale.ROOT)))});
         X500Principal sameIssuerSpelledDifferently = new X500Principal(capitalizedPrintableName.getEncoded());
@@ -1477,7 +1478,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaComplete-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1507,7 +1508,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaStale-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1542,7 +1543,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaDue-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1656,7 +1657,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaOfRefresh-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1702,7 +1703,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaLeftBehind-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1748,7 +1749,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaNewerBase-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1796,7 +1797,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaOlderRefresh-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         BigInteger storedBaseCrlNumber = BigInteger.TWO;
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
@@ -1844,7 +1845,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaUnreachable-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + unansweredDeltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1872,7 +1873,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaForgedOnly-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1905,7 +1906,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaDueMissing-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1941,7 +1942,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaReleaseExpired-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -1987,7 +1988,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaRollback-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -2066,7 +2067,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificate(issuerKeyPair, "testCrlDeltaNoUrl-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath), new DistributionPoint[]{deltaCrlPointWithoutUrl},
                 BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -2093,7 +2094,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaMissingHold-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + unansweredDeltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -2121,7 +2122,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaLongNumber-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         BigInteger baseCrlNumber = BigInteger.valueOf(Integer.MAX_VALUE - 1L);
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
@@ -2166,7 +2167,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaSkew-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -2200,7 +2201,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaRemovesUnlisted-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -2235,7 +2236,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate cert = createSelfSignedCertificateWithCrl(issuerKeyPair, "testCrlDeltaBackdated-" + stamp,
                 List.of(LoopbackWireMock.url(mockServer) + basePath),
                 List.of(LoopbackWireMock.url(mockServer) + deltaPath), BigInteger.TWO);
-        Certificate entity = createTrustedCertEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(createTrustedCertEntity(cert));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
@@ -2260,7 +2261,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     }
 
     private Certificate createTrustedCertEntity(X509Certificate cert) {
-        Certificate entity = certificateService.createCertificateEntity(cert);
+        X509CertificateEntity entity = X509CertificateEntity.from(certificateService.createCertificateEntity(cert));
         entity.setTrustedCa(true);
         return certificateRepository.save(entity);
     }
@@ -2364,7 +2365,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
     @Test
     void testGetCertificateChainNullContent() throws NotFoundException {
-        Certificate certNoContent = new Certificate();
+        X509CertificateEntity certNoContent = new X509CertificateEntity();
         certNoContent.setSubjectDn("CN=NullContentCert");
         certNoContent.setIssuerDn("CN=SomeIssuer");
         certNoContent.setSerialNumber("000000");
@@ -2421,7 +2422,8 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
         uploadCertificate(Base64.getEncoder().encodeToString(rootX509.getEncoded()));
         uploadCertificate(Base64.getEncoder().encodeToString(intermediateX509.getEncoded()));
-        Certificate eeCert = uploadCertificate(Base64.getEncoder().encodeToString(eeX509.getEncoded()));
+        X509CertificateEntity eeCert = X509CertificateEntity
+                .from(uploadCertificate(Base64.getEncoder().encodeToString(eeX509.getEncoded())));
 
         // withEndCertificate=false → chain is [intermediate, root], complete
         CertificateChainResponseDto withoutEnd = certificateService.getCertificateChain(eeCert.getSecuredUuid(), false);
@@ -2565,7 +2567,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 .assertNotNull(eeEntity.getIssuerCertificateUuid(), "EE issuer UUID should be set after AIA download");
         Assertions.assertEquals(insertedCa.get().getUuid(), eeEntity.getIssuerCertificateUuid());
 
-        Certificate ca = insertedCa.get();
+        X509CertificateEntity ca = X509CertificateEntity.from(insertedCa.get());
         Assertions.assertTrue(ca.getQcCompliance(), "qcCompliance must be persisted");
         Assertions.assertFalse(ca.getQcSscd(), "qcSscd must be persisted as false");
         Assertions

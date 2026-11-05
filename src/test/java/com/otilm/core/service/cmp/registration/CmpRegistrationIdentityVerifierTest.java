@@ -5,6 +5,7 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
@@ -85,7 +86,7 @@ class CmpRegistrationIdentityVerifierTest {
     }
 
     private static Certificate matched(String subjectDn, List<String> dnsSans) {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(MATCHED_UUID);
         certificate.setSubjectDn(subjectDn);
         if (dnsSans != null) {

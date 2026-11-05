@@ -8,6 +8,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
@@ -231,7 +232,7 @@ class CrmfMessageHandlerTest {
     }
 
     private static Certificate leafCertificate(UUID uuid) {
-        Certificate leaf = new Certificate();
+        X509CertificateEntity leaf = new X509CertificateEntity();
         leaf.setUuid(uuid);
         leaf.setSerialNumber("01");
         return leaf;

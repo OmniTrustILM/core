@@ -8,10 +8,10 @@ import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.core.acme.AccountStatus;
 import com.otilm.api.model.core.acme.OrderStatus;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
@@ -83,7 +83,7 @@ class AcmeAccountServiceITest extends BaseSpringBootTest {
         CertificateContent certificateContent = new CertificateContent();
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCertificateContent(certificateContent);
         certificate.setSerialNumber("123456789");
         certificateRepository.save(certificate);

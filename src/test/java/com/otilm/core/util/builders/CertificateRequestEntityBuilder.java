@@ -4,6 +4,7 @@ import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import java.security.NoSuchAlgorithmException;
 
 /**
@@ -44,8 +45,8 @@ public class CertificateRequestEntityBuilder {
         return this;
     }
 
-    public CertificateRequestEntity build() {
-        CertificateRequestEntity entity = new CertificateRequestEntity();
+    public X509CertificateRequestEntity build() {
+        X509CertificateRequestEntity entity = new X509CertificateRequestEntity();
         entity.setCertificateRequestFormat(format);
         if (subjectDn != null) {
             entity.setSubjectDn(subjectDn);

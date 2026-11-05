@@ -5,8 +5,8 @@ import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
@@ -64,7 +64,7 @@ class ClientOperationServiceImplFailedApprovedRevokeTest {
         raProfile.setAuthorityInstanceReference(authority);
 
         certificateUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(certificateUuid);
         certificate.setState(CertificateState.PENDING_APPROVAL);
         certificate.setRaProfile(raProfile);

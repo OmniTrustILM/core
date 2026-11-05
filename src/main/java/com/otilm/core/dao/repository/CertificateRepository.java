@@ -192,8 +192,11 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
 
     Optional<Certificate> findByUserUuid(UUID userUuid);
 
-    List<Certificate> findByPublicKeyFingerprintOrAltKeyFingerprint(String publicKeyFingerprint,
-            String altKeyFingerprint);
+    @Query("SELECT c FROM Certificate c WHERE c.publicKeyFingerprint = :publicKeyFingerprint "
+            + "OR c.altKeyFingerprint = :altKeyFingerprint")
+    List<Certificate> findByPublicKeyFingerprintOrAltKeyFingerprint(
+            @Param("publicKeyFingerprint") String publicKeyFingerprint,
+            @Param("altKeyFingerprint") String altKeyFingerprint);
 
     @Query("""
              SELECT COUNT(*) FROM Certificate c LEFT JOIN c.raProfile rp
@@ -276,12 +279,19 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
 
     List<Certificate> findByRaProfileAndComplianceStatusIsNotNullAndArchivedIsFalse(RaProfile raProfile);
 
-    Optional<Certificate> findBySubjectDnNormalizedAndSerialNumber(String subjectDnNormalized, String serialNumber);
+    @Query("SELECT c FROM Certificate c WHERE c.subjectDnNormalized = :subjectDnNormalized "
+            + "AND c.serialNumber = :serialNumber")
+    Optional<Certificate> findBySubjectDnNormalizedAndSerialNumber(
+            @Param("subjectDnNormalized") String subjectDnNormalized, @Param("serialNumber") String serialNumber);
 
-    Optional<Certificate> findByIssuerDnNormalizedAndSerialNumber(String issuerDnNormalized, String serialNumber);
+    @Query("SELECT c FROM Certificate c WHERE c.issuerDnNormalized = :issuerDnNormalized "
+            + "AND c.serialNumber = :serialNumber")
+    Optional<Certificate> findByIssuerDnNormalizedAndSerialNumber(
+            @Param("issuerDnNormalized") String issuerDnNormalized, @Param("serialNumber") String serialNumber);
 
-    @EntityGraph(attributePaths = {"certificateContent"})
-    List<Certificate> findBySubjectDnNormalized(String issuerDnNormalized);
+    @Query("SELECT c FROM Certificate c LEFT JOIN FETCH c.certificateContent "
+            + "WHERE c.subjectDnNormalized = :subjectDnNormalized")
+    List<Certificate> findBySubjectDnNormalized(@Param("subjectDnNormalized") String subjectDnNormalized);
 
     @EntityGraph(attributePaths = {"certificateContent", "raProfile"})
     List<Certificate> findByValidationStatusAndCertificateContentDiscoveryCertificatesDiscoveryUuid(
@@ -320,16 +330,6 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
     void setAltKeyUuidAndHybridCertificate(UUID keyUuid, List<UUID> uuids);
 
     /**
-     * Sets {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row by UUID,
-     * refreshing {@code i_upd} explicitly.
-     */
-    @Modifying
-    @Query("UPDATE Certificate c " + "SET c.issuerSerialNumber = :serial, c.issuerCertificateUuid = :issuerUuid, "
-            + "    c.updated = CURRENT_TIMESTAMP " + "WHERE c.uuid = :uuid")
-    void updateIssuerReference(@Param("uuid") UUID uuid, @Param("serial") String serial,
-            @Param("issuerUuid") UUID issuerUuid);
-
-    /**
      * Sets or clears {@code pending_revoke_attributes} on a single certificate row by UUID, refreshing {@code i_upd}
      * explicitly. The column is written here and not through the entity: a dynamic update of {@link Certificate} leaves
      * a changed {@code pendingRevokeAttributes} out of its UPDATE statement.
@@ -339,6 +339,16 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             + "WHERE c.uuid = :uuid")
     void updatePendingRevokeAttributes(@Param("uuid") UUID uuid,
             @Param("attributes") List<RequestAttribute> attributes);
+
+    /**
+     * Sets {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row by UUID,
+     * refreshing {@code i_upd} explicitly.
+     */
+    @Modifying
+    @Query("UPDATE Certificate c " + "SET c.issuerSerialNumber = :serial, c.issuerCertificateUuid = :issuerUuid, "
+            + "    c.updated = CURRENT_TIMESTAMP " + "WHERE c.uuid = :uuid")
+    void updateIssuerReference(@Param("uuid") UUID uuid, @Param("serial") String serial,
+            @Param("issuerUuid") UUID issuerUuid);
 
     /**
      * Clears both {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row.

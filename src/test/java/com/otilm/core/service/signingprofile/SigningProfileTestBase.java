@@ -44,6 +44,7 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
@@ -174,18 +175,18 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
      * A Certificate associated with {@link #cryptographicKey} (MLDSA key). Satisfies all conditions of
      * constructQueryDigitalSigningCertAcceptable, including the digitalSignature key usage the purpose rule demands.
      */
-    protected Certificate certificate;
+    protected X509CertificateEntity certificate;
 
     /**
      * A Certificate associated with {@link #rsaCryptographicKey} (RSA key).
      */
-    protected Certificate rsaCertificate;
+    protected X509CertificateEntity rsaCertificate;
 
     /**
      * A Certificate specifically configured for TIMESTAMPING workflow type. Contains the id-kp-timeStamping EKU and is
      * marked as critical.
      */
-    protected Certificate tsaCertificate;
+    protected X509CertificateEntity tsaCertificate;
 
     /**
      * A Connector used as the signature formatting connector in CONTENT_SIGNING and TIMESTAMPING workflow tests.
@@ -239,7 +240,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
                 .seedKey("test-key-mldsa", tokenProfile, tokenInstanceRef, signingPrivateKey(KeyAlgorithm.MLDSA));
 
         // Certificate associated with the MLDSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
-        certificate = new Certificate();
+        certificate = new X509CertificateEntity();
         certificate.setKey(cryptographicKey);
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.VALID);
@@ -252,7 +253,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
                 .seedKey("test-key-rsa", tokenProfile, tokenInstanceRef, signingPrivateKey(KeyAlgorithm.RSA));
 
         // Certificate associated with the RSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
-        rsaCertificate = new Certificate();
+        rsaCertificate = new X509CertificateEntity();
         rsaCertificate.setKey(rsaCryptographicKey);
         rsaCertificate.setState(CertificateState.ISSUED);
         rsaCertificate.setValidationStatus(CertificateValidationStatus.VALID);
@@ -261,7 +262,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         attachSelfSignedContent(rsaCertificate);
 
         // Certificate specifically configured for TIMESTAMPING; satisfies RFC 3161 requirements
-        tsaCertificate = new Certificate();
+        tsaCertificate = new X509CertificateEntity();
         tsaCertificate.setKey(rsaCryptographicKey);
         tsaCertificate.setState(CertificateState.ISSUED);
         tsaCertificate.setValidationStatus(CertificateValidationStatus.VALID);
@@ -529,7 +530,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
     protected Certificate buildIncompleteChainCertificate()
             throws CertificateException, NoSuchAlgorithmException, OperatorCreationException {
         X509Certificate x509 = CertificateTestUtil.createEndEntityCertificate();
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setKey(cryptographicKey);
         cert.setState(CertificateState.ISSUED);
         cert.setValidationStatus(CertificateValidationStatus.VALID);

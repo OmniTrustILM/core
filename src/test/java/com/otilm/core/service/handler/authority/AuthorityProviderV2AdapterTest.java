@@ -26,8 +26,9 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import java.util.List;
 import java.util.UUID;
@@ -96,13 +97,13 @@ class AuthorityProviderV2AdapterTest {
         raProfile.setAuthorityInstanceReference(authority);
 
         // CertificateRequestEntity.setContent() decodes via Base64 and hashes; any valid Base64 works.
-        CertificateRequestEntity certRequest = new CertificateRequestEntity();
+        X509CertificateRequestEntity certRequest = new X509CertificateRequestEntity();
         certRequest.setContent("dGVzdGNzcg=="); // "testcsr" in Base64
 
         CertificateContent certContent = new CertificateContent();
         certContent.setContent("dGVzdGNlcnQ="); // "testcert" in Base64
 
-        cert = new Certificate();
+        cert = new X509CertificateEntity();
         cert.setUuid(UUID.randomUUID());
         cert.setRaProfile(raProfile);
         cert.setCertificateRequest(certRequest);
@@ -113,7 +114,7 @@ class AuthorityProviderV2AdapterTest {
         CertificateContent oldCertContent = new CertificateContent();
         oldCertContent.setContent("dGVzdGNlcnQ="); // same value for assertions; distinct object
 
-        oldCert = new Certificate();
+        oldCert = new X509CertificateEntity();
         oldCert.setUuid(UUID.randomUUID());
         oldCert.setRaProfile(raProfile);
         oldCert.setCertificateContent(oldCertContent);

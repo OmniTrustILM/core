@@ -22,9 +22,9 @@ import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.core.attribute.engine.AttributeEngine;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
@@ -177,7 +177,7 @@ class CallbackServiceITest extends BaseSpringBootTest {
 
     @Test
     void testCallbackWithLoadResourceToBody() throws ConnectorException, NotFoundException, AttributeException {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("content");
         certificateContentRepository.save(certificateContent);

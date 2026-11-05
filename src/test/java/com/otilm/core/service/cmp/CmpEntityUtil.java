@@ -14,6 +14,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.util.CertificateUtil;
@@ -109,7 +110,7 @@ public class CmpEntityUtil {
 
     public static Certificate createCertificate(BigInteger serialNumber, CertificateState state,
             CertificateContent certificateContent) {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCertificateContent(certificateContent);
         if (certificateContent != null) {
             certificate.setFingerprint(certificateContent.getFingerprint());

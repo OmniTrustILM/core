@@ -7,6 +7,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
@@ -229,7 +230,7 @@ class CertificateChainParityITest extends BaseSpringBootTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setCommonName(x509.getSubjectX500Principal().getName());
         cert.setSubjectDn(x509.getSubjectX500Principal().getName());
         cert.setIssuerDn(x509.getIssuerX500Principal().getName());
@@ -245,7 +246,7 @@ class CertificateChainParityITest extends BaseSpringBootTest {
     }
 
     private Certificate persistCertificateWithoutContent() {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setCommonName("CN=No-Content");
         cert.setSubjectDn("CN=No-Content");
         cert.setIssuerDn("CN=No-Content");

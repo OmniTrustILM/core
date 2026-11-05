@@ -36,6 +36,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RaProfileProtocolAttribute;
 import com.otilm.core.dao.entity.RaProfile_;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
@@ -858,7 +859,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
             if (existingCertificate.isPresent()) {
                 certificateDetailDtos.add(existingCertificate.get().mapToDto());
             } else {
-                Certificate modal = new Certificate();
+                X509CertificateEntity modal = new X509CertificateEntity();
                 CertificateUtil.prepareIssuedCertificate(modal, certificate);
                 CertificateContent certificateContent = certificateContentRepository.findByFingerprint(fingerprint);
                 if (certificateContent == null) {

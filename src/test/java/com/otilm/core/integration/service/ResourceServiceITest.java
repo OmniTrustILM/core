@@ -44,6 +44,7 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
@@ -202,7 +203,7 @@ class ResourceServiceITest extends BaseSpringBootTest {
         certificateContent.setContent(content);
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         newCertificate.setSubjectDn(subjectDn);
         newCertificate.setIssuerDn("testCertificate");
         newCertificate.setSerialNumber(serialNumber);

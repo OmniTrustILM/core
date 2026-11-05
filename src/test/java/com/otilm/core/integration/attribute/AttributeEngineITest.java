@@ -77,11 +77,11 @@ import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.AttributeRelation;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
@@ -178,7 +178,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
     private Connector connectorAuthority;
     private Connector connectorDiscovery;
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
     private UUID authorityDiscoveryUuid;
     private UUID networkDiscoveryUuid;
 
@@ -220,7 +220,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         raProfile.setAuthorityInstanceReference(authorityInstance);
         raProfile = raProfileRepository.save(raProfile);
 
-        certificate = new Certificate();
+        certificate = new X509CertificateEntity();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCercertificatetificate");
         certificate.setSerialNumber("123456789");
@@ -1061,7 +1061,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     @Test
     void testBulkDeleteObjectAttributeContent() throws AttributeException, NotFoundException {
         // Use existing certificate and create another one
-        Certificate certificate2 = new Certificate();
+        X509CertificateEntity certificate2 = new X509CertificateEntity();
         certificate2.setFingerprint("fingerprint2");
         certificate2.setSubjectDn("CN=test2");
         certificate2.setIssuerDn("CN=test2");

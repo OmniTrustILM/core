@@ -4,6 +4,7 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import java.time.OffsetDateTime;
@@ -244,7 +245,7 @@ class CertificateStateMachineTest {
     }
 
     private Certificate certWithState(CertificateState state) {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setUuid(UUID.randomUUID());
         cert.setState(state);
         return cert;

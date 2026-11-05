@@ -62,8 +62,9 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
@@ -187,13 +188,13 @@ class AuthorityProviderV3AdapterTest {
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setAuthorityInstanceReference(authority);
 
-        CertificateRequestEntity certRequest = new CertificateRequestEntity();
+        X509CertificateRequestEntity certRequest = new X509CertificateRequestEntity();
         certRequest.setContent("dGVzdGNzcg=="); // "testcsr" Base64
 
         CertificateContent certContent = new CertificateContent();
         certContent.setContent("dGVzdGNlcnQ="); // "testcert" Base64
 
-        cert = new Certificate();
+        cert = new X509CertificateEntity();
         cert.setUuid(UUID.randomUUID());
         cert.setRaProfile(raProfile);
         cert.setCertificateRequest(certRequest);
@@ -202,7 +203,7 @@ class AuthorityProviderV3AdapterTest {
         CertificateContent oldCertContent = new CertificateContent();
         oldCertContent.setContent("b2xkY2VydA=="); // "oldcert" Base64
 
-        oldCert = new Certificate();
+        oldCert = new X509CertificateEntity();
         oldCert.setUuid(UUID.randomUUID());
         oldCert.setRaProfile(raProfile);
         oldCert.setCertificateContent(oldCertContent);

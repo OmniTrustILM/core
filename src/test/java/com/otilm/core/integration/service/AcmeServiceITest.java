@@ -40,6 +40,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
@@ -241,7 +242,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
         certificateContent.setContent(b64Certificate);
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new Certificate();
+        certificate = new X509CertificateEntity();
         certificate.setCertificateContent(certificateContent);
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.VALID);
@@ -349,7 +350,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
         nonAcmeCertificateContent.setContent(nonAcmeB64Certificate);
         nonAcmeCertificateContent = certificateContentRepository.save(nonAcmeCertificateContent);
 
-        Certificate nonAcmeCertificate = new Certificate();
+        X509CertificateEntity nonAcmeCertificate = new X509CertificateEntity();
         nonAcmeCertificate.setCertificateContent(nonAcmeCertificateContent);
         nonAcmeCertificate.setState(CertificateState.ISSUED);
         nonAcmeCertificate.setValidationStatus(CertificateValidationStatus.VALID);

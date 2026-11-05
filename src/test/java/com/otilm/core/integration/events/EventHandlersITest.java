@@ -68,6 +68,7 @@ import com.otilm.core.dao.entity.GroupAssociation;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.ScheduledJob;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.entity.notifications.PendingNotification;
 import com.otilm.core.dao.entity.workflows.EventHistory;
@@ -280,7 +281,7 @@ class EventHandlersITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        final Certificate certificate = new Certificate();
+        final X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCercertificatetificate");
         certificate.setSerialNumber("123456789");
@@ -1257,7 +1258,7 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     private void occupyContentIdWithAnotherCertificate(CertificateContent content) {
-        Certificate squatter = new Certificate();
+        X509CertificateEntity squatter = new X509CertificateEntity();
         squatter.setUuid(UUID.randomUUID());
         squatter.setFingerprint("squatter-" + UUID.randomUUID());
         squatter.setCertificateContentId(content.getId());
@@ -1540,7 +1541,8 @@ class EventHandlersITest extends BaseSpringBootTest {
                 .assertDoesNotThrow(() -> certificateUploadedEventHandler
                         .handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
 
-        Certificate uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        X509CertificateEntity uploadedCertificate = X509CertificateEntity
+                .from(certificateRepository.findByFingerprint(fingerprint).orElseThrow());
         Assertions.assertEquals(certificate.getSubjectX500Principal().getName(), uploadedCertificate.getSubjectDn());
         Assertions.assertNotNull(uploadedCertificate.getCertificateContent());
         Assertions.assertNotNull(uploadedCertificate.getKey());
@@ -1553,7 +1555,8 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions
                 .assertDoesNotThrow(() -> certificateUploadedEventHandler
                         .handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
-        uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        uploadedCertificate = X509CertificateEntity
+                .from(certificateRepository.findByFingerprint(fingerprint).orElseThrow());
         CertificateDetailDto certificateDetailDto = certificateService
                 .getCertificate(uploadedCertificate.getSecuredUuid());
         Assertions.assertFalse(certificateDetailDto.getCustomAttributes().isEmpty());
@@ -1575,7 +1578,8 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions
                 .assertDoesNotThrow(() -> certificateUploadedEventHandler
                         .handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData2)));
-        uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        uploadedCertificate = X509CertificateEntity
+                .from(certificateRepository.findByFingerprint(fingerprint).orElseThrow());
         certificateDetailDto = certificateService.getCertificate(uploadedCertificate.getSecuredUuid());
         Assertions.assertFalse(certificateDetailDto.getCustomAttributes().isEmpty());
         Optional<ResponseAttribute> customAttributeDtoOptional = certificateDetailDto
@@ -1611,7 +1615,7 @@ class EventHandlersITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        final Certificate certificate = new Certificate();
+        final X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCertificateIssuer");
         certificate.setSerialNumber("123456789");

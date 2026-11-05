@@ -7,6 +7,7 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.OwnerAssociation;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.evaluator.CertificateTriggerEvaluator;
@@ -42,7 +43,7 @@ class CertificateRegisteredEventHandlerTest {
     @Test
     void getEventDataResolvesCredentialAndDeadlineAndKeepsCredentialOutOfToString() {
         UUID certUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(certUuid);
         certificate.setSubjectDn("CN=device-7");
 
@@ -64,7 +65,7 @@ class CertificateRegisteredEventHandlerTest {
     @Test
     void getEventDataWithoutAuthorizationLeavesCredentialNull() {
         UUID certUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(certUuid);
         when(authorizationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
 
@@ -81,7 +82,7 @@ class CertificateRegisteredEventHandlerTest {
 
         UUID certUuid = UUID.randomUUID();
         UUID ownerUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(certUuid);
         certificate.setSubjectDn("CN=device-7");
         OwnerAssociation owner = new OwnerAssociation();

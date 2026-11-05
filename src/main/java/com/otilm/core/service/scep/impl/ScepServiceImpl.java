@@ -33,6 +33,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
@@ -1033,6 +1034,7 @@ public class ScepServiceImpl implements ScepExternalService {
                 .match(scepRequest.getPkcs10Request().getSubject(), csrSans,
                         candidates
                                 .stream()
+                                .map(X509CertificateEntity::from)
                                 .map(c -> new RegistrationIdentityMatcher.Candidate(c.getUuid(), c.getSubjectDn(),
                                         c.getSubjectAlternativeNames()))
                                 .toList());
@@ -1363,7 +1365,8 @@ public class ScepServiceImpl implements ScepExternalService {
         // A subject DN mismatch rejects the request rather than merely withholding the waiver, which is the
         // behaviour that predates the waiver: signing with a certificate and then asking for a different
         // subject is treated as a malformed renewal, not as an enrollment the shared secret could authorize.
-        if (!(new X500Name(renewedCertificate.getSubjectDn())).equals(scepRequest.getPkcs10Request().getSubject())) {
+        if (!(new X500Name(X509CertificateEntity.from(renewedCertificate).getSubjectDn()))
+                .equals(scepRequest.getPkcs10Request().getSubject())) {
             throw new ScepException("Subject DN for the renewal request does not match the original certificate",
                     FailInfo.BAD_REQUEST);
         }

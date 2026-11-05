@@ -2,10 +2,10 @@ package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.CertificateRelationId;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -40,7 +40,7 @@ class CertificateRelationsITest extends BaseMigrationTest {
 
     @Test
     void testMigration() throws Exception {
-        Certificate hybridCertificate = new Certificate();
+        X509CertificateEntity hybridCertificate = new X509CertificateEntity();
         String content = Base64.getEncoder().encodeToString(CertificateTestUtil.createHybridCertificate().getEncoded());
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent(content);
@@ -49,21 +49,21 @@ class CertificateRelationsITest extends BaseMigrationTest {
         hybridCertificate.setCertificateContent(certificateContent);
         certificateRepository.save(hybridCertificate);
 
-        Certificate sourceCertificate = new Certificate();
+        X509CertificateEntity sourceCertificate = new X509CertificateEntity();
         sourceCertificate.setPublicKeyFingerprint("fp");
         sourceCertificate.setAltKeyFingerprint("akfp");
         certificateRepository.save(sourceCertificate);
-        Certificate certificate1 = new Certificate();
+        X509CertificateEntity certificate1 = new X509CertificateEntity();
         certificate1.setPublicKeyFingerprint(sourceCertificate.getPublicKeyFingerprint());
         certificate1.setState(CertificateState.ISSUED);
         certificate1.setAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint());
-        Certificate certificate2 = new Certificate();
+        X509CertificateEntity certificate2 = new X509CertificateEntity();
         certificate2.setState(CertificateState.ISSUED);
         certificate2.setPublicKeyFingerprint("fp2");
         certificate2.setAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint());
-        Certificate certificate3 = new Certificate();
+        X509CertificateEntity certificate3 = new X509CertificateEntity();
         certificate3.setState(CertificateState.FAILED);
-        Certificate certificate4 = new Certificate();
+        X509CertificateEntity certificate4 = new X509CertificateEntity();
         certificate4.setState(CertificateState.PENDING_APPROVAL);
         certificateRepository.saveAll(List.of(certificate1, certificate2, certificate3, certificate4));
 
@@ -113,7 +113,8 @@ class CertificateRelationsITest extends BaseMigrationTest {
                 .orElseThrow();
         Assertions.assertEquals(CertificateRelationType.PENDING, relation4.getRelationType());
 
-        hybridCertificate = certificateRepository.findByUuid(hybridCertificate.getUuid()).orElseThrow();
+        hybridCertificate = X509CertificateEntity
+                .from(certificateRepository.findByUuid(hybridCertificate.getUuid()).orElseThrow());
         Assertions.assertNotNull(hybridCertificate.getAltKeyFingerprint());
     }
 }

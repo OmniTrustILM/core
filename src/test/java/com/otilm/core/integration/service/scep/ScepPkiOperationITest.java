@@ -19,6 +19,7 @@ import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -353,7 +354,8 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
      */
     private void registerSignerCertificate() throws Exception {
         X509Certificate signerCertificate = ScepMessageTestData.signerCertificate();
-        Certificate certificate = storeCertificate(signerCertificate, null, raProfile);
+        X509CertificateEntity certificate = X509CertificateEntity
+                .from(storeCertificate(signerCertificate, null, raProfile));
         certificate.setSubjectDn(new X500Name(ScepMessageTestData.SUBJECT_DN).toString());
         certificate.setNotBefore(new Date(System.currentTimeMillis() - 30L * 24 * 3600 * 1000));
         certificate.setNotAfter(new Date(System.currentTimeMillis() + 10L * 24 * 3600 * 1000));
@@ -370,7 +372,7 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
         content.setFingerprint(fingerprint);
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());
         certificate.setFingerprint(fingerprint);

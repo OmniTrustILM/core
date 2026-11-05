@@ -11,7 +11,7 @@ import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.AttributeEngine;
-import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -44,7 +44,7 @@ class CustomAttributeContentReplaceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws AttributeException, NotFoundException {
-        certificateUuid = certificateRepository.save(new Certificate()).getUuid();
+        certificateUuid = certificateRepository.save(new X509CertificateEntity()).getUuid();
 
         CustomAttributeV3 pillar = new CustomAttributeV3();
         pillar.setUuid(UUID.randomUUID().toString());

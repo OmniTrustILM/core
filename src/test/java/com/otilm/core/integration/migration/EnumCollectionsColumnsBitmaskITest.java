@@ -6,6 +6,8 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -47,9 +49,9 @@ class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
     @Test
     void testMigration() throws Exception {
         // Certificates
-        Certificate certificate1 = new Certificate();
-        Certificate certificate2 = new Certificate();
-        Certificate certificate3 = new Certificate();
+        X509CertificateEntity certificate1 = new X509CertificateEntity();
+        X509CertificateEntity certificate2 = new X509CertificateEntity();
+        X509CertificateEntity certificate3 = new X509CertificateEntity();
         certificateRepository.saveAll(List.of(certificate1, certificate2, certificate3));
 
         // CryptographicKeyItems
@@ -64,7 +66,7 @@ class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
         TokenProfile profile3 = new TokenProfile();
         tokenProfileRepository.saveAll(List.of(profile1, profile2, profile3));
 
-        CertificateRequestEntity certificateRequest = CertificateRequestEntityBuilder
+        X509CertificateRequestEntity certificateRequest = CertificateRequestEntityBuilder
                 .aCertificateRequest()
                 .withContent("content")
                 .build();
@@ -81,9 +83,12 @@ class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
         V202509041555__CertificateRequestEntityBitmask certificateRequestMigration = new V202509041555__CertificateRequestEntityBitmask();
         certificateRequestMigration.migrate(context);
 
-        certificate1 = certificateRepository.findByUuid(certificate1.getUuid()).orElseThrow();
-        certificate2 = certificateRepository.findByUuid(certificate2.getUuid()).orElseThrow();
-        certificate3 = certificateRepository.findByUuid(certificate3.getUuid()).orElseThrow();
+        certificate1 = X509CertificateEntity
+                .from(certificateRepository.findByUuid(certificate1.getUuid()).orElseThrow());
+        certificate2 = X509CertificateEntity
+                .from(certificateRepository.findByUuid(certificate2.getUuid()).orElseThrow());
+        certificate3 = X509CertificateEntity
+                .from(certificateRepository.findByUuid(certificate3.getUuid()).orElseThrow());
 
         Assertions
                 .assertEquals(Set
@@ -109,7 +114,9 @@ class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
         Assertions.assertEquals(Set.of(KeyUsage.SIGN), new HashSet<>(profile2.getUsage()));
         Assertions.assertEquals(Set.of(), new HashSet<>(profile3.getUsage()));
 
-        certificateRequest = certificateRequestRepository.findByUuid(certificateRequest.getUuid()).orElseThrow();
+        certificateRequest = (X509CertificateRequestEntity) certificateRequestRepository
+                .findByUuid(certificateRequest.getUuid())
+                .orElseThrow();
         Assertions
                 .assertEquals(
                         Set

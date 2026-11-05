@@ -4,6 +4,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
@@ -158,7 +159,7 @@ class PollReqMessageHandlerTest {
     }
 
     private static Certificate certificateInState(CertificateState state) {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setUuid(UUID.randomUUID());
         cert.setState(state);
         cert.setSerialNumber("01");
@@ -384,7 +385,7 @@ class PollReqMessageHandlerTest {
     }
 
     private static Certificate certificateInState(UUID uuid, CertificateState state) {
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setUuid(uuid);
         cert.setState(state);
         cert.setSerialNumber("01");

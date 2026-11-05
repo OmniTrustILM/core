@@ -52,6 +52,7 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RaProfileProtocolAttribute;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
@@ -202,7 +203,7 @@ class RaProfileServiceITest extends ApprovalProfileData {
         certificateContent = new CertificateContent();
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new Certificate();
+        certificate = new X509CertificateEntity();
         certificate.setCertificateContent(certificateContent);
         certificate.setSerialNumber("123456789");
         certificate = certificateRepository.save(certificate);

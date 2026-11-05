@@ -14,6 +14,7 @@ import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.dao.entity.ApprovalProfile;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.ApprovalRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -110,7 +111,7 @@ public abstract class AbstractApprovalWorkflowITest extends BaseMessagingIntTest
         content.setContent(contentText);
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setSubjectDn(subjectDn);
         certificate.setIssuerDn("CN=test-issuer");
         certificate.setSerialNumber(serialNumber);

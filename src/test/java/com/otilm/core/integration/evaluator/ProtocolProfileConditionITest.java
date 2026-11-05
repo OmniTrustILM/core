@@ -20,6 +20,7 @@ import com.otilm.api.model.core.workflows.TriggerRequestDto;
 import com.otilm.api.model.core.workflows.TriggerType;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
@@ -212,7 +213,7 @@ class ProtocolProfileConditionITest extends BaseSpringBootTest {
     }
 
     private UUID certificateIssuedThrough(CertificateProtocol protocol, UUID profileUuid) {
-        Certificate certificate = certificateRepository.save(new Certificate());
+        Certificate certificate = certificateRepository.save(new X509CertificateEntity());
         CertificateProtocolAssociation association = new CertificateProtocolAssociation();
         association.setCertificateUuid(certificate.getUuid());
         association.setProtocol(protocol);

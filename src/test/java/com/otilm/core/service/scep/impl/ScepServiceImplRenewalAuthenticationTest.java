@@ -7,6 +7,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.scep.FailInfo;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
@@ -344,7 +345,7 @@ class ScepServiceImplRenewalAuthenticationTest {
     }
 
     private Certificate inventoryCertificate(UUID raProfileUuid) {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(UUID.randomUUID());
         certificate.setSubjectDn(SUBJECT_DN);
         certificate.setState(CertificateState.ISSUED);

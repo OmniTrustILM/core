@@ -17,8 +17,9 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistration;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
@@ -96,7 +97,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     private RaProfile raProfile;
     private AuthorityInstanceReference authority;
     private UUID certUuid;
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
     private CertificateRegistration binding;
 
     private static Map<String, OidRecord> savedRdnCache;
@@ -169,11 +170,11 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setAuthorityInstanceReference(authority);
 
-        CertificateRequestEntity request = new CertificateRequestEntity();
+        X509CertificateRequestEntity request = new X509CertificateRequestEntity();
         request.setContent(Base64.getEncoder().encodeToString("csr-content".getBytes()));
 
         certUuid = UUID.randomUUID();
-        certificate = new Certificate();
+        certificate = new X509CertificateEntity();
         certificate.setUuid(certUuid);
         certificate.setState(CertificateState.REGISTERED);
         certificate.setRaProfile(raProfile);
@@ -259,7 +260,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     @EnumSource(value = CertificateState.class, names = {"FAILED", "PENDING_ISSUE"})
     void racedStateIsRejectedWithoutConnectorCall(CertificateState racedState) {
         RegisterCapability adapter = registerCapableAdapter();
-        Certificate racedRead = new Certificate();
+        X509CertificateEntity racedRead = new X509CertificateEntity();
         racedRead.setState(racedState);
         when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(racedRead));
 

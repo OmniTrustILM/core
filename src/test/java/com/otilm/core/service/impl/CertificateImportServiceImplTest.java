@@ -25,7 +25,7 @@ import com.otilm.core.container.ContainerEntry;
 import com.otilm.core.container.ContainerFixtures;
 import com.otilm.core.container.ContainerReader;
 import com.otilm.core.container.KeyEntry;
-import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.key.normalization.KeyDescription;
 import com.otilm.core.logging.LoggingHelper;
@@ -104,7 +104,7 @@ class CertificateImportServiceImplTest {
     void importCertificates_takesACertificateARequestRegisteredSinceItWasLookedUp() throws Exception {
         // given
         CertificateImportRequestDto request = certificateRequest();
-        Certificate registered = new Certificate();
+        X509CertificateEntity registered = new X509CertificateEntity();
         registered.setUuid(UUID.randomUUID());
         when(certificates.findByFingerprint(reference())).thenReturn(Optional.empty(), Optional.of(registered));
         when(upload.upload(any(), any(), eq(true))).thenThrow(new AlreadyExistException("registered meanwhile"));
@@ -128,7 +128,7 @@ class CertificateImportServiceImplTest {
     void importCertificates_takesACertificateAnUploadRacingThisOneRegistered() throws Exception {
         // given
         CertificateImportRequestDto request = certificateRequest();
-        Certificate registered = new Certificate();
+        X509CertificateEntity registered = new X509CertificateEntity();
         registered.setUuid(UUID.randomUUID());
         when(certificates.findByFingerprint(reference())).thenReturn(Optional.empty(), Optional.of(registered));
         when(upload.upload(any(), any(), eq(true)))
@@ -181,7 +181,7 @@ class CertificateImportServiceImplTest {
     void importCertificates_letsADenialDuringTheUploadRefuseTheRequest() throws Exception {
         // given
         CertificateImportRequestDto request = certificateRequest();
-        Certificate registered = new Certificate();
+        X509CertificateEntity registered = new X509CertificateEntity();
         registered.setUuid(UUID.randomUUID());
         when(certificates.findByFingerprint(reference())).thenReturn(Optional.empty(), Optional.of(registered));
         when(upload.upload(any(), any(), eq(true))).thenThrow(new AccessDeniedException("denied"));
@@ -222,7 +222,7 @@ class CertificateImportServiceImplTest {
     void importCertificates_leavesOutTheUuidOfACertificateTheCallerMayNotSee() throws Exception {
         // given
         CertificateImportRequestDto request = certificateRequest();
-        Certificate registered = new Certificate();
+        X509CertificateEntity registered = new X509CertificateEntity();
         registered.setUuid(UUID.randomUUID());
         when(certificates.findByFingerprint(reference())).thenReturn(Optional.of(registered));
         doThrow(new AccessDeniedException("denied"))

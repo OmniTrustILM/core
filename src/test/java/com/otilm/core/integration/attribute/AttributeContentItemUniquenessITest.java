@@ -26,8 +26,8 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AttributeContentItem;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -732,7 +732,7 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     }
 
     UUID newCertificate() {
-        return certificateRepository.save(new Certificate()).getUuid();
+        return certificateRepository.save(new X509CertificateEntity()).getUuid();
     }
 
     UUID newConnector() {

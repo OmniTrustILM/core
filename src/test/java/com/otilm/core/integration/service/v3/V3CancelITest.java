@@ -10,6 +10,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -340,7 +341,7 @@ class V3CancelITest extends BaseSpringBootTest {
     private Certificate seedCertificate(AuthorityFixtures.Fixture fixture, CertificateState state) {
         CertificateContent content = certificateContentRepository.save(new CertificateContent());
 
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = new X509CertificateEntity();
         cert.setSubjectDn("CN=cancel-test-" + UUID.randomUUID());
         cert.setIssuerDn("CN=test-issuer");
         cert.setSerialNumber(UUID.randomUUID().toString());

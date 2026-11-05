@@ -24,6 +24,7 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -208,7 +209,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     private Certificate seedRegistration(String subjectDn, Map<String, List<String>> sans, CertificateState state) {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setUuid(UUID.randomUUID());
         certificate.setSubjectDn(subjectDn);
         if (sans != null) {
@@ -373,7 +374,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         CertificateContent plainContent = new CertificateContent();
         plainContent.setContent(content);
         plainContent.setFingerprint(certificateContent.getFingerprint());
-        Certificate pollResult = new Certificate();
+        X509CertificateEntity pollResult = new X509CertificateEntity();
         pollResult.setUuid(persisted.getUuid());
         pollResult.setSerialNumber(persisted.getSerialNumber());
         pollResult.setState(CertificateState.ISSUED);

@@ -8,6 +8,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import java.util.Map;
@@ -53,7 +54,7 @@ class KeystoreAvailabilityTest {
 
     @Test
     void of_isUnavailableWithoutAKey() {
-        assertThat(availability.of(new Certificate())).isFalse();
+        assertThat(availability.of(new X509CertificateEntity())).isFalse();
         verifyNoInteractions(capabilityService, tokenProfileRepository);
     }
 
@@ -138,7 +139,7 @@ class KeystoreAvailabilityTest {
         key.setTokenProfileUuid(PROFILE_UUID);
         key.setTokenInstanceReferenceUuid(TOKEN_UUID);
         key.setItems(Set.of(privateItem, publicItem));
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = new X509CertificateEntity();
         certificate.setKey(key);
         certificate.setPublicKeyFingerprint(publicKeyFingerprint);
         certificate.setCertificateContent(new CertificateContent());

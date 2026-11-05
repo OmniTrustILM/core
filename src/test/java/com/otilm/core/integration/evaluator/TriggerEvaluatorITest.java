@@ -48,7 +48,6 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
@@ -60,6 +59,7 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.workflows.Action;
 import com.otilm.core.dao.entity.workflows.ConditionItem;
@@ -188,7 +188,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     @Autowired
     private TriggerEvaluator<Approval> approvalTriggerEvaluator;
 
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
 
     private ConditionItem condition;
 
@@ -209,7 +209,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        certificate = new Certificate();
+        certificate = new X509CertificateEntity();
         certificateRepository.save(certificate);
 
         condition = new ConditionItem();
@@ -1201,7 +1201,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     @Test
     void testCertificateRuleEvaluatorCustomAttributeList()
             throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         certificateRepository.save(newCertificate);
 
         CustomAttributeCreateRequestDto listAttributeRequest = new CustomAttributeCreateRequestDto();
@@ -1325,7 +1325,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     @Test
     void testCertificateRuleEvaluatorCustomAttributeSingleString()
             throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         certificateRepository.save(newCertificate);
 
         CustomAttributeCreateRequestDto singleAttributeRequest = new CustomAttributeCreateRequestDto();
@@ -1442,7 +1442,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     @Test
     void testCertificateRuleEvaluatorCustomAttributeAbsent()
             throws AlreadyExistException, RuleException, AttributeException {
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         certificateRepository.save(newCertificate);
 
         // Create the attribute definition but do not assign any content to the certificate —
@@ -1511,7 +1511,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Test
     void testCertificateRuleEvaluatorCustomAttributeFromPendingRequest() throws RuleException {
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         certificateRepository.save(newCertificate);
 
         ConditionItem newCondition = new ConditionItem();
@@ -1554,7 +1554,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         // evaluation pass. A condition checking "category" must fall back to the DB rather than treat it as absent,
         // since pendingCustomAttributes only reflects the original request payload, not attributes set by other
         // triggers.
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         certificateRepository.save(newCertificate);
 
         CustomAttributeCreateRequestDto categoryAttributeRequest = new CustomAttributeCreateRequestDto();
@@ -1595,7 +1595,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         // runs
         // (the scenario for CERTIFICATE_UPLOADED ignore-triggers, which run before the certificate exists in the DB at
         // all)
-        Certificate unpersistedCertificate = new Certificate();
+        X509CertificateEntity unpersistedCertificate = new X509CertificateEntity();
         Assertions.assertNull(unpersistedCertificate.getUuid());
 
         ConditionItem newCondition = new ConditionItem();
@@ -1657,7 +1657,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Test
     void testCertificateRuleEvaluatorMeta() throws RuleException, AttributeException {
-        Certificate newCertificate = new Certificate();
+        X509CertificateEntity newCertificate = new X509CertificateEntity();
         certificateRepository.save(newCertificate);
         Connector connector = new Connector();
         connector.setVersion(ConnectorVersion.V1);
