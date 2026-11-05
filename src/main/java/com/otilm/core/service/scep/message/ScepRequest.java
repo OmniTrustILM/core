@@ -378,10 +378,7 @@ public class ScepRequest {
             logger.error(errorMessage + ": ", e);
             throw new ScepException(errorMessage, e, FailInfo.BAD_REQUEST);
         }
-        if (!CONTENT_ENCRYPTION_ALGORITHMS.contains(cmsEnvelopedData.getContentEncryptionAlgorithm().getAlgorithm())) {
-            throw new ScepException("The content of the request is encrypted with an algorithm that is not supported",
-                    FailInfo.BAD_ALG);
-        }
+        requireSupportedContentEncryption(cmsEnvelopedData);
         RecipientInformationStore recipientInfos = cmsEnvelopedData.getRecipientInfos();
         Collection<RecipientInformation> recipients = recipientInfos.getRecipients();
         Iterator<RecipientInformation> recipientInformationIterator = recipients.iterator();
@@ -436,6 +433,13 @@ public class ScepRequest {
             String errorMessage = "Failed to load decrypted PKCS#10 request";
             logger.error(errorMessage + ": ", e);
             throw new ScepException(errorMessage, e, FailInfo.BAD_REQUEST);
+        }
+    }
+
+    private static void requireSupportedContentEncryption(CMSEnvelopedData envelopedData) throws ScepException {
+        if (!CONTENT_ENCRYPTION_ALGORITHMS.contains(envelopedData.getContentEncryptionAlgorithm().getAlgorithm())) {
+            throw new ScepException("The content of the request is encrypted with an algorithm that is not supported",
+                    FailInfo.BAD_ALG);
         }
     }
 
