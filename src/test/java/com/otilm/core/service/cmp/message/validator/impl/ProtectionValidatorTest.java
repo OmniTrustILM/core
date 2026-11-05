@@ -242,7 +242,7 @@ class ProtectionValidatorTest {
                     .toASN1Structure();
         }
 
-        static Stream<Named<Consumer<Certificate>>> untrustedProtectionCertificates() {
+        private static Stream<Named<Consumer<Certificate>>> untrustedProtectionCertificates() {
             Date yesterday = Date.from(Instant.now().minus(1, ChronoUnit.DAYS));
             Date tomorrow = Date.from(Instant.now().plus(1, ChronoUnit.DAYS));
             return Stream
