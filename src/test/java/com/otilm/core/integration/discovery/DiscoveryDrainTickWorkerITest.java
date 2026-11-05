@@ -25,6 +25,7 @@ import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryDrainTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkLease;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -82,6 +83,8 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkTickSeeder tickSeeder;
     @Autowired
+    private DiscoveryWorkLease lease;
+    @Autowired
     private DiscoveryWorkWriter workWriter;
 
     @Test
@@ -97,11 +100,33 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
         assertThat(publishedTicks())
                 .as("the sweep's cadence is the recovery latency, not the drain's throughput ceiling")
-                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.DRAIN, 0, null));
+                .singleElement()
+                .extracting(DiscoveryWorkMessage::discoveryUuid, DiscoveryWorkMessage::workType,
+                        DiscoveryWorkMessage::attempt)
+                .containsExactly(run.getUuid(), DiscoveryWorkType.DRAIN, 0);
         assertThat(drainRow(run).getNextDueAt())
                 .as("parked as a backstop, not due-now: a due-now row is one the sweep would claim and publish "
                         + "itself, racing the tick this worker just published")
                 .isAfter(OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    @Test
+    void continuesUnderAFreshToken_whenThePageSaysThereIsMore() throws Exception {
+        // given
+        Discovery run = runStillScanning();
+        armDrainRow(run, 0);
+        DiscoveryWorkTick tick = tickOf(run, 0);
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(9L, true, keyItem(1, "key-a")));
+
+        // when
+        worker.tick(tick);
+
+        // then
+        DiscoveryWorkMessage continuation = publishedTicks().getFirst();
+        assertThat(continuation.leaseToken()).isNotNull().isEqualTo(drainRow(run).getLeaseToken());
+        assertThat(lease.admit(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.DRAIN, 0, tick.token())))
+                .as("the tick that handed the row over no longer holds it")
+                .isEmpty();
     }
 
     @Test
@@ -155,7 +180,10 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
                 .isNull();
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
         assertThat(publishedTicks())
-                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0, null));
+                .as("the processing tick holds the PROCESS row's lease, as a claim's tick would")
+                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0,
+                        agenda(run).getFirst().getLeaseToken()));
+        assertThat(agenda(run).getFirst().getLeaseToken()).isNotNull();
         // The contract's full acknowledgement, and the only call that licences the connector to discard the
         // run's state: a drain at afterSequence == highestSequence, sent once the handover is durable.
         verify(client).acknowledge(any(), eq(2L));
@@ -191,7 +219,8 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(reloaded.getCheckpoint()).isNull();
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
         assertThat(publishedTicks())
-                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0, null));
+                .extracting(DiscoveryWorkMessage::workType)
+                .containsExactly(DiscoveryWorkType.PROCESS);
     }
 
     @Test

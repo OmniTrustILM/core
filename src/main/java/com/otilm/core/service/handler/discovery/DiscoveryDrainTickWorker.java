@@ -15,9 +15,9 @@ import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkLease;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -50,17 +50,17 @@ public class DiscoveryDrainTickWorker {
     private final DiscoveryTickBudget budget;
     private final DiscoveryWorkProperties workProperties;
     private final TransactionHandler transactionHandler;
+    private final DiscoveryWorkLease lease;
     private final int maxItems;
     private final long maxBytes;
-    private final Duration continuationBackstop;
 
     public DiscoveryDrainTickWorker(DiscoveryRepository discoveryRepository, DiscoveryV2Client client,
             DiscoveryEventIngestor ingestor, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
             DiscoveryRunTerminator terminator, DiscoveryTickBudget budget, DiscoveryWorkProperties workProperties,
-            TransactionHandler transactionHandler, @Value("${discovery.drain.max-items:500}") int maxItems,
-            @Value("${discovery.drain.max-bytes:5242880}") long maxBytes,
-            @Value("${discovery.work.continuation-backstop:PT1M}") Duration continuationBackstop) {
-        this.continuationBackstop = continuationBackstop;
+            TransactionHandler transactionHandler, DiscoveryWorkLease lease,
+            @Value("${discovery.drain.max-items:500}") int maxItems,
+            @Value("${discovery.drain.max-bytes:5242880}") long maxBytes) {
+        this.lease = lease;
         this.discoveryRepository = discoveryRepository;
         this.client = client;
         this.ingestor = ingestor;
@@ -77,11 +77,6 @@ public class DiscoveryDrainTickWorker {
         }
         if (maxBytes <= 0) {
             throw new IllegalArgumentException("discovery.drain.max-bytes must be positive");
-        }
-        // Must be positive: see DiscoveryWorkWriter's backstop invariant -- a due-now value races the sweep into
-        // publishing a duplicate drain against the same run.
-        if (continuationBackstop.isZero() || continuationBackstop.isNegative()) {
-            throw new IllegalArgumentException("discovery.work.continuation-backstop must be positive");
         }
         this.maxItems = maxItems;
         this.maxBytes = maxBytes;
@@ -205,7 +200,7 @@ public class DiscoveryDrainTickWorker {
         // finished taking over. The handle is replayed onto the detached entity purely to make this one call.
         run.setCheckpoint(handover.get().releasedHandle());
         sendFullAck(run, page.getHighestSequence());
-        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.PROCESS, 0, null));
+        workProducer.produceMessage(handover.get().processTick());
     }
 
     /**
@@ -255,7 +250,7 @@ public class DiscoveryDrainTickWorker {
      *
      * @return empty when no handover happened — the cursor is still behind, or another tick got there first; otherwise
      * a {@link Handover} carrying the released connector handle, which may itself be absent since the contract marks a
-     * run's {@code checkpoint} optional
+     * run's {@code checkpoint} optional, and the processing tick to publish
      */
     private Optional<Handover> swapToProcessing(UUID discoveryUuid, Long highestSequence) {
         return transactionHandler.runInNewTransaction(() -> {
@@ -282,26 +277,22 @@ public class DiscoveryDrainTickWorker {
             // Delete then schedule inside one transaction: a live run's agenda must never be observably
             // empty, or the reaper would read it as lost work.
             workWriter.deleteForRun(discoveryUuid);
-            // Parked ahead of due-now: this tick is published directly, and a due-now row here would let the
-            // sweep claim and publish it too, putting two workers onto the same unclaimed certificate batch.
-            workWriter
-                    .schedule(discoveryUuid, DiscoveryWorkType.PROCESS,
-                            OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
+            // Leased to the tick published once this commits, so the sweep leaves the row alone while that tick
+            // runs, and claims it if the publish never lands.
+            DiscoveryWorkMessage processTick = lease.scheduleLeased(discoveryUuid, DiscoveryWorkType.PROCESS);
             logger.info("Discovery {} drained {} items in full; processing them now", discoveryUuid, acknowledged);
-            return Optional.of(new Handover(handle));
+            return Optional.of(new Handover(handle, processTick));
         });
     }
 
     /**
-     * Commits the agenda row as the backstop for the next page — which also clears the attempt counter this successful
-     * page earned back — and then publishes the follow-up tick directly. Committed first, so a publish that never lands
-     * is still picked up; see {@link DiscoveryWorkWriter} for why the row is due one backstop interval out.
+     * Hands the row to the next page's tick under a fresh lease, which also clears the attempt counter this successful
+     * page earned back, and publishes that tick directly. The handover commits first, so a publish that never lands
+     * leaves a leased row the sweep claims once the lease runs out.
      */
     private void drainAgain(DiscoveryWorkTick tick, String why) {
-        UUID discoveryUuid = tick.discoveryUuid();
-        logger.debug("Draining discovery {} again immediately: {}", discoveryUuid, why);
-        tick.reschedule(0, OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
-        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.DRAIN, 0, null));
+        logger.debug("Draining discovery {} again immediately: {}", tick.discoveryUuid(), why);
+        tick.handOver().ifPresent(workProducer::produceMessage);
     }
 
     /**
@@ -335,6 +326,6 @@ public class DiscoveryDrainTickWorker {
      * conflated — and reading a handle-less handover as "no swap" skipped both the {@code PROCESS} publication and the
      * full acknowledgement for a run that had in fact handed over.
      */
-    private record Handover(List<MetadataAttribute> releasedHandle) {
+    private record Handover(List<MetadataAttribute> releasedHandle, DiscoveryWorkMessage processTick) {
     }
 }

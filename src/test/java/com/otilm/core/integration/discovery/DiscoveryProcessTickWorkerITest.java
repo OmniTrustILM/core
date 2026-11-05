@@ -35,6 +35,7 @@ import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator.Ending;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkLease;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.AuthHelper;
@@ -112,6 +113,8 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkTickSeeder tickSeeder;
     @Autowired
+    private DiscoveryWorkLease lease;
+    @Autowired
     private DiscoveryWriter discoveryWriter;
     @Autowired
     private DiscoveryWorkWriter workWriter;
@@ -142,8 +145,30 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
                 .as("a batch that leaves work behind must not end the run")
                 .isEqualTo(DiscoveryStatus.PROCESSING);
         assertThat(publishedTicks())
-                .containsExactly(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0, null));
+                .singleElement()
+                .extracting(DiscoveryWorkMessage::discoveryUuid, DiscoveryWorkMessage::workType,
+                        DiscoveryWorkMessage::attempt)
+                .containsExactly(run.getUuid(), DiscoveryWorkType.PROCESS, 0);
         assertThat(agenda(run)).extracting(DiscoveryWork::getWorkType).containsExactly(DiscoveryWorkType.PROCESS);
+    }
+
+    @Test
+    void continuesUnderAFreshToken_whenBacklogRemains() throws Exception {
+        // given
+        Discovery run = processingRun();
+        stageCertificates(run, 3);
+        importsCleanly();
+        DiscoveryWorkTick tick = tickOf(run, 0);
+
+        // when
+        worker.tick(tick);
+
+        // then
+        DiscoveryWorkMessage continuation = publishedTicks().getFirst();
+        assertThat(continuation.leaseToken()).isNotNull().isEqualTo(processRow(run).getLeaseToken());
+        assertThat(lease.admit(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.PROCESS, 0, tick.token())))
+                .as("the tick that handed the row over no longer holds it")
+                .isEmpty();
     }
 
     @Test

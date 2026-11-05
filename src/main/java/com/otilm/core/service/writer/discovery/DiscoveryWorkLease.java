@@ -1,6 +1,7 @@
 package com.otilm.core.service.writer.discovery;
 
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
+import com.otilm.core.model.discovery.DiscoveryWorkType;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -30,6 +31,11 @@ public class DiscoveryWorkLease {
 
     public DiscoveryWorkLease(DiscoveryWorkWriter workWriter,
             @Value("${discovery.work.lease-duration:PT2M}") Duration leaseDuration) {
+        // A lease that is over when it is taken leaves every claimed row claimable again at once, so each sweep would
+        // publish a second tick for work already running.
+        if (leaseDuration.isZero() || leaseDuration.isNegative()) {
+            throw new IllegalArgumentException("discovery.work.lease-duration must be positive");
+        }
         this.workWriter = workWriter;
         this.leaseDuration = leaseDuration;
     }
@@ -58,6 +64,18 @@ public class DiscoveryWorkLease {
         }
         return Optional
                 .of(new DiscoveryWorkTick(this, message.discoveryUuid(), message.workType(), message.attempt(), token));
+    }
+
+    /**
+     * Schedules the run's {@code workType} row already leased to a new tick, for a caller that publishes that tick
+     * itself instead of leaving it to the sweep. Joins the caller's transaction.
+     *
+     * @return the tick's message, to publish once that transaction has committed
+     */
+    public DiscoveryWorkMessage scheduleLeased(UUID discoveryUuid, DiscoveryWorkType workType) {
+        UUID token = UUID.randomUUID();
+        workWriter.scheduleLeased(discoveryUuid, workType, token, now().plus(leaseDuration));
+        return new DiscoveryWorkMessage(discoveryUuid, workType, 0, token);
     }
 
     void renew(DiscoveryWorkTick tick) {

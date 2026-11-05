@@ -93,6 +93,22 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
             @Param("leasedUntil") OffsetDateTime leasedUntil);
 
     /**
+     * Inserts the pending row for a run and work type, or re-arms an existing one, already leased to the tick about to
+     * be published for it: a fresh budget, and due again only once that tick's lease could have run out.
+     */
+    @Modifying
+    @Query(value = """
+            INSERT INTO {h-schema}discovery_work
+                (uuid, discovery_uuid, work_type, attempt, next_due_at, lease_token, lease_expires_at)
+            VALUES (:uuid, :discoveryUuid, :workType, 0, :leasedUntil, :leaseToken, :leasedUntil)
+            ON CONFLICT (discovery_uuid, work_type) DO UPDATE SET attempt = 0, next_due_at = EXCLUDED.next_due_at,
+                lease_token = EXCLUDED.lease_token, lease_expires_at = EXCLUDED.lease_expires_at
+            """, nativeQuery = true)
+    void scheduleLeased(@Param("uuid") UUID uuid, @Param("discoveryUuid") UUID discoveryUuid,
+            @Param("workType") String workType, @Param("leaseToken") UUID leaseToken,
+            @Param("leasedUntil") OffsetDateTime leasedUntil);
+
+    /**
      * Inserts the pending row for a run and work type, or re-arms an existing one.
      */
     @Modifying

@@ -20,10 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
  * transaction.
  *
  * <p>
- * <b>A backstop row is due in the future, never due-now.</b> A worker that publishes its own continuation tick also
- * writes a row here as a backstop for a publish that never lands. Due-now, that row races the sweep, which would claim
- * and publish it too, putting two workers onto the same unclaimed work — so callers using {@link #schedule} or
- * {@link #reschedule} this way pass a due time comfortably in the future.
+ * <b>A row whose tick is published outside the sweep is leased to that tick first.</b> A worker that publishes its own
+ * continuation hands the row over ({@link #handOverLease}) or schedules it leased ({@link #scheduleLeased}) before it
+ * publishes, so the sweep leaves the row alone while the tick runs and claims it if the publish never lands. An
+ * unleased due row would be claimed and published by the sweep too, putting two workers onto the same work.
  * </p>
  */
 @Component
@@ -42,6 +42,16 @@ public class DiscoveryWorkWriter {
     @Transactional
     public void schedule(UUID discoveryUuid, DiscoveryWorkType workType, OffsetDateTime nextDueAt) {
         workRepository.schedule(UUID.randomUUID(), discoveryUuid, workType.name(), nextDueAt);
+    }
+
+    /**
+     * Schedules the run's pending row for {@code workType}, or re-arms an existing one, already leased to
+     * {@code leaseToken} until {@code leasedUntil} — for a caller that publishes the row's tick itself.
+     */
+    @Transactional
+    public void scheduleLeased(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken,
+            OffsetDateTime leasedUntil) {
+        workRepository.scheduleLeased(UUID.randomUUID(), discoveryUuid, workType.name(), leaseToken, leasedUntil);
     }
 
     /**

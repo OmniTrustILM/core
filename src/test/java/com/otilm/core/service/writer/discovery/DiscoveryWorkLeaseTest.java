@@ -6,11 +6,14 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -18,6 +21,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -42,6 +46,27 @@ class DiscoveryWorkLeaseTest {
     void clearTransactionSynchronization() {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    // ── Configuration ─────────────────────────────────────────────────────────
+
+    @Nested
+    class Configuration {
+
+        @ParameterizedTest
+        @ValueSource(strings = {"PT0S", "-PT1S"})
+        void refusesToStart_whenTheLeaseIsNotPositive(String notALease) {
+            // given
+            var leaseDuration = Duration.parse(notALease);
+
+            // when
+            ThrowingCallable createLease = () -> new DiscoveryWorkLease(workWriter, leaseDuration);
+
+            // then
+            assertThatThrownBy(createLease)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("discovery.work.lease-duration");
         }
     }
 

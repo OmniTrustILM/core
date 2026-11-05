@@ -14,7 +14,6 @@ import com.otilm.core.events.handlers.CertificateDiscoveredEventHandler;
 import com.otilm.core.events.handlers.discovery.DiscoveryRunCounts;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
-import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
@@ -26,7 +25,6 @@ import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.AuthHelper;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -71,7 +69,6 @@ public class DiscoveryProcessTickWorker {
     private final AuthHelper authHelper;
     private final DiscoveryWorkProperties workProperties;
     private final int batchSize;
-    private final Duration continuationBackstop;
 
     public DiscoveryProcessTickWorker(DiscoveryRepository discoveryRepository,
             DiscoveryCertificateRepository certificateRepository, DiscoveryItemRepository itemRepository,
@@ -79,8 +76,7 @@ public class DiscoveryProcessTickWorker {
             KeyDiscoveredHandler keyImportHandler, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
             DiscoveryRunTerminator terminator, DiscoveryWriter discoveryWriter, DiscoveryMessageWriter messageWriter,
             AuthHelper authHelper, DiscoveryWorkProperties workProperties,
-            @Value("${discovery.processing.batch-size:200}") int batchSize,
-            @Value("${discovery.work.continuation-backstop:PT1M}") Duration continuationBackstop) {
+            @Value("${discovery.processing.batch-size:200}") int batchSize) {
         this.discoveryRepository = discoveryRepository;
         this.certificateRepository = certificateRepository;
         this.itemRepository = itemRepository;
@@ -98,12 +94,7 @@ public class DiscoveryProcessTickWorker {
         if (batchSize <= 0) {
             throw new IllegalArgumentException("discovery.processing.batch-size must be positive");
         }
-        // See DiscoveryWorkWriter's backstop invariant.
-        if (continuationBackstop.isZero() || continuationBackstop.isNegative()) {
-            throw new IllegalArgumentException("discovery.work.continuation-backstop must be positive");
-        }
         this.batchSize = batchSize;
-        this.continuationBackstop = continuationBackstop;
     }
 
     public void tick(DiscoveryWorkTick tick) {
@@ -338,7 +329,8 @@ public class DiscoveryProcessTickWorker {
     }
 
     /**
-     * Commits the agenda row as the backstop, then publishes the next batch directly (see {@link DiscoveryWorkWriter}).
+     * Hands the row to the next batch's tick under a fresh lease, then publishes that tick directly. The handover
+     * commits first, so a publish that never lands leaves a leased row the sweep claims once the lease runs out.
      */
     private void continueProcessing(DiscoveryWorkTick tick, long remaining) {
         UUID discoveryUuid = tick.discoveryUuid();
@@ -346,8 +338,7 @@ public class DiscoveryProcessTickWorker {
         // Reported here, not by the pipeline, which sees only one batch and would report each as 100% complete.
         discoveryWriter
                 .updateProgressMessage(discoveryUuid, "Importing discovered items (%d remaining)".formatted(remaining));
-        tick.reschedule(0, OffsetDateTime.now(ZoneOffset.UTC).plus(continuationBackstop));
-        workProducer.produceMessage(new DiscoveryWorkMessage(discoveryUuid, DiscoveryWorkType.PROCESS, 0, null));
+        tick.handOver().ifPresent(workProducer::produceMessage);
     }
 
     /**

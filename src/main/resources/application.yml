@@ -88,9 +88,6 @@ discovery:
     # How long a non-terminal run may hold no pending work row before the reaper fails it. Covers the initiate
     # window, where the run row exists before its first agenda rows.
     reap-grace: ${DISCOVERY_WORK_REAP_GRACE:PT5M}
-    # How far out a worker parks the agenda row when it direct-publishes the next tick itself, so a due-now row
-    # cannot let the sweep publish a competing one. Must exceed one tick's duration.
-    continuation-backstop: ${DISCOVERY_WORK_CONTINUATION_BACKSTOP:PT1M}
     # How long a claimed row stays leased to the tick it was published for. The tick renews the lease while it works
     # and releases it when it reschedules, so this bounds how long a row whose tick died or was lost waits before the
     # sweep claims it again. Must outlast the slowest connector call -- the connection-acquisition, connect and
