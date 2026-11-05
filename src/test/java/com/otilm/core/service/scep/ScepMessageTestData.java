@@ -79,13 +79,13 @@ public final class ScepMessageTestData {
     }
 
     /**
-     * The same message signed with the EC key for the signer certificate and carrying the certificates as given,
-     * whatever keys they hold.
+     * The same message signed with the signature algorithm and the key for the signer certificate, and carrying the
+     * certificates as given, whatever keys they hold.
      */
-    public static byte[] passwordEnvelopedPkcsReqSignedWith(PrivateKey ecSigningKey,
+    public static byte[] passwordEnvelopedPkcsReqSignedWith(String signatureAlgorithm, PrivateKey signingKey,
             X509CertificateHolder signerCertificate, List<X509CertificateHolder> certificates) throws Exception {
         return signedMessage(envelopedPkcs10Request(generatedCsr(null)), MessageType.PKCS_REQ, TRANSACTION_ID,
-                ecSigningKey, signerCertificate, certificates).getEncoded();
+                signatureAlgorithm, signingKey, signerCertificate, certificates).getEncoded();
     }
 
     /**
@@ -237,18 +237,18 @@ public final class ScepMessageTestData {
         PrivateKey signerPrivateKey = KeyFactory
                 .getInstance("EC")
                 .generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(SIGNER_KEY_B64)));
-        return signedMessage(content, messageType, transactionId, signerPrivateKey, signerCertificate,
-                List.of(signerCertificate));
+        return signedMessage(content, messageType, transactionId, "SHA256WithECDSA", signerPrivateKey,
+                signerCertificate, List.of(signerCertificate));
     }
 
     private static org.bouncycastle.cms.CMSSignedData signedMessage(CMSProcessableByteArray content,
-            MessageType messageType, String transactionId, PrivateKey ecSigningKey,
+            MessageType messageType, String transactionId, String signatureAlgorithm, PrivateKey signingKey,
             X509CertificateHolder signerCertificate, List<X509CertificateHolder> certificates) throws Exception {
         Security.addProvider(new BouncyCastleProvider());
 
-        ContentSigner contentSigner = new JcaContentSignerBuilder("SHA256WithECDSA")
+        ContentSigner contentSigner = new JcaContentSignerBuilder(signatureAlgorithm)
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                .build(ecSigningKey);
+                .build(signingKey);
         JcaDigestCalculatorProviderBuilder digestProviderBuilder = new JcaDigestCalculatorProviderBuilder()
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME);
         JcaSignerInfoGeneratorBuilder signerInfoBuilder = new JcaSignerInfoGeneratorBuilder(

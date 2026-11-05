@@ -94,14 +94,14 @@ class ScepRequestVerificationTest {
     class SignerCertificate {
 
         @Test
-        void refusesWithoutConvertingIt_whenItsKeyIsBeyondTheBounds() throws Exception {
+        void refusesWithBadAlgWithoutConvertingIt_whenItsKeyIsBeyondTheBounds() throws Exception {
             // given
             KeyPair signingKeyPair = ecKeyPair();
             X509CertificateHolder compositeCertificate = certificateCarrying(compositeOfAnRsaKeyOf16384Bits(),
                     signingKeyPair);
             byte[] message = ScepMessageTestData
-                    .passwordEnvelopedPkcsReqSignedWith(signingKeyPair.getPrivate(), compositeCertificate,
-                            List.of(compositeCertificate));
+                    .passwordEnvelopedPkcsReqSignedWith(ECDSA_SIGNATURE, signingKeyPair.getPrivate(),
+                            compositeCertificate, List.of(compositeCertificate));
             var realConverter = new JcaX509CertificateConverter();
 
             try (MockedConstruction<JcaX509CertificateConverter> converters = convertingWith(realConverter)) {
@@ -109,9 +109,32 @@ class ScepRequestVerificationTest {
                 ThrowingCallable parse = () -> new ScepRequest(message);
 
                 // then
-                assertThatThrownBy(parse).isInstanceOf(ScepException.class);
+                assertThatThrownBy(parse)
+                        .isInstanceOfSatisfying(ScepException.class,
+                                thrown -> assertThat(thrown.getFailInfo()).isEqualTo(FailInfo.BAD_ALG));
                 assertThat(converters.constructed()).isEmpty();
             }
+        }
+
+        @Test
+        void refusesWithBadRequest_whenNoCertificateMatchesTheSigner() throws Exception {
+            // given
+            KeyPair signingKeyPair = ecKeyPair();
+            SubjectPublicKeyInfo signingKey = SubjectPublicKeyInfo.getInstance(signingKeyPair.getPublic().getEncoded());
+            X509CertificateHolder signerCertificate = certificateCarrying(signingKey, signingKeyPair);
+            List<X509CertificateHolder> noCertificates = List.of();
+            byte[] message = ScepMessageTestData
+                    .passwordEnvelopedPkcsReqSignedWith(ECDSA_SIGNATURE, signingKeyPair.getPrivate(), signerCertificate,
+                            noCertificates);
+
+            // when
+            ThrowingCallable parse = () -> new ScepRequest(message);
+
+            // then
+            assertThatThrownBy(parse)
+                    .hasMessageContaining("No Signer Information")
+                    .isInstanceOfSatisfying(ScepException.class,
+                            thrown -> assertThat(thrown.getFailInfo()).isEqualTo(FailInfo.BAD_REQUEST));
         }
 
         @Test
@@ -122,7 +145,7 @@ class ScepRequestVerificationTest {
             X509CertificateHolder signerCertificate = certificateCarrying(signingKey, signingKeyPair);
             X509CertificateHolder compositeTwin = certificateCarrying(compositeOfAnRsaKeyOf16384Bits(), signingKeyPair);
             byte[] message = ScepMessageTestData
-                    .passwordEnvelopedPkcsReqSignedWith(signingKeyPair.getPrivate(), signerCertificate,
+                    .passwordEnvelopedPkcsReqSignedWith(ECDSA_SIGNATURE, signingKeyPair.getPrivate(), signerCertificate,
                             List.of(compositeTwin, signerCertificate));
             var realConverter = new JcaX509CertificateConverter();
 
@@ -144,16 +167,6 @@ class ScepRequestVerificationTest {
             return mockConstruction(JcaX509CertificateConverter.class,
                     (converter, context) -> when(converter.getCertificate(any()))
                             .thenAnswer(invocation -> realConverter.getCertificate(invocation.getArgument(0))));
-        }
-
-        /** A certificate for the public key as it is encoded, so that no key is built for it. */
-        private static X509CertificateHolder certificateCarrying(SubjectPublicKeyInfo publicKey, KeyPair issuerKeyPair)
-                throws Exception {
-            X500Name name = new X500Name(SUBJECT);
-            Date notBefore = new Date(System.currentTimeMillis() - 60_000L);
-            Date notAfter = new Date(System.currentTimeMillis() + 3_600_000L);
-            return new X509v3CertificateBuilder(name, BigInteger.ONE, notBefore, notAfter, name, publicKey)
-                    .build(signerOf(issuerKeyPair, ECDSA_SIGNATURE));
         }
     }
 
@@ -348,6 +361,24 @@ class ScepRequestVerificationTest {
             assertThat(verified).isTrue();
         }
 
+        @Test
+        void verifies_whenMessageIsSignedWithAnRsaKey() throws Exception {
+            // given — BouncyCastle states the algorithm of an RSA signer with NULL parameters
+            KeyPair signingKeyPair = rsaKeyPair();
+            SubjectPublicKeyInfo signingKey = SubjectPublicKeyInfo.getInstance(signingKeyPair.getPublic().getEncoded());
+            X509CertificateHolder signerCertificate = certificateCarrying(signingKey, ecKeyPair());
+            byte[] rsaSignedMessage = ScepMessageTestData
+                    .passwordEnvelopedPkcsReqSignedWith(RSA_SIGNATURE, signingKeyPair.getPrivate(), signerCertificate,
+                            List.of(signerCertificate));
+            ScepRequest request = new ScepRequest(rsaSignedMessage);
+
+            // when
+            boolean verified = request.verifySignature(signingKeyPair.getPublic());
+
+            // then
+            assertThat(verified).isTrue();
+        }
+
         @ParameterizedTest(name = "{0}")
         @MethodSource("signatureAlgorithmsBeyondTheBounds")
         void ignoresCounterSignatures_whenTheMessageSignatureVerifies(AlgorithmIdentifier counterSignatureAlgorithm)
@@ -436,6 +467,16 @@ class ScepRequestVerificationTest {
 
     private static byte[] derOf(CertificationRequest request) throws IOException {
         return request.getEncoded(ASN1Encoding.DER);
+    }
+
+    /** A certificate for the public key as it is encoded, so that no key is built for it. */
+    private static X509CertificateHolder certificateCarrying(SubjectPublicKeyInfo publicKey, KeyPair issuerKeyPair)
+            throws Exception {
+        X500Name name = new X500Name(SUBJECT);
+        Date notBefore = new Date(System.currentTimeMillis() - 60_000L);
+        Date notAfter = new Date(System.currentTimeMillis() + 3_600_000L);
+        return new X509v3CertificateBuilder(name, BigInteger.ONE, notBefore, notAfter, name, publicKey)
+                .build(signerOf(issuerKeyPair, ECDSA_SIGNATURE));
     }
 
     private static ContentSigner signerOf(KeyPair keyPair, String signatureAlgorithm) throws Exception {

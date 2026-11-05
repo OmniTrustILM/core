@@ -193,12 +193,15 @@ public class ScepRequest {
         SignerInformationStore signerInfos = cmsSignedData.getSignerInfos();
         Collection<SignerInformation> signers = signerInfos.getSigners();
         List<X509Certificate> certificates = new ArrayList<>();
+        boolean skippedForItsKey = false;
         for (SignerInformation signer : signers) {
             try {
                 Collection<X509CertificateHolder> matches = certStore.getMatches(signer.getSID());
                 for (X509CertificateHolder holder : matches) {
                     if (hasSupportedKey(holder)) {
                         certificates.add(new JcaX509CertificateConverter().getCertificate(holder));
+                    } else {
+                        skippedForItsKey = true;
                     }
                 }
             } catch (java.security.cert.CertificateException e) {
@@ -206,6 +209,9 @@ public class ScepRequest {
             }
         }
         if (certificates.isEmpty()) {
+            if (skippedForItsKey) {
+                throw new ScepException("The key of the signer certificate is not supported", FailInfo.BAD_ALG);
+            }
             throw new ScepException("No Signer Information available on the request");
         }
         this.signerCertificate = certificates.get(0);
