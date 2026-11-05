@@ -52,6 +52,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 
@@ -187,6 +188,24 @@ class AcmeProfileServiceITest extends BaseSpringBootTest {
         Assertions.assertNotNull(acmeProfileNew);
         Assertions.assertNotNull(acmeProfileNew.getCertificateAssociations());
 
+    }
+
+    @Test
+    void createsProfileWithDocumentedDefaults_whenRequestOmitsRetryIntervalAndValidity() throws Exception {
+        // given
+        var documentedRetryInterval = 30;
+        var documentedOrderValidity = 36000;
+        AcmeProfileRequestDto request = new AcmeProfileRequestDto();
+        request.setName("Defaults");
+        request.setDnsResolverIp("localhost");
+        request.setDnsResolverPort("53");
+
+        // when
+        AcmeProfileDto created = acmeProfileService.createAcmeProfile(request);
+
+        // then
+        assertThat(created.getRetryInterval()).isEqualTo(documentedRetryInterval);
+        assertThat(created.getValidity()).isEqualTo(documentedOrderValidity);
     }
 
     @Test

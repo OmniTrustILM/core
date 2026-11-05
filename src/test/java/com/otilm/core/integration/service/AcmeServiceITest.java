@@ -82,6 +82,7 @@ import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
@@ -89,6 +90,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
 import javax.naming.directory.BasicAttributes;
@@ -1317,6 +1319,78 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void answersOrderWithDocumentedRetryAfter_whenProfileSetsNoRetryInterval() throws Exception {
+        // given
+        changeProfile(profile -> profile.setRetryInterval(null));
+        URI requestUri = URI.create(BASE_URI + ACME_PROFILE_NAME + "/order/" + ORDER_ID_VALID);
+        var documentedRetryInterval = "30";
+
+        // when
+        ResponseEntity<Order> order = acmeService.getOrder(ACME_PROFILE_NAME, ORDER_ID_VALID, requestUri, false);
+
+        // then
+        assertThat(order.getHeaders().getFirst("Retry-After")).isEqualTo(documentedRetryInterval);
+    }
+
+    @Test
+    void answersNewOrderWithDocumentedRetryAfter_whenProfileSetsNoRetryInterval() throws Exception {
+        // given
+        changeProfile(profile -> profile.setRetryInterval(null));
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/new-order");
+        var documentedRetryInterval = "30";
+
+        // when
+        ResponseEntity<Order> order = acmeService
+                .newOrder(ACME_PROFILE_NAME, buildNewOrderRequestJSON(requestUri, baseUri), requestUri, false);
+
+        // then
+        assertThat(order.getHeaders().getFirst("Retry-After")).isEqualTo(documentedRetryInterval);
+    }
+
+    @Test
+    void answersAccountUpdateWithDocumentedRetryAfter_whenProfileSetsNoRetryInterval() throws Exception {
+        // given
+        changeProfile(profile -> profile.setRetryInterval(null));
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
+        var documentedRetryInterval = "30";
+
+        // when
+        ResponseEntity<Account> account = acmeService
+                .updateAccount(ACME_PROFILE_NAME, ACME_ACCOUNT_ID_VALID,
+                        buildDeactivateRequestJSON(requestUri, baseUri), requestUri, false);
+
+        // then
+        assertThat(account.getHeaders().getFirst("Retry-After")).isEqualTo(documentedRetryInterval);
+    }
+
+    @Test
+    void expiresNewOrderAfterDocumentedValidity_whenProfileSetsNone() throws Exception {
+        // given
+        changeProfile(profile -> profile.setValidity(null));
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/new-order");
+        var documentedValidity = Duration.ofSeconds(36000);
+        Instant requested = Instant.now();
+
+        // when
+        ResponseEntity<Order> order = acmeService
+                .newOrder(ACME_PROFILE_NAME, buildNewOrderRequestJSON(requestUri, baseUri), requestUri, false);
+
+        // then
+        Order created = Objects.requireNonNull(order.getBody());
+        String authorizationUrl = created.getAuthorizations().get(0);
+        AcmeAuthorization authorization = acmeAuthorizationRepository
+                .findByAuthorizationId(authorizationUrl.substring(authorizationUrl.lastIndexOf('/') + 1))
+                .orElseThrow();
+        Instant earliest = requested.plus(documentedValidity).minusSeconds(1);
+        Instant latest = Instant.now().plus(documentedValidity);
+        assertThat(Instant.parse(created.getExpires())).isBetween(earliest, latest);
+        assertThat(authorization.getExpires().toInstant()).isBetween(earliest, latest);
+    }
+
+    @Test
     void testKeyRollover() throws JOSEException, AcmeProblemDocumentException, NotFoundException {
         URI requestUri = URI.create(BASE_URI + ACME_PROFILE_NAME + "/key-change");
         ResponseEntity<?> response = acmeService
@@ -2044,6 +2118,13 @@ class AcmeServiceITest extends BaseSpringBootTest {
         order.setAcmeAccount(order1.getAcmeAccount());
         acmeOrderRepository.save(order);
         return order;
+    }
+
+    /** Applies the change to the fixture's ACME profile and saves it. */
+    private void changeProfile(Consumer<AcmeProfile> change) {
+        AcmeProfile profile = acmeProfileRepository.findByName(ACME_PROFILE_NAME).orElseThrow();
+        change.accept(profile);
+        acmeProfileRepository.save(profile);
     }
 
     private AcmeChallenge pendingDnsChallenge(AcmeOrder order, String authorizationId, String challengeId,

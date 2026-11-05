@@ -144,9 +144,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeServiceImpl.class);
 
-    /** What createAcmeProfile stores when a profile does not name one. */
-    private static final int DEFAULT_RETRY_INTERVAL = 36000;
-
     private static final int MAX_LISTED_IDENTIFIERS = 5;
 
     /** Longer than any DNS name or address literal, so a well-formed identifier is never the one that gets cut. */
@@ -449,7 +446,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         return ResponseEntity
                 .ok()
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME, account.getAcmeProfile().getRetryInterval().toString())
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(account))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                 .body(account.mapToDto());
     }
@@ -575,8 +572,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         return ResponseEntity
                 .created(URI.create(order.getUrl()))
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME,
-                        order.getAcmeAccount().getAcmeProfile().getRetryInterval().toString())
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(order.getAcmeAccount()))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                 .body(order.mapToDto());
     }
@@ -758,8 +754,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .ok()
                 .location(URI.create(order.getUrl()))
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME,
-                        order.getAcmeAccount().getAcmeProfile().getRetryInterval().toString())
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(order.getAcmeAccount()))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                 .body(order.mapToDto());
     }
@@ -820,8 +815,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .ok()
                 .location(URI.create(order.getUrl()))
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME,
-                        order.getAcmeAccount().getAcmeProfile().getRetryInterval().toString())
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(order.getAcmeAccount()))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                 .body(order.mapToDto());
     }
@@ -1100,12 +1094,21 @@ public class AcmeServiceImpl implements AcmeExternalService {
     }
 
     /**
-     * The retry hint, defaulted when the profile carries none. An edit that omits the interval stores null, and by this
-     * point the account is committed: throwing here would answer 500 for an account the client cannot find.
+     * The retry hint, defaulted when the profile carries none. An edit that omits the interval stores null, and a
+     * response is written after its changes are committed: throwing here would answer 500 for work already done.
      */
     private static String retryIntervalHeader(AcmeAccount account) {
         Integer retryInterval = account.getAcmeProfile().getRetryInterval();
-        return String.valueOf(retryInterval == null ? DEFAULT_RETRY_INTERVAL : retryInterval);
+        return String.valueOf(retryInterval == null ? AcmeConstants.DEFAULT_RETRY_INTERVAL : retryInterval);
+    }
+
+    /**
+     * How long an order and its authorizations stay valid, in seconds: the profile's validity, or the documented
+     * default when the profile sets none, as an edit that omits it leaves it.
+     */
+    private static int orderValidity(AcmeProfile profile) {
+        Integer validity = profile.getValidity();
+        return validity == null ? AcmeConstants.DEFAULT_ORDER_VALIDITY : validity;
     }
 
     /** The profile as the locked row has it, not as it was when the binding was verified. */
@@ -1209,11 +1212,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         order.setNotAfter(AcmeCommonHelper.getDateFromString(orderRequest.getNotAfter()));
         order.setNotBefore(AcmeCommonHelper.getDateFromString(orderRequest.getNotBefore()));
         order.setIdentifiers(SerializationUtil.serializeIdentifiers(identifiers));
-        if (acmeAccount.getAcmeProfile().getValidity() != null) {
-            order.setExpires(AcmeCommonHelper.addSeconds(new Date(), acmeAccount.getAcmeProfile().getValidity()));
-        } else {
-            order.setExpires(AcmeCommonHelper.getDefaultExpires());
-        }
+        order.setExpires(AcmeCommonHelper.addSeconds(new Date(), orderValidity(acmeAccount.getAcmeProfile())));
         acmeOrderRepository.save(order);
         logger.debug("Order created: {}", order);
 
@@ -1314,13 +1313,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
         authorization.setAuthorizationId(AcmeRandomGeneratorAndValidator.generateRandomId());
         authorization.setStatus(preauthorized ? AuthorizationStatus.VALID : AuthorizationStatus.PENDING);
         authorization.setOrder(acmeOrder);
-        if (acmeOrder.getAcmeAccount().getAcmeProfile().getValidity() != null) {
-            authorization
-                    .setExpires(AcmeCommonHelper
-                            .addSeconds(new Date(), acmeOrder.getAcmeAccount().getAcmeProfile().getValidity()));
-        } else {
-            authorization.setExpires(AcmeCommonHelper.getDefaultExpires());
-        }
+        authorization
+                .setExpires(AcmeCommonHelper
+                        .addSeconds(new Date(), orderValidity(acmeOrder.getAcmeAccount().getAcmeProfile())));
         authorization.setWildcard(checkWildcard(identifier));
         authorization.setIdentifier(SerializationUtil.serialize(identifier));
         acmeAuthorizationRepository.save(authorization);
