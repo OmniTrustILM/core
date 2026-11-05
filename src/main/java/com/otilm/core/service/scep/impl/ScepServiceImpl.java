@@ -74,6 +74,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.security.spec.InvalidKeySpecException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -1195,7 +1196,7 @@ public class ScepServiceImpl implements ScepExternalService {
                     throw new ScepException("Failed to verify PKCS#10 request POP, invalid signature",
                             FailInfo.BAD_REQUEST);
                 }
-            } catch (PKCSException | NoSuchAlgorithmException | InvalidKeyException | OperatorCreationException e) {
+            } catch (PKCSException | NoSuchAlgorithmException | InvalidKeySpecException | OperatorCreationException e) {
                 throw new ScepException("Failed to verify PKCS#10 request POP", FailInfo.BAD_REQUEST);
             }
         }

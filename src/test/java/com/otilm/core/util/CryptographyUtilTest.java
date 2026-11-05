@@ -18,19 +18,30 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import java.security.PublicKey;
 import java.security.Security;
 import java.security.spec.AlgorithmParameterSpec;
+import java.security.spec.ECGenParameterSpec;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.RSAKeyGenParameterSpec;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import org.bouncycastle.jcajce.provider.asymmetric.ec.BCECPublicKey;
+import org.bouncycastle.jcajce.provider.asymmetric.mldsa.BCMLDSAPublicKey;
+import org.bouncycastle.jcajce.provider.asymmetric.rsa.BCRSAPublicKey;
 import org.bouncycastle.jcajce.spec.MLDSAParameterSpec;
 import org.bouncycastle.jcajce.spec.SLHDSAParameterSpec;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.pqc.jcajce.provider.BouncyCastlePQCProvider;
+import org.bouncycastle.pqc.jcajce.provider.falcon.BCFalconPublicKey;
+import org.bouncycastle.pqc.jcajce.provider.xmss.BCXMSSPublicKey;
 import org.bouncycastle.pqc.jcajce.spec.FalconParameterSpec;
+import org.bouncycastle.pqc.jcajce.spec.XMSSParameterSpec;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -39,6 +50,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -526,13 +538,124 @@ class CryptographyUtilTest {
                 () -> CryptographyUtil.resolvePqcParameterSpecName(KeyAlgorithm.MLDSA, invalidKey));
     }
 
+    @Test
+    void decodePublicKey_mlDsa_returnsBouncyCastleKey() throws Exception {
+        // given
+        byte[] encoded = Base64
+                .getDecoder()
+                .decode(generatePublicKeyBase64(KeyAlgorithm.MLDSA, MLDSAParameterSpec.ml_dsa_65));
+
+        // when
+        PublicKey publicKey = CryptographyUtil.decodePublicKey(encoded);
+
+        // then
+        assertThat(publicKey).isInstanceOf(BCMLDSAPublicKey.class);
+    }
+
+    @Test
+    void decodePublicKey_rsa_returnsBouncyCastleKey() throws Exception {
+        // given
+        byte[] encoded = Base64
+                .getDecoder()
+                .decode(generatePublicKeyBase64(KeyAlgorithm.RSA,
+                        new RSAKeyGenParameterSpec(2048, RSAKeyGenParameterSpec.F4)));
+
+        // when
+        PublicKey publicKey = CryptographyUtil.decodePublicKey(encoded);
+
+        // then
+        assertThat(publicKey).isInstanceOf(BCRSAPublicKey.class);
+    }
+
+    @Test
+    void decodePublicKey_ec_returnsBouncyCastleKeyWithTheJdkNameAndEncoding() throws Exception {
+        // given
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC", "SunEC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"));
+        PublicKey jdkKey = generator.generateKeyPair().getPublic();
+
+        // when
+        PublicKey publicKey = CryptographyUtil.decodePublicKey(jdkKey.getEncoded());
+
+        // then
+        assertThat(publicKey).isInstanceOf(BCECPublicKey.class);
+        assertThat(publicKey.getAlgorithm()).isEqualTo(jdkKey.getAlgorithm());
+        assertThat(publicKey.getEncoded()).isEqualTo(jdkKey.getEncoded());
+    }
+
+    @Test
+    void decodePublicKey_falcon_returnsBouncyCastleKey() throws Exception {
+        // given
+        byte[] encoded = Base64
+                .getDecoder()
+                .decode(generatePublicKeyBase64("Falcon", FalconParameterSpec.falcon_512,
+                        BouncyCastlePQCProvider.PROVIDER_NAME));
+
+        // when
+        PublicKey publicKey = CryptographyUtil.decodePublicKey(encoded);
+
+        // then
+        assertThat(publicKey).isInstanceOf(BCFalconPublicKey.class);
+    }
+
+    @Test
+    void decodePublicKey_malformedBytes_throwsInvalidKeySpecException() {
+        // given
+        byte[] malformed = {0x01, 0x02, 0x03};
+
+        // when / then
+        assertThatThrownBy(() -> CryptographyUtil.decodePublicKey(malformed))
+                .isInstanceOf(InvalidKeySpecException.class)
+                .hasCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void decodePublicKey_xmss_returnsBouncyCastleKey() throws Exception {
+        // given
+        byte[] encoded = Base64
+                .getDecoder()
+                .decode(generatePublicKeyBase64("XMSS", new XMSSParameterSpec(10, XMSSParameterSpec.SHA256),
+                        BouncyCastlePQCProvider.PROVIDER_NAME));
+
+        // when
+        PublicKey publicKey = CryptographyUtil.decodePublicKey(encoded);
+
+        // then
+        assertThat(publicKey).isInstanceOf(BCXMSSPublicKey.class);
+    }
+
+    @Test
+    void decodePublicKey_unknownAlgorithm_throwsNoSuchAlgorithmException() {
+        // given
+        String unknownOid = "1.3.6.1.4.1.99999.1";
+        SubjectPublicKeyInfo publicKeyInfo = new SubjectPublicKeyInfo(
+                new AlgorithmIdentifier(new ASN1ObjectIdentifier(unknownOid)), new byte[]{0x01});
+
+        // when / then
+        assertThatThrownBy(() -> CryptographyUtil.decodePublicKey(publicKeyInfo))
+                .isInstanceOf(NoSuchAlgorithmException.class)
+                .hasMessageContaining(unknownOid);
+    }
+
+    @Test
+    void decodePublicKey_corruptedKey_throwsInvalidKeySpecException() throws Exception {
+        // given
+        byte[] corrupted = Base64
+                .getDecoder()
+                .decode(buildSpkiWithGarbagePayload("ML-DSA", MLDSAParameterSpec.ml_dsa_44,
+                        BouncyCastleProvider.PROVIDER_NAME));
+
+        // when / then
+        assertThatThrownBy(() -> CryptographyUtil.decodePublicKey(corrupted))
+                .isInstanceOf(InvalidKeySpecException.class)
+                .hasCauseInstanceOf(IOException.class);
+    }
+
     // --- helpers ---
 
     private static String generatePublicKeyBase64(KeyAlgorithm keyAlgorithm, AlgorithmParameterSpec spec)
-            throws NoSuchAlgorithmException, InvalidAlgorithmParameterException {
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance(keyAlgorithm.getCode());
-        kpg.initialize(spec);
-        return Base64.getEncoder().encodeToString(kpg.generateKeyPair().getPublic().getEncoded());
+            throws NoSuchAlgorithmException, NoSuchProviderException, InvalidAlgorithmParameterException {
+        return generatePublicKeyBase64(keyAlgorithm.getCode(), spec, BouncyCastleProvider.PROVIDER_NAME);
     }
 
     private static String generatePublicKeyBase64(String keyAlgorithm, AlgorithmParameterSpec spec, String provider)
