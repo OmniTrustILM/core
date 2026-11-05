@@ -23,7 +23,6 @@ import com.otilm.core.aop.AuditLogged;
 import com.otilm.core.logging.LogResource;
 import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.SecuredParentUUID;
-import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.SecretExternalService;
 import java.util.List;
@@ -86,9 +85,7 @@ public class SecretManagementControllerImpl implements SecretManagementControlle
     public SecretDetailDto createSecret(SecretRequestDto secretRequest,
             @LogResource(uuid = true, affiliated = true) UUID vaultProfileUuid, UUID vaultUuid)
             throws NotFoundException, AttributeException, AlreadyExistException, ConnectorException {
-        return secretService
-                .createSecret(secretRequest, SecuredParentUUID.fromUUID(vaultProfileUuid),
-                        SecuredUUID.fromUUID(vaultUuid));
+        return secretService.createSecret(secretRequest, SecuredParentUUID.fromUUID(vaultUuid), vaultProfileUuid);
     }
 
     @Override

@@ -46,6 +46,7 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
         int certificatesToValidate = certificateService.updateCertificatesStatusScheduled();
         int expiredApprovals = approvalService.checkApprovalsExpiration();
         int expiringCertificates = certificateService.handleExpiringCertificates();
+        int nonCompliantReminders = certificateService.handleNonCompliantCertificatesReminders();
 
         String message = "Queued %s certificates for status update.".formatted(certificatesToValidate);
         if (expiredApprovals > 0) {
@@ -53,6 +54,10 @@ public class UpdateCertificateStatusTask implements ScheduledJobTask {
         }
         if (expiringCertificates > 0) {
             message += " Handled %d expiring certificates.".formatted(expiringCertificates);
+        }
+
+        if (nonCompliantReminders > 0) {
+            message += " Handled %d non-compliant certificates with reminders.".formatted(nonCompliantReminders);
         }
 
         // clean up of ACME nonces

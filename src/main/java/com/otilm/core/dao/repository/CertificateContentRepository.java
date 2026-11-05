@@ -10,8 +10,6 @@ public interface CertificateContentRepository extends SecurityFilterRepository<C
 
     CertificateContent findByFingerprint(String thumbprint);
 
-    CertificateContent findByContent(String content);
-
     @Modifying
     @Query("""
             DELETE FROM CertificateContent cc WHERE

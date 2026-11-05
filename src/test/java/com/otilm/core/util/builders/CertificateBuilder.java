@@ -1,15 +1,19 @@
 package com.otilm.core.util.builders;
 
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.util.MetaDefinitions;
 
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -23,7 +27,7 @@ import java.util.UUID;
  * placeholder) and absent {@code state}. A field is written only when its {@code withXxx} is called, so building with
  * no overrides is behaviourally identical to {@code new Certificate()}.
  */
-public class CertificateBuilder {
+public final class CertificateBuilder {
 
     private UUID uuid;
     private String commonName;
@@ -38,9 +42,15 @@ public class CertificateBuilder {
     private UUID issuerCertificateUuid;
     private CertificateState state;
     private CertificateValidationStatus validationStatus;
+    private ComplianceStatus complianceStatus;
     private CertificateSubjectType subjectType;
+    private List<CertificateKeyUsage> keyUsage;
     private Date notBefore;
+    private Date notAfter;
     private Boolean archived;
+    private List<String> extendedKeyUsageOids;
+    private Boolean extendedKeyUsageCritical;
+    private Boolean qcCompliance;
     private CertificateContent certificateContent;
     private Long certificateContentId;
     private RaProfile raProfile;
@@ -120,8 +130,18 @@ public class CertificateBuilder {
         return this;
     }
 
+    public CertificateBuilder withComplianceStatus(ComplianceStatus complianceStatus) {
+        this.complianceStatus = complianceStatus;
+        return this;
+    }
+
     public CertificateBuilder withSubjectType(CertificateSubjectType subjectType) {
         this.subjectType = subjectType;
+        return this;
+    }
+
+    public CertificateBuilder withKeyUsage(CertificateKeyUsage... usages) {
+        this.keyUsage = List.of(usages);
         return this;
     }
 
@@ -130,8 +150,28 @@ public class CertificateBuilder {
         return this;
     }
 
+    public CertificateBuilder withNotAfter(Date notAfter) {
+        this.notAfter = notAfter;
+        return this;
+    }
+
     public CertificateBuilder withArchived(boolean archived) {
         this.archived = archived;
+        return this;
+    }
+
+    public CertificateBuilder withExtendedKeyUsage(String... oids) {
+        this.extendedKeyUsageOids = List.of(oids);
+        return this;
+    }
+
+    public CertificateBuilder withExtendedKeyUsageCritical(boolean extendedKeyUsageCritical) {
+        this.extendedKeyUsageCritical = extendedKeyUsageCritical;
+        return this;
+    }
+
+    public CertificateBuilder withQcCompliance(boolean qcCompliance) {
+        this.qcCompliance = qcCompliance;
         return this;
     }
 
@@ -221,14 +261,32 @@ public class CertificateBuilder {
         if (validationStatus != null) {
             certificate.setValidationStatus(validationStatus);
         }
+        if (complianceStatus != null) {
+            certificate.setComplianceStatus(complianceStatus);
+        }
         if (subjectType != null) {
             certificate.setSubjectType(subjectType);
+        }
+        if (keyUsage != null) {
+            certificate.setUsage(keyUsage);
         }
         if (notBefore != null) {
             certificate.setNotBefore(notBefore);
         }
+        if (notAfter != null) {
+            certificate.setNotAfter(notAfter);
+        }
         if (archived != null) {
             certificate.setArchived(archived);
+        }
+        if (extendedKeyUsageOids != null) {
+            certificate.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsageOids));
+        }
+        if (extendedKeyUsageCritical != null) {
+            certificate.setExtendedKeyUsageCritical(extendedKeyUsageCritical);
+        }
+        if (qcCompliance != null) {
+            certificate.setQcCompliance(qcCompliance);
         }
         if (certificateContent != null) {
             certificate.setCertificateContent(certificateContent);

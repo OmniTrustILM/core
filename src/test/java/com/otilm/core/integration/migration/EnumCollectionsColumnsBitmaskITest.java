@@ -109,9 +109,7 @@ class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
         Assertions.assertEquals(Set.of(KeyUsage.SIGN), new HashSet<>(profile2.getUsage()));
         Assertions.assertEquals(Set.of(), new HashSet<>(profile3.getUsage()));
 
-        certificateRequest = certificateRequestRepository
-                .findByFingerprint(certificateRequest.getFingerprint())
-                .orElseThrow();
+        certificateRequest = certificateRequestRepository.findByUuid(certificateRequest.getUuid()).orElseThrow();
         Assertions
                 .assertEquals(
                         Set

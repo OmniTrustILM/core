@@ -8,6 +8,7 @@ import com.otilm.api.model.client.compliance.v2.ComplianceInternalRuleRequestDto
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.IntegerAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
@@ -18,11 +19,14 @@ import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckRuleDto;
+import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.workflows.ConditionItemDto;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.ComplianceProfile;
 import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.ComplianceProfileRule;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -32,6 +36,8 @@ import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
@@ -55,10 +61,14 @@ import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.compliance.BaseComplianceTest;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.builders.CertificateBuilder;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -70,6 +80,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
+import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographicKey;
+import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
 import static org.mockito.Mockito.when;
 
 class ComplianceServiceITest extends BaseComplianceTest {
@@ -102,6 +114,12 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Autowired
     private SecretRepository secretRepository;
+
+    @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
+
+    @Autowired
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
 
     @Autowired
     private SecretVersionRepository secretVersionRepository;
@@ -438,11 +456,31 @@ class ComplianceServiceITest extends BaseComplianceTest {
                                 .getValue(),
                         "A certificate is authorized against its own UUID");
 
+        CertificateRequestEntity request = certificateRequestRepository
+                .save(CertificateRequestEntityBuilder
+                        .aCertificateRequest()
+                        .withContent(Base64.getEncoder().encodeToString("CN=owned".getBytes(StandardCharsets.UTF_8)))
+                        .build());
+        Certificate owner = certificateRepository
+                .save(CertificateBuilder
+                        .aCertificate()
+                        .withSerialNumber(UUID.randomUUID().toString())
+                        .withFingerprint(UUID.randomUUID().toString())
+                        .withCertificateRequest(request)
+                        .withCertificateRequestUuid(request.getUuid())
+                        .build());
+        Assertions
+                .assertEquals(owner.getUuid(),
+                        complianceExternalService
+                                .resolveComplianceAuthorizableObject(Resource.CERTIFICATE_REQUEST, request.getUuid())
+                                .getValue(),
+                        "A certificate request is authorized against the certificate it was submitted for");
+
         Assertions
                 .assertNull(
                         complianceExternalService
                                 .resolveComplianceAuthorizableObject(Resource.CERTIFICATE_REQUEST, UUID.randomUUID()),
-                        "A certificate request has no stable owning object; authorization is resource-level (null)");
+                        "An unknown certificate request resolves to null (resource-level)");
 
         Assertions
                 .assertNull(complianceExternalService
@@ -480,35 +518,7 @@ class ComplianceServiceITest extends BaseComplianceTest {
 
     @Test
     void testCertificateRequestComplianceCheckBeforeIssue() throws Exception {
-        WireMock
-                .stubFor(WireMock
-                        .get(WireMock
-                                .urlPathEqualTo("/v2/authorityProvider/authorities/1l/certificates/issue/attributes"))
-                        .willReturn(WireMock
-                                .aResponse()
-                                .withHeader("Content-Type", "application/json")
-                                .withBody("[]")
-                                .withStatus(200)));
-
-        WireMock
-                .stubFor(WireMock
-                        .post(WireMock
-                                .urlPathEqualTo(
-                                        "/v2/authorityProvider/authorities/1l/certificates/issue/attributes/validate"))
-                        .willReturn(WireMock
-                                .aResponse()
-                                .withHeader("Content-Type", "application/json")
-                                .withBody("true")
-                                .withStatus(200)));
-
-        WireMock
-                .stubFor(WireMock
-                        .post(WireMock.urlPathEqualTo("/v2/authorityProvider/authorities/1l/certificates/issue"))
-                        .willReturn(WireMock.aResponse().withHeader("Content-Type", "application/json").withBody("""
-                                {
-                                    "certificateData": "TEST-DATA"
-                                }
-                                """).withStatus(200)));
+        stubAuthorityIssueEndpoints();
 
         var internalRuleAssoc = new ComplianceProfileRule();
         internalRuleAssoc.setComplianceProfile(complianceProfile);
@@ -547,21 +557,7 @@ class ComplianceServiceITest extends BaseComplianceTest {
                 .assertEquals(CertificateState.REQUESTED, renewedCert.getState(),
                         "Certificate should be in REQUESTED state");
 
-        var internalRules = complianceProfileService
-                .getComplianceRules(null, null, Resource.CERTIFICATE_REQUEST, null, null);
-        ConditionItemDto conditionItemDto = internalRules.getFirst().getConditionItems().getFirst();
-
-        ConditionItemRequestDto conditionItemRequestDto = new ConditionItemRequestDto();
-        conditionItemRequestDto.setFieldSource(conditionItemDto.getFieldSource());
-        conditionItemRequestDto.setFieldIdentifier(conditionItemDto.getFieldIdentifier());
-        conditionItemRequestDto.setOperator(conditionItemDto.getOperator());
-        conditionItemRequestDto.setValue(List.of("ECDSA"));
-
-        ComplianceInternalRuleRequestDto requestDto = new ComplianceInternalRuleRequestDto();
-        requestDto.setName("TestInternalRuleCertRequest");
-        requestDto.setResource(Resource.CERTIFICATE_REQUEST);
-        requestDto.setConditionItems(List.of(conditionItemRequestDto));
-        complianceProfileService.updateComplianceInternalRule(internalCertificateRequestRuleUuid, requestDto);
+        requireRequestKeyAlgorithm("ECDSA");
         response = clientOperationService
                 .renewCertificate(SecuredParentUUID.fromUUID(authorityUuid),
                         SecuredUUID.fromUUID(associatedRaProfileUuid), certWithRsaKey.getUuid().toString(),
@@ -570,6 +566,333 @@ class ComplianceServiceITest extends BaseComplianceTest {
         Assertions
                 .assertEquals(CertificateState.REJECTED, renewedCert.getState(),
                         "Certificate should be in REJECTED state");
+    }
+
+    @Test
+    void sameCsrRejectedUnderOneRaProfileIsNotRejectedUnderOneWithoutComplianceProfile() throws Exception {
+        stubAuthorityIssueEndpoints();
+        var internalRuleAssoc = new ComplianceProfileRule();
+        internalRuleAssoc.setComplianceProfile(complianceProfile);
+        internalRuleAssoc.setComplianceProfileUuid(complianceProfile.getUuid());
+        internalRuleAssoc.setResource(Resource.CERTIFICATE_REQUEST);
+        internalRuleAssoc.setInternalRuleUuid(internalCertificateRequestRuleUuid);
+        complianceProfileRuleRepository.save(internalRuleAssoc);
+        requireRequestKeyAlgorithm("ECDSA");
+
+        var certificateChainInfo = CertificateGeneratorHelper
+                .generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Test-Ca-Shared", "CN=Test-EndEntity-Shared", null);
+        X509Certificate x509Certificate = CertificateUtil
+                .parseCertificate(certificateChainInfo.getEndEntityCertificateBase64Encoded());
+        certificateUploadedEventHandler
+                .handleEvent(CertificateUploadedEventHandler
+                        .constructEventMessage(CertificateUploadEventMessageData
+                                .builder()
+                                .certificateContent(certificateChainInfo.getEndEntityCertificateBase64Encoded())
+                                .build()));
+        Certificate certificate = certificateRepository
+                .findByFingerprint(CertificateUtil.getThumbprint(x509Certificate))
+                .orElseThrow();
+        certificate.setRaProfileUuid(associatedRaProfileUuid);
+        certificateRepository.save(certificate);
+
+        KeyPair keyPair = certificateChainInfo.getEndEntityCertificateKeyPair();
+        ClientCertificateRenewRequestDto renewRequestDto = new ClientCertificateRenewRequestDto();
+        renewRequestDto
+                .setRequest(CertificateGeneratorHelper
+                        .generateCsrBase64Der(keyPair.getPrivate(), keyPair.getPublic(), "CN=Test-EndEntity-Shared",
+                                "SHA256WithRSA"));
+        var rejected = clientOperationService
+                .renewCertificate(SecuredParentUUID.fromUUID(authorityUuid),
+                        SecuredUUID.fromUUID(associatedRaProfileUuid), certificate.getUuid().toString(),
+                        renewRequestDto);
+        Certificate rejectedCertificate = certificateRepository
+                .findByUuid(UUID.fromString(rejected.getUuid()))
+                .orElseThrow();
+        Assertions.assertEquals(CertificateState.REJECTED, rejectedCertificate.getState());
+
+        certificate.setRaProfileUuid(unassociatedRaProfileUuid);
+        certificateRepository.save(certificate);
+        var renewed = clientOperationService
+                .renewCertificate(SecuredParentUUID.fromUUID(authorityUuid),
+                        SecuredUUID.fromUUID(unassociatedRaProfileUuid), certificate.getUuid().toString(),
+                        renewRequestDto);
+
+        Certificate renewedCertificate = certificateRepository
+                .findByUuid(UUID.fromString(renewed.getUuid()))
+                .orElseThrow();
+        Assertions
+                .assertNotEquals(CertificateState.REJECTED, renewedCertificate.getState(),
+                        "No compliance profile applies under the second RA profile");
+        Assertions
+                .assertNotEquals(rejectedCertificate.getCertificateRequestUuid(),
+                        renewedCertificate.getCertificateRequestUuid());
+        Assertions
+                .assertEquals(ComplianceStatus.NOK,
+                        complianceService
+                                .getComplianceCheckResult(Resource.CERTIFICATE_REQUEST,
+                                        rejectedCertificate.getCertificateRequestUuid())
+                                .getStatus(),
+                        "The request rejected under the first RA profile keeps its result");
+    }
+
+    private void stubAuthorityIssueEndpoints() {
+        WireMock
+                .stubFor(WireMock
+                        .get(WireMock
+                                .urlPathEqualTo("/v2/authorityProvider/authorities/1l/certificates/issue/attributes"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("[]")
+                                .withStatus(200)));
+
+        WireMock
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathEqualTo(
+                                        "/v2/authorityProvider/authorities/1l/certificates/issue/attributes/validate"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("true")
+                                .withStatus(200)));
+
+        WireMock
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo("/v2/authorityProvider/authorities/1l/certificates/issue"))
+                        .willReturn(WireMock.aResponse().withHeader("Content-Type", "application/json").withBody("""
+                                {
+                                    "certificateData": "TEST-DATA"
+                                }
+                                """).withStatus(200)));
+    }
+
+    private void requireRequestKeyAlgorithm(String algorithm) throws Exception {
+        var internalRules = complianceProfileService
+                .getComplianceRules(null, null, Resource.CERTIFICATE_REQUEST, null, null);
+        ConditionItemDto conditionItemDto = internalRules.getFirst().getConditionItems().getFirst();
+
+        ConditionItemRequestDto conditionItemRequestDto = new ConditionItemRequestDto();
+        conditionItemRequestDto.setFieldSource(conditionItemDto.getFieldSource());
+        conditionItemRequestDto.setFieldIdentifier(conditionItemDto.getFieldIdentifier());
+        conditionItemRequestDto.setOperator(conditionItemDto.getOperator());
+        conditionItemRequestDto.setValue(List.of(algorithm));
+
+        ComplianceInternalRuleRequestDto requestDto = new ComplianceInternalRuleRequestDto();
+        requestDto.setName("TestInternalRuleCertRequest");
+        requestDto.setResource(Resource.CERTIFICATE_REQUEST);
+        requestDto.setConditionItems(List.of(conditionItemRequestDto));
+        complianceProfileService.updateComplianceInternalRule(internalCertificateRequestRuleUuid, requestDto);
+    }
+
+    @Test
+    void checkingACertificateNoComplianceProfileAppliesToClearsItsStoredResult() throws Exception {
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-Unassociated", unassociatedRaProfileUuid);
+
+        complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate.getUuid());
+
+        Certificate checked = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
+        Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    @Test
+    void checkingACertificateKeepsTheResultOfAComplianceProfileAssociatedWithItDirectly() throws Exception {
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-Direct", unassociatedRaProfileUuid);
+        ComplianceProfileAssociation direct = new ComplianceProfileAssociation();
+        direct.setComplianceProfileUuid(complianceProfile.getUuid());
+        direct.setResource(Resource.CERTIFICATE);
+        direct.setObjectUuid(certificate.getUuid());
+        complianceProfileAssociationRepository.save(direct);
+
+        complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate.getUuid());
+
+        Assertions
+                .assertEquals(ComplianceStatus.NOK,
+                        certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus(),
+                        "Only a check of the directly associated profile replaces its result");
+    }
+
+    @Test
+    void checkingACertificateOnlyRuleLessComplianceProfilesApplyToMarksItCompliant() throws Exception {
+        ComplianceProfile ruleLess = new ComplianceProfile();
+        ruleLess.setName("RuleLessProfile");
+        complianceProfileRepository.save(ruleLess);
+        ComplianceProfileAssociation association = new ComplianceProfileAssociation();
+        association.setComplianceProfileUuid(ruleLess.getUuid());
+        association.setResource(Resource.RA_PROFILE);
+        association.setObjectUuid(unassociatedRaProfileUuid);
+        complianceProfileAssociationRepository.save(association);
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-RuleLess", unassociatedRaProfileUuid);
+
+        complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, certificate.getUuid());
+
+        Assertions
+                .assertEquals(ComplianceStatus.OK,
+                        certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus());
+    }
+
+    @Test
+    void checkingARuleLessComplianceProfileMarksTheCertificatesItAppliesToCompliant() throws Exception {
+        ComplianceProfile ruleLess = new ComplianceProfile();
+        ruleLess.setName("RuleLessProfileChecked");
+        complianceProfileRepository.save(ruleLess);
+        ComplianceProfileAssociation association = new ComplianceProfileAssociation();
+        association.setComplianceProfileUuid(ruleLess.getUuid());
+        association.setResource(Resource.RA_PROFILE);
+        association.setObjectUuid(unassociatedRaProfileUuid);
+        complianceProfileAssociationRepository.save(association);
+        Certificate certificate = uploadCertificateWithStaleResult("CN=Test-RuleLessProfileCheck",
+                unassociatedRaProfileUuid);
+
+        complianceService.checkCompliance(List.of(SecuredUUID.fromUUID(ruleLess.getUuid())), null, null);
+
+        Assertions
+                .assertEquals(ComplianceStatus.OK,
+                        certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getComplianceStatus(),
+                        "A check of the profile agrees with a check of the certificate");
+    }
+
+    @Test
+    void checkingASecretNoComplianceProfileAppliesToClearsItsStoredResult() {
+        complianceProfileAssociationRepository
+                .findDistinctByResourceAndObjectUuid(Resource.VAULT_PROFILE, vaultProfileUuid)
+                .forEach(complianceProfileAssociationRepository::delete);
+        SecretVersion secretVersion = new SecretVersion();
+        secretVersion.setVaultProfileUuid(vaultProfileUuid);
+        secretVersion.setVersion(1);
+        secretVersion.setFingerprint("fingerprint");
+        secretVersionRepository.save(secretVersion);
+        Secret secret = new Secret();
+        secret.setName("secret");
+        secret.setType(SecretType.BASIC_AUTH);
+        secret.setState(SecretState.ACTIVE);
+        secret.setSourceVaultProfileUuid(vaultProfileUuid);
+        secret.setLatestVersion(secretVersion);
+        secret.setComplianceStatus(ComplianceStatus.NOK);
+        secret.setComplianceResult(staleComplianceResult());
+        secretRepository.save(secret);
+
+        complianceService.checkResourceObjectCompliance(Resource.SECRET, secret.getUuid());
+
+        Secret checked = secretRepository.findByUuid(secret.getUuid()).orElseThrow();
+        Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
+        Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    @Test
+    void checkingAKeyNoComplianceProfileAppliesToClearsTheStoredResultOfItsItems() {
+        CryptographicKeyItem keyItem = seedKeyItemWithStaleResult();
+
+        complianceService.checkResourceObjectCompliance(Resource.CRYPTOGRAPHIC_KEY, keyItem.getKeyUuid());
+
+        assertNotChecked(keyItem);
+
+        markStale(keyItem);
+        complianceService.checkResourceObjectCompliance(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+
+        assertNotChecked(keyItem);
+    }
+
+    @Test
+    void checkingAKeyItemKeepsTheResultOfAComplianceProfileAssociatedWithItsKey() {
+        CryptographicKeyItem keyItem = seedKeyItemWithStaleResult();
+        ComplianceProfileAssociation direct = new ComplianceProfileAssociation();
+        direct.setComplianceProfileUuid(complianceProfile.getUuid());
+        direct.setResource(Resource.CRYPTOGRAPHIC_KEY);
+        direct.setObjectUuid(keyItem.getKeyUuid());
+        complianceProfileAssociationRepository.save(direct);
+
+        complianceService.checkResourceObjectCompliance(Resource.CRYPTOGRAPHIC_KEY_ITEM, keyItem.getUuid());
+
+        Assertions
+                .assertEquals(ComplianceStatus.NOK,
+                        cryptographicKeyItemRepository
+                                .findByUuid(keyItem.getUuid())
+                                .orElseThrow()
+                                .getComplianceStatus(),
+                        "Only a check of the profile associated with the key replaces its result");
+    }
+
+    @Test
+    void checkingACertificateNotYetIssuedClearsTheStoredResultOfItsRequest() {
+        CertificateRequestEntity request = CertificateRequestEntityBuilder
+                .aCertificateRequest()
+                .withContent(Base64.getEncoder().encodeToString("CN=pending".getBytes(StandardCharsets.UTF_8)))
+                .build();
+        request.setComplianceStatus(ComplianceStatus.NOK);
+        request.setComplianceResult(staleComplianceResult());
+        request = certificateRequestRepository.save(request);
+        Certificate pending = CertificateBuilder
+                .aCertificate()
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withFingerprint(UUID.randomUUID().toString())
+                .withState(CertificateState.REQUESTED)
+                .withCertificateRequest(request)
+                .withCertificateRequestUuid(request.getUuid())
+                .build();
+        pending.setRaProfileUuid(unassociatedRaProfileUuid);
+        pending = certificateRepository.save(pending);
+
+        complianceService.checkResourceObjectCompliance(Resource.CERTIFICATE, pending.getUuid());
+
+        CertificateRequestEntity checked = certificateRequestRepository.findByUuid(request.getUuid()).orElseThrow();
+        Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
+        Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    /** A key with no token profile, so no compliance profile applies to its item through one. */
+    private CryptographicKeyItem seedKeyItemWithStaleResult() {
+        CryptographicKey key = cryptographicKeyRepository.save(aCryptographicKey().withName("ProfilelessKey").build());
+        CryptographicKeyItem keyItem = aKeyItem()
+                .withName("ProfilelessKeyItem")
+                .withType(KeyType.PUBLIC_KEY)
+                .withState(KeyState.ACTIVE)
+                .build();
+        keyItem.setKey(key);
+        keyItem.setComplianceStatus(ComplianceStatus.NOK);
+        keyItem.setComplianceResult(staleComplianceResult());
+        return cryptographicKeyItemRepository.save(keyItem);
+    }
+
+    private void markStale(CryptographicKeyItem keyItem) {
+        CryptographicKeyItem stored = cryptographicKeyItemRepository.findByUuid(keyItem.getUuid()).orElseThrow();
+        stored.setComplianceStatus(ComplianceStatus.NOK);
+        stored.setComplianceResult(staleComplianceResult());
+        cryptographicKeyItemRepository.save(stored);
+    }
+
+    private void assertNotChecked(CryptographicKeyItem keyItem) {
+        CryptographicKeyItem checked = cryptographicKeyItemRepository.findByUuid(keyItem.getUuid()).orElseThrow();
+        Assertions.assertEquals(ComplianceStatus.NOT_CHECKED, checked.getComplianceStatus());
+        Assertions.assertNull(checked.getComplianceResult());
+    }
+
+    private Certificate uploadCertificateWithStaleResult(String subjectDn, UUID raProfileUuid) throws Exception {
+        var certificateChainInfo = CertificateGeneratorHelper
+                .generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Test-Ca", subjectDn, null);
+        certificateUploadedEventHandler
+                .handleEvent(CertificateUploadedEventHandler
+                        .constructEventMessage(CertificateUploadEventMessageData
+                                .builder()
+                                .certificateContent(certificateChainInfo.getEndEntityCertificateBase64Encoded())
+                                .build()));
+        Certificate certificate = certificateRepository
+                .findByFingerprint(CertificateUtil
+                        .getThumbprint(CertificateUtil
+                                .parseCertificate(certificateChainInfo.getEndEntityCertificateBase64Encoded())))
+                .orElseThrow();
+        certificate.setRaProfileUuid(raProfileUuid);
+        certificate.setComplianceStatus(ComplianceStatus.NOK);
+        certificate.setComplianceResult(staleComplianceResult());
+        return certificateRepository.save(certificate);
+    }
+
+    private static ComplianceResultDto staleComplianceResult() {
+        ComplianceResultDto result = new ComplianceResultDto();
+        result.setStatus(ComplianceStatus.NOK);
+        result.setTimestamp(OffsetDateTime.now());
+        return result;
     }
 
     @Test

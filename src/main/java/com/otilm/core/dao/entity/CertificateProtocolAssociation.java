@@ -22,9 +22,16 @@ import java.util.Objects;
 import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JoinFormula;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.proxy.HibernateProxy;
 
+/**
+ * The protocol a certificate was issued through. All protocols keep their profile in {@code protocol_profile_uuid} and
+ * Hibernate ignores {@code @SQLRestriction} on a to-one association, so each profile is a formula that yields the
+ * column only for its own protocol and only while the profile exists; a join column would reference a row the profile's
+ * table does not hold.
+ */
 @Entity
 @Getter
 @Setter
@@ -50,23 +57,20 @@ public class CertificateProtocolAssociation extends UniquelyIdentified implement
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "protocol_profile_uuid", insertable = false, updatable = false,
-            foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
-    @SQLRestriction("protocol = 'ACME'")
+    @JoinFormula("CASE WHEN protocol = 'ACME' AND EXISTS (SELECT 1 FROM {h-schema}acme_profile p"
+            + " WHERE p.uuid = protocol_profile_uuid) THEN protocol_profile_uuid END")
     private AcmeProfile acmeProfile;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "protocol_profile_uuid", insertable = false, updatable = false,
-            foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
-    @SQLRestriction("protocol = 'SCEP'")
+    @JoinFormula("CASE WHEN protocol = 'SCEP' AND EXISTS (SELECT 1 FROM {h-schema}scep_profile p"
+            + " WHERE p.uuid = protocol_profile_uuid) THEN protocol_profile_uuid END")
     private ScepProfile scepProfile;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "protocol_profile_uuid", insertable = false, updatable = false,
-            foreignKey = @ForeignKey(ConstraintMode.NO_CONSTRAINT))
-    @SQLRestriction("protocol = 'CMP'")
+    @JoinFormula("CASE WHEN protocol = 'CMP' AND EXISTS (SELECT 1 FROM {h-schema}cmp_profile p"
+            + " WHERE p.uuid = protocol_profile_uuid) THEN protocol_profile_uuid END")
     private CmpProfile cmpProfile;
 
     @JsonIgnore

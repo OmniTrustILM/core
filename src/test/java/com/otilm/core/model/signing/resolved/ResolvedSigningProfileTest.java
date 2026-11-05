@@ -4,6 +4,7 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.signing.engine.CertificateChain;
@@ -72,12 +73,15 @@ class ResolvedSigningProfileTest {
 
     @Test
     void contentSigningProfileReportsItsWorkflowType() {
-        // given / when
+        // given
         ResolvedManagedContentSigningProfile profile = new ResolvedManagedContentSigningProfile(UUID.randomUUID(),
                 "docs", null, 3, true, List.of(), List.of(), null, null, null, null,
-                CertificatePurposeRequirements.NONE, null, null);
+                CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL, null, null);
+
+        // when
+        SigningWorkflowType workflowType = profile.workflowType();
 
         // then
-        assertThat(profile.workflowType()).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
+        assertThat(workflowType).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);
     }
 }

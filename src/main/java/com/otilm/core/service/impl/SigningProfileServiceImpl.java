@@ -40,6 +40,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.common.signature.SignatureParameterGroup;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -139,7 +140,9 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
      * reach belong here.
      */
     private static final Map<SigningWorkflowType, Set<SigningProtocol>> SUPPORTED_PROTOCOLS = Map
-            .of(SigningWorkflowType.TIMESTAMPING, EnumSet.of(SigningProtocol.TSP));
+            .of(SigningWorkflowType.TIMESTAMPING, EnumSet.of(SigningProtocol.TSP), SigningWorkflowType.CONTENT_SIGNING,
+                    EnumSet.of(SigningProtocol.ILM_NATIVE), SigningWorkflowType.RAW_SIGNING,
+                    EnumSet.of(SigningProtocol.ILM_NATIVE));
 
     private SigningProfileServiceImpl self;
     private CryptographicOperationInternalService cryptographicOperationService;
@@ -498,7 +501,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         Objects.requireNonNull(formattingDefinitions, "formattingDefinitions must not be null");
         Objects.requireNonNull(signingSchema, "signingSchema must not be null");
         // Serialize the bump decision per profile to prevent concurrent updates from racing.
-        clusterSynchronizer.lock("signing-profile:" + uuid.getValue());
+        lockProfile(uuid);
 
         SigningProfile profile = findByUuid(uuid);
         // Capture the previous name under the advisory lock so concurrent renames evict the committed source name.
@@ -535,6 +538,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
         applyWorkflow(profile, version, request.getWorkflow(), request.getSigningScheme().getSigningScheme());
         applyScheme(profile, version, request.getSigningScheme());
+        dropProtocolsTheConfigurationCannotCarry(profile);
         applyRecordPolicyToVersion(version, request.getRecordPolicy());
         profile = signingProfileRepository.save(profile);
         signingProfileVersionRepository.save(version);
@@ -663,6 +667,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ENABLE)
     @Transactional
     public void enableSigningProfile(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         enableSigningProfile(findByUuid(uuid));
     }
 
@@ -671,24 +676,26 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     public List<BulkActionMessageDto> bulkEnableSigningProfiles(List<SecuredUUID> uuids) {
         List<BulkActionMessageDto> messages = new ArrayList<>();
         for (SecuredUUID uuid : uuids) {
-            SigningProfile profile = null;
+            String name = "";
             try {
-                profile = findByUuid(uuid);
-                self.enableInOwnTransaction(profile);
+                name = signingProfileRepository.findNameByUuid(uuid.getValue()).orElse("");
+                self.enableInOwnTransaction(uuid);
             } catch (Exception e) {
                 log.error("Failed to enable Signing Profile {}", uuid, e);
-                messages
-                        .add(BulkActionMessageDto
-                                .failure(uuid.toString(), profile != null ? profile.getName() : "", e,
-                                        "Enable failed"));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), name, e, "Enable failed"));
             }
         }
         return messages;
     }
 
+    /**
+     * Reads the profile only under the lock. The caller must not read the entity: under open-in-view it would stay
+     * managed in the request's EntityManager, which this transaction reuses, and the read here would return that copy.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    void enableInOwnTransaction(SigningProfile profile) {
-        enableSigningProfile(profile);
+    void enableInOwnTransaction(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
+        enableSigningProfile(findByUuid(uuid));
     }
 
     private void enableSigningProfile(SigningProfile p) {
@@ -702,6 +709,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ENABLE)
     @Transactional
     public void disableSigningProfile(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         disableSigningProfile(findByUuid(uuid));
     }
 
@@ -710,24 +718,26 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     public List<BulkActionMessageDto> bulkDisableSigningProfiles(List<SecuredUUID> uuids) {
         List<BulkActionMessageDto> messages = new ArrayList<>();
         for (SecuredUUID uuid : uuids) {
-            SigningProfile profile = null;
+            String name = "";
             try {
-                profile = findByUuid(uuid);
-                self.disableInOwnTransaction(profile);
+                name = signingProfileRepository.findNameByUuid(uuid.getValue()).orElse("");
+                self.disableInOwnTransaction(uuid);
             } catch (Exception e) {
                 log.error("Failed to disable Signing Profile {}", uuid, e);
-                messages
-                        .add(BulkActionMessageDto
-                                .failure(uuid.toString(), profile != null ? profile.getName() : "", e,
-                                        "Disable failed"));
+                messages.add(BulkActionMessageDto.failure(uuid.toString(), name, e, "Disable failed"));
             }
         }
         return messages;
     }
 
+    /**
+     * Reads the profile only under the lock. The caller must not read the entity: under open-in-view it would stay
+     * managed in the request's EntityManager, which this transaction reuses, and the read here would return that copy.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    void disableInOwnTransaction(SigningProfile profile) {
-        disableSigningProfile(profile);
+    void disableInOwnTransaction(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
+        disableSigningProfile(findByUuid(uuid));
     }
 
     private void disableSigningProfile(SigningProfile p) {
@@ -754,6 +764,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @Transactional
     public TspActivationDetailDto activateTsp(SecuredUUID signingProfileUuid, SecuredUUID tspProfileUuid,
             String baseUrl) throws NotFoundException {
+        lockProfile(signingProfileUuid);
         SigningProfile signingProfile = findByUuid(signingProfileUuid);
         validateSupportedProtocol(signingProfile.getWorkflowType(), SigningProtocol.TSP);
         TspProfile tspProfile = tspProfileService.getTspProfileEntity(tspProfileUuid);
@@ -768,10 +779,39 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
     @Transactional
     public void deactivateTsp(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
         SigningProfile profile = findByUuid(uuid);
         profile.setTspProfile(null);
         signingProfileRepository.save(profile);
         tspProfileService.evictAllCachedModels();
+        evictSigningProfileCache(profile.getName());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
+    @Transactional
+    public void activateIlmNative(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
+        SigningProfile profile = findByUuid(uuid);
+        validateSupportedProtocol(profile.getWorkflowType(), SigningProtocol.ILM_NATIVE);
+        if (!admitsIlmNative(profile)) {
+            throw new ValidationException(
+                    "Signing profile '%s' uses delegated signing; ILM_NATIVE needs a key ILM signs with."
+                            .formatted(profile.getName()));
+        }
+        profile.setIlmNativeEnabled(true);
+        signingProfileRepository.save(profile);
+        evictSigningProfileCache(profile.getName());
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.UPDATE)
+    @Transactional
+    public void deactivateIlmNative(SecuredUUID uuid) throws NotFoundException {
+        lockProfile(uuid);
+        SigningProfile profile = findByUuid(uuid);
+        profile.setIlmNativeEnabled(false);
+        signingProfileRepository.save(profile);
         evictSigningProfileCache(profile.getName());
     }
 
@@ -798,13 +838,42 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 .orElseThrow(() -> new NotFoundException("Signing Profile not found: " + uuid));
     }
 
+    /**
+     * Serializes the writers of one profile that decide on what another may be changing: an update bumps the version it
+     * read, and the ILM_NATIVE switch is checked against the workflow and scheme an update sets.
+     */
+    private void lockProfile(SecuredUUID uuid) {
+        clusterSynchronizer.lock("signing-profile:" + uuid.getValue());
+    }
+
+    private static boolean supportsProtocol(SigningWorkflowType workflowType, SigningProtocol protocol) {
+        return SUPPORTED_PROTOCOLS.getOrDefault(workflowType, EnumSet.noneOf(SigningProtocol.class)).contains(protocol);
+    }
+
     private void validateSupportedProtocol(SigningWorkflowType workflowType, SigningProtocol protocol) {
-        Set<SigningProtocol> supported = SUPPORTED_PROTOCOLS
-                .getOrDefault(workflowType, EnumSet.noneOf(SigningProtocol.class));
-        if (!supported.contains(protocol)) {
+        if (!supportsProtocol(workflowType, protocol)) {
             throw new ValidationException(
                     protocol.getCode() + " is not supported for workflow type " + workflowType.getCode());
         }
+    }
+
+    /** An update may move a profile to a workflow or scheme that cannot carry a protocol it had enabled. */
+    private static void dropProtocolsTheConfigurationCannotCarry(SigningProfile profile) {
+        if (!admitsIlmNative(profile)) {
+            profile.setIlmNativeEnabled(false);
+        }
+        if (!supportsProtocol(profile.getWorkflowType(), SigningProtocol.TSP)) {
+            profile.setTspProfile(null);
+        }
+    }
+
+    /**
+     * Native operations sign only with keys ILM manages, so ILM_NATIVE needs a workflow that offers it and a scheme
+     * that is not delegated.
+     */
+    private static boolean admitsIlmNative(SigningProfile profile) {
+        return supportsProtocol(profile.getWorkflowType(), SigningProtocol.ILM_NATIVE)
+                && profile.getSigningScheme() != SigningScheme.DELEGATED;
     }
 
     private void validateSigningSchemeCoherence(SigningSchemeRequestDto scheme) {
@@ -888,6 +957,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setDocumentSizeCap(null);
         version.setRequireNonRepudiation(false);
         version.setRequiredExtendedKeyUsageOids(new ArrayList<>());
+        version.setAllowedRequestParameterGroups(new ArrayList<>());
+        version.setDefaultSignatureParameters(null);
         version.setQualifiedTimestamp(null);
         version.setDefaultPolicyId(null);
         version.setAllowedPolicyIds(new ArrayList<>());
@@ -951,6 +1022,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         if (request.getSigningScheme().getSigningScheme() != SigningScheme.MANAGED) {
             requireNoSignatureFormattingConnector(w);
             requireNoLevelLadder(w);
+            requireNoSignatureParameters(w);
             return;
         }
         requireStaticKeyManagedSigning(request.getSigningScheme());
@@ -995,6 +1067,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setTimestampSourceProfileUuid(TimestampSourceRequests.internalProfileUuid(w.getTimestampSource()));
         version.setRequireNonRepudiation(Boolean.TRUE.equals(w.getRequireNonRepudiation()));
         version.setRequiredExtendedKeyUsageOids(new ArrayList<>(safeOids(w)));
+        version.setAllowedRequestParameterGroups(new ArrayList<>(safeGroupCodes(w)));
+        version.setDefaultSignatureParameters(w.getDefaultSignatureParameters());
     }
 
     /**
@@ -1026,8 +1100,23 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         }
     }
 
+    private static void requireNoSignatureParameters(ContentSigningWorkflowRequestDto w) {
+        boolean groups = w.getAllowedRequestParameterGroups() != null
+                && !w.getAllowedRequestParameterGroups().isEmpty();
+        if (groups || w.getDefaultSignatureParameters() != null) {
+            throw new ValidationException(
+                    "allowedRequestParameterGroups and defaultSignatureParameters must be omitted for delegated content signing: the signer connector applies its own parameters");
+        }
+    }
+
     private static Set<String> safeOids(ContentSigningWorkflowRequestDto w) {
         return w.getRequiredExtendedKeyUsageOids() == null ? Set.of() : w.getRequiredExtendedKeyUsageOids();
+    }
+
+    private static List<String> safeGroupCodes(ContentSigningWorkflowRequestDto w) {
+        return w.getAllowedRequestParameterGroups() == null
+                ? List.of()
+                : w.getAllowedRequestParameterGroups().stream().map(SignatureParameterGroup::getCode).toList();
     }
 
     private static String notEligibleMessage(Certificate certificate, SigningWorkflowType workflowType,

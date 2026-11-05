@@ -5,7 +5,6 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.aop.CertificateRepositoryCacheEvictionAspect;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.custom.CustomCertificateRepository;
 import jakarta.persistence.LockModeType;
@@ -140,8 +139,6 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
 
     Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
 
-    Certificate findByCertificateContent(CertificateContent certificateContent);
-
     Optional<Certificate> findByFingerprint(String fingerprint);
 
     boolean existsByCertificateRequestUuid(UUID certificateRequestUuid);
@@ -223,17 +220,30 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             @Param("skipStatuses") List<CertificateValidationStatus> skipStatuses,
             @Param("platformEnabled") boolean platformEnabled, Pageable pageable);
 
-    // Orphaned-PENDING_ISSUE reaper: certificates with no certificate-status-poll row (a crashed
-    // synchronous issue). Staleness uses the last-modified timestamp — a safe over-approximation of
-    // entry time, since a later write only delays reaping, never triggers it early.
+    // Pending-issue reaper: stale claims, i.e. synchronous connector calls that never returned. The poll-row condition
+    // leaves a pollable 202 whose claim clear failed to the poller.
     @Query("""
             SELECT c.uuid FROM Certificate c
                 WHERE c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
-                    AND c.updated < :threshold
+                    AND c.pendingIssueClaimedAt IS NOT NULL
+                    AND c.pendingIssueClaimedAt < :threshold
                     AND NOT EXISTS (SELECT 1 FROM CertificateStatusPoll p WHERE p.certificateUuid = c.uuid)
-                ORDER BY c.updated ASC
+                ORDER BY c.pendingIssueClaimedAt ASC
             """)
-    List<UUID> findStalePendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold, Pageable pageable);
+    List<UUID> findStaleClaimedPendingIssueWithoutPollRow(@Param("threshold") OffsetDateTime threshold,
+            Pageable pageable);
+
+    /**
+     * Clears the pending-issue claim stamp of a certificate still in {@code PENDING_ISSUE}. Returns the number of rows
+     * updated (0 once it left {@code PENDING_ISSUE}).
+     */
+    @Modifying
+    @Query("""
+            UPDATE Certificate c SET c.pendingIssueClaimedAt = NULL, c.updated = CURRENT_TIMESTAMP
+                WHERE c.uuid = :uuid
+                    AND c.state = ?#{T(com.otilm.api.model.core.certificate.CertificateState).PENDING_ISSUE}
+            """)
+    int clearPendingIssueClaim(@Param("uuid") UUID uuid);
 
     /**
      * The pre-registrations a protocol enrolment presenting the given normalized subject can complete under the RA
@@ -420,6 +430,30 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
                   )
             """)
     List<UUID> findExpiringCertificatesWithoutRenewal();
+
+    @Query(value = """
+            SELECT DISTINCT c.uuid
+              FROM {h-schema}certificate c
+              JOIN {h-schema}pending_notification p
+                ON p.object_uuid = c.uuid AND p.resource = 'CERTIFICATE' AND p.event = 'CERTIFICATE_NOT_COMPLIANT'
+              JOIN {h-schema}notification_profile_version v
+                ON v.notification_profile_uuid = p.notification_profile_uuid AND v.version = p.version
+             WHERE c.compliance_status = 'NOK'
+               AND c.archived = false
+               AND c.state = 'ISSUED'
+               AND (c.validation_status IS NULL OR c.validation_status <> 'EXPIRED')
+               AND (v.frequency IS NOT NULL OR v.repetitions IS NOT NULL)
+               AND (v.repetitions IS NULL OR p.repetitions < v.repetitions)
+               AND (v.frequency IS NULL OR p.last_sent_at + v.frequency < :now)
+               AND NOT EXISTS (
+                     SELECT 1
+                       FROM {h-schema}certificate_relation cr
+                       JOIN {h-schema}certificate sc ON sc.uuid = cr.successor_certificate_uuid
+                      WHERE cr.predecessor_certificate_uuid = c.uuid
+                        AND sc.state = 'ISSUED'
+                   )
+            """, nativeQuery = true)
+    List<UUID> findNonCompliantCertificatesWithReminders(@Param("now") OffsetDateTime now);
 
     @Query(value = """
                 UPDATE {h-schema}certificate

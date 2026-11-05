@@ -41,6 +41,9 @@ public class CmpConfigurationContext implements ConfigurationContext {
     private Certificate matchedRegistration;
     private String matchedChallenge;
 
+    // Per-request signature state, set when protection validation trusts a signed request's certificate.
+    private Certificate protectionCertificate;
+
     public CmpConfigurationContext(CmpProfile cmpProfile, RaProfile raProfile, PKIMessage pkiRequest,
             CertificateKeyService certificateKeyServiceImpl, List<RequestAttribute> issueAttributes,
             List<RequestAttribute> revokeAttributes) {
@@ -180,6 +183,16 @@ public class CmpConfigurationContext implements ConfigurationContext {
     @Override
     public String getMatchedChallenge() {
         return matchedChallenge;
+    }
+
+    @Override
+    public Certificate getProtectionCertificate() {
+        return protectionCertificate;
+    }
+
+    @Override
+    public void setProtectionCertificate(Certificate protectionCertificate) {
+        this.protectionCertificate = protectionCertificate;
     }
 
     @Override

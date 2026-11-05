@@ -120,6 +120,7 @@ import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.handlers.CertificateExpiringEventHandler;
+import com.otilm.core.events.handlers.CertificateNotCompliantEventHandler;
 import com.otilm.core.events.handlers.CertificateStatusChangedEventHandler;
 import com.otilm.core.events.handlers.discovery.DiscoveredCertificateImport;
 import com.otilm.core.events.transaction.CertificateValidationEvent;
@@ -166,9 +167,11 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.v2.ExtendedAttributeService;
+import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.CertificateValidationWriter;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
+import com.otilm.core.service.writer.PendingNotificationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
@@ -259,7 +262,7 @@ public class CertificateServiceImpl
             CertificateInternalService,
             AttributeResourceService {
 
-    private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = "undefined";
+    private static final String UNDEFINED_CERTIFICATE_OBJECT_NAME = CertificateEventHistoryInternalService.UNDEFINED_OBJECT_NAME;
 
     private static final String NOT_ISSUED_SUFFIX = " (Not Issued)";
 
@@ -342,6 +345,13 @@ public class CertificateServiceImpl
 
     private CommentInternalService commentService;
     private ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
+    private CertificateRequestWriter certificateRequestWriter;
+    private PendingNotificationWriter pendingNotificationWriter;
+
+    @Autowired
+    public void setPendingNotificationWriter(PendingNotificationWriter pendingNotificationWriter) {
+        this.pendingNotificationWriter = pendingNotificationWriter;
+    }
 
     @Autowired
     public void setCommentService(CommentInternalService commentService) {
@@ -352,6 +362,11 @@ public class CertificateServiceImpl
     public void setComplianceProfileAssociationWriter(
             ComplianceProfileAssociationWriter complianceProfileAssociationWriter) {
         this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
+    }
+
+    @Autowired
+    public void setCertificateRequestWriter(CertificateRequestWriter certificateRequestWriter) {
+        this.certificateRequestWriter = certificateRequestWriter;
     }
 
     @Autowired
@@ -850,13 +865,6 @@ public class CertificateServiceImpl
     }
 
     @Override
-    // This method does not need security as it is not exposed by the controllers. This method also does not use uuid
-    public Certificate getCertificateEntityByContent(String content) {
-        CertificateContent certificateContent = certificateContentRepository.findByContent(content);
-        return certificateRepository.findByCertificateContent(certificateContent);
-    }
-
-    @Override
     // This method does not need security as it is used only by the internal services for certificate related operations
     public Certificate getCertificateEntityByFingerprint(String fingerprint) throws NotFoundException {
         return certificateRepository
@@ -910,6 +918,7 @@ public class CertificateServiceImpl
         objectAssociationService.removeObjectAssociations(Resource.CERTIFICATE, uuid.getValue());
         commentService.removeObjectComments(Resource.CERTIFICATE, uuid.getValue());
         complianceProfileAssociationWriter.deleteAllForObject(Resource.CERTIFICATE, uuid.getValue());
+        pendingNotificationWriter.deleteForObject(Resource.CERTIFICATE, uuid.getValue());
         attributeEngine.deleteObjectAttributeContent(Resource.CERTIFICATE, uuid.getValue());
 
         scepProfileRepository.clearCaCertificateReference(certificate.getUuid());
@@ -927,8 +936,7 @@ public class CertificateServiceImpl
             certificateContentRepository.delete(content);
             certificate.setCertificateContent(null);
         }
-        complianceProfileAssociationWriter
-                .deleteAllForCertificateRequestsWithoutCertificate(Stream.ofNullable(certificateRequestUuid).toList());
+        certificateRequestWriter.deleteUnreferenced(Stream.ofNullable(certificateRequestUuid).toList());
     }
 
     @Override
@@ -1179,6 +1187,7 @@ public class CertificateServiceImpl
         objectAssociationService.bulkRemoveObjectAssociations(Resource.CERTIFICATE, permittedUuids);
         commentService.bulkRemoveObjectComments(Resource.CERTIFICATE, permittedUuids);
         complianceProfileAssociationWriter.deleteAllForObjects(Resource.CERTIFICATE, permittedUuids);
+        pendingNotificationWriter.deleteForObjects(Resource.CERTIFICATE, permittedUuids);
         attributeEngine.bulkDeleteObjectAttributeContent(Resource.CERTIFICATE, permittedUuids);
 
         // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths
@@ -1193,7 +1202,7 @@ public class CertificateServiceImpl
                 .toList();
         certificateRepository.deleteAllInBatch(certificates);
         certificateContentRepository.deleteUnusedCertificateContents();
-        complianceProfileAssociationWriter.deleteAllForCertificateRequestsWithoutCertificate(certificateRequestUuids);
+        certificateRequestWriter.deleteUnreferenced(certificateRequestUuids);
         return certificates.size();
     }
 
@@ -1748,8 +1757,8 @@ public class CertificateServiceImpl
 
         // Attach the operator-supplied CSR to the placeholder; the registration identity already on the row
         // (subject DN / SAN) is intentionally left untouched here — the issued certificate's identity is
-        // written from the CA response at issuance. Get-or-create by fingerprint, same as submitCertificateRequest:
-        // an identical CSR already stored is shared, not duplicated.
+        // written from the CA response at issuance. The request belongs to this certificate alone, as in
+        // submitCertificateRequest.
         //
         // Unlike submitCertificateRequest, fingerprint and stored content here are derived from
         // request.getEncoded() — the normalized DER that createCertificateRequest above actually parsed —
@@ -1763,19 +1772,14 @@ public class CertificateServiceImpl
         // (AuthorityProviderV3Adapter.issueRegistered), producing a request the connector cannot parse as DER.
         byte[] normalizedDer = request.getEncoded();
         final String fingerprint = CertificateUtil.getThumbprint(normalizedDer);
-        CertificateRequestEntity certificateRequestEntity = certificateRequestRepository
-                .findByFingerprint(fingerprint)
-                .orElse(null);
-        if (certificateRequestEntity == null) {
-            certificateRequestEntity = new CertificateRequestEntity();
-            CertificateUtil.prepareCertificateRequestEntityFromCsr(certificateRequestEntity, request);
-            certificateRequestEntity.setCertificateType(CertificateType.X509);
-            certificateRequestEntity.setCertificateRequestFormat(issueRequest.getFormat());
-            certificateRequestEntity.setFingerprint(fingerprint);
-            certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(normalizedDer));
-            setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
-            certificateRequestRepository.save(certificateRequestEntity);
-        }
+        CertificateRequestEntity certificateRequestEntity = new CertificateRequestEntity();
+        CertificateUtil.prepareCertificateRequestEntityFromCsr(certificateRequestEntity, request);
+        certificateRequestEntity.setCertificateType(CertificateType.X509);
+        certificateRequestEntity.setCertificateRequestFormat(issueRequest.getFormat());
+        certificateRequestEntity.setFingerprint(fingerprint);
+        certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(normalizedDer));
+        setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
+        certificateRequestRepository.save(certificateRequestEntity);
 
         certificate.setCertificateRequest(certificateRequestEntity);
         certificate.setCertificateRequestUuid(certificateRequestEntity.getUuid());
@@ -2471,26 +2475,21 @@ public class CertificateServiceImpl
     public CertificateRequestKeys findRequestKeys(String csr, CertificateRequestFormat csrFormat, UUID keyUuid,
             UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException {
         byte[] decodedCsr = Base64.getDecoder().decode(csr);
-        return requestKeys(findCertificateRequestByContent(decodedCsr),
-                CertificateRequestUtils.createCertificateRequest(decodedCsr, csrFormat), keyUuid, altKeyUuid);
-    }
-
-    private Optional<CertificateRequestEntity> findCertificateRequestByContent(byte[] decodedCsr)
-            throws NoSuchAlgorithmException {
-        return certificateRequestRepository.findByFingerprint(CertificateUtil.getThumbprint(decodedCsr));
+        return requestKeys(CertificateRequestUtils.createCertificateRequest(decodedCsr, csrFormat), keyUuid,
+                altKeyUuid);
     }
 
     /**
-     * The keys a stored request with this content was first submitted with, else the given ones, else the inventory
-     * keys the request's public keys match, the ones {@link #getCertificateRequestKey} would link it to.
+     * The given keys, else the inventory keys the request's public keys match, the ones
+     * {@link #getCertificateRequestKey} would link it to.
      */
-    private CertificateRequestKeys requestKeys(Optional<CertificateRequestEntity> stored, CertificateRequest request,
-            UUID keyUuid, UUID altKeyUuid) throws NoSuchAlgorithmException, CertificateRequestException {
-        UUID key = stored.map(CertificateRequestEntity::getKeyUuid).orElse(keyUuid);
+    private CertificateRequestKeys requestKeys(CertificateRequest request, UUID keyUuid, UUID altKeyUuid)
+            throws NoSuchAlgorithmException, CertificateRequestException {
+        UUID key = keyUuid;
         if (key == null && request.getPublicKey() != null) {
             key = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(request.getPublicKey()));
         }
-        UUID altKey = stored.map(CertificateRequestEntity::getAltKeyUuid).orElse(altKeyUuid);
+        UUID altKey = altKeyUuid;
         if (altKey == null && request.getAltPublicKey() != null) {
             altKey = cryptographicKeyService.findKeyByFingerprint(publicKeyFingerprint(request.getAltPublicKey()));
         }
@@ -2534,91 +2533,41 @@ public class CertificateServiceImpl
         certificate.setCertificateType(CertificateType.X509);
         certificate.setRaProfileUuid(raProfileUuid);
 
-        // find if exists same certificate request by content
-        CertificateRequestEntity certificateRequestEntity;
-
-        final String certificateRequestFingerprint = CertificateUtil.getThumbprint(decodedCsr);
-        Optional<CertificateRequestEntity> certificateRequestOptional = findCertificateRequestByContent(decodedCsr);
-
-        List<ResponseAttribute> requestAttributes;
-        List<ResponseAttribute> requestSignatureAttributes;
-        List<ResponseAttribute> requestAltSignatureAttributes;
         // Signature attributes are written under the connector of the key they belong to.
         CertificateRequestKeys signingKeys = isEmpty(signatureAttributes) && isEmpty(altSignatureAttributes)
                 ? new CertificateRequestKeys(null, null)
-                : requestKeys(certificateRequestOptional, request, keyUuid, altKeyUuid);
+                : requestKeys(request, keyUuid, altKeyUuid);
         UUID signatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(signingKeys.keyUuid());
         UUID altSignatureAttributeOwner = cryptographicKeyService.getSignAttributeOwner(signingKeys.altKeyUuid());
-        if (certificateRequestOptional.isPresent()) {
-            certificateRequestEntity = certificateRequestOptional.get();
-            // if no CSR attributes are assigned to CSR, update them with ones provided
-            requestAttributes = attributeEngine
-                    .getObjectDataAttributesContent(ObjectAttributeContentInfo
-                            .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                            .build());
-            requestSignatureAttributes = attributeEngine
-                    .getOperationDataAttributesContent(ObjectAttributeContentInfo
-                            .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                            .operation(AttributeOperation.SIGN)
-                            .build());
-            requestAltSignatureAttributes = attributeEngine
-                    .getOperationDataAttributesContent(ObjectAttributeContentInfo
-                            .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                            .operation(AttributeOperation.SIGN)
-                            .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
-                            .build());
-            if (requestAttributes.isEmpty() && csrAttributes != null && !csrAttributes.isEmpty()) {
-                requestAttributes = attributeEngine
-                        .updateObjectDataAttributesContent(ObjectAttributeContentInfo
-                                .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                                .build(), csrAttributes);
-            }
-            if (requestSignatureAttributes.isEmpty() && signatureAttributes != null && !signatureAttributes.isEmpty()) {
-                requestSignatureAttributes = attributeEngine
-                        .updateObjectDataAttributesContent(ObjectAttributeContentInfo
-                                .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                                .connector(signatureAttributeOwner)
-                                .operation(AttributeOperation.SIGN)
-                                .build(), signatureAttributes);
-            }
 
-            if (requestAltSignatureAttributes.isEmpty() && altSignatureAttributes != null
-                    && !altSignatureAttributes.isEmpty()) {
-                requestAltSignatureAttributes = attributeEngine
-                        .updateObjectDataAttributesContent(ObjectAttributeContentInfo
-                                .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                                .connector(altSignatureAttributeOwner)
-                                .operation(AttributeOperation.SIGN)
-                                .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
-                                .build(), altSignatureAttributes);
-            }
-        } else {
-            certificateRequestEntity = certificate.prepareCertificateRequest(certificateRequestFormat);
-            certificateRequestEntity.setFingerprint(certificateRequestFingerprint);
-            certificateRequestEntity.setContent(certificateRequest);
-            setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
-            certificateRequestRepository.save(certificateRequestEntity);
+        // Every certificate gets a request of its own, even for a CSR already stored: the compliance result kept on
+        // the request is checked for the certificate's RA profile.
+        CertificateRequestEntity certificateRequestEntity = certificate
+                .prepareCertificateRequest(certificateRequestFormat);
+        certificateRequestEntity.setFingerprint(CertificateUtil.getThumbprint(decodedCsr));
+        certificateRequestEntity.setContent(certificateRequest);
+        setCertificateRequestEntitySignatureAlgorithms(request, certificateRequestEntity);
+        certificateRequestRepository.save(certificateRequestEntity);
 
-            requestAttributes = attributeEngine
-                    .updateObjectDataAttributesContent(ObjectAttributeContentInfo
-                            .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                            .build(), csrAttributes);
-            requestSignatureAttributes = attributeEngine
-                    .updateObjectDataAttributesContent(ObjectAttributeContentInfo
-                            .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                            .connector(signatureAttributeOwner)
-                            .operation(AttributeOperation.SIGN)
-                            .build(), signatureAttributes);
-            requestAltSignatureAttributes = attributeEngine
-                    .updateObjectDataAttributesContent(ObjectAttributeContentInfo
-                            .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
-                            .connector(altSignatureAttributeOwner)
-                            .operation(AttributeOperation.SIGN)
-                            .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
-                            .build(), altSignatureAttributes);
-        }
+        List<ResponseAttribute> requestAttributes = attributeEngine
+                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                        .build(), csrAttributes);
+        List<ResponseAttribute> requestSignatureAttributes = attributeEngine
+                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                        .connector(signatureAttributeOwner)
+                        .operation(AttributeOperation.SIGN)
+                        .build(), signatureAttributes);
+        List<ResponseAttribute> requestAltSignatureAttributes = attributeEngine
+                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
+                        .connector(altSignatureAttributeOwner)
+                        .operation(AttributeOperation.SIGN)
+                        .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
+                        .build(), altSignatureAttributes);
 
-        if (keyUuid != null && certificateRequestEntity.getKeyUuid() == null) {
+        if (keyUuid != null) {
             certificateRequestEntity.setKeyUuid(keyUuid);
         } else {
             keyUuid = getCertificateRequestKey(certificateRequestEntity, request.getPublicKey());
@@ -2642,10 +2591,18 @@ public class CertificateServiceImpl
             objectAssociationService.setOwnerFromProfile(Resource.CERTIFICATE, certificate.getUuid());
         }
 
+        boolean tookOverPredecessorAttributes = isEmpty(csrAttributes) && isEmpty(signatureAttributes)
+                && isEmpty(altSignatureAttributes)
+                && takeOverReplayedRequestAttributes(predecessorCertificateUuid, certificateRequestEntity);
+
         CertificateDetailDto dto = certificate.mapToDto();
-        dto.getCertificateRequest().setAttributes(requestAttributes);
-        dto.getCertificateRequest().setSignatureAttributes(requestSignatureAttributes);
-        dto.getCertificateRequest().setAltSignatureAttributes(requestAltSignatureAttributes);
+        if (tookOverPredecessorAttributes) {
+            setCertificateRequestAttributes(dto.getCertificateRequest(), certificateRequestEntity);
+        } else {
+            dto.getCertificateRequest().setAttributes(requestAttributes);
+            dto.getCertificateRequest().setSignatureAttributes(requestSignatureAttributes);
+            dto.getCertificateRequest().setAltSignatureAttributes(requestAltSignatureAttributes);
+        }
         dto
                 .setIssueAttributes(attributeEngine
                         .updateObjectDataAttributesContent(ObjectAttributeContentInfo
@@ -2660,6 +2617,31 @@ public class CertificateServiceImpl
         log.info("Certificate request submitted and certificate created {}", certificate);
 
         return dto;
+    }
+
+    /**
+     * A renewal that reuses its predecessor's CSR submits no request attributes. Its request takes over those the
+     * predecessor's request was submitted with, so a rekey of the renewed certificate signs with them, as a rekey of
+     * the predecessor would.
+     *
+     * @return whether the request took over the predecessor's attributes
+     */
+    private boolean takeOverReplayedRequestAttributes(UUID predecessorCertificateUuid,
+            CertificateRequestEntity certificateRequestEntity) {
+        if (predecessorCertificateUuid == null) {
+            return false;
+        }
+        Optional<CertificateRequestEntity> replayedRequest = certificateRepository
+                .findByUuid(predecessorCertificateUuid)
+                .map(Certificate::getCertificateRequest)
+                .filter(predecessorRequest -> predecessorRequest
+                        .getFingerprint()
+                        .equals(certificateRequestEntity.getFingerprint()));
+        replayedRequest
+                .ifPresent(predecessorRequest -> attributeEngine
+                        .copyObjectAttributeContent(Resource.CERTIFICATE_REQUEST, predecessorRequest.getUuid(),
+                                certificateRequestEntity.getUuid()));
+        return replayedRequest.isPresent();
     }
 
     @Override
@@ -2707,7 +2689,7 @@ public class CertificateServiceImpl
 
     private void setCertificateRequestAltKey(UUID altKeyUuid, CertificateRequestEntity certificateRequestEntity,
             CertificateRequest request) throws NoSuchAlgorithmException, CertificateRequestException {
-        if (altKeyUuid != null && certificateRequestEntity.getAltKeyUuid() == null) {
+        if (altKeyUuid != null) {
             certificateRequestEntity.setAltKeyUuid(altKeyUuid);
             if (request.getAltPublicKey() != null) {
                 certificateRequestEntity
@@ -2896,6 +2878,15 @@ public class CertificateServiceImpl
             eventProducer.produceMessage(CertificateExpiringEventHandler.constructEventMessages(uuid));
         }
         return expiringCertificates.size();
+    }
+
+    @Override
+    public int handleNonCompliantCertificatesReminders() {
+        List<UUID> certificates = certificateRepository.findNonCompliantCertificatesWithReminders(OffsetDateTime.now());
+        for (UUID uuid : certificates) {
+            eventProducer.produceMessage(CertificateNotCompliantEventHandler.constructReminderEventMessage(uuid));
+        }
+        return certificates.size();
     }
 
     @Override

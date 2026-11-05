@@ -15,6 +15,7 @@ import com.otilm.core.model.crypto.ImmutableCryptographicKeyFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicKeyEventHistoryService;
+import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
 import java.util.List;
 import java.util.Optional;
@@ -51,11 +52,12 @@ class CryptographicKeyServiceImplEnableDisableTest {
     private final CryptographicKeyItemBasicModel unselectedItem = item(parent);
 
     @BeforeEach
-    void setUp() {
+    void wireServiceWithParent() {
         service.setCryptographicKeyRepository(keyRepository);
         service.setCryptographicKeyItemRepository(itemRepository);
         service.setCryptographicKeyWriter(writer);
         service.setCacheEvictor(cacheEvictor);
+        service.setKeyOperationCache(mock(KeyOperationCache.class));
         service.setKeyEventHistoryService(history);
         when(keyRepository.findFullModelByUuid(parent.getUuid()))
                 .thenReturn(Optional.of(ImmutableCryptographicKeyFullModel.from(parent)));

@@ -2,8 +2,10 @@ package com.otilm.core.integration.repository;
 
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.sql.SQLException;
 import java.util.Set;
@@ -29,7 +31,7 @@ public class PessimisticLockITest extends BaseSpringBootTest {
     /** The lock queries the cases below exercise; LockedInverseOneToOneGuardTest keeps it complete. */
     public static final Set<String> LOCK_QUERIES = Set
             .of("CertificateRepository#findAndLockWithAssociationsByUuid",
-                    "CryptographicKeyRepository#findForUpdateByUuid");
+                    "CryptographicKeyRepository#findForUpdateByUuid", "RaProfileRepository#findWithLockByUuid");
 
     /** PostgreSQL's SQLSTATE for a NOWAIT lock request on a row another transaction holds. */
     private static final String LOCK_NOT_AVAILABLE = "55P03";
@@ -39,6 +41,9 @@ public class PessimisticLockITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeyRepository cryptographicKeyRepository;
+
+    @Autowired
+    private RaProfileRepository raProfileRepository;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -58,6 +63,12 @@ public class PessimisticLockITest extends BaseSpringBootTest {
         UUID uuid = cryptographicKeyRepository.save(new CryptographicKey()).getUuid();
         assertRowLockedWhile("cryptographic_key", uuid,
                 () -> cryptographicKeyRepository.findForUpdateByUuid(uuid).orElseThrow());
+    }
+
+    @Test
+    void raProfileLockQueryTakesTheRowLock() {
+        UUID uuid = raProfileRepository.save(new RaProfile()).getUuid();
+        assertRowLockedWhile("ra_profile", uuid, () -> raProfileRepository.findWithLockByUuid(uuid).orElseThrow());
     }
 
     private void assertRowLockedWhile(String table, UUID uuid, Runnable lockingQuery) {

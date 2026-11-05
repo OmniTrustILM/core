@@ -5,6 +5,7 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.notifications.PendingNotification;
 import com.otilm.core.dao.repository.SecurityFilterRepository;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -35,5 +36,18 @@ public interface PendingNotificationRepository extends SecurityFilterRepository<
     void upsertSent(@Param("uuid") UUID uuid, @Param("profileUuid") UUID profileUuid,
             @Param("resource") String resource, @Param("objectUuid") UUID objectUuid, @Param("event") String event,
             @Param("version") int version, @Param("lastSentAt") OffsetDateTime lastSentAt);
+
+    @Modifying
+    @Query("DELETE FROM PendingNotification p WHERE p.resource = :resource AND p.objectUuid = :objectUuid AND p.event = :event")
+    void deleteForObjectAndEvent(@Param("resource") Resource resource, @Param("objectUuid") UUID objectUuid,
+            @Param("event") ResourceEvent event);
+
+    @Modifying
+    @Query("DELETE FROM PendingNotification p WHERE p.resource = :resource AND p.objectUuid = :objectUuid")
+    void deleteForObject(@Param("resource") Resource resource, @Param("objectUuid") UUID objectUuid);
+
+    @Modifying
+    @Query("DELETE FROM PendingNotification p WHERE p.resource = :resource AND p.objectUuid IN :objectUuids")
+    void deleteForObjects(@Param("resource") Resource resource, @Param("objectUuids") Collection<UUID> objectUuids);
 
 }

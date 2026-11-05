@@ -20,12 +20,17 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 /**
- * Fails certificates left orphaned in {@link CertificateState#PENDING_ISSUE} by a crash on the synchronous (HTTP 200)
- * issue/renew/rekey path. That path commits PENDING_ISSUE before the connector call but, unlike the asynchronous (202)
- * path, creates no {@code certificate_status_poll} row — so the poll sweep, which is driven by those rows, never
- * re-drives it. Re-drive is impossible anyway (the connector response is lost), so a stale orphan is moved to FAILED,
- * which makes it actionable/retriable. A reaped renew/rekey successor also has its PENDING predecessor relation dropped
- * — the caller-side cleanup the state machine does not perform.
+ * Fails certificates left orphaned in {@link CertificateState#PENDING_ISSUE} by a crash during a synchronous
+ * issue/renew/rekey call to the authority: those whose claim stamp ({@code pending_issue_claimed_at}) is older than
+ * {@code reap-stale-after}. Re-drive is impossible (the connector response is lost), so such an orphan is moved to
+ * FAILED. A reaped renew/rekey successor also has its PENDING predecessor relation dropped — the caller-side cleanup
+ * the state machine does not perform.
+ *
+ * <p>
+ * A certificate without a stamp is never reaped: the authority answered — accepted asynchronously and waiting for
+ * out-of-band completion, or accepted and parked after a local failure — and failing it would diverge from the
+ * authority. A stamped certificate with a status-poll row is not reaped either: the poller owns it.
+ * </p>
  *
  * <p>
  * Runs as a phase of {@link CertificateStatusPollSweeper#sweep()} (no separate schedule) and reuses that sweep's
@@ -61,9 +66,9 @@ public class PendingIssueReaper {
     }
 
     /**
-     * Selects one bounded batch of stale, poll-less PENDING_ISSUE certificates under the shared advisory lock, then
-     * fails each in its own transaction outside the lock. One batch per sweep is sufficient: the sweep cadence drains
-     * any backlog, and a certificate is not a candidate until it has been stuck for {@code stale-after}.
+     * Selects one bounded batch of stale, claimed, poll-less PENDING_ISSUE certificates under the shared advisory lock,
+     * then fails each in its own transaction outside the lock. One batch per sweep is sufficient: the sweep cadence
+     * drains any backlog, and a certificate is not a candidate until its claim is older than {@code reap-stale-after}.
      */
     public void reapStaleOrphans() {
         List<UUID> candidates = transactionHandler.runInNewTransaction(() -> {
@@ -71,7 +76,8 @@ public class PendingIssueReaper {
                 return List.<UUID>of();
             }
             OffsetDateTime threshold = OffsetDateTime.now(ZoneOffset.UTC).minus(staleAfter);
-            return certificateRepository.findStalePendingIssueWithoutPollRow(threshold, PageRequest.of(0, batchSize));
+            return certificateRepository
+                    .findStaleClaimedPendingIssueWithoutPollRow(threshold, PageRequest.of(0, batchSize));
         });
 
         int reaped = 0;
@@ -89,14 +95,16 @@ public class PendingIssueReaper {
         try {
             return Boolean.TRUE.equals(transactionHandler.runInNewTransaction(() -> {
                 Certificate locked = certificateRepository.findAndLockWithAssociationsByUuid(uuid).orElse(null);
-                // Re-assert under the row lock: the certificate may have completed or been reaped by
-                // another node between selection and locking.
-                if (locked == null || locked.getState() != CertificateState.PENDING_ISSUE) {
+                // Re-assert under the row lock: the certificate may have completed, had the authority's
+                // answer recorded, or been reaped by another node between selection and locking. A stamp
+                // is never refreshed, so a still-present one is still the stale one that was selected.
+                if (locked == null || locked.getState() != CertificateState.PENDING_ISSUE
+                        || locked.getPendingIssueClaimedAt() == null) {
                     return false;
                 }
                 stateMachine
                         .transition(locked, CertificateState.FAILED, CertificateEvent.ISSUE,
-                                "Operation did not complete; reaped from PENDING_ISSUE (no in-flight poll)");
+                                "Operation did not complete: the synchronous connector call never returned");
                 // Discharge the caller-side cleanup the SM does not: drop any PENDING predecessor
                 // relation so a reaped renew/rekey successor doesn't leave the predecessor linked to
                 // a now-FAILED certificate. No-op for a pure-issue orphan (no predecessor relation).

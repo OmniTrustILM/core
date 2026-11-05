@@ -42,8 +42,6 @@ public interface CertificateInternalService extends ResourceExtensionService {
 
     Certificate getCertificateEntity(SecuredUUID uuid) throws NotFoundException;
 
-    Certificate getCertificateEntityByContent(String content);
-
     Certificate getCertificateEntityByFingerprint(String fingerprint) throws NotFoundException;
 
     Certificate getCertificateEntityByIssuerDnNormalizedAndSerialNumber(String issuerDn, String serialNumber)
@@ -296,9 +294,8 @@ public interface CertificateInternalService extends ResourceExtensionService {
     void updateCertificateKeys(UUID keyUuid, String publicKeyFingerprint);
 
     /**
-     * Returns the keys {@link #submitCertificateRequest} stores the request's signature attributes under: the keys a
-     * stored request with this content was first submitted with, else the given ones, else the inventory keys its
-     * public keys match.
+     * Returns the keys {@link #submitCertificateRequest} stores the request's signature attributes under: the given
+     * ones, else the inventory keys its public keys match.
      *
      * @param csr Base64-encoded certificate request, as passed to {@link #submitCertificateRequest}
      */
@@ -381,6 +378,12 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * Find certificates which are expiring and not renewed and trigger event handling these certificates
      */
     int handleExpiringCertificates();
+
+    /**
+     * Raise the not compliant event again for certificates that are still not compliant and whose notification profile
+     * is set to remind
+     */
+    int handleNonCompliantCertificatesReminders();
 
     /***
      * Update Subject DN and Issuer DN in certificates when there is a change in code

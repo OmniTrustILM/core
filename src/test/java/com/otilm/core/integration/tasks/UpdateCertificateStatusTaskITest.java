@@ -1,10 +1,14 @@
 package com.otilm.core.integration.tasks;
 
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.notification.RecipientType;
+import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateSettingsDto;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
@@ -18,6 +22,8 @@ import com.otilm.core.dao.entity.CertificateRelation;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.acme.AcmeNonce;
+import com.otilm.core.dao.entity.notifications.NotificationProfile;
+import com.otilm.core.dao.entity.notifications.NotificationProfileVersion;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
@@ -25,12 +31,15 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.acme.AcmeNonceRepository;
+import com.otilm.core.dao.repository.notifications.NotificationProfileRepository;
+import com.otilm.core.dao.repository.notifications.NotificationProfileVersionRepository;
 import com.otilm.core.messaging.jms.listeners.ValidationListener;
 import com.otilm.core.messaging.jms.producers.ValidationProducer;
 import com.otilm.core.messaging.model.ValidationMessage;
 import com.otilm.core.model.ScheduledTaskResult;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.SettingExternalService;
+import com.otilm.core.service.writer.PendingNotificationWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.tasks.ScheduledJobInfo;
 import com.otilm.core.tasks.UpdateCertificateStatusTask;
@@ -46,6 +55,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 
 class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
@@ -64,6 +75,12 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
     private CertificateRelationRepository certificateRelationRepository;
     @Autowired
     private AcmeNonceRepository acmeNonceRepository;
+    @Autowired
+    private NotificationProfileRepository notificationProfileRepository;
+    @Autowired
+    private NotificationProfileVersionRepository notificationProfileVersionRepository;
+    @Autowired
+    private PendingNotificationWriter pendingNotificationWriter;
 
     @Autowired
     private SettingsCache settingsCache;
@@ -293,6 +310,39 @@ class UpdateCertificateStatusTaskITest extends BaseSpringBootTest {
 
         Assertions.assertEquals(SchedulerJobExecutionStatus.SUCCESS, result.getStatus());
         Assertions.assertTrue(result.getResultMessage().contains("Handled 2 expiring "));
+    }
+
+    @Test
+    void reportsNonCompliantReminders_whenAReminderIsDue() {
+        // given
+        NotificationProfile profile = new NotificationProfile();
+        profile.setName("task-reminder-profile");
+        profile = notificationProfileRepository.save(profile);
+        NotificationProfileVersion version = new NotificationProfileVersion();
+        version.setNotificationProfileUuid(profile.getUuid());
+        version.setVersion(1);
+        version.setRecipientType(RecipientType.NONE);
+        version.setInternalNotification(false);
+        version.setRepetitions(3);
+        notificationProfileVersionRepository.save(version);
+        Certificate notCompliant = certificateRepository
+                .save(aCertificate()
+                        .withSubjectDn("CN=reminder")
+                        .withIssuerDn("CN=issuer")
+                        .withSerialNumber("reminder-serial")
+                        .withState(CertificateState.ISSUED)
+                        .withComplianceStatus(ComplianceStatus.NOK)
+                        .build());
+        pendingNotificationWriter
+                .recordSent(profile.getUuid(), Resource.CERTIFICATE, notCompliant.getUuid(),
+                        ResourceEvent.CERTIFICATE_NOT_COMPLIANT, 1);
+
+        // when
+        ScheduledTaskResult result = updateCertificateStatusTask.performJob(null, null);
+
+        // then
+        assertThat(result.getStatus()).isEqualTo(SchedulerJobExecutionStatus.SUCCESS);
+        assertThat(result.getResultMessage()).contains("Handled 1 non-compliant certificates with reminders");
     }
 
     private Certificate createCertificateForExpiringEventTest(CertificateValidationStatus status,

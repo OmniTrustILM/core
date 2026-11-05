@@ -243,6 +243,23 @@ public class ComplianceSubjectHandler<T extends ComplianceSubject> {
         return complianceResultDto.getStatus();
     }
 
+    /**
+     * A subject no compliance profile applies to is not checked, so the result an earlier check stored no longer
+     * describes it. The subject is detached first, as {@link #finalizeComplianceCheck} detaches it.
+     */
+    public void clearComplianceResult(ComplianceSubject subject) {
+        if (subject.getComplianceStatus() == ComplianceStatus.NOT_CHECKED && subject.getComplianceResult() == null) {
+            return;
+        }
+        if (entityManager.contains(subject)) {
+            entityManager.detach(subject);
+        }
+        subject.setComplianceResult(null);
+        subject.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
+        complianceSubjectWriter
+                .storeComplianceResult(repository, subject.getUuid(), ComplianceStatus.NOT_CHECKED, null);
+    }
+
     private ComplianceStatus calculateComplianceStatus(ComplianceResultDto resultDto) {
         ComplianceStatus status = ComplianceStatus.OK;
         if (resultDto.getInternalRules() != null) {

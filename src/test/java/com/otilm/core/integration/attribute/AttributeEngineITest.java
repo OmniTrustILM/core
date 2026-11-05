@@ -69,6 +69,7 @@ import com.otilm.api.model.core.oid.ExtensionValueEncoding;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
+import com.otilm.core.attribute.engine.AttributeContentPurpose;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -2792,7 +2793,46 @@ class AttributeEngineITest extends BaseSpringBootTest {
                         read.stream().map(ResponseAttribute::getName).collect(Collectors.toSet()));
     }
 
+    @Test
+    void copyObjectAttributeContent_copiesEachValueUnderItsPurpose() throws Exception {
+        // given
+        UUID source = UUID.randomUUID();
+        UUID target = UUID.randomUUID();
+        UUID connectorUuid = connectorDiscovery.getUuid();
+        DataAttributeV3 primary = DataAttributeV3Builder.aDataAttribute().withName("signatureAlgorithm").build();
+        DataAttributeV3 alternative = DataAttributeV3Builder.aDataAttribute().withName("altSignatureAlgorithm").build();
+        storeOperationContent(source, connectorUuid, AttributeOperation.SIGN, null, primary);
+        storeOperationContent(source, connectorUuid, AttributeOperation.SIGN,
+                AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY, alternative);
+
+        // when
+        attributeEngine.copyObjectAttributeContent(Resource.CERTIFICATE_REQUEST, source, target);
+
+        // then
+        Assertions.assertEquals(Set.of("signatureAlgorithm"), signAttributeNames(target, null));
+        Assertions
+                .assertEquals(Set.of("altSignatureAlgorithm"),
+                        signAttributeNames(target, AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY));
+    }
+
+    private Set<String> signAttributeNames(UUID objectUuid, String purpose) {
+        return attributeEngine
+                .getOperationDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE_REQUEST, objectUuid)
+                        .operation(AttributeOperation.SIGN)
+                        .purpose(purpose)
+                        .build())
+                .stream()
+                .map(ResponseAttribute::getName)
+                .collect(Collectors.toSet());
+    }
+
     private void storeOperationContent(UUID objectUuid, UUID connectorUuid, String operation,
+            DataAttributeV3 definition) throws Exception {
+        storeOperationContent(objectUuid, connectorUuid, operation, null, definition);
+    }
+
+    private void storeOperationContent(UUID objectUuid, UUID connectorUuid, String operation, String purpose,
             DataAttributeV3 definition) throws Exception {
         attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, List.of(definition));
         attributeEngine
@@ -2801,6 +2841,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
                                 .builder(Resource.CERTIFICATE_REQUEST, objectUuid)
                                 .connector(connectorUuid)
                                 .operation(operation)
+                                .purpose(purpose)
                                 .build(),
                         List
                                 .of(new RequestAttributeV3(UUID.fromString(definition.getUuid()), definition.getName(),
