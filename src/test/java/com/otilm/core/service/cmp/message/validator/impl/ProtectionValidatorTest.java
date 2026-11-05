@@ -172,6 +172,8 @@ class ProtectionValidatorTest {
         @BeforeEach
         void issueProtectionCertificate() throws Exception {
             RaProfile raProfile = CmpEntityUtil.createRaProfile();
+            var responseProtectionStrategy = mock(SingatureBaseProtectionStrategy.class);
+            var cmpProfile = mock(CmpProfile.class);
             signerKeys = CmpTestUtil.generateKeyPairEC();
             signerCertificate = CmpTestUtil
                     .makeV3Certificate(BigInteger.TWO, signerKeys, "CN=device", signerKeys, "CN=device");
@@ -179,9 +181,9 @@ class ProtectionValidatorTest {
             when(certificateRepository.findByFingerprint(protectionCertificate.getFingerprint()))
                     .thenReturn(Optional.of(protectionCertificate));
             when(configuration.getProtectionMethod()).thenReturn(ProtectionMethod.SIGNATURE);
-            when(configuration.getProtectionStrategy()).thenReturn(mock(SingatureBaseProtectionStrategy.class));
+            when(configuration.getProtectionStrategy()).thenReturn(responseProtectionStrategy);
             when(configuration.getRaProfile()).thenReturn(raProfile);
-            when(configuration.getCmpProfile()).thenReturn(mock(CmpProfile.class));
+            when(configuration.getCmpProfile()).thenReturn(cmpProfile);
             validator.setCertificateRepository(certificateRepository);
         }
 
