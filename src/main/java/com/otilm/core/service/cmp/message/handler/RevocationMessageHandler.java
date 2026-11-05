@@ -147,6 +147,10 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                 LoggingHelper
                         .putLogResourceInfo(Resource.CERTIFICATE, false, certificate.getUuid().toString(),
                                 certificate.getSubjectDn());
+                if (configuration.isProtectedByAnotherCertificate(certificate)) {
+                    throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized,
+                            "SN=" + serialNumber + " | revocation is not protected by the certificate it revokes");
+                }
                 revokeCertificate(tid, revocation, certificate, configuration);
                 PollResult pollResult = pollFeature
                         .pollCertificate(tid, certificate.getSerialNumber(), certificate.getUuid().toString(),

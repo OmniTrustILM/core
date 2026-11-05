@@ -37,6 +37,7 @@ import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.service.cmp.CmpEntityUtil;
 import com.otilm.core.service.cmp.CmpTestUtil;
+import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.configurations.variants.Mobile3gppProfileContext;
 import com.otilm.core.service.cmp.message.CertificateKeyServiceImpl;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
@@ -60,6 +61,8 @@ import java.util.UUID;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.PKIBody;
 import org.bouncycastle.asn1.cmp.PKIMessage;
+import org.bouncycastle.asn1.cmp.PKIStatus;
+import org.bouncycastle.asn1.cmp.PKIStatusInfo;
 import org.bouncycastle.asn1.cmp.RevRepContent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,14 +74,18 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Exercises CMP revocation responses, requested reasons and safe error messages.
@@ -640,9 +647,59 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         assertEquals(CertificateRevocationReason.UNSPECIFIED, captor.getValue().getReason());
     }
 
+    @Test
+    @Transactional
+    void rejectsRevocation_whenSignedByAnotherCertificate() throws Exception {
+        // given
+        PKIMessage request = issuedCertificateRevocationRequest("790");
+        ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfileSigPrt, raProfile, request,
+                certificateKeyService, null, null);
+        configuration.setProtectionCertificate(aCertificate().withUuid(UUID.randomUUID()).build());
+
+        // when
+        PKIMessage response = testedHandler.handle(request, configuration);
+
+        // then
+        PKIStatusInfo status = ((RevRepContent) response.getBody().getContent()).getStatus()[0];
+        assertThat(status.getStatus().intValueExact()).isEqualTo(PKIStatus.REJECTION);
+        assertThat(status.getStatusString().getStringAtUTF8(0).getString())
+                .contains("not protected by the certificate it revokes");
+        verifyNoInteractions(clientOperationService);
+    }
+
+    @Test
+    @Transactional
+    void revokesCertificate_whenSignedByTheCertificateItRevokes() throws Exception {
+        // given
+        PKIMessage request = issuedCertificateRevocationRequest("791");
+        ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfileSigPrt, raProfile, request,
+                certificateKeyService, null, null);
+        configuration.setProtectionCertificate(revokedCertificate);
+        given(pollFeature.pollCertificate(any(), any(), any(), any()))
+                .willReturn(new PollResult.Reached(revokedCertificate));
+
+        // when
+        testedHandler.handle(request, configuration);
+
+        // then
+        verify(clientOperationService)
+                .revokeCertificate(any(), any(), eq(revokedCertificate.getUuid().toString()), any());
+    }
+
     // ----------------------------------------------------------------------------------------------------------
     // HELPER METHODS
     // ----------------------------------------------------------------------------------------------------------
+
+    /** A revocation request for the shared certificate, turned into an issued certificate of the RA profile. */
+    private PKIMessage issuedCertificateRevocationRequest(String transactionId) throws Exception {
+        revokedCertificate.setState(CertificateState.ISSUED);
+        revokedCertificate.setRaProfile(raProfile);
+        certificateRepository.save(revokedCertificate);
+        return CmpTestUtil
+                .createSignatureBasedMessage(transactionId, CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        CmpTestUtil.createRevocationBody(x509Certificate.getSerialNumber()))
+                .toASN1Structure();
+    }
 
     // -- entities
     private Certificate createSigningCertificateEntity(WireMockServer mockServer) {

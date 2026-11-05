@@ -46,6 +46,7 @@ public final class CertificateBuilder {
     private CertificateSubjectType subjectType;
     private List<CertificateKeyUsage> keyUsage;
     private Date notBefore;
+    private Date notAfter;
     private Boolean archived;
     private List<String> extendedKeyUsageOids;
     private Boolean extendedKeyUsageCritical;
@@ -146,6 +147,11 @@ public final class CertificateBuilder {
 
     public CertificateBuilder withNotBefore(Date notBefore) {
         this.notBefore = notBefore;
+        return this;
+    }
+
+    public CertificateBuilder withNotAfter(Date notAfter) {
+        this.notAfter = notAfter;
         return this;
     }
 
@@ -266,6 +272,9 @@ public final class CertificateBuilder {
         }
         if (notBefore != null) {
             certificate.setNotBefore(notBefore);
+        }
+        if (notAfter != null) {
+            certificate.setNotAfter(notAfter);
         }
         if (archived != null) {
             certificate.setArchived(archived);
