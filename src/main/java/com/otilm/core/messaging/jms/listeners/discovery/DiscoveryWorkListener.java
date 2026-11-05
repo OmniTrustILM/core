@@ -23,8 +23,9 @@ import org.springframework.stereotype.Component;
  * lock. Each worker opens its own short transactions around the writes its answer justifies.
  *
  * <p>
- * <b>Admission.</b> A tick runs only while its agenda row is still leased to the token its message carries. A duplicate
- * delivery, or a message a newer claim outlived, ends here without calling the worker.
+ * <b>Admission.</b> A tick runs only while its agenda row is still leased to the token its message carries, and takes
+ * the row under a token of its own as it starts. A second copy of the message, or one a newer claim outlived, ends here
+ * without calling the worker.
  *
  * <p>
  * <b>A tick that does not say what happens next is retried at its next rung.</b> That covers a worker that failed,

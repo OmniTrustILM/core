@@ -42,6 +42,20 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
             @Param("leasedUntil") OffsetDateTime leasedUntil);
 
     /**
+     * Passes the lease from the message carrying {@code leaseToken} to the tick it admits, under {@code tickToken}, and
+     * extends it. A second copy of the same message then finds its token gone.
+     *
+     * @return 1 while the row still held {@code leaseToken}, 0 once a copy, a reclaim, a lifecycle change or the row's
+     * deletion took it
+     */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.leaseToken = :tickToken, w.leaseExpiresAt = :leasedUntil "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.leaseToken = :leaseToken")
+    int swapLease(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            @Param("leaseToken") UUID leaseToken, @Param("tickToken") UUID tickToken,
+            @Param("leasedUntil") OffsetDateTime leasedUntil);
+
+    /**
      * Extends the lease of the tick holding {@code leaseToken}.
      *
      * @return 1 while the row still holds the token, 0 once a reclaim, a lifecycle change or the row's deletion took it

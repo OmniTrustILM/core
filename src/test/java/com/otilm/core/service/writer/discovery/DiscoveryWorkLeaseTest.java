@@ -76,22 +76,29 @@ class DiscoveryWorkLeaseTest {
     class Admit {
 
         @Test
-        void admitsTheTickUnderItsToken_whenTheRowStillHoldsIt() {
+        void admitsTheTickUnderAFreshToken_whenTheRowStillHoldsTheMessagesToken() {
             // given
-            var heldToken = UUID.randomUUID();
-            var message = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.DRAIN, 3, heldToken);
+            var messageToken = UUID.randomUUID();
+            var claimedAttempt = 3;
+            var message = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.DRAIN, claimedAttempt,
+                    messageToken);
             when(workWriter
-                    .renewLease(eq(message.discoveryUuid()), eq(DiscoveryWorkType.DRAIN), eq(heldToken),
-                            any(OffsetDateTime.class)))
+                    .swapLease(eq(message.discoveryUuid()), eq(DiscoveryWorkType.DRAIN), eq(messageToken),
+                            any(UUID.class), any(OffsetDateTime.class)))
                     .thenReturn(true);
 
             // when
             Optional<DiscoveryWorkTick> admitted = lease.admit(message);
 
             // then
+            ArgumentCaptor<UUID> swappedTo = ArgumentCaptor.forClass(UUID.class);
+            verify(workWriter)
+                    .swapLease(eq(message.discoveryUuid()), eq(DiscoveryWorkType.DRAIN), eq(messageToken),
+                            swappedTo.capture(), any(OffsetDateTime.class));
+            assertThat(swappedTo.getValue()).isNotNull().isNotEqualTo(messageToken);
             assertThat(admitted).hasValueSatisfying(tick -> {
-                assertThat(tick.token()).isEqualTo(heldToken);
-                assertThat(tick.attempt()).isEqualTo(3);
+                assertThat(tick.token()).isEqualTo(swappedTo.getValue());
+                assertThat(tick.attempt()).isEqualTo(claimedAttempt);
                 assertThat(tick.resolved()).isFalse();
             });
         }
@@ -101,7 +108,7 @@ class DiscoveryWorkLeaseTest {
             // given
             var replacedToken = UUID.randomUUID();
             var message = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0, replacedToken);
-            when(workWriter.renewLease(any(), any(), any(), any())).thenReturn(false);
+            when(workWriter.swapLease(any(), any(), any(), any(), any())).thenReturn(false);
 
             // when
             Optional<DiscoveryWorkTick> admitted = lease.admit(message);
@@ -251,7 +258,7 @@ class DiscoveryWorkLeaseTest {
 
     private DiscoveryWorkTick admittedTick(DiscoveryWorkType workType, int attempt) {
         var message = new DiscoveryWorkMessage(UUID.randomUUID(), workType, attempt, UUID.randomUUID());
-        when(workWriter.renewLease(any(), any(), any(), any())).thenReturn(true);
+        when(workWriter.swapLease(any(), any(), any(), any(), any())).thenReturn(true);
         return lease.admit(message).orElseThrow();
     }
 }

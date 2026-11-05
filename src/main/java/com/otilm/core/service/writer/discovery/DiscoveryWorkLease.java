@@ -41,29 +41,29 @@ public class DiscoveryWorkLease {
     }
 
     /**
-     * Lets a tick message run only while its row is still leased to it, and renews that lease for the tick's work. A
-     * message without a token was published by a Core version without the lease; it runs only on a row no tick holds,
-     * and takes the row under a new token.
+     * Lets a tick message run only while its row is still leased to the message's token, and moves the lease to a fresh
+     * token held by the tick alone, renewed for the tick's work. A second copy of the same message then finds its token
+     * gone. A message without a token was published by a Core version without the lease; it runs only on a row no tick
+     * holds, and takes the row under a new token.
      *
-     * @return the tick to run, or empty when the message is a duplicate, outlived by a newer claim, or for a row that
-     * is gone
+     * @return the tick to run, or empty when another copy of the message was already admitted, a newer claim outlived
+     * it, or its row is gone
      */
     public Optional<DiscoveryWorkTick> admit(DiscoveryWorkMessage message) {
         OffsetDateTime now = now();
         OffsetDateTime leasedUntil = now.plus(leaseDuration);
-        UUID token = message.leaseToken();
-        boolean leased;
-        if (token != null) {
-            leased = workWriter.renewLease(message.discoveryUuid(), message.workType(), token, leasedUntil);
-        } else {
-            token = UUID.randomUUID();
-            leased = workWriter.leaseIfFree(message.discoveryUuid(), message.workType(), token, leasedUntil, now);
-        }
+        UUID tickToken = UUID.randomUUID();
+        boolean leased = message.leaseToken() != null
+                ? workWriter
+                        .swapLease(message.discoveryUuid(), message.workType(), message.leaseToken(), tickToken,
+                                leasedUntil)
+                : workWriter.leaseIfFree(message.discoveryUuid(), message.workType(), tickToken, leasedUntil, now);
         if (!leased) {
             return Optional.empty();
         }
         return Optional
-                .of(new DiscoveryWorkTick(this, message.discoveryUuid(), message.workType(), message.attempt(), token));
+                .of(new DiscoveryWorkTick(this, message.discoveryUuid(), message.workType(), message.attempt(),
+                        tickToken));
     }
 
     /**

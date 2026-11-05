@@ -70,6 +70,20 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesASecondCopyOfAMessage_whenTheFirstCopyWasAdmitted() {
+        // given
+        dueDrainRow();
+        DiscoveryWorkMessage deliveredTwice = claimOne();
+        lease.admit(deliveredTwice).orElseThrow();
+
+        // when
+        Optional<DiscoveryWorkTick> secondCopy = lease.admit(deliveredTwice);
+
+        // then
+        assertThat(secondCopy).isEmpty();
+    }
+
+    @Test
     void refusesATokenlessTick_whenTheRowHoldsALiveLease() {
         // given
         UUID runUuid = dueDrainRow();

@@ -78,6 +78,17 @@ public class DiscoveryWorkWriter {
     }
 
     /**
+     * Moves the row's lease from {@code leaseToken} to {@code tickToken}, extended to {@code leasedUntil}.
+     *
+     * @return whether the row still held {@code leaseToken}
+     */
+    @Transactional
+    public boolean swapLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, UUID tickToken,
+            OffsetDateTime leasedUntil) {
+        return workRepository.swapLease(discoveryUuid, workType, leaseToken, tickToken, leasedUntil) > 0;
+    }
+
+    /**
      * Extends the lease of the tick holding {@code leaseToken} to {@code leasedUntil}.
      *
      * @return whether the row still held the token
