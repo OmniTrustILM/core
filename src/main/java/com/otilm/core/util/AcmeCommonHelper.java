@@ -15,9 +15,6 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.format.ResolverStyle;
-import java.time.temporal.ChronoField;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.Date;
@@ -35,21 +32,6 @@ public class AcmeCommonHelper {
     private static final DateTimeFormatter WIRE_TIMESTAMP_FORMAT = DateTimeFormatter
             .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SS'Z'")
             .withZone(ZoneId.of("UTC"));
-
-    /**
-     * An RFC 3339 timestamp (section 5.6): a four-digit year, seconds and an offset are required, a fraction of a
-     * second is not, and the separators may be lower case.
-     */
-    private static final DateTimeFormatter RFC_3339_TIMESTAMP = new DateTimeFormatterBuilder()
-            .parseCaseInsensitive()
-            .appendValue(ChronoField.YEAR, 4)
-            .appendPattern("-MM-dd'T'HH:mm:ss")
-            .optionalStart()
-            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
-            .optionalEnd()
-            .appendOffset("+HH:MM", "Z")
-            .toFormatter()
-            .withResolverStyle(ResolverStyle.STRICT);
 
     /**
      * The range a timestamp may name: from the Unix epoch, well clear of the Julian dates a {@link Date} is written as
@@ -105,16 +87,16 @@ public class AcmeCommonHelper {
     }
 
     /**
-     * The instant an RFC 3339 timestamp names, or null for none.
+     * The instant an RFC 3339 timestamp names, or null for none. {@link Instant#parse} reads it, so a leap second is
+     * the last second of its day.
      *
-     * @throws DateTimeException when the text is not an RFC 3339 timestamp, or names an instant before 1970 or after
-     * 9999
+     * @throws DateTimeException when the text is not such a timestamp, or names an instant before 1970 or after 9999
      */
     public static Date getDateFromString(String date) {
         if (date == null) {
             return null;
         }
-        Instant instant = OffsetDateTime.parse(date, RFC_3339_TIMESTAMP).toInstant();
+        Instant instant = Instant.parse(date);
         if (instant.isBefore(EARLIEST_TIMESTAMP) || instant.isAfter(LATEST_TIMESTAMP)) {
             throw new DateTimeException("The timestamp names an instant outside the supported range");
         }

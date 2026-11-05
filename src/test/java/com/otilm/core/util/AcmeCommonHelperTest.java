@@ -8,6 +8,7 @@ import java.util.Date;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Named;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -28,6 +29,19 @@ class AcmeCommonHelperTest {
 
         // then
         assertThat(date.toInstant()).isEqualTo(namedInstant);
+    }
+
+    @Test
+    void returnsLastSecondOfTheDay_whenTimestampIsLeapSecond() {
+        // given
+        var leapSecond = "2016-12-31T23:59:60Z";
+        Instant lastSecondOfTheDay = OffsetDateTime.of(2016, 12, 31, 23, 59, 59, 0, ZoneOffset.UTC).toInstant();
+
+        // when
+        Date date = AcmeCommonHelper.getDateFromString(leapSecond);
+
+        // then
+        assertThat(date.toInstant()).isEqualTo(lastSecondOfTheDay);
     }
 
     @ParameterizedTest
