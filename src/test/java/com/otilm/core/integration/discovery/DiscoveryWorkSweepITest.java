@@ -14,12 +14,15 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.listeners.discovery.DiscoveryRunReaper;
 import com.otilm.core.messaging.jms.listeners.discovery.DiscoveryWorkClaimer;
+import com.otilm.core.messaging.jms.listeners.discovery.DiscoveryWorkListener;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkLease;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -33,6 +36,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -71,6 +75,12 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @Autowired
     private DataSource testDataSource;
+    @Autowired
+    private DiscoveryWorkLease workLease;
+    @Autowired
+    private DiscoveryWorkListener workListener;
+    @Value("${discovery.work.lease-duration:PT2M}")
+    private Duration leaseDuration;
 
     private final ExecutorService lockHolderThread = Executors.newSingleThreadExecutor();
 
@@ -183,6 +193,76 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
         DiscoveryWork row = workRepository.findAll().get(0);
         assertThat(claimed).singleElement().extracting(DiscoveryWorkMessage::leaseToken).isEqualTo(row.getLeaseToken());
         assertThat(row.getLeaseExpiresAt()).isAfter(beforeClaim);
+    }
+
+    // ------------------------------------------------------------------ the lease across sweeps
+
+    /**
+     * Seventy seconds outlives the claim floor the lease replaced: under the floor the row came due again after fifty
+     * seconds, and the sweep published a second tick while the first was still at the connector.
+     */
+    @Test
+    void publishesNoSecondTick_whenATickOutlivesTheOldClaimFloor() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
+        DiscoveryWorkMessage claimed = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC)).getFirst();
+        workLease.admit(claimed).orElseThrow();
+        var heldFor = Duration.ofSeconds(70);
+        var claimedAt = OffsetDateTime.now(ZoneOffset.UTC).minus(heldFor);
+        var dueUnderTheOldFloor = claimedAt.plusSeconds(50);
+        setLease(runUuid, DiscoveryWorkType.DRAIN, claimed.leaseToken(), claimedAt.plus(leaseDuration),
+                dueUnderTheOldFloor);
+
+        // when
+        List<DiscoveryWorkMessage> sweptAgain = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC));
+
+        // then
+        assertThat(sweptAgain).isEmpty();
+    }
+
+    @Test
+    void refusesAQueuedTick_whenAReclaimOutlivedIt() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
+        DiscoveryWorkMessage queuedTooLong = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC)).getFirst();
+        var past = OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(1);
+        setLease(runUuid, DiscoveryWorkType.DRAIN, queuedTooLong.leaseToken(), past, past);
+        DiscoveryWorkMessage reclaim = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC)).getFirst();
+        // Ended meanwhile, so a drain tick that ran would drop its own row -- the one write the old message could make.
+        Discovery run = discoveryRepository.findByUuid(runUuid).orElseThrow();
+        run.setStatus(DiscoveryStatus.COMPLETED);
+        discoveryRepository.saveAndFlush(run);
+
+        // when
+        workListener.processMessage(queuedTooLong);
+
+        // then
+        assertThat(workRepository.findAll())
+                .singleElement()
+                .extracting(DiscoveryWork::getLeaseToken)
+                .isEqualTo(reclaim.leaseToken());
+    }
+
+    @Test
+    void claimsTheRowAgain_whenItsHolderDiedAndTheLeaseRanOut() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
+        DiscoveryWorkMessage neverConsumed = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC)).getFirst();
+        var claimedAt = OffsetDateTime.now(ZoneOffset.UTC).minus(leaseDuration).minusSeconds(1);
+        setLease(runUuid, DiscoveryWorkType.STATUS, neverConsumed.leaseToken(), claimedAt.plus(leaseDuration),
+                claimedAt.plus(leaseDuration));
+
+        // when
+        List<DiscoveryWorkMessage> sweptAgain = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC));
+
+        // then
+        assertThat(sweptAgain)
+                .singleElement()
+                .extracting(DiscoveryWorkMessage::leaseToken)
+                .isNotEqualTo(neverConsumed.leaseToken());
     }
 
     // ------------------------------------------------------------------ lifecycle clears the lease
@@ -361,6 +441,15 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
         run.setConnectorName("network-discovery");
         run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         return discoveryRepository.saveAndFlush(run);
+    }
+
+    /** Stands in for time passing under a lease: sets when it ends and when the row is due. */
+    private void setLease(UUID runUuid, DiscoveryWorkType workType, UUID token, OffsetDateTime expiresAt,
+            OffsetDateTime nextDueAt) {
+        new JdbcTemplate(testDataSource)
+                .update("UPDATE " + dbSchema + ".discovery_work SET lease_token = ?, lease_expires_at = ?, "
+                        + "next_due_at = ? WHERE discovery_uuid = ? AND work_type = ?", token, expiresAt, nextDueAt,
+                        runUuid, workType.name());
     }
 
     /** Puts a row under a lease as a claim on another node would have, without going through the sweep. */
