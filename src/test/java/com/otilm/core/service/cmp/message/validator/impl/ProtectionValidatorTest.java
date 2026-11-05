@@ -193,7 +193,7 @@ class ProtectionValidatorTest {
             protectionCertificate.setValidationStatus(validationStatus);
 
             // when
-            validator.validateIn(signedRequest(), configuration);
+            validator.validateIn(createSignedRequest(), configuration);
 
             // then
             verify(configuration).setProtectionCertificate(protectionCertificate);
@@ -205,7 +205,7 @@ class ProtectionValidatorTest {
                 throws Exception {
             // given
             distrust.accept(protectionCertificate);
-            PKIMessage request = signedRequest();
+            PKIMessage request = createSignedRequest();
 
             // when
             ThrowingCallable validateIn = () -> validator.validateIn(request, configuration);
@@ -221,7 +221,7 @@ class ProtectionValidatorTest {
         void rejectsWithSignerNotTrusted_whenProtectionCertificateIsNotInTheInventory() throws Exception {
             // given
             when(certificateRepository.findByFingerprint(any())).thenReturn(Optional.empty());
-            PKIMessage request = signedRequest();
+            PKIMessage request = createSignedRequest();
 
             // when
             ThrowingCallable validateIn = () -> validator.validateIn(request, configuration);
@@ -233,7 +233,9 @@ class ProtectionValidatorTest {
             verify(configuration, never()).setProtectionCertificate(any());
         }
 
-        private PKIMessage signedRequest() throws Exception {
+        // ── Helpers ───────────────────────────────────────────────────────────────
+
+        private PKIMessage createSignedRequest() throws Exception {
             return CmpTestUtil
                     .createSignatureBasedMessage("0102030405060708", signerKeys, signerCertificate,
                             CmpTestUtil.createRevocationBody(BigInteger.ONE))

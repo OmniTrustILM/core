@@ -322,17 +322,17 @@ class CmpServiceImplHandlePostTest {
     void rejectsInitialRequest_whenSignerCertificateIsSelfMade() throws Exception {
         // given
         var crmfMessageHandler = mock(CrmfMessageHandler.class);
-        CmpServiceImpl service = signatureProfileService(crmfMessageHandler, mock(CertificateRepository.class));
+        CmpServiceImpl service = createSignatureProfileService(crmfMessageHandler, mock(CertificateRepository.class));
         var selfMadeSignerKeys = CmpTestUtil.generateKeyPairEC();
-        var selfMadeSignerCertificate = selfSignedCertificate(selfMadeSignerKeys);
+        var selfMadeSignerCertificate = createSelfSignedCertificate(selfMadeSignerKeys);
 
         // when
         ResponseEntity<byte[]> response = service
-                .handlePost(PROFILE_NAME, signedInitialRequest(selfMadeSignerKeys, selfMadeSignerCertificate));
+                .handlePost(PROFILE_NAME, createSignedInitialRequest(selfMadeSignerKeys, selfMadeSignerCertificate));
 
         // then
         verify(crmfMessageHandler, never()).handle(any(), any());
-        assertThat(wireFailInfo(response.getBody())).isEqualTo(PKIFailureInfo.signerNotTrusted);
+        assertThat(readWireFailInfo(response.getBody())).isEqualTo(PKIFailureInfo.signerNotTrusted);
     }
 
     @Test
@@ -340,16 +340,16 @@ class CmpServiceImplHandlePostTest {
         // given
         var crmfMessageHandler = mock(CrmfMessageHandler.class);
         var certificateRepository = mock(CertificateRepository.class);
-        CmpServiceImpl service = signatureProfileService(crmfMessageHandler, certificateRepository);
+        CmpServiceImpl service = createSignatureProfileService(crmfMessageHandler, certificateRepository);
         var signerKeys = CmpTestUtil.generateKeyPairEC();
-        var signerCertificate = selfSignedCertificate(signerKeys);
+        var signerCertificate = createSelfSignedCertificate(signerKeys);
         Certificate protectionCertificate = CmpEntityUtil
                 .createProtectionCertificate(signerCertificate, RA_PROFILE_UUID);
         when(certificateRepository.findByFingerprint(protectionCertificate.getFingerprint()))
                 .thenReturn(Optional.of(protectionCertificate));
 
         // when
-        service.handlePost(PROFILE_NAME, signedInitialRequest(signerKeys, signerCertificate));
+        service.handlePost(PROFILE_NAME, createSignedInitialRequest(signerKeys, signerCertificate));
 
         // then
         ArgumentCaptor<ConfigurationContext> configuration = ArgumentCaptor.forClass(ConfigurationContext.class);
@@ -364,27 +364,29 @@ class CmpServiceImplHandlePostTest {
         CmpProfile cmpProfile = resolvedCmpProfile();
         when(cmpProfile.getRequestProtectionMethod()).thenReturn(ProtectionMethod.SHARED_SECRET);
         when(cmpProfile.getSharedSecret()).thenReturn("shared-secret-value");
-        CmpServiceImpl service = serviceWithRealValidators(cmpProfile, crmfMessageHandler,
+        CmpServiceImpl service = createServiceWithRealValidators(cmpProfile, crmfMessageHandler,
                 mock(CertificateRepository.class));
 
         // when
-        ResponseEntity<byte[]> response = service.handlePost(PROFILE_NAME, unprotectedInitialRequest());
+        ResponseEntity<byte[]> response = service.handlePost(PROFILE_NAME, createUnprotectedInitialRequest());
 
         // then
         verify(crmfMessageHandler, never()).handle(any(), any());
-        assertThat(wireFailInfo(response.getBody())).isEqualTo(PKIFailureInfo.notAuthorized);
+        assertThat(readWireFailInfo(response.getBody())).isEqualTo(PKIFailureInfo.notAuthorized);
     }
 
-    private CmpServiceImpl signatureProfileService(CrmfMessageHandler crmfMessageHandler,
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private CmpServiceImpl createSignatureProfileService(CrmfMessageHandler crmfMessageHandler,
             CertificateRepository certificateRepository) throws Exception {
         String responseSigningContent = Base64
                 .getEncoder()
-                .encodeToString(selfSignedCertificate(CmpTestUtil.generateKeyPairEC()).getEncoded());
+                .encodeToString(createSelfSignedCertificate(CmpTestUtil.generateKeyPairEC()).getEncoded());
         CmpProfile cmpProfile = resolvedCmpProfile();
         when(cmpProfile.getRequestProtectionMethod()).thenReturn(ProtectionMethod.SIGNATURE);
         when(cmpProfile.getResponseProtectionMethod()).thenReturn(ProtectionMethod.SIGNATURE);
-        when(cmpProfile.getSigningCertificate()).thenReturn(responseSigningCertificate(responseSigningContent));
-        CmpServiceImpl service = serviceWithRealValidators(cmpProfile, crmfMessageHandler, certificateRepository);
+        when(cmpProfile.getSigningCertificate()).thenReturn(createResponseSigningCertificate(responseSigningContent));
+        CmpServiceImpl service = createServiceWithRealValidators(cmpProfile, crmfMessageHandler, certificateRepository);
 
         CertificateDetailDto chainCertificate = new CertificateDetailDto();
         chainCertificate.setValidationStatus(CertificateValidationStatus.VALID);
@@ -403,7 +405,7 @@ class CmpServiceImplHandlePostTest {
         return service;
     }
 
-    private CmpServiceImpl serviceWithRealValidators(CmpProfile cmpProfile, CrmfMessageHandler crmfMessageHandler,
+    private CmpServiceImpl createServiceWithRealValidators(CmpProfile cmpProfile, CrmfMessageHandler crmfMessageHandler,
             CertificateRepository certificateRepository) {
         RaProfile raProfile = resolvedRaProfile(cmpProfile);
         RaProfileRepository raProfileRepository = mock(RaProfileRepository.class);
@@ -418,7 +420,7 @@ class CmpServiceImplHandlePostTest {
         return service;
     }
 
-    private static Certificate responseSigningCertificate(String content) {
+    private static Certificate createResponseSigningCertificate(String content) {
         CryptographicKeyItem privateKey = aKeyItem().withType(KeyType.PRIVATE_KEY).withState(KeyState.ACTIVE).build();
         privateKey.setUsage(List.of(KeyUsage.SIGN));
         CryptographicKey key = aCryptographicKey().build();
@@ -432,11 +434,11 @@ class CmpServiceImplHandlePostTest {
                 .build();
     }
 
-    private static X509CertificateHolder selfSignedCertificate(KeyPair keys) throws Exception {
+    private static X509CertificateHolder createSelfSignedCertificate(KeyPair keys) throws Exception {
         return CmpTestUtil.makeV3Certificate(BigInteger.TEN, keys, "CN=device", keys, "CN=device");
     }
 
-    private static byte[] signedInitialRequest(KeyPair signerKeys, X509CertificateHolder signerCertificate)
+    private static byte[] createSignedInitialRequest(KeyPair signerKeys, X509CertificateHolder signerCertificate)
             throws Exception {
         return CmpTestUtil
                 .createSignatureBasedMessage(SIXTEEN_BYTE_TRANSACTION_ID, signerKeys, signerCertificate,
@@ -445,7 +447,7 @@ class CmpServiceImplHandlePostTest {
                 .getEncoded();
     }
 
-    private static byte[] unprotectedInitialRequest() throws Exception {
+    private static byte[] createUnprotectedInitialRequest() throws Exception {
         PKIHeaderBuilder headerBuilder = new PKIHeaderBuilder(PKIHeader.CMP_2000,
                 new GeneralName(new X500Name("CN=user")), new GeneralName(new X500Name("CN=ManagementCA")));
         headerBuilder.setTransactionID(SIXTEEN_BYTE_TRANSACTION_ID.getBytes(StandardCharsets.UTF_8));
@@ -454,7 +456,7 @@ class CmpServiceImplHandlePostTest {
         return new PKIMessage(headerBuilder.build(), body).getEncoded();
     }
 
-    private static int wireFailInfo(byte[] response) {
+    private static int readWireFailInfo(byte[] response) {
         ErrorMsgContent error = (ErrorMsgContent) PKIMessage.getInstance(response).getBody().getContent();
         return error.getPKIStatusInfo().getFailInfo().intValue();
     }

@@ -652,7 +652,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
     @Transactional
     void rejectsRevocation_whenSignedByAnotherCertificate() throws Exception {
         // given
-        PKIMessage request = issuedCertificateRevocationRequest("790");
+        PKIMessage request = createIssuedCertificateRevocationRequest("790");
         ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfileSigPrt, raProfile, request,
                 certificateKeyService, null, null);
         configuration.setProtectionCertificate(aCertificate().withUuid(UUID.randomUUID()).build());
@@ -694,7 +694,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
     @Transactional
     void revokesCertificate_whenSignedByTheCertificateItRevokes() throws Exception {
         // given
-        PKIMessage request = issuedCertificateRevocationRequest("791");
+        PKIMessage request = createIssuedCertificateRevocationRequest("791");
         ConfigurationContext configuration = new Mobile3gppProfileContext(cmpProfileSigPrt, raProfile, request,
                 certificateKeyService, null, null);
         configuration.setProtectionCertificate(revokedCertificate);
@@ -714,7 +714,7 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
     // ----------------------------------------------------------------------------------------------------------
 
     /** A revocation request for the shared certificate, turned into an issued certificate of the RA profile. */
-    private PKIMessage issuedCertificateRevocationRequest(String transactionId) throws Exception {
+    private PKIMessage createIssuedCertificateRevocationRequest(String transactionId) throws Exception {
         revokedCertificate.setState(CertificateState.ISSUED);
         revokedCertificate.setRaProfile(raProfile);
         certificateRepository.save(revokedCertificate);
