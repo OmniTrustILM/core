@@ -50,6 +50,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 @SpringBootTest
 class SecurityFilterRepositoryITest extends BaseSpringBootTest {
 
@@ -218,6 +220,92 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         Assertions.assertTrue(foundUuids.contains(certificateRaProfile2.getUuid()));
         Assertions.assertTrue(foundUuids.contains(certificateGroup.getUuid()));
         Assertions.assertTrue(foundUuids.contains(certificateOwner.getUuid()));
+    }
+
+    @Test
+    void membersOnEveryGroupListsObjectsAssignedToAnyGroupWithoutAListGrant() {
+        SecurityFilter filter = SecurityFilter.create();
+        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
+        resourceFilter.setResource(Resource.CERTIFICATE);
+        resourceFilter.setResourceAction(ResourceAction.LIST);
+        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
+        filter.setResourceFilter(resourceFilter);
+        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
+        groupMembersFilter.setResource(Resource.GROUP);
+        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
+        filter.setGroupMembersFilter(groupMembersFilter);
+
+        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+                .extracting(UniquelyIdentifiedAndAudited::getUuid)
+                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
+                .describedAs("an object in several groups is paged once")
+                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+
+        groupMembersFilter.addDeniedObjects(List.of(group.getUuid().toString(), secondGroup.getUuid().toString()));
+
+        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+                .describedAs("an object assigned only to denied groups drops out")
+                .extracting(UniquelyIdentifiedAndAudited::getUuid)
+                .containsExactly(certificateOwner.getUuid());
+    }
+
+    @Test
+    void restrictedMembersGrantPagesAnObjectInSeveralGroupsOnce() {
+        SecurityFilter filter = SecurityFilter.create();
+        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
+        resourceFilter.setResource(Resource.CERTIFICATE);
+        resourceFilter.setResourceAction(ResourceAction.LIST);
+        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
+        filter.setResourceFilter(resourceFilter);
+        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
+        groupMembersFilter.setResource(Resource.GROUP);
+        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
+        filter.setGroupMembersFilter(groupMembersFilter);
+
+        groupMembersFilter.addDeniedObjects(List.of(thirdGroup.getUuid().toString()));
+        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
+                .describedAs("members on every group but a denied one")
+                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+
+        groupMembersFilter.setAreOnlySpecificObjectsAllowed(true);
+        groupMembersFilter.addAllowedObjects(List.of(group.getUuid().toString(), secondGroup.getUuid().toString()));
+        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
+                .describedAs("members on specific groups")
+                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+    }
+
+    @Test
+    void anObjectAlsoAssignedToADeniedGroupIsNotListedThroughGroupMembers() {
+        SecurityFilter filter = SecurityFilter.create();
+        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
+        resourceFilter.setResource(Resource.CERTIFICATE);
+        resourceFilter.setResourceAction(ResourceAction.LIST);
+        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
+        filter.setResourceFilter(resourceFilter);
+        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
+        groupMembersFilter.setResource(Resource.GROUP);
+        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
+        filter.setGroupMembersFilter(groupMembersFilter);
+
+        groupMembersFilter.addDeniedObjects(List.of(secondGroup.getUuid().toString()));
+        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
+                .describedAs("members on every group but a second group of the same object")
+                .containsExactly(certificateOwner.getUuid());
+
+        groupMembersFilter.setAreOnlySpecificObjectsAllowed(true);
+        groupMembersFilter.addAllowedObjects(List.of(group.getUuid().toString()));
+        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+                .describedAs("members on a specific group, denied on a second group of the same object")
+                .extracting(UniquelyIdentifiedAndAudited::getUuid)
+                .containsExactly(certificateOwner.getUuid());
+
+        groupMembersFilter.getForbiddenObjects().clear();
+        groupMembersFilter.addDeniedObjects(List.of(group.getUuid().toString()));
+        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+                .describedAs("a group both granted and denied admits nothing")
+                .extracting(UniquelyIdentifiedAndAudited::getUuid)
+                .containsExactly(certificateOwner.getUuid());
     }
 
     @Test

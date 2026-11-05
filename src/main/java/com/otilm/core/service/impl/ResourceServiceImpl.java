@@ -20,6 +20,8 @@ import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
 import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
+import com.otilm.api.model.core.auth.ObjectAllowedActionsResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceDto;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -36,6 +38,7 @@ import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
+import com.otilm.core.security.authz.ObjectActionResolver;
 import com.otilm.core.security.authz.ObjectFilterAspect;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -101,6 +104,20 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     @Autowired
     public void setObjectFilterAspect(ObjectFilterAspect objectFilterAspect) {
         this.objectFilterAspect = objectFilterAspect;
+    }
+
+    private ObjectActionResolver objectActionResolver;
+
+    @Autowired
+    public void setObjectActionResolver(ObjectActionResolver objectActionResolver) {
+        this.objectActionResolver = objectActionResolver;
+    }
+
+    @Override
+    @AnyPrincipalEndpoint
+    public ObjectAllowedActionsResponseDto listObjectAllowedActions(Resource resource,
+            ObjectAllowedActionsRequestDto request) {
+        return new ObjectAllowedActionsResponseDto(objectActionResolver.resolve(resource, request.getUuids()));
     }
 
     @Override

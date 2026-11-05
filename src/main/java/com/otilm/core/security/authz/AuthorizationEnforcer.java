@@ -33,6 +33,15 @@ public interface AuthorizationEnforcer {
      */
     void enforce(Resource resource, ResourceAction action, List<SecuredUUID> objectUuids) throws AccessDeniedException;
 
+    /** Whether the current principal may perform {@code action} on the object, decided exactly as {@code enforce}. */
+    boolean isAuthorized(Resource resource, ResourceAction action, SecuredUUID objectUuid);
+
+    /**
+     * Whether the current principal may perform {@code action} on {@code resource} as a whole, decided exactly as an
+     * endpoint that checks the resource without an object.
+     */
+    boolean isAuthorized(Resource resource, ResourceAction action);
+
     /**
      * Whether {@code userUuid} may perform {@code action} on the object. For the current principal the decision is made
      * against its own authentication; for anybody else, against a principal resolved for them, and a user the auth

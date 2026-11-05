@@ -50,6 +50,20 @@ public class AuthorizationEnforcerImpl implements AuthorizationEnforcer {
     }
 
     @Override
+    public boolean isAuthorized(Resource resource, ResourceAction action, SecuredUUID objectUuid) {
+        return decide(AuthorizationRequest.forDirectCheck(resource, action, List.of(objectUuid)));
+    }
+
+    @Override
+    public boolean isAuthorized(Resource resource, ResourceAction action) {
+        return decide(AuthorizationRequest.forDirectCheck(resource, action, List.of()));
+    }
+
+    private boolean decide(AuthorizationRequest request) {
+        return core.decide(SecurityContextHolder.getContext().getAuthentication(), request).isGranted();
+    }
+
+    @Override
     public boolean isAuthorizedAs(UUID userUuid, Resource resource, ResourceAction action, SecuredUUID objectUuid) {
         Authentication authentication = signedInAs(userUuid);
         if (authentication == null) {
