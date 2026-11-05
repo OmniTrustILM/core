@@ -509,18 +509,19 @@ public class ScepServiceImpl implements ScepExternalService {
             try {
                 // Classify first: both challenge regimes need the renewal verdict.
                 boolean authenticatedRenewal = authenticateRenewal(scepRequest);
-                if (registrationMode()) {
-                    // An authenticated renewal proved possession of the replaced certificate's key — the
-                    // RFC-blessed equivalent of a challenge — so only initial enrolments must match a
-                    // pre-registration. The match travels as a parameter: it is per-request state and must
-                    // not live on this singleton.
-                    if (!authenticatedRenewal) {
-                        matchedRegistration = matchRegistration(scepRequest);
-                    }
-                } else {
+                if (!registrationMode()) {
                     validateChallengePassword(scepRequest.getChallengePassword(), authenticatedRenewal);
                 }
+                // Checked before the registration match, so a forged CSR is refused alike whether or not its
+                // identity is registered.
                 verifyProofOfPossession(scepRequest);
+                // An authenticated renewal proved possession of the replaced certificate's key — the
+                // RFC-blessed equivalent of a challenge — so only initial enrolments must match a
+                // pre-registration. The match travels as a parameter: it is per-request state and must
+                // not live on this singleton.
+                if (registrationMode() && !authenticatedRenewal) {
+                    matchedRegistration = matchRegistration(scepRequest);
+                }
             } catch (ScepException e) {
                 return buildResponse(scepRequest, buildFailedResponse(e, scepRequest.getTransactionId()));
             }
@@ -554,6 +555,15 @@ public class ScepServiceImpl implements ScepExternalService {
             Certificate matchedRegistration) {
         if (scepTransactionRepository
                 .existsByTransactionIdAndScepProfile(scepRequest.getTransactionId(), scepProfile)) {
+            // The registration was matched on identity alone, so a transaction of another certificate is refused
+            // like an unknown identity: answering it would let a known transaction ID reveal registered identities.
+            if (matchedRegistration != null && !isTransactionOf(scepRequest.getTransactionId(), matchedRegistration)) {
+                logger
+                        .info("SCEP registration enrolment rejected: transaction {} belongs to another certificate than registration {}",
+                                scepRequest.getTransactionId(), matchedRegistration.getUuid());
+                return buildFailedResponse(new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK),
+                        scepRequest.getTransactionId());
+            }
             LoggingHelper.putAuditLogOperation(Operation.SCEP_TRANSACTION_CHECK);
             return existingTransactionResponse(scepRequest);
         }
@@ -999,6 +1009,11 @@ public class ScepServiceImpl implements ScepExternalService {
         return scepTransactionRepository.findByTransactionIdAndScepProfile(transactionId, scepProfile).orElse(null);
     }
 
+    private boolean isTransactionOf(String transactionId, Certificate registration) {
+        ScepTransaction transaction = getTransaction(transactionId);
+        return transaction != null && registration.getUuid().equals(transaction.getCertificateUuid());
+    }
+
     /** The single wire message for every registration-mode rejection, so a prober cannot enumerate registrations. */
     private static final String REGISTRATION_REJECTION = "The request does not match an active certificate registration.";
 
@@ -1011,9 +1026,14 @@ public class ScepServiceImpl implements ScepExternalService {
      * against the RA profile's REGISTERED placeholders holding an ACTIVE authorization, and only the single matched
      * registration later has its challenge verified (inside the completion, so each wrong challenge is counted exactly
      * once against exactly one authorization). Every rejection carries {@link #REGISTRATION_REJECTION}; the reason
-     * stays in the log and, when the failed candidate is known, in its certificate event history.
+     * stays in the log and, when the failed candidate is known, in its certificate event history. Only a PKCSReq can
+     * complete a registration, so a RenewalReq is refused before the lookup, the same for every identity.
      */
     private Certificate matchRegistration(ScepRequest scepRequest) throws ScepException {
+        if (scepRequest.getMessageType() == MessageType.RENEWAL_REQ) {
+            logger.info("SCEP registration enrolment rejected: a RenewalReq cannot complete a registration");
+            throw new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK);
+        }
         String presented = scepRequest.getChallengePassword();
         if (presented == null || presented.isEmpty()) {
             logger.info("SCEP registration enrolment rejected: no challenge password presented");

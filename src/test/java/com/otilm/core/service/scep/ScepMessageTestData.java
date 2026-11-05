@@ -7,6 +7,7 @@ import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
@@ -140,6 +141,29 @@ public final class ScepMessageTestData {
                 transactionId).getEncoded();
     }
 
+    /**
+     * As {@link #keyTransportEnvelopedPkcsReq(X509Certificate, String, List, String)}, declared as the given message
+     * type, for a PKCS#10 request without SANs.
+     */
+    public static byte[] keyTransportEnvelopedMessage(MessageType messageType, X509Certificate recipientCaCertificate,
+            String subjectDn, String csrChallengePassword) throws Exception {
+        byte[] csrBytes = generatedCsr(subjectDn, null, csrChallengePassword);
+        return signedMessage(keyTransportEnvelopedRequest(csrBytes, recipientCaCertificate), messageType).getEncoded();
+    }
+
+    /**
+     * As above, but the PKCS#10 request names one freshly generated RSA key and is signed with another, so it does not
+     * prove possession of the key it asks a certificate for.
+     */
+    public static byte[] keyTransportEnvelopedMessageWithForgedCsr(MessageType messageType,
+            X509Certificate recipientCaCertificate, String subjectDn, String csrChallengePassword) throws Exception {
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+        PublicKey requestedKey = keyPairGenerator.generateKeyPair().getPublic();
+        PrivateKey anotherKey = keyPairGenerator.generateKeyPair().getPrivate();
+        byte[] csrBytes = generatedCsr(subjectDn, null, csrChallengePassword, requestedKey, anotherKey);
+        return signedMessage(keyTransportEnvelopedRequest(csrBytes, recipientCaCertificate), messageType).getEncoded();
+    }
+
     private static CMSProcessableByteArray keyTransportEnvelopedRequest(byte[] csrBytes,
             X509Certificate recipientCaCertificate) throws Exception {
         Security.addProvider(new BouncyCastleProvider());
@@ -159,8 +183,13 @@ public final class ScepMessageTestData {
     private static byte[] generatedCsr(String subjectDn, List<String> dnsSans, String challengePassword)
             throws Exception {
         KeyPair keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        return generatedCsr(subjectDn, dnsSans, challengePassword, keyPair.getPublic(), keyPair.getPrivate());
+    }
+
+    private static byte[] generatedCsr(String subjectDn, List<String> dnsSans, String challengePassword,
+            PublicKey requestedKey, PrivateKey signingKey) throws Exception {
         JcaPKCS10CertificationRequestBuilder builder = new JcaPKCS10CertificationRequestBuilder(new X500Name(subjectDn),
-                keyPair.getPublic());
+                requestedKey);
         if (challengePassword != null) {
             builder
                     .addAttribute(PKCSObjectIdentifiers.pkcs_9_at_challengePassword,
@@ -178,7 +207,7 @@ public final class ScepMessageTestData {
         }
         ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                .build(keyPair.getPrivate());
+                .build(signingKey);
         return builder.build(signer).getEncoded();
     }
 
