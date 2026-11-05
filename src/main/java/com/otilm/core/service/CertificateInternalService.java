@@ -42,8 +42,6 @@ public interface CertificateInternalService extends ResourceExtensionService {
 
     Certificate getCertificateEntity(SecuredUUID uuid) throws NotFoundException;
 
-    Certificate getCertificateEntityByContent(String content);
-
     Certificate getCertificateEntityByFingerprint(String fingerprint) throws NotFoundException;
 
     Certificate getCertificateEntityByIssuerDnNormalizedAndSerialNumber(String issuerDn, String serialNumber)

@@ -15,6 +15,7 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
 import com.otilm.api.model.core.scep.FailInfo;
+import com.otilm.api.model.core.scep.MessageType;
 import com.otilm.api.model.core.scep.PkiStatus;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -91,6 +92,7 @@ import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilter
 import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -115,6 +117,7 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     private static final String CA_DN = "CN=Test SCEP Registration CA";
     private static final String CHALLENGE = "registration-challenge-1";
     private static final String SUBJECT_DN = "CN=device-1";
+    private static final String UNREGISTERED_SUBJECT_DN = "CN=unregistered-device";
     /** Pinned copy of the wire contract: changing the production message must consciously change this test. */
     private static final String REGISTRATION_REJECTION = "The request does not match an active certificate registration.";
 
@@ -443,6 +446,122 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesRenewalReqLikeAnUnknownIdentity_whenItsIdentityIsRegistered() throws Exception {
+        // given
+        registeredPlaceholder(SUBJECT_DN, null, CHALLENGE);
+        var registeredIdentityRenewal = ScepMessageTestData
+                .keyTransportEnvelopedMessage(MessageType.RENEWAL_REQ, caCertificateX509(), SUBJECT_DN,
+                        "wrong-challenge");
+        var unknownIdentityRenewal = ScepMessageTestData
+                .keyTransportEnvelopedMessage(MessageType.RENEWAL_REQ, caCertificateX509(), UNREGISTERED_SUBJECT_DN,
+                        "wrong-challenge");
+
+        // when
+        ResponseEntity<Object> registeredIdentityAnswer = postPkiOperation(registeredIdentityRenewal);
+        ResponseEntity<Object> unknownIdentityAnswer = postPkiOperation(unknownIdentityRenewal);
+
+        // then
+        assertRegistrationRejection(registeredIdentityAnswer);
+        assertRegistrationRejection(unknownIdentityAnswer);
+    }
+
+    @Test
+    void refusesForgedCsrLikeAnUnknownIdentity_whenItsIdentityIsRegistered() throws Exception {
+        // given
+        registeredPlaceholder(SUBJECT_DN, null, CHALLENGE);
+        var registeredIdentityRequest = ScepMessageTestData
+                .keyTransportEnvelopedMessageWithForgedCsr(MessageType.PKCS_REQ, caCertificateX509(), SUBJECT_DN,
+                        "wrong-challenge");
+        var unknownIdentityRequest = ScepMessageTestData
+                .keyTransportEnvelopedMessageWithForgedCsr(MessageType.PKCS_REQ, caCertificateX509(),
+                        UNREGISTERED_SUBJECT_DN, "wrong-challenge");
+        var forgedCsrRefusal = new Refusal(String.valueOf(PkiStatus.FAILURE.getValue()),
+                String.valueOf(FailInfo.BAD_REQUEST.getValue()),
+                "Failed to verify PKCS#10 request POP, invalid signature");
+
+        // when
+        ResponseEntity<Object> registeredIdentityAnswer = postPkiOperation(registeredIdentityRequest);
+        ResponseEntity<Object> unknownIdentityAnswer = postPkiOperation(unknownIdentityRequest);
+
+        // then
+        assertThat(readRefusal(registeredIdentityAnswer)).isEqualTo(forgedCsrRefusal);
+        assertThat(readRefusal(unknownIdentityAnswer)).isEqualTo(forgedCsrRefusal);
+    }
+
+    @Test
+    void reportsRenewalReqUnsupported_whenItIsAnAuthenticatedRenewal() throws Exception {
+        // given
+        registerSignerCertificate();
+        var authenticatedRenewal = ScepMessageTestData
+                .keyTransportEnvelopedMessage(MessageType.RENEWAL_REQ, caCertificateX509(),
+                        ScepMessageTestData.SUBJECT_DN, null);
+
+        // when
+        ResponseEntity<Object> response = postPkiOperation(authenticatedRenewal);
+
+        // then
+        // The registration gate refuses with badMessageCheck; past it, a RenewalReq has no issuance branch.
+        assertThat(readRefusal(response))
+                .isEqualTo(new Refusal(String.valueOf(PkiStatus.FAILURE.getValue()),
+                        String.valueOf(FailInfo.BAD_REQUEST.getValue()),
+                        "Unsupported Operation. The requested operation is not supported"));
+    }
+
+    @Test
+    void refusesKnownTransactionIdLikeAnUnknownIdentity_whenItsIdentityIsRegistered() throws Exception {
+        // given
+        registeredPlaceholder(SUBJECT_DN, null, CHALLENGE);
+        var anotherCertificatesTransactionId = "another-certificates-transaction";
+        storeTransaction(anotherCertificatesTransactionId, savedCertificate(), scepProfile);
+        var registeredIdentityRequest = ScepMessageTestData
+                .keyTransportEnvelopedPkcsReq(caCertificateX509(), SUBJECT_DN, null, "wrong-challenge",
+                        anotherCertificatesTransactionId);
+        var unknownIdentityRequest = ScepMessageTestData
+                .keyTransportEnvelopedPkcsReq(caCertificateX509(), UNREGISTERED_SUBJECT_DN, null, "wrong-challenge",
+                        anotherCertificatesTransactionId);
+
+        // when
+        ResponseEntity<Object> registeredIdentityAnswer = postPkiOperation(registeredIdentityRequest);
+        ResponseEntity<Object> unknownIdentityAnswer = postPkiOperation(unknownIdentityRequest);
+
+        // then
+        assertRegistrationRejection(registeredIdentityAnswer);
+        assertRegistrationRejection(unknownIdentityAnswer);
+    }
+
+    @Test
+    void answersRetryFromItsTransaction_whenTheRegistrationWasCompletedWithIt() throws Exception {
+        // given
+        registeredPlaceholder(SUBJECT_DN, null, CHALLENGE);
+        postPkiOperation(enrolment(SUBJECT_DN, null, CHALLENGE));
+        var retryWithTheSameTransactionId = enrolment(SUBJECT_DN, null, CHALLENGE);
+
+        // when
+        ResponseEntity<Object> response = postPkiOperation(retryWithTheSameTransactionId);
+
+        // then
+        assertThat(attribute(response, ScepConstants.id_pkiStatus))
+                .isEqualTo(String.valueOf(PkiStatus.PENDING.getValue()));
+    }
+
+    @Test
+    void refusesRetryAsAFailedAttempt_whenItsChallengeIsWrong() throws Exception {
+        // given
+        Certificate placeholder = registeredPlaceholder(SUBJECT_DN, null, CHALLENGE);
+        postPkiOperation(enrolment(SUBJECT_DN, null, CHALLENGE));
+        var retryWithAWrongChallenge = enrolment(SUBJECT_DN, null, "wrong-challenge");
+
+        // when
+        ResponseEntity<Object> response = postPkiOperation(retryWithAWrongChallenge);
+
+        // then
+        assertRegistrationRejection(response);
+        assertThat(
+                authorizationRepository.findByCertificateUuid(placeholder.getUuid()).orElseThrow().getFailedAttempts())
+                .isEqualTo(1);
+    }
+
+    @Test
     void ambiguousRegistrationsAreRejected() throws Exception {
         registeredPlaceholder("CN=fleet", Map.of("dNSName", List.of("a.example")), CHALLENGE);
         registeredPlaceholder("CN=fleet", Map.of("dNSName", List.of("a.example")), CHALLENGE);
@@ -584,7 +703,7 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
         assertNotNull(new CMSSignedData((byte[]) response.getBody()).getSignerInfos().getSigners());
     }
 
-    private String attribute(ResponseEntity<Object> response, String oid) throws Exception {
+    private static String attribute(ResponseEntity<Object> response, String oid) throws Exception {
         CMSSignedData signedData = new CMSSignedData((byte[]) response.getBody());
         SignerInformation signer = signedData.getSignerInfos().getSigners().iterator().next();
         ASN1Primitive value = signer
@@ -594,6 +713,16 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
                 .getObjectAt(0)
                 .toASN1Primitive();
         return ((ASN1String) value).getString();
+    }
+
+    /** What a SCEP client can tell about a refusal from the response: its status, failInfo and failInfoText. */
+    private static Refusal readRefusal(ResponseEntity<Object> response) throws Exception {
+        return new Refusal(attribute(response, ScepConstants.id_pkiStatus),
+                attribute(response, ScepConstants.id_failInfo),
+                attribute(response, ScepConstants.id_scep_failInfoText));
+    }
+
+    private record Refusal(String pkiStatus, String failInfo, String failInfoText) {
     }
 
     /**
