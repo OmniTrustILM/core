@@ -1,5 +1,6 @@
 package com.otilm.core.dao.repository;
 
+import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -327,6 +328,17 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
             + "    c.updated = CURRENT_TIMESTAMP " + "WHERE c.uuid = :uuid")
     void updateIssuerReference(@Param("uuid") UUID uuid, @Param("serial") String serial,
             @Param("issuerUuid") UUID issuerUuid);
+
+    /**
+     * Sets or clears {@code pending_revoke_attributes} on a single certificate row by UUID, refreshing {@code i_upd}
+     * explicitly. The column is written here and not through the entity: a dynamic update of {@link Certificate} leaves
+     * a changed {@code pendingRevokeAttributes} out of its UPDATE statement.
+     */
+    @Modifying
+    @Query("UPDATE Certificate c SET c.pendingRevokeAttributes = :attributes, c.updated = CURRENT_TIMESTAMP "
+            + "WHERE c.uuid = :uuid")
+    void updatePendingRevokeAttributes(@Param("uuid") UUID uuid,
+            @Param("attributes") List<RequestAttribute> attributes);
 
     /**
      * Clears both {@code issuer_serial_number} and {@code issuer_certificate_uuid} on a single certificate row.

@@ -124,6 +124,7 @@ import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
 import com.otilm.core.service.writer.CertificateRequestWriter;
+import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
@@ -226,6 +227,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private CertificateStatusPollWriter pollWriter;
     private CertificatePendingIssueClaimWriter pendingIssueClaimWriter;
     private CertificateRegistrationWriter certificateRegistrationWriter;
+    private CertificatePendingRevokeWriter pendingRevokeWriter;
     private CertificateRegistrationRepository certificateRegistrationRepository;
     private CertificateLocationRepository certificateLocationRepository;
     private AuthorityProviderAdapterFactory adapterFactory;
@@ -289,6 +291,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
+    @Autowired
+    public void setPendingRevokeWriter(CertificatePendingRevokeWriter pendingRevokeWriter) {
+        this.pendingRevokeWriter = pendingRevokeWriter;
+    }
+
     public void setPendingIssueClaimWriter(CertificatePendingIssueClaimWriter pendingIssueClaimWriter) {
         this.pendingIssueClaimWriter = pendingIssueClaimWriter;
     }
@@ -2796,7 +2803,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private void transitionToPendingRevoke(Certificate certificate, ClientCertificateRevocationDto request) {
         certificate.setPendingRevokeDestroyKey(request.isDestroyKey());
-        certificate.setPendingRevokeAttributes(request.getAttributes());
+        pendingRevokeWriter.save(certificate.getUuid(), request.getAttributes());
         stateMachine
                 .transition(certificate, CertificateState.PENDING_REVOKE, CertificateEvent.REVOKE,
                         "Revocation accepted; awaiting asynchronous completion.");
@@ -3661,7 +3668,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             destroyKey = Boolean.TRUE.equals(cert.getPendingRevokeDestroyKey());
             keyUuid = cert.getKey() != null ? cert.getKeyUuid() : null;
             cert.setPendingRevokeDestroyKey(null);
-            cert.setPendingRevokeAttributes(null);
+            pendingRevokeWriter.clear(cert.getUuid());
             stateMachine
                     .transition(cert, CertificateState.REVOKED, CertificateEvent.REVOKE,
                             "Revocation confirmed manually");
@@ -3983,7 +3990,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 fresh.getPredecessorRelations().clear();
             } else {
                 fresh.setPendingRevokeDestroyKey(null);
-                fresh.setPendingRevokeAttributes(null);
+                pendingRevokeWriter.clear(fresh.getUuid());
             }
             // Cancelling a pending operation is a non-success outcome. Routing through the SM records
             // the audit with the transition row's status — FAILED for both PENDING_ISSUE→FAILED and

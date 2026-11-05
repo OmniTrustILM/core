@@ -118,6 +118,7 @@ import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
@@ -284,6 +285,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @MockitoSpyBean
     private CertificateRepository certificateRepository;
     @MockitoSpyBean
+    @Autowired
+    private CertificatePendingRevokeWriter pendingRevokeWriter;
     private ExtendedAttributeService extendedAttributeService;
     @Autowired
     private CertificateEventHistoryRepository certificateEventHistoryRepository;
@@ -2939,10 +2942,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Certificate readBefore = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         RequestAttributeV2 revokeAttribute = new RequestAttributeV2(UUID.randomUUID(), "reasonDetail",
                 AttributeContentType.STRING, List.of(new StringAttributeContentV2("key compromise")));
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            Certificate pending = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
-            pending.setPendingRevokeAttributes(List.of(revokeAttribute));
-        });
+        pendingRevokeWriter.save(certificate.getUuid(), List.of(revokeAttribute));
 
         readBefore.setValidationStatus(CertificateValidationStatus.INVALID);
         certificateRepository.save(readBefore);

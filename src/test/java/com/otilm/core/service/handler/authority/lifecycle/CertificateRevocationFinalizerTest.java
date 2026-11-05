@@ -8,6 +8,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +36,8 @@ class CertificateRevocationFinalizerTest {
     private AttributeEngine attributeEngine;
     @Mock
     private CryptographicKeyExternalService keyService;
+    @Mock
+    private CertificatePendingRevokeWriter pendingRevokeWriter;
 
     private CertificateRevocationFinalizer finalizer;
 
@@ -44,7 +47,7 @@ class CertificateRevocationFinalizerTest {
 
     @BeforeEach
     void setUp() {
-        finalizer = new CertificateRevocationFinalizer(attributeEngine, keyService);
+        finalizer = new CertificateRevocationFinalizer(attributeEngine, keyService, pendingRevokeWriter);
     }
 
     @Test
@@ -61,7 +64,7 @@ class CertificateRevocationFinalizerTest {
         assertThat(cleanup.keyUuid()).isEqualTo(KEY_UUID);
         verify(attributeEngine).updateObjectDataAttributesContent(any(ObjectAttributeContentInfo.class), any());
         verify(cert).setPendingRevokeDestroyKey(null);
-        verify(cert).setPendingRevokeAttributes(null);
+        verify(pendingRevokeWriter).clear(CERT_UUID);
     }
 
     @Test
@@ -77,7 +80,7 @@ class CertificateRevocationFinalizerTest {
         assertThat(cleanup.keyUuid()).isNull();
         verifyNoInteractions(attributeEngine);
         verify(cert).setPendingRevokeDestroyKey(null);
-        verify(cert).setPendingRevokeAttributes(null);
+        verify(pendingRevokeWriter).clear(CERT_UUID);
     }
 
     @Test
@@ -138,11 +141,12 @@ class CertificateRevocationFinalizerTest {
     @Test
     void clearPendingRevokeFields_clearsBoth() {
         Certificate cert = mock(Certificate.class);
+        when(cert.getUuid()).thenReturn(CERT_UUID);
 
         finalizer.clearPendingRevokeFields(cert);
 
         verify(cert).setPendingRevokeDestroyKey(null);
-        verify(cert).setPendingRevokeAttributes(null);
+        verify(pendingRevokeWriter).clear(CERT_UUID);
     }
 
     private Certificate certWithAuthority() {
