@@ -425,6 +425,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
 
         validateAccount(account);
+        requireOwnership(jwsRequest, account);
 
         Account request = AcmeJsonProcessor.getPayloadAsRequestObject(jwsRequest.getJwsObject(), Account.class);
         logger.debug("Account Update request: {}", request.toString());
@@ -509,6 +510,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
 
         validateAccount(acmeAccount);
+        requireOwnership(jwsRequest, acmeAccount);
 
         if (!acmeAccount.getPublicKey().equals(AcmePublicKeyProcessor.publicKeyPemStringFromObject(oldKey))) {
             logger.error("Public key of the Account with ID: {} does not match with old key in request", accountId);
@@ -1701,7 +1703,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     private void validateSignature(AcmeJwsRequest acmeJwsRequest) throws AcmeProblemDocumentException {
         if (acmeJwsRequest.isJwkPresent()) {
-            acmeJwsRequest.checkSignature(acmeJwsRequest.getPublicKey());
+            if (!acmeJwsRequest.checkSignature(acmeJwsRequest.getPublicKey())) {
+                throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.UNAUTHORIZED);
+            }
         } else {
             String kid = acmeJwsRequest.getKid();
             AcmeAccount account = acmeAccountRepository

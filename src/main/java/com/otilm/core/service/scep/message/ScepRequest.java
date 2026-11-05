@@ -11,6 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -25,6 +26,8 @@ import java.util.Collection;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1InputStream;
@@ -42,16 +45,20 @@ import org.bouncycastle.asn1.cms.ContentInfo;
 import org.bouncycastle.asn1.cms.EnvelopedData;
 import org.bouncycastle.asn1.cms.SignedData;
 import org.bouncycastle.asn1.cms.SignerInfo;
+import org.bouncycastle.asn1.pkcs.PBKDF2Params;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.smime.SMIMECapability;
 import org.bouncycastle.asn1.x500.DirectoryString;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cms.CMSAlgorithm;
 import org.bouncycastle.cms.CMSEnvelopedData;
 import org.bouncycastle.cms.CMSException;
 import org.bouncycastle.cms.CMSSignedData;
+import org.bouncycastle.cms.PasswordRecipientInformation;
 import org.bouncycastle.cms.RecipientInformation;
 import org.bouncycastle.cms.RecipientInformationStore;
 import org.bouncycastle.cms.SignerInformation;
@@ -74,6 +81,22 @@ import org.slf4j.LoggerFactory;
 public class ScepRequest {
 
     private static final Logger logger = LoggerFactory.getLogger(ScepRequest.class);
+
+    /**
+     * The most PBKDF2 iterations that a password recipient may state. Its key is derived from the challenge password
+     * before the client is authenticated, so this bounds what one request costs: the same protocol-hardening bound as
+     * for the password-based MAC of CMP, not an operator setting.
+     */
+    static final int MAX_PBKDF2_ITERATION_COUNT = 100_000;
+
+    /**
+     * The algorithms that the content of a request may be encrypted with: AES and DES3, which GetCACaps advertises. RFC
+     * 8894 forbids single DES. BouncyCastle also accepts a password-based algorithm here, such as a PKCS#12 one, and
+     * derives its key over the iteration count that the client states once the content key is unwrapped, which for a CA
+     * key that is RSA needs nothing but the CA certificate.
+     */
+    private static final Set<ASN1ObjectIdentifier> CONTENT_ENCRYPTION_ALGORITHMS = Set
+            .of(CMSAlgorithm.AES128_CBC, CMSAlgorithm.AES192_CBC, CMSAlgorithm.AES256_CBC, CMSAlgorithm.DES_EDE3_CBC);
 
     private final byte[] message;
     private String digestAlgorithmOid;
@@ -355,6 +378,7 @@ public class ScepRequest {
             logger.error(errorMessage + ": ", e);
             throw new ScepException(errorMessage, e, FailInfo.BAD_REQUEST);
         }
+        requireSupportedContentEncryption(cmsEnvelopedData);
         RecipientInformationStore recipientInfos = cmsEnvelopedData.getRecipientInfos();
         Collection<RecipientInformation> recipients = recipientInfos.getRecipients();
         Iterator<RecipientInformation> recipientInformationIterator = recipients.iterator();
@@ -386,6 +410,7 @@ public class ScepRequest {
                     throw new ScepException("A challenge password must be configured on the SCEP profile to decrypt "
                             + "requests enveloped to a non-RSA CA key", FailInfo.BAD_ALG);
                 }
+                requireBoundedPasswordRecipient(recipient);
                 JcePasswordEnvelopedRecipient jcePasswordEnvelopedRecipient = new JcePasswordEnvelopedRecipient(
                         challengePassword.toCharArray());
                 jcePasswordEnvelopedRecipient.setProvider(BouncyCastleProvider.PROVIDER_NAME);
@@ -408,6 +433,46 @@ public class ScepRequest {
             String errorMessage = "Failed to load decrypted PKCS#10 request";
             logger.error(errorMessage + ": ", e);
             throw new ScepException(errorMessage, e, FailInfo.BAD_REQUEST);
+        }
+    }
+
+    private static void requireSupportedContentEncryption(CMSEnvelopedData envelopedData) throws ScepException {
+        if (!CONTENT_ENCRYPTION_ALGORITHMS.contains(envelopedData.getContentEncryptionAlgorithm().getAlgorithm())) {
+            throw new ScepException("The content of the request is encrypted with an algorithm that is not supported",
+                    FailInfo.BAD_ALG);
+        }
+    }
+
+    /**
+     * A CA key that is not RSA opens only a password recipient. BouncyCastle derives the key of one as PBKDF2 over the
+     * parameters that the client states, whatever key derivation algorithm it names, and admits up to 10,000,000
+     * iterations unless the JVM-wide {@code org.bouncycastle.pbe.max_iteration_count} says otherwise. Only PBKDF2 over
+     * at most {@value #MAX_PBKDF2_ITERATION_COUNT} iterations is derived here.
+     */
+    private static void requireBoundedPasswordRecipient(RecipientInformation recipient) throws ScepException {
+        if (!(recipient instanceof PasswordRecipientInformation passwordRecipient)) {
+            throw new ScepException("A request enveloped to a CA key that is not RSA must use a password recipient",
+                    FailInfo.BAD_ALG);
+        }
+        BigInteger iterationCount = pbkdf2IterationCount(passwordRecipient.getKeyDerivationAlgorithm())
+                .orElseThrow(() -> new ScepException(
+                        "The password recipient states a key derivation that is not supported", FailInfo.BAD_ALG));
+        if (iterationCount.signum() <= 0
+                || iterationCount.compareTo(BigInteger.valueOf(MAX_PBKDF2_ITERATION_COUNT)) > 0) {
+            throw new ScepException("The PBKDF2 iteration count of the password recipient is not between 1 and %d"
+                    .formatted(MAX_PBKDF2_ITERATION_COUNT), FailInfo.BAD_ALG);
+        }
+    }
+
+    /** The PBKDF2 iteration count that a key derivation states; empty when it is absent, not PBKDF2 or unreadable. */
+    private static Optional<BigInteger> pbkdf2IterationCount(AlgorithmIdentifier keyDerivation) {
+        if (keyDerivation == null || !PKCSObjectIdentifiers.id_PBKDF2.equals(keyDerivation.getAlgorithm())) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(PBKDF2Params.getInstance(keyDerivation.getParameters()).getIterationCount());
+        } catch (RuntimeException e) {
+            return Optional.empty();
         }
     }
 
