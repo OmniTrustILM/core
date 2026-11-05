@@ -3,6 +3,7 @@ package com.otilm.core.security.authz;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnAncestor;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnLinked;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -69,6 +70,21 @@ class ObjectActionRequirementsTest {
                         .isTrue();
             }
         });
+    }
+
+    @Test
+    void namesALinkedAttributeTheEntityHas() {
+        TABLE
+                .forEach((resource, objects) -> objects
+                        .actions()
+                        .values()
+                        .stream()
+                        .flatMap(List::stream)
+                        .filter(OnLinked.class::isInstance)
+                        .map(OnLinked.class::cast)
+                        .forEach(requirement -> assertThat(hasField(objects.entity(), requirement.attribute()))
+                                .as(resource.getCode() + "." + requirement.attribute())
+                                .isTrue()));
     }
 
     private static Set<Resource> chainOf(Resource resource) {

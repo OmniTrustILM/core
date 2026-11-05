@@ -46,7 +46,7 @@ import java.util.function.Function;
 public final class ObjectActionRequirements {
 
     /** A condition an action on the object requires. */
-    public sealed interface Requirement permits OnObject, OnResource, OnAncestor {
+    public sealed interface Requirement permits OnObject, OnResource, OnAncestor, OnLinked {
     }
 
     /** The action on the object itself, where ownership, object grants and group-members access apply. */
@@ -59,6 +59,13 @@ public final class ObjectActionRequirements {
 
     /** The action on an ancestor of the object, such as the authority of an RA profile; refused when it has none. */
     public record OnAncestor(Resource ancestor, ResourceAction action) implements Requirement {
+    }
+
+    /**
+     * The action on the object whose UUID the entity attribute holds, such as a key's token; met when the attribute is
+     * empty, since the endpoints check it in code only when it is set.
+     */
+    public record OnLinked(Resource resource, String attribute, ResourceAction action) implements Requirement {
     }
 
     /**
@@ -108,8 +115,17 @@ public final class ObjectActionRequirements {
                 ResourceAction.DELETE);
         underParent(Resource.VAULT_PROFILE, VaultProfile.class, Resource.VAULT, "vaultInstanceUuid",
                 ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
-        onResource(Resource.SECRET, Secret.class, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
-                ResourceAction.ENABLE, ResourceAction.GET_SECRET_CONTENT);
+        // Every secret endpoint loads the secret through a check of members on its source vault profile.
+        OnLinked sourceVaultProfileMembers = new OnLinked(Resource.VAULT_PROFILE, "sourceVaultProfileUuid",
+                ResourceAction.MEMBERS);
+        register(Resource.SECRET, Secret.class, Resource.NONE, null,
+                new ResourceAction[]{
+                        ResourceAction.DETAIL,
+                        ResourceAction.UPDATE,
+                        ResourceAction.DELETE,
+                        ResourceAction.ENABLE,
+                        ResourceAction.GET_SECRET_CONTENT},
+                action -> List.of(new OnResource(action), sourceVaultProfileMembers));
         onObject(Resource.SIGNING_PROFILE, SigningProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         onObject(Resource.TIME_QUALITY_CONFIGURATION, TimeQualityConfiguration.class, ResourceAction.DETAIL,
@@ -136,19 +152,31 @@ public final class ObjectActionRequirements {
                         new ResourceObjects(Certificate.class, Resource.RA_PROFILE, "raProfileUuid", certificate));
 
         // Key detail includes the event history, and key update the compromise and usage endpoints, which check only
-        // the resource; the operations with a key run through its token profile and check the token.
+        // the resource. The key endpoints also check the key's token in code, and export its token profile; the
+        // operations with a key run through its token profile and check the token.
+        OnLinked tokenDetail = new OnLinked(Resource.TOKEN, "tokenInstanceReferenceUuid", ResourceAction.DETAIL);
+        OnLinked tokenMembers = new OnLinked(Resource.TOKEN, "tokenInstanceReferenceUuid", ResourceAction.MEMBERS);
+        OnLinked tokenProfileDetail = new OnLinked(Resource.TOKEN_PROFILE, "tokenProfileUuid", ResourceAction.DETAIL);
         Map<ResourceAction, List<Requirement>> key = new LinkedHashMap<>();
         key
-                .put(ResourceAction.DETAIL,
-                        List.of(new OnObject(ResourceAction.DETAIL), new OnResource(ResourceAction.DETAIL)));
+                .put(ResourceAction.DETAIL, List
+                        .of(new OnObject(ResourceAction.DETAIL), new OnResource(ResourceAction.DETAIL), tokenMembers));
         key
                 .put(ResourceAction.UPDATE,
-                        List.of(new OnObject(ResourceAction.UPDATE), new OnResource(ResourceAction.UPDATE)));
+                        List
+                                .of(new OnObject(ResourceAction.UPDATE), new OnResource(ResourceAction.UPDATE),
+                                        tokenDetail, tokenMembers));
         key
                 .put(ResourceAction.DELETE,
-                        List.of(new OnObject(ResourceAction.DELETE), new OnResource(ResourceAction.DELETE)));
-        key.put(ResourceAction.ENABLE, List.of(new OnResource(ResourceAction.ENABLE)));
-        key.put(ResourceAction.EXPORT_KEY, List.of(new OnResource(ResourceAction.EXPORT_KEY)));
+                        List
+                                .of(new OnObject(ResourceAction.DELETE), new OnResource(ResourceAction.DELETE),
+                                        tokenDetail, tokenMembers));
+        key.put(ResourceAction.ENABLE, List.of(new OnResource(ResourceAction.ENABLE), tokenDetail));
+        key
+                .put(ResourceAction.EXPORT_KEY,
+                        List
+                                .of(new OnResource(ResourceAction.EXPORT_KEY), new OnObject(ResourceAction.DETAIL),
+                                        tokenProfileDetail, tokenDetail, tokenMembers));
         for (ResourceAction action : List
                 .of(ResourceAction.ENCRYPT, ResourceAction.DECRYPT, ResourceAction.SIGN, ResourceAction.VERIFY)) {
             key.put(action, List.of(new OnResource(action), new OnAncestor(Resource.TOKEN, ResourceAction.DETAIL)));

@@ -2,6 +2,7 @@ package com.otilm.core.integration.security.authz;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsDto;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -9,20 +10,24 @@ import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.service.ResourceExternalService;
@@ -68,6 +73,12 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
     @Autowired
     private OwnerAssociationRepository ownerAssociationRepository;
+
+    @Autowired
+    private TokenInstanceReferenceRepository tokenRepository;
+
+    @Autowired
+    private CryptographicKeyRepository keyRepository;
 
     private Connector connector;
 
@@ -135,6 +146,22 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         location.setEntityInstanceReferenceUuid(entity.getUuid());
         location.setEnabled(true);
         return locationRepository.save(location);
+    }
+
+    private CryptographicKey saveKey(boolean withToken) {
+        CryptographicKey key = new CryptographicKey();
+        key.setName("key-" + UUID.randomUUID());
+        if (withToken) {
+            TokenInstanceReference token = new TokenInstanceReference();
+            token.setName("token-" + UUID.randomUUID());
+            token.setTokenInstanceUuid(UUID.randomUUID().toString());
+            token.setConnector(connector);
+            token.setStatus(TokenInstanceStatus.CONNECTED);
+            token = tokenRepository.save(token);
+            key.setTokenInstanceReference(token);
+            key.setTokenInstanceReferenceUuid(token.getUuid());
+        }
+        return keyRepository.save(key);
     }
 
     @Test
@@ -249,5 +276,27 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 .as("ownership admits the actions checked on the certificate, not those checked only on the resource")
                 .containsExactly(ResourceAction.ARCHIVE, ResourceAction.DELETE, ResourceAction.DETAIL,
                         ResourceAction.UPDATE);
+    }
+
+    @Test
+    void leavesOutKeyActionsWhoseEndpointsCheckTheKeysToken() {
+        CryptographicKey key = saveKey(true);
+        denyResourceAccess(Resource.TOKEN, ResourceAction.MEMBERS, key.getTokenInstanceReferenceUuid());
+
+        assertThat(actionsOn(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()))
+                .as("detail, update, delete and export also need members on the token; enable needs only its detail")
+                .contains(ResourceAction.ENABLE)
+                .doesNotContain(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
+                        ResourceAction.EXPORT_KEY);
+    }
+
+    @Test
+    void reportsKeyActionsWithoutATokenAsTheEndpointsSkipItsCheck() {
+        CryptographicKey key = saveKey(false);
+        denyResourceAccess(Resource.TOKEN, ResourceAction.MEMBERS);
+
+        assertThat(actionsOn(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()))
+                .contains(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE)
+                .doesNotContain(ResourceAction.SIGN);
     }
 }

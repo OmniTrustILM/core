@@ -6,6 +6,7 @@ import com.otilm.api.model.core.auth.ObjectAllowedActionsDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnAncestor;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnLinked;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
@@ -108,6 +109,11 @@ public class ObjectActionResolver {
                 case OnAncestor onAncestor -> ancestor(resource, objectUuid, onAncestor.ancestor())
                         .map(ancestorUuid -> onObject(onAncestor.ancestor(), onAncestor.action(), ancestorUuid))
                         .orElse(false);
+                case OnLinked onLinked -> ObjectActionRequirements
+                        .of(resource)
+                        .flatMap(objects -> select(objects.entity(), onLinked.attribute(), objectUuid))
+                        .map(linkedUuid -> onObject(onLinked.resource(), onLinked.action(), linkedUuid))
+                        .orElse(true);
             };
         }
 
