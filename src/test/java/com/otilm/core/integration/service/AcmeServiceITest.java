@@ -962,7 +962,9 @@ class AcmeServiceITest extends BaseSpringBootTest {
                     .revokeCertificate(ACME_PROFILE_NAME, requestJson, requestUri, false);
 
             // then
-            assertThatThrownBy(revoke).isInstanceOf(IllegalStateException.class).hasCause(sha256Unavailable);
+            assertThatThrownBy(revoke)
+                    .isInstanceOfSatisfying(IllegalStateException.class,
+                            thrown -> assertThat(thrown.getCause()).isSameAs(sha256Unavailable));
         }
     }
 
