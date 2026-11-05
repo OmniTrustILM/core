@@ -968,6 +968,71 @@ class AcmeServiceITest extends BaseSpringBootTest {
         }
     }
 
+    /**
+     * A request that names no account proves only the key in its JWS header, so its signature has to verify with that
+     * key. A certificate is public, and its key alone would otherwise let anyone revoke it.
+     */
+    @Test
+    void refusesAsUnauthorizedWithoutContactingTheAuthority_whenRevocationIsNotSignedByItsKey() throws Exception {
+        // given
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/revoke-cert");
+        String requestSignedByAnotherKey = buildRevokeCertRequestJSON(requestUri, b64UrlCertificate, rsa2048PublicJWK,
+                newRsa2048Signer);
+
+        // when
+        ThrowingCallable revoke = () -> acmeService
+                .revokeCertificate(ACME_PROFILE_NAME, requestSignedByAnotherKey, requestUri, false);
+
+        // then
+        assertThatThrownBy(revoke)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsUnauthorized);
+        assertThat(mockServer.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void refusesAsUnauthorizedWithoutCreatingAnAccount_whenNewAccountIsNotSignedByItsKey() throws Exception {
+        // given
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/new-account");
+        String requestSignedByAnotherKey = signedWithJwk(
+                "{\"contact\":[\"mailto:test.test@test\"],\"termsOfServiceAgreed\":true}", requestUri,
+                newRsa2048PublicJWK, rsa2048Signer);
+        long accountsBefore = acmeAccountRepository.count();
+
+        // when
+        ThrowingCallable newAccount = () -> acmeService
+                .newAccount(ACME_PROFILE_NAME, requestSignedByAnotherKey, requestUri, false);
+
+        // then
+        assertThatThrownBy(newAccount)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsUnauthorized);
+        assertThat(acmeAccountRepository.count()).isEqualTo(accountsBefore);
+    }
+
+    @Test
+    void refusesAsUnauthorizedAndKeepsAccountKey_whenNewKeyDoesNotSignTheInnerKeyChange() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String accountKeyBefore = acmeAccountRepository
+                .findByAccountId(ACME_ACCOUNT_ID_VALID)
+                .orElseThrow()
+                .getPublicKey();
+        String innerJwsSignedByTheOldKey = buildKeyRolloverRequestJSON(requestUri, baseUri, rsa2048Signer);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService
+                .keyRollover(ACME_PROFILE_NAME, innerJwsSignedByTheOldKey, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsUnauthorized);
+        assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getPublicKey())
+                .isEqualTo(accountKeyBefore);
+    }
+
     @Test
     void testRevokeCert_fail_archivedCertificate() throws URISyntaxException {
         String baseUri = RA_BASE_URI + RA_PROFILE_NAME;
@@ -1030,14 +1095,116 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testUpdateAccount() throws URISyntaxException, JOSEException, AcmeProblemDocumentException, NotFoundException {
+    void deactivatesTheAccount_whenItsOwnerAsks() throws Exception {
+        // given
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
-        URI requestUri = new URI(baseUri + "/update");
-        acmeService
-                .updateAccount(ACME_PROFILE_NAME, ACME_ACCOUNT_ID_VALID,
-                        buildNewAccountRequestJSON_withExistingKey(requestUri), requestUri, false);
+        URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
+        String requestJson = buildDeactivateRequestJSON(requestUri, baseUri);
+
+        // when
+        acmeService.updateAccount(ACME_PROFILE_NAME, ACME_ACCOUNT_ID_VALID, requestJson, requestUri, false);
+
+        // then
         AcmeAccount acmeAccount = acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow();
-        Assertions.assertEquals(1, acmeAccount.getFailedOrders());
+        assertThat(acmeAccount.getStatus()).isEqualTo(AccountStatus.DEACTIVATED);
+        assertThat(acmeAccount.getFailedOrders()).isEqualTo(1);
+    }
+
+    @Test
+    void refusesAsUnauthorizedAndKeepsAccountValid_whenAnotherAccountUpdatesIt() throws Exception {
+        // given
+        otherAccount();
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
+        String requestJson = signedByOtherAccount("{\"status\":\"deactivated\"}", requestUri, baseUri);
+
+        // when
+        ThrowingCallable update = () -> acmeService
+                .updateAccount(ACME_PROFILE_NAME, ACME_ACCOUNT_ID_VALID, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.UNAUTHORIZED.getType()));
+        assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getStatus())
+                .isEqualTo(AccountStatus.VALID);
+    }
+
+    @Test
+    void refusesAsMalformedAndKeepsAccountValid_whenAccountUpdateNamesNoAccount() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
+        String requestSignedByAnotherKey = signedWithJwk("{\"status\":\"deactivated\"}", requestUri,
+                newRsa2048PublicJWK, newRsa2048Signer);
+
+        // when
+        ThrowingCallable update = () -> acmeService
+                .updateAccount(ACME_PROFILE_NAME, ACME_ACCOUNT_ID_VALID, requestSignedByAnotherKey, requestUri, false);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.MALFORMED.getType()));
+        assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getStatus())
+                .isEqualTo(AccountStatus.VALID);
+    }
+
+    /**
+     * The outer JWS of a key change is signed by the account that changes its key (RFC 8555 section 7.3.5), so another
+     * account cannot name the fixture's account and its public key in the inner payload and take the account over.
+     */
+    @Test
+    void refusesAsUnauthorizedAndKeepsAccountKey_whenAnotherAccountChangesItsKey() throws Exception {
+        // given
+        otherAccount();
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String accountKeyBefore = acmeAccountRepository
+                .findByAccountId(ACME_ACCOUNT_ID_VALID)
+                .orElseThrow()
+                .getPublicKey();
+        String innerJws = innerKeyChangeJws(requestUri, baseUri, new RSAKeyGenerator(2048).generate());
+        String requestJson = signedByOtherAccount(innerJws, requestUri, baseUri);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.UNAUTHORIZED.getType()));
+        assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getPublicKey())
+                .isEqualTo(accountKeyBefore);
+    }
+
+    @Test
+    void refusesAsMalformedAndKeepsAccountKey_whenKeyChangeNamesNoAccount() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String accountKeyBefore = acmeAccountRepository
+                .findByAccountId(ACME_ACCOUNT_ID_VALID)
+                .orElseThrow()
+                .getPublicKey();
+        RSAKey attackerKey = new RSAKeyGenerator(2048).generate();
+        String innerJws = innerKeyChangeJws(requestUri, baseUri, attackerKey);
+        String requestJson = signedWithJwk(innerJws, requestUri, attackerKey.toPublicJWK(),
+                new RSASSASigner(attackerKey));
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.MALFORMED.getType()));
+        assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getPublicKey())
+                .isEqualTo(accountKeyBefore);
     }
 
     private String buildRevokeCertRequestJSON_withAccountKey(URI requestUri, String baseUri, String certificate)
@@ -1165,28 +1332,6 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .keyRollover(RA_PROFILE_NAME, buildKeyRolloverRequestJSON(requestUri, RA_BASE_URI + RA_PROFILE_NAME),
                         requestUri, true);
         assertKeyRollover(response);
-    }
-
-    private String buildKeyRolloverRequestJSON(URI requestUri, String baseUri) throws JOSEException {
-        String account = baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID;
-        String oldKey = rsa2048PublicJWK.toString();
-
-        JWSObjectJSON innerJwsObjectJSON = new JWSObjectJSON(
-                new Payload("{\"account\":\"" + account + "\",\"oldKey\":" + oldKey + "}"));
-        innerJwsObjectJSON
-                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
-                        .jwk(newRsa2048PublicJWK)
-                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
-                        .build(), newRsa2048Signer);
-
-        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(innerJwsObjectJSON.serializeFlattened()));
-        jwsObjectJSON
-                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
-                        .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
-                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
-                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
-                        .build(), rsa2048Signer);
-        return jwsObjectJSON.serializeFlattened();
     }
 
     private void assertKeyRollover(ResponseEntity<?> response) {
@@ -1969,11 +2114,16 @@ class AcmeServiceITest extends BaseSpringBootTest {
         return buildRevokeCertRequestJSON(requestUri, b64UrlCertificate, rsa2048PublicJWK, rsa2048Signer);
     }
 
-    /** A revocation request that names no account: it carries the public key it is signed with as its JWK. */
+    /** A revocation request that names no account: it carries a public key as its JWK and the given signature. */
     private String buildRevokeCertRequestJSON(URI requestUri, String certificate, RSAKey publicJWK, JWSSigner signer)
             throws JOSEException {
-        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(
-                new Payload("{\"certificate\":\"" + certificate + "\",\"reason\":0}"));
+        return signedWithJwk("{\"certificate\":\"" + certificate + "\",\"reason\":0}", requestUri, publicJWK, signer);
+    }
+
+    /** A request that names no account: it carries a public key as its JWK and the signature of the given signer. */
+    private String signedWithJwk(String payload, URI requestUri, RSAKey publicJWK, JWSSigner signer)
+            throws JOSEException {
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(payload));
         jwsObjectJSON
                 .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
                         .jwk(publicJWK)
@@ -1983,9 +2133,57 @@ class AcmeServiceITest extends BaseSpringBootTest {
         return jwsObjectJSON.serializeFlattened();
     }
 
+    private String buildKeyRolloverRequestJSON(URI requestUri, String baseUri) throws JOSEException {
+        return buildKeyRolloverRequestJSON(requestUri, baseUri, newRsa2048Signer);
+    }
+
+    /**
+     * A key change of the fixture's account to the new key, whose inner JWS carries the new key as its JWK and the
+     * signature of the given signer.
+     */
+    private String buildKeyRolloverRequestJSON(URI requestUri, String baseUri, JWSSigner innerSigner)
+            throws JOSEException {
+        String innerJws = innerKeyChangeJws(requestUri, baseUri, newRsa2048PublicJWK, innerSigner);
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(innerJws));
+        jwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), rsa2048Signer);
+        return jwsObjectJSON.serializeFlattened();
+    }
+
+    /** The inner JWS of a key change of the fixture's account to the given key, which signs it. */
+    private String innerKeyChangeJws(URI requestUri, String baseUri, RSAKey newKey) throws JOSEException {
+        return innerKeyChangeJws(requestUri, baseUri, newKey.toPublicJWK(), new RSASSASigner(newKey));
+    }
+
+    /**
+     * The inner JWS of a key change of the fixture's account: it names the account and its current public key as the
+     * old key, and carries the new key as its JWK and the signature of the given signer.
+     */
+    private String innerKeyChangeJws(URI requestUri, String baseUri, RSAKey newPublicJWK, JWSSigner signer)
+            throws JOSEException {
+        String account = baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID;
+        JWSObjectJSON innerJwsObjectJSON = new JWSObjectJSON(
+                new Payload("{\"account\":\"" + account + "\",\"oldKey\":" + rsa2048PublicJWK + "}"));
+        innerJwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .jwk(newPublicJWK)
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), signer);
+        return innerJwsObjectJSON.serializeFlattened();
+    }
+
     private static void assertRefusedAsNotFound(AcmeProblemDocumentException refused) {
         assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
         assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
         assertThat(refused.getProblemDocument().getDetail()).contains("not found");
+    }
+
+    private static void assertRefusedAsUnauthorized(AcmeProblemDocumentException refused) {
+        assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.UNAUTHORIZED.getType());
     }
 }
