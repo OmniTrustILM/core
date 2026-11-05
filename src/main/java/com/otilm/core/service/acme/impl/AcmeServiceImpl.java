@@ -130,7 +130,6 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -468,18 +467,24 @@ public class AcmeServiceImpl implements AcmeExternalService {
         validateRequest(jwsRequest, acmeProfileName, requestUri, isRaProfileBased);
 
         AcmeJwsRequest innerJws = new AcmeJwsRequest(jwsRequest.getJsonStringPayload());
+        validateKey(jwsRequest.getJwsObject(), innerJws.getJwsObject());
         validateRequestNoNonce(innerJws, acmeProfileName, requestUri, isRaProfileBased);
+        KeyChange keyChange = AcmeJsonProcessor.getPayloadAsRequestObject(innerJws.getJwsObject(), KeyChange.class);
+        if (keyChange.account() == null || keyChange.oldKey() == null) {
+            throw AcmeJsonProcessor.malformedPayload();
+        }
 
+        JWK oldKeyJwk = parseOldKey(keyChange.oldKey());
         PublicKey newKey;
         PublicKey oldKey;
         try {
             String keyType = innerJws.getJwk().getKeyType().toString();
             if (keyType.equals(AcmeConstants.RSA_KEY_TYPE_NOTATION)) {
                 newKey = innerJws.getJwk().toRSAKey().toPublicKey();
-                oldKey = innerJws.getOldKeyJWK().toRSAKey().toPublicKey();
+                oldKey = oldKeyJwk.toRSAKey().toPublicKey();
             } else if (keyType.equals(AcmeConstants.EC_KEY_TYPE_NOTATION)) {
                 newKey = innerJws.getJwk().toECKey().toPublicKey();
-                oldKey = innerJws.getOldKeyJWK().toECKey().toPublicKey();
+                oldKey = oldKeyJwk.toECKey().toPublicKey();
             } else {
                 logger.error("Unsupported Key Type: {}", keyType);
                 throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
@@ -489,14 +494,10 @@ public class AcmeServiceImpl implements AcmeExternalService {
             logger.error("Error while parsing JWS: {}", e.getMessage());
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
                     "JWS Malformed. Error while decoding the JWS Object");
-        } catch (ParseException e) {
-            logger.error("Error while parsing JWS: {}", e.getMessage());
-            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
-                    "Error while parsing the JWS Payload");
         }
 
-        String account = innerJws.getJwsObject().getPayload().toJSONObject().get("account").toString();
-        String accountId = account.split("/")[account.split("/").length - 1];
+        String account = keyChange.account();
+        String accountId = account.substring(account.lastIndexOf('/') + 1);
 
         AcmeAccount acmeAccount;
         try {
@@ -525,8 +526,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
                     .body(new ProblemDocument("keyExists", "New Key already exists",
                             "New key already tagged to a different account"));
         }
-
-        validateKey(jwsRequest.getJwsObject(), innerJws.getJwsObject());
 
         acmeAccount.setPublicKey(AcmePublicKeyProcessor.publicKeyPemStringFromObject(newKey));
         acmeAccountRepository.save(acmeAccount);
@@ -622,6 +621,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         // Parse and check the JWS request
         AcmeJwsRequest jwsRequest = new AcmeJwsRequest(requestJson);
         validateRequest(jwsRequest, acmeProfileName, requestUri, isRaProfileBased);
+        boolean isDeactivateRequest = isDeactivationRequest(jwsRequest);
         AcmeAuthorization authorization = loadAuthorization(authorizationId);
         requireOwnership(jwsRequest, authorization.getOrder().getAcmeAccount());
         LoggingHelper
@@ -632,12 +632,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
                         authorization.getOrder().getUuid().toString(), authorization.getOrder().getOrderId());
         settleStaleStatuses(authorization.getOrder());
         rejectExpiredAuthorization(authorization);
-
-        boolean isDeactivateRequest = false;
-        if (jwsRequest.getJwsObject().getPayload().toJSONObject() != null) {
-            isDeactivateRequest = "deactivated"
-                    .equals(jwsRequest.getJwsObject().getPayload().toJSONObject().get("status"));
-        }
 
         if (isDeactivateRequest) {
             authorization = acmeChallengeWriter
@@ -729,6 +723,10 @@ public class AcmeServiceImpl implements AcmeExternalService {
         // Parse and check the JWS request
         AcmeJwsRequest jwsRequest = new AcmeJwsRequest(requestJson);
         validateRequest(jwsRequest, acmeProfileName, requestUri, isRaProfileBased);
+        CertificateFinalizeRequest request = AcmeJsonProcessor
+                .getPayloadAsRequestObject(jwsRequest.getJwsObject(), CertificateFinalizeRequest.class);
+        logger.debug("Finalize Order request: {}", request);
+        byte[] csr = decodeBase64Url(request.getCsr(), "CSR");
 
         logger.debug("Request to finalize the Order with ID: {}", orderId);
         AcmeOrder order = validateOrder(orderId);
@@ -752,7 +750,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
 
         // Now finalize the order
-        finalizeOrder(order, jwsRequest, isRaProfileBased);
+        finalizeOrder(order, csr, isRaProfileBased);
 
         return ResponseEntity
                 .ok()
@@ -764,19 +762,13 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .body(order.mapToDto());
     }
 
-    @Transactional
-    @Async
-    public void finalizeOrder(AcmeOrder order, AcmeJwsRequest jwsRequest, boolean isRaProfileBased)
+    private void finalizeOrder(AcmeOrder order, byte[] csr, boolean isRaProfileBased)
             throws AcmeProblemDocumentException {
         logger.debug("Finalizing Order with ID: {}", order.getOrderId());
-        CertificateFinalizeRequest request = AcmeJsonProcessor
-                .getPayloadAsRequestObject(jwsRequest.getJwsObject(), CertificateFinalizeRequest.class);
-        logger.debug("Finalize Order request: {}", request);
-
         JcaPKCS10CertificationRequest p10Object;
         String decodedCsr;
         try {
-            p10Object = new JcaPKCS10CertificationRequest(Base64.getUrlDecoder().decode(request.getCsr()));
+            p10Object = new JcaPKCS10CertificationRequest(csr);
             validateCSR(p10Object, order);
             decodedCsr = CertificateRequestUtils.normalizeCsrContent(JcaPKCS10CertificationRequestToString(p10Object));
         } catch (IOException e) {
@@ -856,9 +848,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
         CertificateRevocationRequest request = AcmeJsonProcessor
                 .getPayloadAsRequestObject(jwsRequest.getJwsObject(), CertificateRevocationRequest.class);
+        byte[] certificateDer = decodeBase64Url(request.getCertificate(), "Certificate to revoke");
         logger.debug("Certificate revocation is triggered with the payload: {}", request.toString());
-
-        byte[] certificateDer = Base64.getUrlDecoder().decode(request.getCertificate());
 
         ClientCertificateRevocationDto revokeRequest = new ClientCertificateRevocationDto();
 
@@ -1233,6 +1224,10 @@ public class AcmeServiceImpl implements AcmeExternalService {
         if (identifiers == null || identifiers.isEmpty()) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
                     "The order must name at least one identifier");
+        }
+        if (identifiers.stream().anyMatch(id -> id == null || id.getType() == null || id.getValue() == null)) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
+                    "Every identifier must have a type and a value");
         }
         return identifiers;
     }
@@ -1708,7 +1703,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         } else {
             String kid = acmeJwsRequest.getKid();
             AcmeAccount account = acmeAccountRepository
-                    .findByAccountId(kid.split("/")[kid.split("/").length - 1])
+                    .findByAccountId(kid.substring(kid.lastIndexOf('/') + 1))
                     .orElseThrow(() -> new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST,
                             Problem.ACCOUNT_DOES_NOT_EXIST));
             PublicKey publicKey;
@@ -1865,6 +1860,57 @@ public class AcmeServiceImpl implements AcmeExternalService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is not available", e);
         }
+    }
+
+    /**
+     * The bytes of a member that RFC 8555 carries as base64url, such as the CSR to finalize an order with or the
+     * certificate to revoke. A member that is missing or not base64url is refused as malformed.
+     */
+    private static byte[] decodeBase64Url(String value, String member) throws AcmeProblemDocumentException {
+        if (value == null) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, member + " is missing");
+        }
+        try {
+            return Base64.getUrlDecoder().decode(value);
+        } catch (IllegalArgumentException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
+                    member + " is not base64url-encoded");
+        }
+    }
+
+    /**
+     * Whether the request asks to deactivate the authorization (RFC 8555 section 7.5.2). A POST-as-GET request carries
+     * an empty payload; any other payload is read strictly, before anything is settled for the authorization.
+     */
+    private static boolean isDeactivationRequest(AcmeJwsRequest jwsRequest) throws AcmeProblemDocumentException {
+        if (jwsRequest.getJwsObject().getPayload().toString().isEmpty()) {
+            return false;
+        }
+        AuthorizationUpdate update = AcmeJsonProcessor
+                .getPayloadAsRequestObject(jwsRequest.getJwsObject(), AuthorizationUpdate.class);
+        return "deactivated".equals(update.status());
+    }
+
+    /**
+     * The old key of a key change. A key that is not a JWK is refused as a malformed payload, including one for which
+     * nimbus throws an unchecked exception, such as a NullPointerException for an RSA key whose other primes lack their
+     * members.
+     */
+    private static JWK parseOldKey(Map<String, Object> oldKey) throws AcmeProblemDocumentException {
+        try {
+            return JWK.parse(oldKey);
+        } catch (ParseException | RuntimeException e) {
+            logger.error("Error while parsing JWS: {}", e.getMessage());
+            throw AcmeJsonProcessor.malformedPayload();
+        }
+    }
+
+    /** The payload of the inner JWS of a key change (RFC 8555 section 7.3.5). */
+    private record KeyChange(String account, Map<String, Object> oldKey) {
+    }
+
+    /** The payload of a request to update an authorization (RFC 8555 section 7.5.2). */
+    private record AuthorizationUpdate(String status) {
     }
 
     private void validateAccount(String accountId) throws AcmeProblemDocumentException {

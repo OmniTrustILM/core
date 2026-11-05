@@ -89,6 +89,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
 import javax.naming.directory.BasicAttributes;
@@ -98,7 +100,11 @@ import org.bouncycastle.operator.OperatorCreationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -107,6 +113,7 @@ import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
@@ -1033,17 +1040,405 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .isEqualTo(accountKeyBefore);
     }
 
+    @ParameterizedTest
+    @MethodSource("payloadsWithoutAUsableCertificate")
+    void refusesAsMalformed_whenPayloadCarriesNoUsableCertificate(String payload, String detailFragment)
+            throws Exception {
+        // given
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/revoke-cert");
+        String requestJson = signedWithJwk(payload, requestUri, rsa2048PublicJWK, rsa2048Signer);
+
+        // when
+        ThrowingCallable revoke = () -> acmeService
+                .revokeCertificate(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(revoke).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+            assertThat(refused.getProblemDocument().getDetail()).contains(detailFragment);
+        });
+    }
+
     @Test
-    void testRevokeCert_fail_archivedCertificate() throws URISyntaxException {
-        String baseUri = RA_BASE_URI + RA_PROFILE_NAME;
+    void refusesAsMalformed_whenNewAccountPayloadHasFieldOfWrongType() throws Exception {
+        // given
+        URI requestUri = new URI(BASE_URI + ACME_PROFILE_NAME + "/new-account");
+        String requestJson = signedWithJwk("{\"contact\":{},\"termsOfServiceAgreed\":true}", requestUri,
+                newRsa2048PublicJWK, newRsa2048Signer);
+
+        // when
+        ThrowingCallable newAccount = () -> acmeService.newAccount(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(newAccount)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformed_whenAccountUpdatePayloadHasFieldOfWrongType() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
+        String requestJson = signedWithAccountKey("{\"contact\":{}}", requestUri, baseUri);
+
+        // when
+        ThrowingCallable update = () -> acmeService
+                .updateAccount(ACME_PROFILE_NAME, ACME_ACCOUNT_ID_VALID, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformed_whenNewOrderPayloadHasFieldOfWrongType() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/new-order");
+        String requestJson = signedWithAccountKey("{\"identifiers\":{}}", requestUri, baseUri);
+
+        // when
+        ThrowingCallable newOrder = () -> acmeService.newOrder(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(newOrder)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformedAndKeepsAccountValid_whenAccountUpdatePayloadIsJsonArray() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID);
+        String requestJson = signedWithAccountKey("[[\"status\",\"deactivated\"]]", requestUri, baseUri);
+
+        // when
+        ThrowingCallable update = () -> acmeService
+                .updateAccount(ACME_PROFILE_NAME, ACME_ACCOUNT_ID_VALID, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+        assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getStatus())
+                .isEqualTo(AccountStatus.VALID);
+    }
+
+    @ParameterizedTest
+    @MethodSource("finalizePayloadsWithoutAUsableCsr")
+    void refusesAsMalformedAndKeepsOrderReady_whenFinalizePayloadCarriesNoUsableCsr(String payload, String detail)
+            throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/order/" + ORDER_ID_VALID + "/finalize");
+        order1.setCertificateReference(null);
+        order1.setCertificateReferenceUuid(null);
+        order1.setStatus(OrderStatus.READY);
+        acmeOrderRepository.save(order1);
+        String requestJson = signedWithAccountKey(payload, requestUri, baseUri);
+
+        // when
+        ThrowingCallable finalize = () -> acmeService
+                .finalizeOrder(ACME_PROFILE_NAME, ORDER_ID_VALID, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(finalize).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+            assertThat(refused.getProblemDocument().getDetail()).isEqualTo(detail);
+        });
+        assertThat(acmeOrderRepository.findByOrderId(ORDER_ID_VALID).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.READY);
+    }
+
+    @ParameterizedTest
+    @MethodSource("authorizationPayloadsThatDoNotMap")
+    void refusesAsMalformedAndKeepsAuthorizationPending_whenAuthorizationPayloadDoesNotMap(String payload)
+            throws Exception {
+        // given
+        pendingDnsChallenge(pendingOrder("orderArray"), "authArray", "challengeArray", "tokenArray");
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authArray");
+        String requestJson = signedWithAccountKey(payload, requestUri, baseUri);
+
+        // when
+        ThrowingCallable deactivate = () -> acmeService
+                .getAuthorization(ACME_PROFILE_NAME, "authArray", requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(deactivate)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+        assertThat(acmeAuthorizationRepository.findByAuthorizationId("authArray").orElseThrow().getStatus())
+                .isEqualTo(AuthorizationStatus.PENDING);
+    }
+
+    @Test
+    void refusesBeforeSettlingStaleStatuses_whenAuthorizationPayloadDoesNotMap() throws Exception {
+        // given
+        failedChallengeLeftUnpropagated("orderStaleMalformed", "authStaleMalformed", "challengeStaleMalformed");
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/authz/authStaleMalformed");
+        String payloadThatIsNotAnObject = "[]";
+        String requestJson = signedWithAccountKey(payloadThatIsNotAnObject, requestUri, baseUri);
+
+        // when
+        ThrowingCallable deactivate = () -> acmeService
+                .getAuthorization(ACME_PROFILE_NAME, "authStaleMalformed", requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(deactivate)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+        assertThat(acmeAuthorizationRepository.findByAuthorizationId("authStaleMalformed").orElseThrow().getStatus())
+                .isEqualTo(AuthorizationStatus.PENDING);
+    }
+
+    @Test
+    void refusesBeforeSettlingStaleStatuses_whenFinalizePayloadDoesNotMap() throws Exception {
+        // given
+        orderLeftOpenBehindFailedAuthorization("orderStaleMalformedFin", "authStaleMalformedFin", OrderStatus.READY);
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/order/orderStaleMalformedFin/finalize");
+        String payloadThatIsNotAnObject = "[]";
+        String requestJson = signedWithAccountKey(payloadThatIsNotAnObject, requestUri, baseUri);
+
+        // when
+        ThrowingCallable finalize = () -> acmeService
+                .finalizeOrder(ACME_PROFILE_NAME, "orderStaleMalformedFin", requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(finalize)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+        assertThat(acmeOrderRepository.findByOrderId("orderStaleMalformedFin").orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.READY);
+    }
+
+    @ParameterizedTest
+    @MethodSource("orderPayloadsWithAnIncompleteIdentifier")
+    void refusesAsMalformedWithoutAddingAnOrder_whenIdentifierLacksTypeOrValue(String payload) throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/new-order");
+        String requestJson = signedWithAccountKey(payload, requestUri, baseUri);
+        long ordersBefore = acmeOrderRepository.count();
+
+        // when
+        ThrowingCallable newOrder = () -> acmeService.newOrder(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(newOrder).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+        });
+        assertThat(acmeOrderRepository.count()).isEqualTo(ordersBefore);
+    }
+
+    @Test
+    void refusesAsMalformed_whenKeyChangePayloadIsNotJsonObject() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String requestJson = signedWithAccountKey("rollover", requestUri, baseUri);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformed_whenInnerKeyChangePayloadIsNotJsonObject() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, "rollover");
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformed_whenKeyChangePayloadIsNotJws() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String requestJson = signedWithAccountKey("{}", requestUri, baseUri);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+        });
+    }
+
+    @Test
+    void refusesAsMalformed_whenInnerKeyChangePayloadNamesNoAccount() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String innerPayload = "{\"account\":null,\"oldKey\":" + rsa2048PublicJWK + "}";
+        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, innerPayload);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformed_whenInnerKeyChangePayloadCarriesNoOldKey() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String innerPayload = "{\"account\":\"" + baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID + "\"}";
+        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, innerPayload);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformedAndKeepsAccountKey_whenInnerKeyChangeOldKeyIsJsonArray() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String accountKeyBefore = acmeAccountRepository
+                .findByAccountId(ACME_ACCOUNT_ID_VALID)
+                .orElseThrow()
+                .getPublicKey();
+        String innerPayload = "{\"account\":\"" + baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID + "\",\"oldKey\":"
+                + jsonArrayOfMemberPairs(rsa2048PublicJWK) + "}";
+        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, innerPayload);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+        assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getPublicKey())
+                .isEqualTo(accountKeyBefore);
+    }
+
+    @Test
+    void refusesAsMalformed_whenInnerKeyChangeOldKeyListsAnotherPrimeWithoutItsMembers() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String oldKeyListingAPrimeWithoutItsMembers = "{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\",\"oth\":[{}]}";
+        String innerPayload = "{\"account\":\"" + baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID + "\",\"oldKey\":"
+                + oldKeyListingAPrimeWithoutItsMembers + "}";
+        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, innerPayload);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        AcmeServiceITest::assertRefusedAsMalformedPayload);
+    }
+
+    @Test
+    void refusesAsMalformed_whenInnerKeyChangeJwsNamesAnAccountInsteadOfItsKey() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String innerPayload = "{\"account\":\"" + baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID + "\",\"oldKey\":"
+                + rsa2048PublicJWK + "}";
+        String innerJwsSignedWithAccountKey = signedWithAccountKey(innerPayload, requestUri, baseUri);
+        String requestJson = signedWithAccountKey(innerJwsSignedWithAccountKey, requestUri, baseUri);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+        });
+    }
+
+    @Test
+    void refusesAsUnknownAccount_whenKeyChangeAccountEndsWithoutAnIdentifier() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/key-change");
+        String innerPayload = "{\"account\":\"/\",\"oldKey\":" + rsa2048PublicJWK + "}";
+        String requestJson = buildKeyRolloverRequestJSON(requestUri, baseUri, innerPayload);
+
+        // when
+        ThrowingCallable keyChange = () -> acmeService.keyRollover(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(keyChange)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.ACCOUNT_DOES_NOT_EXIST.getType()));
+    }
+
+    @Test
+    void refusesAsUnknownAccount_whenKidEndsWithoutAnIdentifier() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/new-order");
+        String kidWithoutAnIdentifier = "/";
+        String requestJson = signedWithAccountKeyAs(kidWithoutAnIdentifier, "{}", requestUri);
+
+        // when
+        ThrowingCallable newOrder = () -> acmeService.newOrder(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(newOrder)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.ACCOUNT_DOES_NOT_EXIST.getType()));
+    }
+
+    @Test
+    void refusesAsArchived_whenAccountRevokesArchivedCertificate() throws Exception {
+        // given
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/revoke-cert");
         certificate.setArchived(true);
         certificateRepository.save(certificate);
-        Assertions
-                .assertThrows(AcmeProblemDocumentException.class, () -> acmeService
-                        .revokeCertificate(ACME_PROFILE_NAME,
-                                buildRevokeCertRequestJSON_withAccountKey(requestUri, baseUri, b64UrlCertificate),
-                                requestUri, false));
+        String requestJson = buildRevokeCertRequestJSON_withAccountKey(requestUri, baseUri, b64UrlCertificate);
+
+        // when
+        ThrowingCallable revoke = () -> acmeService
+                .revokeCertificate(ACME_PROFILE_NAME, requestJson, requestUri, false);
+
+        // then
+        assertThatThrownBy(revoke).isInstanceOfSatisfying(AcmeProblemDocumentException.class, refused -> {
+            assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+            assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.ARCHIVED.getType());
+        });
     }
 
     @Test
@@ -2144,14 +2539,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
     private String buildKeyRolloverRequestJSON(URI requestUri, String baseUri, JWSSigner innerSigner)
             throws JOSEException {
         String innerJws = buildInnerKeyChangeJws(requestUri, baseUri, newRsa2048PublicJWK, innerSigner);
-        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(innerJws));
-        jwsObjectJSON
-                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
-                        .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
-                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
-                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
-                        .build(), rsa2048Signer);
-        return jwsObjectJSON.serializeFlattened();
+        return signedWithAccountKey(innerJws, requestUri, baseUri);
     }
 
     /** The inner JWS of a key change of the fixture's account to the given key, which signs it. */
@@ -2185,5 +2573,89 @@ class AcmeServiceITest extends BaseSpringBootTest {
     private static void assertRefusedAsUnauthorized(AcmeProblemDocumentException refused) {
         assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
         assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.UNAUTHORIZED.getType());
+    }
+
+    /** A key change request whose inner JWS, signed with the new key, carries the given payload. */
+    private String buildKeyRolloverRequestJSON(URI requestUri, String baseUri, String innerPayload)
+            throws JOSEException {
+        JWSObjectJSON innerJwsObjectJSON = new JWSObjectJSON(new Payload(innerPayload));
+        innerJwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .jwk(newRsa2048PublicJWK)
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), newRsa2048Signer);
+        return signedWithAccountKey(innerJwsObjectJSON.serializeFlattened(), requestUri, baseUri);
+    }
+
+    /** A request signed with the key of the fixture's account, which it names by its URL as {@code kid}. */
+    private String signedWithAccountKey(String payload, URI requestUri, String baseUri) throws JOSEException {
+        return signedWithAccountKeyAs(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID, payload, requestUri);
+    }
+
+    private String signedWithAccountKeyAs(String kid, String payload, URI requestUri) throws JOSEException {
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(payload));
+        jwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .keyID(kid)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), rsa2048Signer);
+        return jwsObjectJSON.serializeFlattened();
+    }
+
+    private static void assertRefusedAsMalformedPayload(AcmeProblemDocumentException refused) {
+        assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+        assertThat(refused.getProblemDocument().getDetail()).isEqualTo("Request payload is malformed");
+    }
+
+    private static Stream<Arguments> finalizePayloadsWithoutAUsableCsr() {
+        String malformedPayload = "Request payload is malformed";
+        return Stream
+                .of(Arguments.of(named("an object where the CSR is expected", "{\"csr\":{}}"), malformedPayload),
+                        Arguments.of(named("a boolean where the CSR is expected", "{\"csr\":false}"), malformedPayload),
+                        Arguments.of(named("a JSON array", "[]"), malformedPayload),
+                        Arguments.of(named("a payload without a CSR", "{}"), "CSR is missing"),
+                        Arguments.of(named("a null CSR", "{\"csr\":null}"), "CSR is missing"),
+                        Arguments
+                                .of(named("a CSR in base64 instead of base64url", "{\"csr\":\"MII+/w==\"}"),
+                                        "CSR is not base64url-encoded"));
+    }
+
+    private static Stream<Named<String>> authorizationPayloadsThatDoNotMap() {
+        return Stream
+                .of(named("a JSON array of member pairs", "[[\"status\",\"deactivated\"]]"),
+                        named("a boolean where the status is expected", "{\"status\":false}"),
+                        named("an object where the status is expected", "{\"status\":{}}"));
+    }
+
+    private static Stream<Named<String>> orderPayloadsWithAnIncompleteIdentifier() {
+        return Stream
+                .of(named("an identifier with a null value", "{\"identifiers\":[{\"type\":\"dns\",\"value\":null}]}"),
+                        named("an identifier without a value", "{\"identifiers\":[{\"type\":\"dns\"}]}"),
+                        named("an identifier without a type", "{\"identifiers\":[{\"value\":\"example.com\"}]}"),
+                        named("a null identifier", "{\"identifiers\":[null]}"));
+    }
+
+    /** The members of the key as a JSON array of name and value pairs, which Gson would read as an object. */
+    private static String jsonArrayOfMemberPairs(RSAKey key) {
+        return key
+                .toJSONObject()
+                .entrySet()
+                .stream()
+                .map(member -> "[\"" + member.getKey() + "\",\"" + member.getValue() + "\"]")
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private static Stream<Arguments> payloadsWithoutAUsableCertificate() {
+        return Stream
+                .of(Arguments.of(named("a payload that is not a JSON object", "revoke"), "malformed"),
+                        Arguments.of(named("a payload without a certificate", "{\"reason\":0}"), "missing"),
+                        Arguments
+                                .of(named("a certificate in base64 instead of base64url",
+                                        "{\"certificate\":\"MII+/w==\",\"reason\":0}"), "base64url"),
+                        Arguments
+                                .of(named("a certificate that is a JSON object", "{\"certificate\":{},\"reason\":0}"),
+                                        "malformed"));
     }
 }
