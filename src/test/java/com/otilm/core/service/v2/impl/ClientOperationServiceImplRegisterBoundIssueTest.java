@@ -62,6 +62,8 @@ import org.mockito.Mockito;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
@@ -170,11 +172,12 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setAuthorityInstanceReference(authority);
 
-        X509CertificateRequestEntity request = new X509CertificateRequestEntity();
-        request.setContent(Base64.getEncoder().encodeToString("csr-content".getBytes()));
+        X509CertificateRequestEntity request = aCertificateRequest()
+                .withContent(Base64.getEncoder().encodeToString("csr-content".getBytes()))
+                .build();
 
         certUuid = UUID.randomUUID();
-        certificate = new X509CertificateEntity();
+        certificate = aCertificate().build();
         certificate.setUuid(certUuid);
         certificate.setState(CertificateState.REGISTERED);
         certificate.setRaProfile(raProfile);
@@ -260,8 +263,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     @EnumSource(value = CertificateState.class, names = {"FAILED", "PENDING_ISSUE"})
     void racedStateIsRejectedWithoutConnectorCall(CertificateState racedState) {
         RegisterCapability adapter = registerCapableAdapter();
-        X509CertificateEntity racedRead = new X509CertificateEntity();
-        racedRead.setState(racedState);
+        X509CertificateEntity racedRead = aCertificate().withState(racedState).build();
         when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(racedRead));
 
         assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class).hasMessageContaining("raced");

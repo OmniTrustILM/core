@@ -64,6 +64,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.verifyingPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -372,17 +373,18 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
         content.setFingerprint(fingerprint);
         content = certificateContentRepository.save(content);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCertificateContent(content);
-        certificate.setCertificateContentId(content.getId());
-        certificate.setFingerprint(fingerprint);
-        certificate.setSubjectDn(x509Certificate.getSubjectX500Principal().getName());
-        certificate.setIssuerDn(x509Certificate.getIssuerX500Principal().getName());
-        certificate.setSerialNumber(x509Certificate.getSerialNumber().toString(16));
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setNotBefore(x509Certificate.getNotBefore());
-        certificate.setNotAfter(x509Certificate.getNotAfter());
+        X509CertificateEntity certificate = aCertificate()
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .withFingerprint(fingerprint)
+                .withSubjectDn(x509Certificate.getSubjectX500Principal().getName())
+                .withIssuerDn(x509Certificate.getIssuerX500Principal().getName())
+                .withSerialNumber(x509Certificate.getSerialNumber().toString(16))
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withNotBefore(x509Certificate.getNotBefore())
+                .withNotAfter(x509Certificate.getNotAfter())
+                .build();
         if (key != null) {
             certificate.setKey(key);
         }

@@ -30,6 +30,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CryptographicKeyFullModelBuilder.aKeySnapshot;
 import static com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder.aKeyItemSnapshot;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -326,9 +327,10 @@ class CryptographicKeyDtoMapperTest {
         CryptographicKey key = key();
         UUID certificateUuid = UUID.randomUUID();
         String certificateName = "signing.example.test";
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setUuid(certificateUuid);
-        certificate.setCommonName(certificateName);
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(certificateUuid)
+                .withCommonName(certificateName)
+                .build();
         key.setCertificates(Set.of(certificate));
         CryptographicKeyFullModel model = ImmutableCryptographicKeyFullModel.from(key);
 
@@ -469,9 +471,10 @@ class CryptographicKeyDtoMapperTest {
     }
 
     private static Certificate certificate(String commonName) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setUuid(UUID.randomUUID());
-        certificate.setCommonName(commonName);
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withCommonName(commonName)
+                .build();
         return certificate;
     }
 

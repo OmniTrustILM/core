@@ -137,6 +137,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -220,7 +221,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         raProfile.setAuthorityInstanceReference(authorityInstance);
         raProfile = raProfileRepository.save(raProfile);
 
-        certificate = new X509CertificateEntity();
+        certificate = aCertificate().build();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCercertificatetificate");
         certificate.setSerialNumber("123456789");
@@ -1061,11 +1062,12 @@ class AttributeEngineITest extends BaseSpringBootTest {
     @Test
     void testBulkDeleteObjectAttributeContent() throws AttributeException, NotFoundException {
         // Use existing certificate and create another one
-        X509CertificateEntity certificate2 = new X509CertificateEntity();
-        certificate2.setFingerprint("fingerprint2");
-        certificate2.setSubjectDn("CN=test2");
-        certificate2.setIssuerDn("CN=test2");
-        certificate2.setSerialNumber("2");
+        X509CertificateEntity certificate2 = aCertificate()
+                .withFingerprint("fingerprint2")
+                .withSubjectDn("CN=test2")
+                .withIssuerDn("CN=test2")
+                .withSerialNumber("2")
+                .build();
         certificate2 = certificateRepository.save(certificate2);
 
         // Add some attributes to both

@@ -56,6 +56,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DigitalSigningCertQueryITest extends BaseSpringBootTest {
@@ -349,7 +350,7 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
         CertificateContent content = CmpEntityUtil.createCertContent(CertificateUtil.getThumbprint(x509), pem);
         certificateContentRepository.save(content);
 
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(cert, x509);
         cert.setCertificateContent(content);
         cert.setKey(key);
@@ -432,7 +433,7 @@ class DigitalSigningCertQueryITest extends BaseSpringBootTest {
         CertificateContent content = CmpEntityUtil.createCertContent(CertificateUtil.getThumbprint(x509), pem);
         certificateContentRepository.save(content);
 
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(cert, x509);
         cert.setCertificateContent(content);
         cert.setKey(key);

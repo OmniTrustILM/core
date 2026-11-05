@@ -45,6 +45,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 class CallbackServiceITest extends BaseSpringBootTest {
 
     @Autowired
@@ -177,7 +179,7 @@ class CallbackServiceITest extends BaseSpringBootTest {
 
     @Test
     void testCallbackWithLoadResourceToBody() throws ConnectorException, NotFoundException, AttributeException {
-        X509CertificateEntity certificate = new X509CertificateEntity();
+        X509CertificateEntity certificate = aCertificate().build();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("content");
         certificateContentRepository.save(certificateContent);

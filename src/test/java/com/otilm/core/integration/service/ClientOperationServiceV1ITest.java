@@ -50,6 +50,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 public class ClientOperationServiceV1ITest extends BaseSpringBootTest {
 
     public static final String RA_PROFILE_NAME = "testRaProfile1";
@@ -136,12 +138,13 @@ public class ClientOperationServiceV1ITest extends BaseSpringBootTest {
         CertificateContent certificateContent = new CertificateContent();
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setCertificateContent(certificateContent);
-        certificate.setCertificateContentId(certificateContent.getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCertificate")
+                .withSerialNumber("123456789")
+                .withCertificateContent(certificateContent)
+                .withCertificateContentId(certificateContent.getId())
+                .build();
         certificateRepository.save(certificate);
 
         raProfileRepository.save(raProfile);

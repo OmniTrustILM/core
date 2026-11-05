@@ -20,7 +20,6 @@ import com.otilm.api.model.core.workflows.TriggerRequestDto;
 import com.otilm.api.model.core.workflows.TriggerType;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
@@ -61,6 +60,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * Conditions on the profile of a protocol, evaluated on a certificate read from the database. A certificate has one
@@ -213,7 +214,7 @@ class ProtocolProfileConditionITest extends BaseSpringBootTest {
     }
 
     private UUID certificateIssuedThrough(CertificateProtocol protocol, UUID profileUuid) {
-        Certificate certificate = certificateRepository.save(new X509CertificateEntity());
+        Certificate certificate = certificateRepository.save(aCertificate().build());
         CertificateProtocolAssociation association = new CertificateProtocolAssociation();
         association.setCertificateUuid(certificate.getUuid());
         association.setProtocol(protocol);

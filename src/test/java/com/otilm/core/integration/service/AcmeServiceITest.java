@@ -106,6 +106,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
@@ -250,7 +251,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
         certificateContent.setContent(b64Certificate);
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new X509CertificateEntity();
+        certificate = aCertificate().build();
         certificate.setCertificateContent(certificateContent);
         certificate.setFingerprint(CertificateUtil.getThumbprint(x509Certificate));
         certificate.setState(CertificateState.ISSUED);
@@ -359,12 +360,13 @@ class AcmeServiceITest extends BaseSpringBootTest {
         nonAcmeCertificateContent.setContent(nonAcmeB64Certificate);
         nonAcmeCertificateContent = certificateContentRepository.save(nonAcmeCertificateContent);
 
-        X509CertificateEntity nonAcmeCertificate = new X509CertificateEntity();
-        nonAcmeCertificate.setCertificateContent(nonAcmeCertificateContent);
-        nonAcmeCertificate.setFingerprint(CertificateUtil.getThumbprint(nonAcmeX509Certificate));
-        nonAcmeCertificate.setState(CertificateState.ISSUED);
-        nonAcmeCertificate.setValidationStatus(CertificateValidationStatus.VALID);
-        nonAcmeCertificate.setRaProfile(raProfile);
+        X509CertificateEntity nonAcmeCertificate = aCertificate()
+                .withCertificateContent(nonAcmeCertificateContent)
+                .withFingerprint(CertificateUtil.getThumbprint(nonAcmeX509Certificate))
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withRaProfile(raProfile)
+                .build();
         nonAcmeCertificate = certificateRepository.save(nonAcmeCertificate);
 
         nonAcmeCertificateContent.setCertificate(nonAcmeCertificate);

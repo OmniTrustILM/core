@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
@@ -42,8 +43,7 @@ class CertificateRegistrationWriterITest extends BaseSpringBootTest {
 
     @BeforeEach
     void createCertificate() {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setState(CertificateState.REGISTERED);
+        X509CertificateEntity certificate = aCertificate().withState(CertificateState.REGISTERED).build();
         certificateUuid = certificateRepository.save(certificate).getUuid();
     }
 

@@ -93,6 +93,7 @@ import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilter
 import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -366,9 +367,10 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     private UUID savedCertificate() {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setState(CertificateState.REGISTERED);
-        certificate.setRaProfile(raProfile);
+        X509CertificateEntity certificate = aCertificate()
+                .withState(CertificateState.REGISTERED)
+                .withRaProfile(raProfile)
+                .build();
         return certificateRepository.save(certificate).getUuid();
     }
 
@@ -669,9 +671,10 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     private Certificate registeredPlaceholder(String subjectDn, Map<String, List<String>> sans, String challenge) {
-        X509CertificateEntity placeholder = new X509CertificateEntity();
-        placeholder.setSubjectDn(subjectDn);
-        placeholder.setSubjectDnNormalized(CertificateUtil.normalizeStoredSubjectDn(subjectDn));
+        X509CertificateEntity placeholder = aCertificate()
+                .withSubjectDn(subjectDn)
+                .withSubjectDnNormalized(CertificateUtil.normalizeStoredSubjectDn(subjectDn))
+                .build();
         if (sans != null) {
             placeholder.setSubjectAlternativeNames(CertificateUtil.serializeSans(sans));
         }
@@ -750,17 +753,18 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
         content.setFingerprint(fingerprint);
         content = certificateContentRepository.save(content);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCertificateContent(content);
-        certificate.setCertificateContentId(content.getId());
-        certificate.setFingerprint(fingerprint);
-        certificate.setSubjectDn(x509Certificate.getSubjectX500Principal().getName());
-        certificate.setIssuerDn(x509Certificate.getIssuerX500Principal().getName());
-        certificate.setSerialNumber(x509Certificate.getSerialNumber().toString(16));
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setNotBefore(x509Certificate.getNotBefore());
-        certificate.setNotAfter(x509Certificate.getNotAfter());
+        X509CertificateEntity certificate = aCertificate()
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .withFingerprint(fingerprint)
+                .withSubjectDn(x509Certificate.getSubjectX500Principal().getName())
+                .withIssuerDn(x509Certificate.getIssuerX500Principal().getName())
+                .withSerialNumber(x509Certificate.getSerialNumber().toString(16))
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withNotBefore(x509Certificate.getNotBefore())
+                .withNotAfter(x509Certificate.getNotAfter())
+                .build();
         if (key != null) {
             certificate.setKey(key);
         }

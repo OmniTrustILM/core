@@ -27,7 +27,6 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.Connector;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -72,6 +71,7 @@ import org.springframework.security.concurrent.DelegatingSecurityContextExecutor
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -732,7 +732,7 @@ class AttributeContentItemUniquenessITest extends BaseSpringBootTest {
     }
 
     UUID newCertificate() {
-        return certificateRepository.save(new X509CertificateEntity()).getUuid();
+        return certificateRepository.save(aCertificate().build()).getUuid();
     }
 
     UUID newConnector() {

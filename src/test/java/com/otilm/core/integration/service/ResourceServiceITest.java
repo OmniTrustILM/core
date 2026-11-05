@@ -81,6 +81,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -203,15 +204,16 @@ class ResourceServiceITest extends BaseSpringBootTest {
         certificateContent.setContent(content);
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        X509CertificateEntity newCertificate = new X509CertificateEntity();
-        newCertificate.setSubjectDn(subjectDn);
-        newCertificate.setIssuerDn("testCertificate");
-        newCertificate.setSerialNumber(serialNumber);
-        newCertificate.setState(CertificateState.ISSUED);
-        newCertificate.setValidationStatus(CertificateValidationStatus.VALID);
-        newCertificate.setCertificateContent(certificateContent);
-        newCertificate.setCertificateContentId(certificateContent.getId());
-        newCertificate.setUuid(uuid);
+        X509CertificateEntity newCertificate = aCertificate()
+                .withSubjectDn(subjectDn)
+                .withIssuerDn("testCertificate")
+                .withSerialNumber(serialNumber)
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContent(certificateContent)
+                .withCertificateContentId(certificateContent.getId())
+                .withUuid(uuid)
+                .build();
         return certificateRepository.save(newCertificate);
     }
 

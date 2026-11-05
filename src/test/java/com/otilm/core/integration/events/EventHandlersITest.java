@@ -156,6 +156,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.argThat;
@@ -281,13 +282,14 @@ class EventHandlersITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        final X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCercertificatetificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setRaProfileUuid(raProfile.getUuid());
-        certificate.setNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)));
-        certificate.setNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)));
+        final X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCercertificatetificate")
+                .withSerialNumber("123456789")
+                .withRaProfileUuid(raProfile.getUuid())
+                .withNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)))
+                .withNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)))
+                .build();
         certificate.setCertificateType(CertificateType.X509);
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.INACTIVE);
@@ -1258,8 +1260,7 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     private void occupyContentIdWithAnotherCertificate(CertificateContent content) {
-        X509CertificateEntity squatter = new X509CertificateEntity();
-        squatter.setUuid(UUID.randomUUID());
+        X509CertificateEntity squatter = aCertificate().withUuid(UUID.randomUUID()).build();
         squatter.setFingerprint("squatter-" + UUID.randomUUID());
         squatter.setCertificateContentId(content.getId());
         squatter.setState(CertificateState.ISSUED);
@@ -1615,12 +1616,13 @@ class EventHandlersITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        final X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificateIssuer");
-        certificate.setSerialNumber("123456789");
-        certificate.setNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)));
-        certificate.setNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)));
+        final X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCertificateIssuer")
+                .withSerialNumber("123456789")
+                .withNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)))
+                .withNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)))
+                .build();
         certificate.setCertificateType(CertificateType.X509);
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.INACTIVE);

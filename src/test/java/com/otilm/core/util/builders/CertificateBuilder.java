@@ -13,6 +13,7 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.util.MetaDefinitions;
 
+import java.time.OffsetDateTime;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
@@ -61,6 +62,13 @@ public final class CertificateBuilder {
     private UUID altKeyUuid;
     private CertificateRequestEntity certificateRequest;
     private UUID certificateRequestUuid;
+    private UUID raProfileUuid;
+    private OffsetDateTime statusValidationTimestamp;
+    private Boolean trustedCa;
+    private String altKeyFingerprint;
+    private String certificateValidationResult;
+    private Boolean hybridCertificate;
+    private String subjectAlternativeNames;
 
     public static CertificateBuilder aCertificate() {
         return new CertificateBuilder();
@@ -221,6 +229,41 @@ public final class CertificateBuilder {
         return this;
     }
 
+    public CertificateBuilder withRaProfileUuid(UUID raProfileUuid) {
+        this.raProfileUuid = raProfileUuid;
+        return this;
+    }
+
+    public CertificateBuilder withStatusValidationTimestamp(OffsetDateTime statusValidationTimestamp) {
+        this.statusValidationTimestamp = statusValidationTimestamp;
+        return this;
+    }
+
+    public CertificateBuilder withTrustedCa(boolean trustedCa) {
+        this.trustedCa = trustedCa;
+        return this;
+    }
+
+    public CertificateBuilder withAltKeyFingerprint(String altKeyFingerprint) {
+        this.altKeyFingerprint = altKeyFingerprint;
+        return this;
+    }
+
+    public CertificateBuilder withCertificateValidationResult(String certificateValidationResult) {
+        this.certificateValidationResult = certificateValidationResult;
+        return this;
+    }
+
+    public CertificateBuilder withHybridCertificate(boolean hybridCertificate) {
+        this.hybridCertificate = hybridCertificate;
+        return this;
+    }
+
+    public CertificateBuilder withSubjectAlternativeNames(String subjectAlternativeNames) {
+        this.subjectAlternativeNames = subjectAlternativeNames;
+        return this;
+    }
+
     public X509CertificateEntity build() {
         X509CertificateEntity certificate = new X509CertificateEntity();
         if (uuid != null) {
@@ -315,6 +358,27 @@ public final class CertificateBuilder {
         }
         if (certificateRequestUuid != null) {
             certificate.setCertificateRequestUuid(certificateRequestUuid);
+        }
+        if (raProfileUuid != null) {
+            certificate.setRaProfileUuid(raProfileUuid);
+        }
+        if (statusValidationTimestamp != null) {
+            certificate.setStatusValidationTimestamp(statusValidationTimestamp);
+        }
+        if (trustedCa != null) {
+            certificate.setTrustedCa(trustedCa);
+        }
+        if (altKeyFingerprint != null) {
+            certificate.setAltKeyFingerprint(altKeyFingerprint);
+        }
+        if (certificateValidationResult != null) {
+            certificate.setCertificateValidationResult(certificateValidationResult);
+        }
+        if (hybridCertificate != null) {
+            certificate.setHybridCertificate(hybridCertificate);
+        }
+        if (subjectAlternativeNames != null) {
+            certificate.setSubjectAlternativeNames(subjectAlternativeNames);
         }
         return certificate;
     }

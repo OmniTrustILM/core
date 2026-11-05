@@ -15,6 +15,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class FindEligibleDescendantCertificatesITest extends BaseSpringBootTest {
@@ -30,10 +31,11 @@ class FindEligibleDescendantCertificatesITest extends BaseSpringBootTest {
 
     private Certificate buildCert(Certificate issuer, boolean hasContent, CertificateValidationStatus status,
             boolean archived, RaProfile raProfile) {
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setFingerprint(UUID.randomUUID().toString());
-        cert.setValidationStatus(status);
-        cert.setArchived(archived);
+        X509CertificateEntity cert = aCertificate()
+                .withFingerprint(UUID.randomUUID().toString())
+                .withValidationStatus(status)
+                .withArchived(archived)
+                .build();
         if (issuer != null) {
             cert.setIssuerCertificateUuid(issuer.getUuid());
         }

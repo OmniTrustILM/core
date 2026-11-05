@@ -20,6 +20,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 /**
  * The certificate-chain read links a leaf to its issuer the first time it finds the issuer in inventory. A request that
  * read the leaf before a concurrent revocation committed must write only that link, not the state it read.
@@ -68,7 +70,7 @@ class CertificateChainLinkingITest extends BaseSpringBootTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
+        X509CertificateEntity certificate = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(certificate, x509);
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());

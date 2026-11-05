@@ -11,7 +11,6 @@ import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.AttributeEngine;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -23,6 +22,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * Replacing an object's custom attribute content with a value the definition rejects must leave the stored value in
@@ -44,7 +45,7 @@ class CustomAttributeContentReplaceITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() throws AttributeException, NotFoundException {
-        certificateUuid = certificateRepository.save(new X509CertificateEntity()).getUuid();
+        certificateUuid = certificateRepository.save(aCertificate().build()).getUuid();
 
         CustomAttributeV3 pillar = new CustomAttributeV3();
         pillar.setUuid(UUID.randomUUID().toString());

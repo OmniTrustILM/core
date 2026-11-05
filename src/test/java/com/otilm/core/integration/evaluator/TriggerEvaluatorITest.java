@@ -114,6 +114,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Autowired
@@ -209,7 +211,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        certificate = new X509CertificateEntity();
+        certificate = aCertificate().build();
         certificateRepository.save(certificate);
 
         condition = new ConditionItem();
@@ -1201,7 +1203,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     @Test
     void testCertificateRuleEvaluatorCustomAttributeList()
             throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
-        X509CertificateEntity newCertificate = new X509CertificateEntity();
+        X509CertificateEntity newCertificate = aCertificate().build();
         certificateRepository.save(newCertificate);
 
         CustomAttributeCreateRequestDto listAttributeRequest = new CustomAttributeCreateRequestDto();
@@ -1325,7 +1327,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     @Test
     void testCertificateRuleEvaluatorCustomAttributeSingleString()
             throws AlreadyExistException, NotFoundException, RuleException, AttributeException {
-        X509CertificateEntity newCertificate = new X509CertificateEntity();
+        X509CertificateEntity newCertificate = aCertificate().build();
         certificateRepository.save(newCertificate);
 
         CustomAttributeCreateRequestDto singleAttributeRequest = new CustomAttributeCreateRequestDto();
@@ -1442,7 +1444,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
     @Test
     void testCertificateRuleEvaluatorCustomAttributeAbsent()
             throws AlreadyExistException, RuleException, AttributeException {
-        X509CertificateEntity newCertificate = new X509CertificateEntity();
+        X509CertificateEntity newCertificate = aCertificate().build();
         certificateRepository.save(newCertificate);
 
         // Create the attribute definition but do not assign any content to the certificate —
@@ -1511,7 +1513,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Test
     void testCertificateRuleEvaluatorCustomAttributeFromPendingRequest() throws RuleException {
-        X509CertificateEntity newCertificate = new X509CertificateEntity();
+        X509CertificateEntity newCertificate = aCertificate().build();
         certificateRepository.save(newCertificate);
 
         ConditionItem newCondition = new ConditionItem();
@@ -1554,7 +1556,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         // evaluation pass. A condition checking "category" must fall back to the DB rather than treat it as absent,
         // since pendingCustomAttributes only reflects the original request payload, not attributes set by other
         // triggers.
-        X509CertificateEntity newCertificate = new X509CertificateEntity();
+        X509CertificateEntity newCertificate = aCertificate().build();
         certificateRepository.save(newCertificate);
 
         CustomAttributeCreateRequestDto categoryAttributeRequest = new CustomAttributeCreateRequestDto();
@@ -1595,7 +1597,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         // runs
         // (the scenario for CERTIFICATE_UPLOADED ignore-triggers, which run before the certificate exists in the DB at
         // all)
-        X509CertificateEntity unpersistedCertificate = new X509CertificateEntity();
+        X509CertificateEntity unpersistedCertificate = aCertificate().build();
         Assertions.assertNull(unpersistedCertificate.getUuid());
 
         ConditionItem newCondition = new ConditionItem();
@@ -1657,7 +1659,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
 
     @Test
     void testCertificateRuleEvaluatorMeta() throws RuleException, AttributeException {
-        X509CertificateEntity newCertificate = new X509CertificateEntity();
+        X509CertificateEntity newCertificate = aCertificate().build();
         certificateRepository.save(newCertificate);
         Connector connector = new Connector();
         connector.setVersion(ConnectorVersion.V1);

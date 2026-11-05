@@ -107,6 +107,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 class DiscoveryServiceITest extends BaseSpringBootTest {
 
     private static final String DISCOVERY_NAME = "testDiscovery1";
@@ -2107,7 +2109,7 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     private void knownCertificate() throws Exception {
-        X509CertificateEntity known = new X509CertificateEntity();
+        X509CertificateEntity known = aCertificate().build();
         known
                 .setFingerprint(CertificateUtil
                         .getThumbprint(CertificateUtil.parseCertificate(CERTIFICATE_BASE64).getEncoded()));

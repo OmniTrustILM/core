@@ -54,6 +54,7 @@ import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -101,8 +102,7 @@ class UserManagementServiceITest extends BaseSpringBootTest {
 
     @Test
     void testDoNotUseArchivedCertificates() {
-        X509CertificateEntity archivedCertificate = new X509CertificateEntity();
-        archivedCertificate.setArchived(true);
+        X509CertificateEntity archivedCertificate = aCertificate().withArchived(true).build();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("content");
         certificateContentRepository.save(certificateContent);
@@ -520,10 +520,11 @@ class UserManagementServiceITest extends BaseSpringBootTest {
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("content-" + fingerprint);
         certificateContentRepository.save(certificateContent);
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setFingerprint(fingerprint);
-        certificate.setCertificateContent(certificateContent);
+        X509CertificateEntity certificate = aCertificate()
+                .withState(CertificateState.ISSUED)
+                .withFingerprint(fingerprint)
+                .withCertificateContent(certificateContent)
+                .build();
         certificateRepository.save(certificate);
         return certificate;
     }

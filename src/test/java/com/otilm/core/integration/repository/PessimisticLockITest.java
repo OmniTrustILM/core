@@ -2,7 +2,6 @@ package com.otilm.core.integration.repository;
 
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
@@ -22,6 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -61,17 +61,27 @@ public class PessimisticLockITest extends BaseSpringBootTest {
     private DataSource dataSource;
 
     @Test
-    void certificateLockQueryTakesTheRowLock() {
-        UUID uuid = certificateRepository.save(new X509CertificateEntity()).getUuid();
-        assertRowLockedWhile("certificate", uuid,
-                () -> certificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow());
+    void locksTheCertificateRow_whenFindingItForUpdate() {
+        // given
+        UUID uuid = certificateRepository.save(aCertificate().build()).getUuid();
+
+        // when
+        Runnable findForUpdate = () -> certificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow();
+
+        // then
+        assertRowLockedWhile("certificate", uuid, findForUpdate);
     }
 
     @Test
-    void x509CertificateLockQueryTakesTheRowLock() {
-        UUID uuid = x509CertificateRepository.save(new X509CertificateEntity()).getUuid();
-        assertRowLockedWhile("certificate", uuid,
-                () -> x509CertificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow());
+    void locksTheCertificateRow_whenFindingItForUpdateThroughTheX509Repository() {
+        // given
+        UUID uuid = x509CertificateRepository.save(aCertificate().build()).getUuid();
+
+        // when
+        Runnable findForUpdate = () -> x509CertificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow();
+
+        // then
+        assertRowLockedWhile("certificate", uuid, findForUpdate);
     }
 
     @Test

@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.atLeast;
@@ -109,10 +110,11 @@ class CertificateValidationStatusPollerTest {
     }
 
     private static Certificate entity(CertificateValidationStatus status) {
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setUuid(UUID.randomUUID());
-        cert.setState(CertificateState.ISSUED);
-        cert.setValidationStatus(status);
+        X509CertificateEntity cert = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(status)
+                .build();
         return cert;
     }
 }

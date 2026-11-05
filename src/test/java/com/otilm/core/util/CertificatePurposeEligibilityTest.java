@@ -12,6 +12,7 @@ import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
+import com.otilm.core.util.builders.CertificateBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -260,7 +261,7 @@ class CertificatePurposeEligibilityTest {
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static Certificate aCertificateEntity(CertificateKeyUsage keyUsage, String... extendedKeyUsageOids) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
+        X509CertificateEntity certificate = CertificateBuilder.aCertificate().build();
         certificate.setUsage(List.of(keyUsage));
         certificate
                 .setExtendedKeyUsage(extendedKeyUsageOids.length == 0

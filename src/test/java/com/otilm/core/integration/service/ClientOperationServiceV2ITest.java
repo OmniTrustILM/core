@@ -197,6 +197,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -368,7 +369,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificateContent = new CertificateContent();
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new X509CertificateEntity();
+        certificate = aCertificate().build();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCertificate");
         certificate.setSerialNumber("123456789");
@@ -2231,7 +2232,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     void testHandleFailedOrRejectedEvent() throws NotFoundException {
         CertificateRelation relation = new CertificateRelation();
         relation.setSuccessorCertificate(certificate);
-        X509CertificateEntity predCert = new X509CertificateEntity();
+        X509CertificateEntity predCert = aCertificate().build();
         // Its own content: the schema allows only one certificate per content.
         predCert.setCertificateContent(certificateContentRepository.save(new CertificateContent()));
         certificateRepository.save(predCert);
@@ -3224,14 +3225,15 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         predContent.setContent("predContent");
         predContent = certificateContentRepository.save(predContent);
 
-        X509CertificateEntity predCert = new X509CertificateEntity();
-        predCert.setSubjectDn("predecessor");
-        predCert.setIssuerDn("predecessor");
-        predCert.setSerialNumber("987654321");
-        predCert.setCertificateContent(predContent);
-        predCert.setCertificateContentId(predContent.getId());
-        predCert.setState(CertificateState.ISSUED);
-        predCert.setRaProfile(certificate.getRaProfile());
+        X509CertificateEntity predCert = aCertificate()
+                .withSubjectDn("predecessor")
+                .withIssuerDn("predecessor")
+                .withSerialNumber("987654321")
+                .withCertificateContent(predContent)
+                .withCertificateContentId(predContent.getId())
+                .withState(CertificateState.ISSUED)
+                .withRaProfile(certificate.getRaProfile())
+                .build();
         predCert = certificateRepository.save(predCert);
 
         CertificateRequestEntity csr = CertificateRequestEntityBuilder
@@ -3802,8 +3804,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // The real row stays PENDING_ISSUE (so the outer read + identify pass), but the row observed under
         // the lock is ISSUED — as if a concurrent upload committed the finalize just before we locked.
-        X509CertificateEntity alreadyIssued = new X509CertificateEntity();
-        alreadyIssued.setState(CertificateState.ISSUED);
+        X509CertificateEntity alreadyIssued = aCertificate().withState(CertificateState.ISSUED).build();
         doReturn(Optional.of(alreadyIssued))
                 .when(certificateRepository)
                 .findAndLockWithAssociationsByUuid(certificate.getUuid());
@@ -3844,7 +3845,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void addCertificateRequestToExisting_reassertUnderLock_rejectsWhenRaProfileChangedDuringAuthorization()
             throws Exception {
-        X509CertificateEntity switchedAway = new X509CertificateEntity();
+        X509CertificateEntity switchedAway = aCertificate().build();
         switchedAway.setState(CertificateState.REGISTERED); // raProfileUuid left null: profile changed away
         doReturn(Optional.of(switchedAway))
                 .when(certificateRepository)
@@ -4188,7 +4189,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         // handleFailedOrRejectedEvent cleanup pattern).
         // Set up: predecessor (an existing ISSUED cert) -- PENDING --> successor (the
         // cert being cancelled, in PENDING_ISSUE).
-        X509CertificateEntity predecessor = new X509CertificateEntity();
+        X509CertificateEntity predecessor = aCertificate().build();
         predecessor.setSubjectDn("CN=predecessor");
         predecessor.setIssuerDn("CN=test-issuer");
         predecessor.setSerialNumber("PRED-" + System.currentTimeMillis());

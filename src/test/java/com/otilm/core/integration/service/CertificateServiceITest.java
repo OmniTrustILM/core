@@ -2470,7 +2470,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
         /** Builds an issuer + a not-yet-issued certificate with a PENDING relation, ready to be issued. */
         private Certificate setUpRequestedIssueChain() throws Exception {
-            X509CertificateEntity commonIssuer = new X509CertificateEntity();
+            X509CertificateEntity commonIssuer = aCertificate().build();
             CertificateUtil
                     .prepareIssuedCertificate(commonIssuer, CertificateUtil.getX509Certificate(CA_BASE64_CONTENT));
             commonIssuer

@@ -39,6 +39,7 @@ import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.SerializationUtils;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -88,11 +89,13 @@ class StatisticsServiceITest extends BaseSpringBootTest {
 
     @Test
     void testGetStatistics_withLowPrivilegesCertificates() {
-        X509CertificateEntity certificateNotOwned = new X509CertificateEntity();
-        certificateNotOwned.setValidationStatus(CertificateValidationStatus.VALID);
+        X509CertificateEntity certificateNotOwned = aCertificate()
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .build();
         certificateRepository.save(certificateNotOwned);
-        X509CertificateEntity certificateOwned = new X509CertificateEntity();
-        certificateOwned.setValidationStatus(CertificateValidationStatus.FAILED);
+        X509CertificateEntity certificateOwned = aCertificate()
+                .withValidationStatus(CertificateValidationStatus.FAILED)
+                .build();
         certificateRepository.save(certificateOwned);
         OwnerAssociation ownerAssociation = getOwnerAssociation(certificateOwned.getUuid(), Resource.CERTIFICATE);
         certificateOwned.setOwner(ownerAssociation);

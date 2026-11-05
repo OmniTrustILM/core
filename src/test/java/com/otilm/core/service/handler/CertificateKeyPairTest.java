@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CertificateKeyPairTest {
@@ -39,7 +40,7 @@ class CertificateKeyPairTest {
 
     @Test
     void of_findsNothingForACertificateWithoutAKey() {
-        assertThat(CertificateKeyPair.of(new X509CertificateEntity())).isEmpty();
+        assertThat(CertificateKeyPair.of(aCertificate().build())).isEmpty();
     }
 
     @Test
@@ -106,9 +107,10 @@ class CertificateKeyPairTest {
         CryptographicKey key = new CryptographicKey();
         key.setUuid(UUID.randomUUID());
         key.setItems(Set.copyOf(Stream.of(items).toList()));
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setKey(key);
-        certificate.setPublicKeyFingerprint(publicKeyFingerprint);
+        X509CertificateEntity certificate = aCertificate()
+                .withKey(key)
+                .withPublicKeyFingerprint(publicKeyFingerprint)
+                .build();
         return certificate;
     }
 

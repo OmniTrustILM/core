@@ -18,6 +18,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
@@ -98,7 +99,7 @@ class BackfillExtendedKeyUsageCriticalITest extends BaseMigrationTest {
         content.setContent(pem);
         certificateContentRepository.save(content);
 
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(cert, x509);
         cert.setExtendedKeyUsageCritical(null); // simulate pre-migration state
         cert.setCertificateContent(content);

@@ -23,6 +23,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,7 +41,7 @@ class CertificateRelationsITest extends BaseMigrationTest {
 
     @Test
     void testMigration() throws Exception {
-        X509CertificateEntity hybridCertificate = new X509CertificateEntity();
+        X509CertificateEntity hybridCertificate = aCertificate().build();
         String content = Base64.getEncoder().encodeToString(CertificateTestUtil.createHybridCertificate().getEncoded());
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent(content);
@@ -49,22 +50,23 @@ class CertificateRelationsITest extends BaseMigrationTest {
         hybridCertificate.setCertificateContent(certificateContent);
         certificateRepository.save(hybridCertificate);
 
-        X509CertificateEntity sourceCertificate = new X509CertificateEntity();
-        sourceCertificate.setPublicKeyFingerprint("fp");
-        sourceCertificate.setAltKeyFingerprint("akfp");
+        X509CertificateEntity sourceCertificate = aCertificate()
+                .withPublicKeyFingerprint("fp")
+                .withAltKeyFingerprint("akfp")
+                .build();
         certificateRepository.save(sourceCertificate);
-        X509CertificateEntity certificate1 = new X509CertificateEntity();
-        certificate1.setPublicKeyFingerprint(sourceCertificate.getPublicKeyFingerprint());
-        certificate1.setState(CertificateState.ISSUED);
-        certificate1.setAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint());
-        X509CertificateEntity certificate2 = new X509CertificateEntity();
-        certificate2.setState(CertificateState.ISSUED);
-        certificate2.setPublicKeyFingerprint("fp2");
-        certificate2.setAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint());
-        X509CertificateEntity certificate3 = new X509CertificateEntity();
-        certificate3.setState(CertificateState.FAILED);
-        X509CertificateEntity certificate4 = new X509CertificateEntity();
-        certificate4.setState(CertificateState.PENDING_APPROVAL);
+        X509CertificateEntity certificate1 = aCertificate()
+                .withPublicKeyFingerprint(sourceCertificate.getPublicKeyFingerprint())
+                .withState(CertificateState.ISSUED)
+                .withAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint())
+                .build();
+        X509CertificateEntity certificate2 = aCertificate()
+                .withState(CertificateState.ISSUED)
+                .withPublicKeyFingerprint("fp2")
+                .withAltKeyFingerprint(sourceCertificate.getAltKeyFingerprint())
+                .build();
+        X509CertificateEntity certificate3 = aCertificate().withState(CertificateState.FAILED).build();
+        X509CertificateEntity certificate4 = aCertificate().withState(CertificateState.PENDING_APPROVAL).build();
         certificateRepository.saveAll(List.of(certificate1, certificate2, certificate3, certificate4));
 
         Context context = Mockito.mock(Context.class);

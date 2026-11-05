@@ -25,6 +25,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.TransactionSystemException;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -64,10 +65,11 @@ class ClientOperationServiceImplFailedApprovedRevokeTest {
         raProfile.setAuthorityInstanceReference(authority);
 
         certificateUuid = UUID.randomUUID();
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setUuid(certificateUuid);
-        certificate.setState(CertificateState.PENDING_APPROVAL);
-        certificate.setRaProfile(raProfile);
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(certificateUuid)
+                .withState(CertificateState.PENDING_APPROVAL)
+                .withRaProfile(raProfile)
+                .build();
         when(certificateRepository.findWithAssociationsByUuid(certificateUuid)).thenReturn(Optional.of(certificate));
 
         when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(adapter);

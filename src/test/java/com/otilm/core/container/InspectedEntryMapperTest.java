@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.container.ContainerFixtures.LF;
 import static com.otilm.core.container.ContainerFixtures.sha256;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class InspectedEntryMapperTest {
@@ -64,7 +65,7 @@ class InspectedEntryMapperTest {
         X509CertificateHolder certificate = ContainerFixtures
                 .selfSignedWithExtension(ContainerFixtures.ec(), "C=CZ,O=Example,CN=Leaf",
                         Extension.subjectAlternativeName, names.getEncoded());
-        X509CertificateEntity recorded = new X509CertificateEntity();
+        X509CertificateEntity recorded = aCertificate().build();
         CertificateUtil
                 .prepareIssuedCertificate(recorded, new JcaX509CertificateConverter().getCertificate(certificate));
         ContainerEntry entry = onlyEntryOf(ContainerFixtures.pem(LF, certificate));

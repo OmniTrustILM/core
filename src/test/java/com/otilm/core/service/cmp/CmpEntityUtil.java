@@ -110,8 +110,7 @@ public class CmpEntityUtil {
 
     public static Certificate createCertificate(BigInteger serialNumber, CertificateState state,
             CertificateContent certificateContent) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCertificateContent(certificateContent);
+        X509CertificateEntity certificate = aCertificate().withCertificateContent(certificateContent).build();
         if (certificateContent != null) {
             certificate.setFingerprint(certificateContent.getFingerprint());
         }

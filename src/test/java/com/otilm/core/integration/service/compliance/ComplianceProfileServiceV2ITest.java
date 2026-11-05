@@ -60,6 +60,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
@@ -901,18 +902,20 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
 
     @Test
     void testDisassociateProfile() throws NotFoundException {
-        X509CertificateEntity archivedCertificate = new X509CertificateEntity();
-        archivedCertificate.setArchived(true);
-        archivedCertificate.setRaProfileUuid(associatedRaProfileUuid);
-        archivedCertificate.setComplianceStatus(ComplianceStatus.OK);
+        X509CertificateEntity archivedCertificate = aCertificate()
+                .withArchived(true)
+                .withRaProfileUuid(associatedRaProfileUuid)
+                .withComplianceStatus(ComplianceStatus.OK)
+                .build();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("c");
         certificateContentRepository.save(certificateContent);
         archivedCertificate.setCertificateContent(certificateContent);
         certificateRepository.save(archivedCertificate);
-        X509CertificateEntity notArchivedCertificate = new X509CertificateEntity();
-        notArchivedCertificate.setRaProfileUuid(associatedRaProfileUuid);
-        notArchivedCertificate.setComplianceStatus(ComplianceStatus.OK);
+        X509CertificateEntity notArchivedCertificate = aCertificate()
+                .withRaProfileUuid(associatedRaProfileUuid)
+                .withComplianceStatus(ComplianceStatus.OK)
+                .build();
         CertificateContent certificateContent2 = new CertificateContent();
         certificateContent2.setContent("c2");
         certificateContentRepository.save(certificateContent2);

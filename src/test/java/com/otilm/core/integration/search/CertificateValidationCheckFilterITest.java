@@ -26,6 +26,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyFilter;
 
 /**
@@ -65,15 +66,16 @@ class CertificateValidationCheckFilterITest extends BaseSpringBootTest {
         content.setContent("1234567890-" + UUID.randomUUID());
         content = certificateContentRepository.save(content);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCommonName(commonName);
-        certificate.setSubjectDn("CN=" + commonName);
-        certificate.setIssuerDn("CN=" + commonName + "Issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString().replace("-", ""));
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateValidationResult(validationResult);
-        certificate.setCertificateContentId(content.getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withCommonName(commonName)
+                .withSubjectDn("CN=" + commonName)
+                .withIssuerDn("CN=" + commonName + "Issuer")
+                .withSerialNumber(UUID.randomUUID().toString().replace("-", ""))
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateValidationResult(validationResult)
+                .withCertificateContentId(content.getId())
+                .build();
         certificateRepository.save(certificate);
     }
 

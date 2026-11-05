@@ -60,6 +60,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 class ComplianceProfileServiceITest extends BaseSpringBootTest {
 
     private static final String KIND = "default";
@@ -531,18 +533,20 @@ class ComplianceProfileServiceITest extends BaseSpringBootTest {
 
     @Test
     void testDisassociateProfile() throws NotFoundException, ConnectorException {
-        X509CertificateEntity archivedCertificate = new X509CertificateEntity();
-        archivedCertificate.setArchived(true);
-        archivedCertificate.setRaProfileUuid(associatedRaProfileUuid);
-        archivedCertificate.setComplianceStatus(ComplianceStatus.OK);
+        X509CertificateEntity archivedCertificate = aCertificate()
+                .withArchived(true)
+                .withRaProfileUuid(associatedRaProfileUuid)
+                .withComplianceStatus(ComplianceStatus.OK)
+                .build();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("c");
         certificateContentRepository.save(certificateContent);
         archivedCertificate.setCertificateContent(certificateContent);
         certificateRepository.save(archivedCertificate);
-        X509CertificateEntity notArchivedCertificate = new X509CertificateEntity();
-        notArchivedCertificate.setRaProfileUuid(associatedRaProfileUuid);
-        notArchivedCertificate.setComplianceStatus(ComplianceStatus.OK);
+        X509CertificateEntity notArchivedCertificate = aCertificate()
+                .withRaProfileUuid(associatedRaProfileUuid)
+                .withComplianceStatus(ComplianceStatus.OK)
+                .build();
         CertificateContent certificateContent2 = new CertificateContent();
         certificateContent2.setContent("c2");
         certificateContentRepository.save(certificateContent2);

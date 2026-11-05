@@ -52,6 +52,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
+
 @SpringBootTest
 class SecurityFilterRepositoryITest extends BaseSpringBootTest {
 
@@ -118,7 +121,7 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         raProfile2.setName("Test RA profile2");
         raProfile2 = raProfileRepository.save(raProfile2);
 
-        certificateGroup = new X509CertificateEntity();
+        certificateGroup = aCertificate().build();
         certificateGroup.setSubjectDn("CN=testCertificateGroup");
         certificateGroup.setIssuerDn("CN=testCercertificateGroupIssuer");
         certificateGroup.setSerialNumber(TEST_SERIAL_NUMBER);
@@ -130,7 +133,7 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         resourceObjectAssociationService
                 .addGroup(Resource.CERTIFICATE, certificateGroup.getUuid(), secondGroup.getUuid());
 
-        certificateOwner = new X509CertificateEntity();
+        certificateOwner = aCertificate().build();
         certificateOwner.setSubjectDn("CN=testCertificateOwner");
         certificateOwner.setIssuerDn("CN=testCercertificateOwnerIssuer");
         certificateOwner.setSerialNumber("1234567");
@@ -149,7 +152,7 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         resourceObjectAssociationService
                 .addGroup(Resource.CERTIFICATE, certificateOwner.getUuid(), thirdGroup.getUuid());
 
-        certificateRaProfile1 = new X509CertificateEntity();
+        certificateRaProfile1 = aCertificate().build();
         certificateRaProfile1.setSubjectDn("CN=testCertificateRA1");
         certificateRaProfile1.setIssuerDn("CN=testCertificateRA1Issuer");
         certificateRaProfile1.setSerialNumber(TEST_SERIAL_NUMBER);
@@ -159,7 +162,7 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         certificateRaProfile1.setRaProfile(raProfile);
         certificateRaProfile1 = certificateRepository.save(certificateRaProfile1);
 
-        certificateRaProfile2 = new X509CertificateEntity();
+        certificateRaProfile2 = aCertificate().build();
         certificateRaProfile2.setSubjectDn("CN=testCertificateRA2");
         certificateRaProfile2.setIssuerDn("CN=testCertificateRAIssuer2");
         certificateRaProfile2.setSerialNumber("12345678");
@@ -240,7 +243,7 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void findUsingSecurityFilter_returnsProjectedValues() {
+    void returnsProjectedSubjects_whenTheProjectionReadsTheSubjectDn() {
         // given
         SecurityFilter filter = SecurityFilter.create();
         String expectedSubject = certificateGroup.getSubjectDn();
@@ -253,11 +256,11 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
                                 List.of()));
 
         // then
-        Assertions.assertTrue(subjects.contains(expectedSubject));
+        assertThat(subjects).contains(expectedSubject);
     }
 
     @Test
-    void findUsingSecurityFilter_returnsGroupedProjectedValues() {
+    void returnsGroupedSubjectCounts_whenTheProjectionGroupsBySubjectDn() {
         // given
         SecurityFilter filter = SecurityFilter.create();
         String expectedSubject = certificateGroup.getSubjectDn();
@@ -270,14 +273,18 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
                         List.of(cb.treat(root, X509CertificateEntity.class).get(X509CertificateEntity_.subjectDn))));
 
         // then
-        Assertions
-                .assertTrue(groupedSubjects
-                        .stream()
-                        .anyMatch(row -> expectedSubject.equals(row[0]) && Long.valueOf(1L).equals(row[1])));
+        assertThat(groupedSubjects).anySatisfy(row -> {
+            assertThat(row[0]).isEqualTo(expectedSubject);
+            assertThat(row[1]).isEqualTo(1L);
+        });
     }
 
     private static SortSpecification propertySort(String fieldIdentifier, SortDirection direction) {
         return new SortSpecification(FilterFieldSource.PROPERTY, fieldIdentifier, direction);
+    }
+
+    private static List<String> subjectDnsOf(List<Certificate> certificates) {
+        return certificates.stream().map(c -> X509CertificateEntity.from(c).getSubjectDn()).toList();
     }
 
     private List<UUID> uuidsOf(List<Certificate> certificates) {
@@ -285,9 +292,14 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void sortsByRootProperty() {
+    void ordersBySubjectDnInBothDirections_whenSortingByTheSubjectDnProperty() {
+        // given
         SecurityFilter filter = SecurityFilter.create();
+        List<String> subjectsAscending = List
+                .of("CN=testCertificateGroup", "CN=testCertificateOwner", "CN=testCertificateRA1",
+                        "CN=testCertificateRA2");
 
+        // when
         List<Certificate> ascending = certificateRepository
                 .findUsingSecurityFilter(filter, List.of(), null, null, null,
                         propertySort("SUBJECTDN", SortDirection.ASC));
@@ -295,16 +307,9 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
                 .findUsingSecurityFilter(filter, List.of(), null, null, null,
                         propertySort("SUBJECTDN", SortDirection.DESC));
 
-        Assertions
-                .assertEquals(
-                        List
-                                .of("CN=testCertificateGroup", "CN=testCertificateOwner", "CN=testCertificateRA1",
-                                        "CN=testCertificateRA2"),
-                        ascending.stream().map(c -> X509CertificateEntity.from(c).getSubjectDn()).toList());
-        Assertions
-                .assertEquals(
-                        ascending.stream().map(c -> X509CertificateEntity.from(c).getSubjectDn()).toList().reversed(),
-                        descending.stream().map(c -> X509CertificateEntity.from(c).getSubjectDn()).toList());
+        // then
+        assertThat(subjectDnsOf(ascending)).isEqualTo(subjectsAscending);
+        assertThat(subjectDnsOf(descending)).isEqualTo(subjectsAscending.reversed());
     }
 
     @Test
@@ -353,19 +358,20 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void noSortKeepsTheCallerDefaultOrder() {
+    void keepsTheCallerOrder_whenNoSortIsRequested() {
+        // given
         SecurityFilter filter = SecurityFilter.create();
+        List<String> subjectsDescending = List
+                .of("CN=testCertificateRA2", "CN=testCertificateRA1", "CN=testCertificateOwner",
+                        "CN=testCertificateGroup");
 
+        // when
         List<Certificate> certificates = certificateRepository
                 .findUsingSecurityFilter(filter, List.of(), null, null, (root, cb) -> cb
                         .desc(cb.treat(root, X509CertificateEntity.class).get(X509CertificateEntity_.subjectDn)));
 
-        Assertions
-                .assertEquals(
-                        List
-                                .of("CN=testCertificateRA2", "CN=testCertificateRA1", "CN=testCertificateOwner",
-                                        "CN=testCertificateGroup"),
-                        certificates.stream().map(c -> X509CertificateEntity.from(c).getSubjectDn()).toList());
+        // then
+        assertThat(subjectDnsOf(certificates)).isEqualTo(subjectsDescending);
     }
 
     /**

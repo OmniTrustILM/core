@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CertificateValidationWriterTxITest extends BaseSpringBootTest {
@@ -76,12 +77,13 @@ class CertificateValidationWriterTxITest extends BaseSpringBootTest {
     }
 
     private Certificate persistMinimalCertificate() {
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setCommonName("validationWriterTxTest");
-        cert.setSerialNumber(UUID.randomUUID().toString());
-        cert.setFingerprint(UUID.randomUUID().toString());
-        cert.setState(CertificateState.ISSUED);
-        cert.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
+        X509CertificateEntity cert = aCertificate()
+                .withCommonName("validationWriterTxTest")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withFingerprint(UUID.randomUUID().toString())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.NOT_CHECKED)
+                .build();
         return certificateRepository.save(cert);
     }
 }

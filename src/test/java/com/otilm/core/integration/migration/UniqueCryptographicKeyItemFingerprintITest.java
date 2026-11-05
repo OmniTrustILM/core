@@ -18,6 +18,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,8 +49,7 @@ class UniqueCryptographicKeyItemFingerprintITest extends BaseMigrationTest {
         publicKey1.setFormat(KeyFormat.SPKI);
         cryptographicKeyItemRepository.save(publicKey1);
 
-        X509CertificateEntity certificate1 = new X509CertificateEntity();
-        certificate1.setKeyUuid(keyWithPair1.getUuid());
+        X509CertificateEntity certificate1 = aCertificate().withKeyUuid(keyWithPair1.getUuid()).build();
         certificateRepository.save(certificate1);
 
         CryptographicKey keyWithPair2 = new CryptographicKey();
@@ -64,9 +64,10 @@ class UniqueCryptographicKeyItemFingerprintITest extends BaseMigrationTest {
         publicKey2.setFormat(KeyFormat.RAW);
         cryptographicKeyItemRepository.save(publicKey2);
 
-        X509CertificateEntity certificate2 = new X509CertificateEntity();
-        certificate2.setKeyUuid(keyWithPair2.getUuid());
-        certificate2.setAltKeyUuid(keyWithPair2.getUuid());
+        X509CertificateEntity certificate2 = aCertificate()
+                .withKeyUuid(keyWithPair2.getUuid())
+                .withAltKeyUuid(keyWithPair2.getUuid())
+                .build();
         certificateRepository.save(certificate2);
 
         CryptographicKey secretKey = new CryptographicKey();

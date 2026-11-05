@@ -52,14 +52,17 @@ class CertificateRevocationFinalizerTest {
 
     @Test
     void prepareRevokeFinalization_appliesAttributes_capturesDestroyKey_clearsFields() throws Exception {
+        // given
         Certificate cert = certWithAuthority();
         when(cert.getPendingRevokeAttributes()).thenReturn(List.of(mock(RequestAttribute.class)));
         when(cert.getPendingRevokeDestroyKey()).thenReturn(Boolean.TRUE);
         when(cert.getKey()).thenReturn(mock(CryptographicKey.class));
         when(cert.getKeyUuid()).thenReturn(KEY_UUID);
 
+        // when
         CertificateRevocationFinalizer.KeyCleanup cleanup = finalizer.prepareRevokeFinalization(cert);
 
+        // then
         assertThat(cleanup.destroyKey()).isTrue();
         assertThat(cleanup.keyUuid()).isEqualTo(KEY_UUID);
         verify(attributeEngine).updateObjectDataAttributesContent(any(ObjectAttributeContentInfo.class), any());
@@ -69,13 +72,16 @@ class CertificateRevocationFinalizerTest {
 
     @Test
     void prepareRevokeFinalization_noAttributes_noDestroyKey_noKey() {
+        // given
         Certificate cert = certWithAuthority();
         when(cert.getPendingRevokeAttributes()).thenReturn(null);
         when(cert.getPendingRevokeDestroyKey()).thenReturn(null);
         when(cert.getKey()).thenReturn(null);
 
+        // when
         CertificateRevocationFinalizer.KeyCleanup cleanup = finalizer.prepareRevokeFinalization(cert);
 
+        // then
         assertThat(cleanup.destroyKey()).isFalse();
         assertThat(cleanup.keyUuid()).isNull();
         verifyNoInteractions(attributeEngine);
@@ -140,11 +146,14 @@ class CertificateRevocationFinalizerTest {
 
     @Test
     void clearPendingRevokeFields_clearsBoth() {
+        // given
         Certificate cert = mock(Certificate.class);
         when(cert.getUuid()).thenReturn(CERT_UUID);
 
+        // when
         finalizer.clearPendingRevokeFields(cert);
 
+        // then
         verify(cert).setPendingRevokeDestroyKey(null);
         verify(pendingRevokeWriter).clear(CERT_UUID);
     }

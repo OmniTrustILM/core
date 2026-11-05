@@ -33,6 +33,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -230,11 +231,12 @@ class CertificateChainParityITest extends BaseSpringBootTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setCommonName(x509.getSubjectX500Principal().getName());
-        cert.setSubjectDn(x509.getSubjectX500Principal().getName());
-        cert.setIssuerDn(x509.getIssuerX500Principal().getName());
-        cert.setSerialNumber(x509.getSerialNumber().toString(16));
+        X509CertificateEntity cert = aCertificate()
+                .withCommonName(x509.getSubjectX500Principal().getName())
+                .withSubjectDn(x509.getSubjectX500Principal().getName())
+                .withIssuerDn(x509.getIssuerX500Principal().getName())
+                .withSerialNumber(x509.getSerialNumber().toString(16))
+                .build();
         cert.setCertificateType(CertificateType.X509);
         cert.setState(CertificateState.ISSUED);
         cert.setValidationStatus(CertificateValidationStatus.VALID);
@@ -246,11 +248,12 @@ class CertificateChainParityITest extends BaseSpringBootTest {
     }
 
     private Certificate persistCertificateWithoutContent() {
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setCommonName("CN=No-Content");
-        cert.setSubjectDn("CN=No-Content");
-        cert.setIssuerDn("CN=No-Content");
-        cert.setSerialNumber("deadbeef");
+        X509CertificateEntity cert = aCertificate()
+                .withCommonName("CN=No-Content")
+                .withSubjectDn("CN=No-Content")
+                .withIssuerDn("CN=No-Content")
+                .withSerialNumber("deadbeef")
+                .build();
         cert.setCertificateType(CertificateType.X509);
         cert.setState(CertificateState.REQUESTED);
         cert.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);

@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 /**
  * Verifies the data transforms of {@code V202607141200__align_certificate_schema_with_entities.sql} against seeded
  * pre-migration rows. The regular test bootstrap applies the migration to an empty schema, so without this test the
@@ -40,8 +42,8 @@ class AlignCertificateSchemaWithEntitiesITest extends BaseMigrationTest {
 
     @Test
     void testMigration() throws Exception {
-        X509CertificateEntity certificateWithNulls = new X509CertificateEntity();
-        X509CertificateEntity certificateWithValues = new X509CertificateEntity();
+        X509CertificateEntity certificateWithNulls = aCertificate().build();
+        X509CertificateEntity certificateWithValues = aCertificate().build();
         certificateWithValues.setUsage(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE));
         certificateWithValues.setHybridCertificate(true);
         certificateWithValues.setArchived(true);

@@ -245,9 +245,7 @@ class CertificateStateMachineTest {
     }
 
     private Certificate certWithState(CertificateState state) {
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setUuid(UUID.randomUUID());
-        cert.setState(state);
+        X509CertificateEntity cert = aCertificate().withUuid(UUID.randomUUID()).withState(state).build();
         return cert;
     }
 }

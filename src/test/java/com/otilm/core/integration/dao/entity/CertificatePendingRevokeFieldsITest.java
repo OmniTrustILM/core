@@ -43,7 +43,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
 
     @Test
     void newCertificate_hasNullPendingRevokeFields_byDefault() {
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         certificateRepository.save(cert);
 
         Certificate fetched = certificateRepository.findByUuid(cert.getUuid()).orElseThrow();
@@ -53,7 +53,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
 
     @Test
     void destroyKeyFlag_roundTrips() {
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeDestroyKey(Boolean.TRUE);
         certificateRepository.save(cert);
 
@@ -63,7 +63,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
 
     @Test
     void destroyKeyFlag_canBeFalse() {
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeDestroyKey(Boolean.FALSE);
         certificateRepository.save(cert);
 
@@ -79,7 +79,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
         attr.setContentType(AttributeContentType.STRING);
         attr.setContent(List.of(new StringAttributeContentV2("Compromised")));
 
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeAttributes(List.of(attr));
         certificateRepository.save(cert);
 
@@ -104,7 +104,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
         attr.setContentType(AttributeContentType.STRING);
         attr.setContent(List.of(new StringAttributeContentV3("KeyCompromise")));
 
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeAttributes(List.of(attr));
         certificateRepository.save(cert);
 
@@ -135,7 +135,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
         v3.setContentType(AttributeContentType.STRING);
         v3.setContent(List.of(new StringAttributeContentV3("new")));
 
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeAttributes(List.of(v2, v3));
         certificateRepository.save(cert);
 

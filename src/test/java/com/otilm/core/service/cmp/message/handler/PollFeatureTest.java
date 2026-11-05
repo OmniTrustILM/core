@@ -14,6 +14,7 @@ import org.bouncycastle.asn1.DEROctetString;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.any;
@@ -308,11 +309,12 @@ class PollFeatureTest {
     }
 
     private static Certificate certificateInState(UUID uuid, CertificateState state) {
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setUuid(uuid);
-        cert.setState(state);
-        cert.setSerialNumber("01");
-        cert.setSubjectDn("CN=test");
+        X509CertificateEntity cert = aCertificate()
+                .withUuid(uuid)
+                .withState(state)
+                .withSerialNumber("01")
+                .withSubjectDn("CN=test")
+                .build();
         return cert;
     }
 }

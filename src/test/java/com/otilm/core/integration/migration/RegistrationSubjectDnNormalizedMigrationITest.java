@@ -24,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -175,10 +176,11 @@ class RegistrationSubjectDnNormalizedMigrationITest extends BaseMigrationTest {
     }
 
     private Certificate persist(CertificateState state, String subjectDn, String subjectDnNormalized) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setState(state);
-        certificate.setSubjectDn(subjectDn);
-        certificate.setSubjectDnNormalized(subjectDnNormalized);
+        X509CertificateEntity certificate = aCertificate()
+                .withState(state)
+                .withSubjectDn(subjectDn)
+                .withSubjectDnNormalized(subjectDnNormalized)
+                .build();
         return certificateRepository.save(certificate);
     }
 

@@ -80,6 +80,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
 
 public abstract class SigningProfileTestBase extends BaseSpringBootTest {
@@ -240,7 +241,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
                 .seedKey("test-key-mldsa", tokenProfile, tokenInstanceRef, signingPrivateKey(KeyAlgorithm.MLDSA));
 
         // Certificate associated with the MLDSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
-        certificate = new X509CertificateEntity();
+        certificate = aCertificate().build();
         certificate.setKey(cryptographicKey);
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.VALID);
@@ -253,7 +254,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
                 .seedKey("test-key-rsa", tokenProfile, tokenInstanceRef, signingPrivateKey(KeyAlgorithm.RSA));
 
         // Certificate associated with the RSA key; satisfies constructQueryDigitalSigningCertAcceptable conditions
-        rsaCertificate = new X509CertificateEntity();
+        rsaCertificate = aCertificate().build();
         rsaCertificate.setKey(rsaCryptographicKey);
         rsaCertificate.setState(CertificateState.ISSUED);
         rsaCertificate.setValidationStatus(CertificateValidationStatus.VALID);
@@ -262,7 +263,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         attachSelfSignedContent(rsaCertificate);
 
         // Certificate specifically configured for TIMESTAMPING; satisfies RFC 3161 requirements
-        tsaCertificate = new X509CertificateEntity();
+        tsaCertificate = aCertificate().build();
         tsaCertificate.setKey(rsaCryptographicKey);
         tsaCertificate.setState(CertificateState.ISSUED);
         tsaCertificate.setValidationStatus(CertificateValidationStatus.VALID);
@@ -530,10 +531,11 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
     protected Certificate buildIncompleteChainCertificate()
             throws CertificateException, NoSuchAlgorithmException, OperatorCreationException {
         X509Certificate x509 = CertificateTestUtil.createEndEntityCertificate();
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setKey(cryptographicKey);
-        cert.setState(CertificateState.ISSUED);
-        cert.setValidationStatus(CertificateValidationStatus.VALID);
+        X509CertificateEntity cert = aCertificate()
+                .withKey(cryptographicKey)
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .build();
         cert = certificateRepository.saveAndFlush(cert);
 
         Certificate entityWithContent = certificateService.createCertificateEntity(x509);

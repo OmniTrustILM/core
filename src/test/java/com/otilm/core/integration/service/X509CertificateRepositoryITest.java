@@ -17,29 +17,33 @@ class X509CertificateRepositoryITest extends BaseSpringBootTest {
     private X509CertificateRepository x509CertificateRepository;
 
     @Test
-    void findsCertificateOfTheEntityType_whenFindingByAnInheritedQuery() {
+    void findsTheCertificate_whenFindingByAnInheritedQuery() {
         // given
-        String fingerprint = "inherited-fingerprint";
+        String storedFingerprint = "inherited-fingerprint";
         X509CertificateEntity stored = x509CertificateRepository
-                .save(aCertificate().withFingerprint(fingerprint).build());
+                .save(aCertificate().withFingerprint(storedFingerprint).build());
 
         // when
-        Optional<X509CertificateEntity> found = x509CertificateRepository.findByFingerprint(fingerprint);
+        Optional<X509CertificateEntity> found = x509CertificateRepository.findByFingerprint(storedFingerprint);
 
         // then
         assertThat(found).get().extracting(X509CertificateEntity::getUuid).isEqualTo(stored.getUuid());
     }
 
     @Test
-    void findsCertificate_whenSubjectAndSerialNumberMatch() {
+    void findsTheCertificate_whenSubjectAndSerialNumberMatch() {
         // given
-        X509CertificateEntity certificate = aCertificate().withSerialNumber("0a1b").build();
-        certificate.setSubjectDnNormalized("cn=holder");
-        X509CertificateEntity stored = x509CertificateRepository.save(certificate);
+        String storedSubject = "cn=holder";
+        String storedSerialNumber = "0a1b";
+        X509CertificateEntity stored = x509CertificateRepository
+                .save(aCertificate()
+                        .withSubjectDnNormalized(storedSubject)
+                        .withSerialNumber(storedSerialNumber)
+                        .build());
 
         // when
         Optional<X509CertificateEntity> found = x509CertificateRepository
-                .findBySubjectDnNormalizedAndSerialNumber("cn=holder", "0a1b");
+                .findBySubjectDnNormalizedAndSerialNumber(storedSubject, storedSerialNumber);
 
         // then
         assertThat(found).get().extracting(X509CertificateEntity::getUuid).isEqualTo(stored.getUuid());
@@ -48,31 +52,31 @@ class X509CertificateRepositoryITest extends BaseSpringBootTest {
     @Test
     void findsNothing_whenSubjectMatchesButSerialNumberDoesNot() {
         // given
-        X509CertificateEntity certificate = aCertificate().withSerialNumber("0a1b").build();
-        certificate.setSubjectDnNormalized("cn=holder");
-        x509CertificateRepository.save(certificate);
+        String storedSubject = "cn=holder";
+        String serialNumberOfAnotherCertificate = "ffff";
+        x509CertificateRepository
+                .save(aCertificate().withSubjectDnNormalized(storedSubject).withSerialNumber("0a1b").build());
 
         // when
         Optional<X509CertificateEntity> found = x509CertificateRepository
-                .findBySubjectDnNormalizedAndSerialNumber("cn=holder", "ffff");
+                .findBySubjectDnNormalizedAndSerialNumber(storedSubject, serialNumberOfAnotherCertificate);
 
         // then
         assertThat(found).isEmpty();
     }
 
     @Test
-    void listsCertificatesWithTheSubject_whenFindingBySubject() {
+    void listsTheCertificatesOfTheSubject_whenFindingBySubject() {
         // given
-        X509CertificateEntity first = aCertificate().withSerialNumber("01").build();
-        first.setSubjectDnNormalized("cn=shared");
-        X509CertificateEntity second = aCertificate().withSerialNumber("02").build();
-        second.setSubjectDnNormalized("cn=shared");
-        X509CertificateEntity other = aCertificate().withSerialNumber("03").build();
-        other.setSubjectDnNormalized("cn=other");
-        x509CertificateRepository.saveAll(List.of(first, second, other));
+        String sharedSubject = "cn=shared";
+        x509CertificateRepository
+                .saveAll(List
+                        .of(aCertificate().withSubjectDnNormalized(sharedSubject).withSerialNumber("01").build(),
+                                aCertificate().withSubjectDnNormalized(sharedSubject).withSerialNumber("02").build(),
+                                aCertificate().withSubjectDnNormalized("cn=other").withSerialNumber("03").build()));
 
         // when
-        List<X509CertificateEntity> found = x509CertificateRepository.findBySubjectDnNormalized("cn=shared");
+        List<X509CertificateEntity> found = x509CertificateRepository.findBySubjectDnNormalized(sharedSubject);
 
         // then
         assertThat(found).extracting(X509CertificateEntity::getSerialNumber).containsExactlyInAnyOrder("01", "02");

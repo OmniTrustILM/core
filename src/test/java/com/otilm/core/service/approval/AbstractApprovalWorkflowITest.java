@@ -35,6 +35,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 /**
  * Shared scaffolding for end-to-end approval-workflow integration tests that drive the full async path: ApprovalService
  * → JMS (real RabbitMQ) → listeners → ClientOperationService / certificate history.
@@ -111,12 +113,13 @@ public abstract class AbstractApprovalWorkflowITest extends BaseMessagingIntTest
         content.setContent(contentText);
         content = certificateContentRepository.save(content);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setSubjectDn(subjectDn);
-        certificate.setIssuerDn("CN=test-issuer");
-        certificate.setSerialNumber(serialNumber);
-        certificate.setState(CertificateState.PENDING_APPROVAL);
-        certificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn(subjectDn)
+                .withIssuerDn("CN=test-issuer")
+                .withSerialNumber(serialNumber)
+                .withState(CertificateState.PENDING_APPROVAL)
+                .withValidationStatus(CertificateValidationStatus.NOT_CHECKED)
+                .build();
         certificate.setCertificateType(CertificateType.X509);
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());

@@ -40,6 +40,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 /**
  * The key listing fetches in two phases - a page of uuids in the requested order, then the items by {@code uuid IN
  * (...)}. An ordering named by the second query would replace the one the first established, so these cases are what
@@ -121,15 +123,16 @@ class KeyListingSortITest extends BaseSpringBootTest {
         content.setContent("1234567890-" + UUID.randomUUID());
         content = certificateContentRepository.saveAndFlush(content);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCommonName(commonName);
-        certificate.setSubjectDn("CN=" + commonName);
-        certificate.setIssuerDn("CN=" + commonName + "Issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString());
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContentId(content.getId());
-        certificate.setKeyUuid(keyUuid);
+        X509CertificateEntity certificate = aCertificate()
+                .withCommonName(commonName)
+                .withSubjectDn("CN=" + commonName)
+                .withIssuerDn("CN=" + commonName + "Issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContentId(content.getId())
+                .withKeyUuid(keyUuid)
+                .build();
         certificateRepository.saveAndFlush(certificate);
     }
 

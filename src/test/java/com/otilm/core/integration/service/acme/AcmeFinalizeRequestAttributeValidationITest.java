@@ -59,6 +59,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
@@ -139,11 +140,12 @@ class AcmeFinalizeRequestAttributeValidationITest extends BaseSpringBootTest {
         certificateContent.setContent(b64Certificate);
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCertificateContent(certificateContent);
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setRaProfile(raProfile);
+        X509CertificateEntity certificate = aCertificate()
+                .withCertificateContent(certificateContent)
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withRaProfile(raProfile)
+                .build();
         certificateRepository.save(certificate);
 
         AcmeProfile acmeProfile = new AcmeProfile();

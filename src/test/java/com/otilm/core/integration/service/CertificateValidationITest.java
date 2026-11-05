@@ -151,6 +151,7 @@ import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.OcspResponseBuilder.anOcspResponse;
 import static com.otilm.core.util.builders.X509CrlBuilder.anX509Crl;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -220,7 +221,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         certificateContent.setContent(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new X509CertificateEntity();
+        certificate = aCertificate().build();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCertificate");
         certificate.setSerialNumber("123456789");
@@ -348,7 +349,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
         // Set issuer with different classic key and alt key to test signature not verified
         X509Certificate x509CertificateIssuer = CertificateTestUtil.createHybridCertificate();
-        X509CertificateEntity issuerCertificate = new X509CertificateEntity();
+        X509CertificateEntity issuerCertificate = aCertificate().build();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent(Base64.getEncoder().encodeToString(x509CertificateIssuer.getEncoded()));
         certificateContentRepository.save(certificateContent);
@@ -2365,11 +2366,12 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
     @Test
     void testGetCertificateChainNullContent() throws NotFoundException {
-        X509CertificateEntity certNoContent = new X509CertificateEntity();
-        certNoContent.setSubjectDn("CN=NullContentCert");
-        certNoContent.setIssuerDn("CN=SomeIssuer");
-        certNoContent.setSerialNumber("000000");
-        certNoContent.setState(CertificateState.REQUESTED);
+        X509CertificateEntity certNoContent = aCertificate()
+                .withSubjectDn("CN=NullContentCert")
+                .withIssuerDn("CN=SomeIssuer")
+                .withSerialNumber("000000")
+                .withState(CertificateState.REQUESTED)
+                .build();
         certNoContent.setCertificateType(CertificateType.X509);
         certNoContent.setNotBefore(new Date());
         certNoContent.setNotAfter(new Date());

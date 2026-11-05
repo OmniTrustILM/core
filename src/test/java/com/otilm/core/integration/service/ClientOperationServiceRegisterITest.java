@@ -146,6 +146,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -667,9 +668,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void issueRequestedCertificateWithSuppliedCsrIsRejected() {
-        X509CertificateEntity requested = new X509CertificateEntity();
-        requested.setState(CertificateState.REQUESTED);
-        requested.setRaProfile(raProfile);
+        X509CertificateEntity requested = aCertificate()
+                .withState(CertificateState.REQUESTED)
+                .withRaProfile(raProfile)
+                .build();
         requested = certificateRepository.save(requested);
         String certUuid = requested.getUuid().toString();
 
@@ -686,9 +688,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         // A blank/whitespace request body must not be read as "a CSR was supplied": a REQUESTED cert
         // carries its own (protocol-attached) CSR, so the issue proceeds rather than being rejected
         // with "already has a signing request".
-        X509CertificateEntity requested = new X509CertificateEntity();
-        requested.setState(CertificateState.REQUESTED);
-        requested.setRaProfile(raProfile);
+        X509CertificateEntity requested = aCertificate()
+                .withState(CertificateState.REQUESTED)
+                .withRaProfile(raProfile)
+                .build();
         requested = certificateRepository.save(requested);
         String certUuid = requested.getUuid().toString();
 
@@ -761,9 +764,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     @Test
     void addCertificateRequestToExistingRejectsNonRegisteredCertificate() throws Exception {
         // Defense-in-depth: the public attach method must refuse a non-REGISTERED certificate.
-        X509CertificateEntity requested = new X509CertificateEntity();
-        requested.setState(CertificateState.REQUESTED);
-        requested.setRaProfile(raProfile);
+        X509CertificateEntity requested = aCertificate()
+                .withState(CertificateState.REQUESTED)
+                .withRaProfile(raProfile)
+                .build();
         requested = certificateRepository.save(requested);
         UUID uuid = requested.getUuid();
         ClientCertificateIssueRequestDto req = new ClientCertificateIssueRequestDto();
@@ -1426,9 +1430,10 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Test
     void issueExistingRejectsCertInNonIssuableState() {
-        X509CertificateEntity issued = new X509CertificateEntity();
-        issued.setState(CertificateState.ISSUED);
-        issued.setRaProfile(raProfile);
+        X509CertificateEntity issued = aCertificate()
+                .withState(CertificateState.ISSUED)
+                .withRaProfile(raProfile)
+                .build();
         issued = certificateRepository.save(issued);
         String certUuid = issued.getUuid().toString();
         Assertions
@@ -2243,10 +2248,11 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     @Test
     void approvalRejectedOfCertWithoutAuthorizationTerminatesRejected() throws Exception {
         // A cert carrying no registration authorization keeps the terminal REJECTED behaviour on approval rejection.
-        X509CertificateEntity cert = new X509CertificateEntity();
-        cert.setState(CertificateState.PENDING_APPROVAL);
-        cert.setRaProfile(raProfile);
-        cert.setRaProfileUuid(raProfile.getUuid());
+        X509CertificateEntity cert = aCertificate()
+                .withState(CertificateState.PENDING_APPROVAL)
+                .withRaProfile(raProfile)
+                .withRaProfileUuid(raProfile.getUuid())
+                .build();
         UUID uuid = certificateRepository.save(cert).getUuid();
 
         clientOperationInternalService.issueCertificateRejectedAction(uuid);
@@ -2482,10 +2488,11 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     @Test
     void registerWithNonIssuedSourceIsRejectedBeforePlaceholder() {
         registeringAdapter();
-        X509CertificateEntity requested = new X509CertificateEntity();
-        requested.setState(CertificateState.REQUESTED);
-        requested.setRaProfile(raProfile);
-        requested.setRaProfileUuid(raProfile.getUuid());
+        X509CertificateEntity requested = aCertificate()
+                .withState(CertificateState.REQUESTED)
+                .withRaProfile(raProfile)
+                .withRaProfileUuid(raProfile.getUuid())
+                .build();
         UUID sourceUuid = certificateRepository.save(requested).getUuid();
         ClientCertificateRegistrationDto request = registrationRequest();
         request.setSourceCertificateUuid(sourceUuid);
@@ -2585,10 +2592,11 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     private Certificate seedIssuedCert() {
-        X509CertificateEntity issued = new X509CertificateEntity();
-        issued.setState(CertificateState.ISSUED);
-        issued.setRaProfile(raProfile);
-        issued.setRaProfileUuid(raProfile.getUuid());
+        X509CertificateEntity issued = aCertificate()
+                .withState(CertificateState.ISSUED)
+                .withRaProfile(raProfile)
+                .withRaProfileUuid(raProfile.getUuid())
+                .build();
         return certificateRepository.save(issued);
     }
 
@@ -2602,12 +2610,13 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content.setFingerprint(UUID.randomUUID().toString());
         content = certificateContentRepository.save(content);
-        X509CertificateEntity issued = new X509CertificateEntity();
-        issued.setState(CertificateState.ISSUED);
-        issued.setRaProfile(raProfile);
-        issued.setRaProfileUuid(raProfile.getUuid());
-        issued.setCertificateContent(content);
-        issued.setCertificateContentId(content.getId());
+        X509CertificateEntity issued = aCertificate()
+                .withState(CertificateState.ISSUED)
+                .withRaProfile(raProfile)
+                .withRaProfileUuid(raProfile.getUuid())
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .build();
         return certificateRepository.save(issued);
     }
 

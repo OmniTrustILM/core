@@ -32,6 +32,7 @@ import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -173,14 +174,14 @@ class CertificateChainCacheITest extends BaseSpringBootTest {
         certificateRepository.saveAndFlush(root);
         String key = cacheKey(root.getUuid(), true);
         certificateService.getCertificateChainForSigning(root.getUuid(), true);
-        Assertions.assertNotNull(cache.get(key), "cache should be warm before the save");
+        assertThat(cache.get(key)).as("cache should be warm before the save").isNotNull();
 
         // when
         root.setCommonName("CacheTest-Root-X509Repo-renamed");
         x509CertificateRepository.saveAndFlush(root);
 
         // then
-        Assertions.assertNull(cache.get(key), "a save through the X.509 repository must evict the cert-chain cache");
+        assertThat(cache.get(key)).as("a save through the X.509 repository must evict the cert-chain cache").isNull();
     }
 
     @Test

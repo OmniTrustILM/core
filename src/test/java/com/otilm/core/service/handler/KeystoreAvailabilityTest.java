@@ -18,6 +18,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -54,7 +55,7 @@ class KeystoreAvailabilityTest {
 
     @Test
     void of_isUnavailableWithoutAKey() {
-        assertThat(availability.of(new X509CertificateEntity())).isFalse();
+        assertThat(availability.of(aCertificate().build())).isFalse();
         verifyNoInteractions(capabilityService, tokenProfileRepository);
     }
 
@@ -139,10 +140,11 @@ class KeystoreAvailabilityTest {
         key.setTokenProfileUuid(PROFILE_UUID);
         key.setTokenInstanceReferenceUuid(TOKEN_UUID);
         key.setItems(Set.of(privateItem, publicItem));
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setKey(key);
-        certificate.setPublicKeyFingerprint(publicKeyFingerprint);
-        certificate.setCertificateContent(new CertificateContent());
+        X509CertificateEntity certificate = aCertificate()
+                .withKey(key)
+                .withPublicKeyFingerprint(publicKeyFingerprint)
+                .withCertificateContent(new CertificateContent())
+                .build();
         return certificate;
     }
 

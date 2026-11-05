@@ -25,7 +25,6 @@ import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfile;
@@ -89,6 +88,8 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.context.ApplicationContext;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 /**
  * Persists a minimal host object of any commentable resource and deletes it through the real service delete path. Every
  * object is built without a connector reference (or, for ENTITY, against the caller-supplied connector URL), so no
@@ -112,8 +113,7 @@ public class CommentableHostObjects {
 
     public UUID create(Resource resource) {
         return switch (resource) {
-            case CERTIFICATE ->
-                context.getBean(CertificateRepository.class).save(new X509CertificateEntity()).getUuid();
+            case CERTIFICATE -> context.getBean(CertificateRepository.class).save(aCertificate().build()).getUuid();
             case CRYPTOGRAPHIC_KEY -> {
                 CryptographicKey key = new CryptographicKey();
                 key.setName("tst-key");

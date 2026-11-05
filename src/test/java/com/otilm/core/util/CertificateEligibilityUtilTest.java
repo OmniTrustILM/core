@@ -27,6 +27,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 class CertificateEligibilityUtilTest {
 
     @BeforeAll
@@ -44,10 +46,11 @@ class CertificateEligibilityUtilTest {
     void testIsCertificateCmpAcceptable(String testCaseName, List<CertificateTestData.KeyItemData> publicKeys,
             List<CertificateTestData.KeyItemData> privateKeys, CertificateState certificateState,
             CertificateValidationStatus validationStatus, boolean archived, boolean expectedResult) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setState(certificateState);
-        certificate.setValidationStatus(validationStatus);
-        certificate.setArchived(archived);
+        X509CertificateEntity certificate = aCertificate()
+                .withState(certificateState)
+                .withValidationStatus(validationStatus)
+                .withArchived(archived)
+                .build();
 
         if (!publicKeys.isEmpty() || !privateKeys.isEmpty()) {
             CryptographicKey key = new CryptographicKey();
@@ -85,10 +88,11 @@ class CertificateEligibilityUtilTest {
             List<CertificateTestData.KeyItemData> privateKeys, CertificateState certificateState,
             CertificateValidationStatus validationStatus, boolean archived, boolean intuneEnabled,
             boolean expectedResult) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setState(certificateState);
-        certificate.setValidationStatus(validationStatus);
-        certificate.setArchived(archived);
+        X509CertificateEntity certificate = aCertificate()
+                .withState(certificateState)
+                .withValidationStatus(validationStatus)
+                .withArchived(archived)
+                .build();
 
         if (!publicKeys.isEmpty() || !privateKeys.isEmpty()) {
             CryptographicKey key = new CryptographicKey();
@@ -129,10 +133,11 @@ class CertificateEligibilityUtilTest {
             boolean withTokenProfile, boolean withTokenInstanceReference, List<String> extendedKeyUsages,
             boolean extendedKeyUsageCritical, SigningWorkflowType workflowType, boolean qualifiedTimestamp,
             Boolean qcCompliance, boolean expectedResult) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setState(certificateState);
-        certificate.setValidationStatus(validationStatus);
-        certificate.setArchived(archived);
+        X509CertificateEntity certificate = aCertificate()
+                .withState(certificateState)
+                .withValidationStatus(validationStatus)
+                .withArchived(archived)
+                .build();
 
         if (!extendedKeyUsages.isEmpty()) {
             certificate.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsages));

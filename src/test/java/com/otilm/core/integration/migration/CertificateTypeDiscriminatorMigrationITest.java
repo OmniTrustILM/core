@@ -1,6 +1,5 @@
 package com.otilm.core.integration.migration;
 
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
@@ -18,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -47,9 +47,9 @@ class CertificateTypeDiscriminatorMigrationITest extends BaseMigrationTest {
 
     @BeforeAll
     void seedOldStateAndMigrate() throws Exception {
-        UUID nullTypeCertificateUuid = certificateRepository.save(new X509CertificateEntity()).getUuid();
-        UUID emptyTypeCertificateUuid = certificateRepository.save(new X509CertificateEntity()).getUuid();
-        UUID otherTypeCertificateUuid = certificateRepository.save(new X509CertificateEntity()).getUuid();
+        UUID nullTypeCertificateUuid = certificateRepository.save(aCertificate().build()).getUuid();
+        UUID emptyTypeCertificateUuid = certificateRepository.save(aCertificate().build()).getUuid();
+        UUID otherTypeCertificateUuid = certificateRepository.save(aCertificate().build()).getUuid();
         X509CertificateRequestEntity request = CertificateRequestEntityBuilder
                 .aCertificateRequest()
                 .withContent("content")

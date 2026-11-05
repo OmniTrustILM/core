@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -94,8 +95,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
             throws NoSuchAlgorithmException {
         List<UUID> uuids = List.of(UUID.randomUUID());
         UUID keyUuid = UUID.randomUUID();
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCommonName("example.com");
+        X509CertificateEntity certificate = aCertificate().withCommonName("example.com").build();
 
         when(certificateRepository.findFirstByUuidIn(uuids)).thenReturn(certificate);
         when(cryptographicKeyService.findKeyByFingerprint(anyString())).thenReturn(null);
@@ -114,8 +114,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
             throws NoSuchAlgorithmException {
         List<UUID> uuids = List.of(UUID.randomUUID());
         UUID keyUuid = UUID.randomUUID();
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCommonName("example.com");
+        X509CertificateEntity certificate = aCertificate().withCommonName("example.com").build();
 
         when(certificateRepository.findFirstByUuidIn(uuids)).thenReturn(certificate);
         when(cryptographicKeyService.findKeyByFingerprint(anyString())).thenReturn(null);
@@ -134,8 +133,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
             throws NoSuchAlgorithmException {
         List<UUID> uuids = List.of(UUID.randomUUID());
         UUID keyUuid = UUID.randomUUID();
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCommonName("example.com");
+        X509CertificateEntity certificate = aCertificate().withCommonName("example.com").build();
 
         when(certificateRepository.findFirstByUuidIn(uuids)).thenReturn(certificate);
         when(cryptographicKeyService.findKeyByFingerprint(anyString())).thenReturn(keyUuid);
@@ -151,7 +149,7 @@ class CertificateHandlerDiscoveredKeyUploadTest {
     void uploadDiscoveredCertificateKey_whenCommonNameNull_namesKeyBySerialNumber() throws NoSuchAlgorithmException {
         List<UUID> uuids = List.of(UUID.randomUUID());
         UUID keyUuid = UUID.randomUUID();
-        X509CertificateEntity certificate = new X509CertificateEntity();
+        X509CertificateEntity certificate = aCertificate().build();
         certificate.setCommonName(null);
         certificate.setSerialNumber("AB12CD");
 

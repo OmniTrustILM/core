@@ -29,6 +29,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -49,9 +50,9 @@ class EnumCollectionsColumnsBitmaskITest extends BaseMigrationTest {
     @Test
     void testMigration() throws Exception {
         // Certificates
-        X509CertificateEntity certificate1 = new X509CertificateEntity();
-        X509CertificateEntity certificate2 = new X509CertificateEntity();
-        X509CertificateEntity certificate3 = new X509CertificateEntity();
+        X509CertificateEntity certificate1 = aCertificate().build();
+        X509CertificateEntity certificate2 = aCertificate().build();
+        X509CertificateEntity certificate3 = aCertificate().build();
         certificateRepository.saveAll(List.of(certificate1, certificate2, certificate3));
 
         // CryptographicKeyItems

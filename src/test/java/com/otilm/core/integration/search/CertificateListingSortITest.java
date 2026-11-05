@@ -27,6 +27,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 /**
  * The certificate listing is the other two-phase fetch: a page of uuids in the requested order, then the DTOs by
  * {@code uuid IN (...)}. An ordering carried by the second query would replace the one the first established, so these
@@ -61,14 +63,15 @@ class CertificateListingSortITest extends BaseSpringBootTest {
         content.setContent("1234567890-" + UUID.randomUUID());
         content = certificateContentRepository.save(content);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCommonName(commonName);
-        certificate.setSubjectDn("CN=" + commonName);
-        certificate.setIssuerDn("CN=" + commonName + "Issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString().replace("-", ""));
-        certificate.setState(state);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContentId(content.getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withCommonName(commonName)
+                .withSubjectDn("CN=" + commonName)
+                .withIssuerDn("CN=" + commonName + "Issuer")
+                .withSerialNumber(UUID.randomUUID().toString().replace("-", ""))
+                .withState(state)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContentId(content.getId())
+                .build();
         certificateRepository.save(certificate);
     }
 

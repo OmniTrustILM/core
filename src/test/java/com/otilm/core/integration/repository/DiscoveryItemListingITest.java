@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -240,14 +241,15 @@ class DiscoveryItemListingITest extends BaseSpringBootTest {
     }
 
     private void inventoryCertificate(String fingerprint, String commonName) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCommonName(commonName);
-        certificate.setSubjectDn(commonName);
-        certificate.setIssuerDn("CN=issuer");
-        certificate.setSerialNumber("01");
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContentId(certificateContentRepository.findByFingerprint(fingerprint).getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withCommonName(commonName)
+                .withSubjectDn(commonName)
+                .withIssuerDn("CN=issuer")
+                .withSerialNumber("01")
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContentId(certificateContentRepository.findByFingerprint(fingerprint).getId())
+                .build();
         certificateInventoryRepository.saveAndFlush(certificate);
     }
 }

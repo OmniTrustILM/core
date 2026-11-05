@@ -52,6 +52,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.any;
@@ -232,9 +233,7 @@ class CrmfMessageHandlerTest {
     }
 
     private static Certificate leafCertificate(UUID uuid) {
-        X509CertificateEntity leaf = new X509CertificateEntity();
-        leaf.setUuid(uuid);
-        leaf.setSerialNumber("01");
+        X509CertificateEntity leaf = aCertificate().withUuid(uuid).withSerialNumber("01").build();
         return leaf;
     }
 

@@ -36,6 +36,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authorization.AuthorizationDeniedException;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 /**
  * End-to-end tests for the {@link com.otilm.core.security.authz.ExternalAuthorizationDynamic} annotation exercised
  * through the real Spring AOP stack: the {@code dynamicAuthorizationManagerBeforeMethodInterception} advisor wired in
@@ -111,14 +113,15 @@ class ExternalAuthorizationDynamicITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContent(certificateContent);
-        certificate.setCertificateContentId(certificateContent.getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCertificate")
+                .withSerialNumber("123456789")
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContent(certificateContent)
+                .withCertificateContentId(certificateContent.getId())
+                .build();
         return certificateRepository.save(certificate);
     }
 

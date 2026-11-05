@@ -43,6 +43,8 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 class AcmeAccountServiceITest extends BaseSpringBootTest {
 
     private static final String RA_PROFILE_NAME = "testRaProfile1";
@@ -83,9 +85,10 @@ class AcmeAccountServiceITest extends BaseSpringBootTest {
         CertificateContent certificateContent = new CertificateContent();
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setCertificateContent(certificateContent);
-        certificate.setSerialNumber("123456789");
+        X509CertificateEntity certificate = aCertificate()
+                .withCertificateContent(certificateContent)
+                .withSerialNumber("123456789")
+                .build();
         certificateRepository.save(certificate);
 
         Connector connector = new Connector();

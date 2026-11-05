@@ -59,6 +59,7 @@ import org.junit.jupiter.api.function.Executable;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -315,10 +316,11 @@ class ScepServiceImplRegistrationModeTest {
     }
 
     private X509CertificateEntity registeredCertificate(String subjectDn, String serializedSans) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setUuid(CANDIDATE_UUID);
-        certificate.setSubjectDn(subjectDn);
-        certificate.setSubjectAlternativeNames(serializedSans);
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(CANDIDATE_UUID)
+                .withSubjectDn(subjectDn)
+                .withSubjectAlternativeNames(serializedSans)
+                .build();
         return certificate;
     }
 

@@ -34,6 +34,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -66,7 +68,7 @@ class CertificateDetailDtoMapperTest {
 
     @BeforeEach
     void setUp() {
-        certificate = new X509CertificateEntity();
+        certificate = aCertificate().build();
         certificate.uuid = UUID.randomUUID();
         certificate.setCommonName("test.example.com");
         certificate.setCertificateType(CertificateType.X509);
@@ -106,7 +108,7 @@ class CertificateDetailDtoMapperTest {
         certificate.setIssuerCertificateUuid(issuerUuid);
 
         // predecessorRelations branch (sourceCertificateUuid)
-        X509CertificateEntity predecessor = new X509CertificateEntity();
+        X509CertificateEntity predecessor = aCertificate().build();
         predecessor.uuid = UUID.randomUUID();
         CertificateRelation relation = new CertificateRelation();
         relation.setPredecessorCertificate(predecessor);
@@ -132,7 +134,7 @@ class CertificateDetailDtoMapperTest {
         certificate.setGroups(Set.of(group));
 
         // certificateRequest branch (with keyUuid and altKeyUuid to cover their sub-branches)
-        X509CertificateRequestEntity request = new X509CertificateRequestEntity();
+        X509CertificateRequestEntity request = aCertificateRequest().build();
         request.uuid = UUID.randomUUID();
         request.setContent("csrContent");
         request.setCertificateType(CertificateType.X509);

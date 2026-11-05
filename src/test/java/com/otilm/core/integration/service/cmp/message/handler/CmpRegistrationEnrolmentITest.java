@@ -88,6 +88,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -209,9 +210,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     private Certificate seedRegistration(String subjectDn, Map<String, List<String>> sans, CertificateState state) {
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setUuid(UUID.randomUUID());
-        certificate.setSubjectDn(subjectDn);
+        X509CertificateEntity certificate = aCertificate().withUuid(UUID.randomUUID()).withSubjectDn(subjectDn).build();
         if (sans != null) {
             certificate.setSubjectAlternativeNames(CertificateUtil.serializeSans(sans));
         }
@@ -374,11 +373,12 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         CertificateContent plainContent = new CertificateContent();
         plainContent.setContent(content);
         plainContent.setFingerprint(certificateContent.getFingerprint());
-        X509CertificateEntity pollResult = new X509CertificateEntity();
-        pollResult.setUuid(persisted.getUuid());
-        pollResult.setSerialNumber(persisted.getSerialNumber());
-        pollResult.setState(CertificateState.ISSUED);
-        pollResult.setCertificateContent(plainContent);
+        X509CertificateEntity pollResult = aCertificate()
+                .withUuid(persisted.getUuid())
+                .withSerialNumber(persisted.getSerialNumber())
+                .withState(CertificateState.ISSUED)
+                .withCertificateContent(plainContent)
+                .build();
         return pollResult;
     }
 

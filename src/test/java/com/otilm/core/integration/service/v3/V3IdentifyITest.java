@@ -39,6 +39,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * Integration test for the identify half of the operation-attribute round trip: values submitted with an RA-profile
@@ -117,14 +118,15 @@ class V3IdentifyITest extends BaseSpringBootTest {
                                 .withBody("{\"meta\": []}")));
 
         CertificateContent content = certificateContentRepository.save(new CertificateContent());
-        X509CertificateEntity certificate = new X509CertificateEntity();
-        certificate.setSubjectDn("CN=identify-" + UUID.randomUUID());
-        certificate.setIssuerDn("CN=test-issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString());
-        certificate.setCertificateContent(content);
-        certificate.setCertificateContentId(content.getId());
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("CN=identify-" + UUID.randomUUID())
+                .withIssuerDn("CN=test-issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .build();
         certificate = certificateRepository.save(certificate);
 
         RequestAttributeV3 identifyValue = new RequestAttributeV3(

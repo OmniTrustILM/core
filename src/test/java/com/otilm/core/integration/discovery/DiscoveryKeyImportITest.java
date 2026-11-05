@@ -66,6 +66,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import static com.otilm.core.util.TestPublicKeys.ecPublicKey;
 import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
 import static com.otilm.core.util.TestPublicKeys.spkiBase64;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aSecretKey;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -392,14 +393,15 @@ class DiscoveryKeyImportITest extends BaseSpringBootTest {
         content.setFingerprint(UUID.randomUUID().toString());
         content.setContent("certificate-carrying-the-key");
         content = certificateContentRepository.saveAndFlush(content);
-        X509CertificateEntity carrying = new X509CertificateEntity();
-        carrying.setSubjectDn("CN=host-k.example.com");
-        carrying.setIssuerDn("CN=issuer");
-        carrying.setSerialNumber("0a");
-        carrying.setState(CertificateState.ISSUED);
-        carrying.setValidationStatus(CertificateValidationStatus.VALID);
-        carrying.setCertificateContentId(content.getId());
-        carrying.setPublicKeyFingerprint(certificatePathFingerprint());
+        X509CertificateEntity carrying = aCertificate()
+                .withSubjectDn("CN=host-k.example.com")
+                .withIssuerDn("CN=issuer")
+                .withSerialNumber("0a")
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContentId(content.getId())
+                .withPublicKeyFingerprint(certificatePathFingerprint())
+                .build();
         carrying = certificateRepository.saveAndFlush(carrying);
         Discovery run = processingRun();
         stageKey(run, "tls://host-k:443", SPKI_BASE64, "connector-k");

@@ -32,6 +32,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -124,10 +125,11 @@ class RequestBoundComplianceCheckITest extends BaseComplianceTest {
         certificateRequest.setComplianceStatus(ComplianceStatus.NOK);
         certificateRequest.setComplianceResult(new ComplianceResultDto());
         UUID requestUuid = certificateRequestRepository.save(certificateRequest).getUuid();
-        X509CertificateEntity pending = new X509CertificateEntity();
-        pending.setState(CertificateState.REQUESTED);
-        pending.setCertificateRequestUuid(requestUuid);
-        pending.setRaProfileUuid(unassociatedRaProfileUuid);
+        X509CertificateEntity pending = aCertificate()
+                .withState(CertificateState.REQUESTED)
+                .withCertificateRequestUuid(requestUuid)
+                .withRaProfileUuid(unassociatedRaProfileUuid)
+                .build();
         UUID certificateUuid = certificateRepository.save(pending).getUuid();
 
         // when
@@ -200,7 +202,7 @@ class RequestBoundComplianceCheckITest extends BaseComplianceTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        X509CertificateEntity certificate = new X509CertificateEntity();
+        X509CertificateEntity certificate = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(certificate, x509);
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());

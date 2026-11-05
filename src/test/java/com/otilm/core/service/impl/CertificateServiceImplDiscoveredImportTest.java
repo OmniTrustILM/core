@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -90,8 +91,7 @@ class CertificateServiceImplDiscoveredImportTest {
 
     @Test
     void adoptsTheCommittedRowWhenTheInsertLostTheRace() throws Exception {
-        X509CertificateEntity winner = new X509CertificateEntity();
-        winner.setUuid(UUID.randomUUID());
+        X509CertificateEntity winner = aCertificate().withUuid(UUID.randomUUID()).build();
         // Absent when the method first looks, present by the time it re-reads: what the losing side observes, and
         // the only ordering under which the conflict-resolving insert reports nothing inserted.
         when(certificateRepository.findByFingerprint(anyString()))
@@ -114,7 +114,7 @@ class CertificateServiceImplDiscoveredImportTest {
     void stampsTheColumnsTheNativeInsertBypasses() throws Exception {
         when(certificateRepository.findByFingerprint(anyString()))
                 .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(new X509CertificateEntity()));
+                .thenReturn(Optional.of(aCertificate().build()));
 
         service.createDiscoveredCertificateAtomic(x509Certificate);
 
@@ -134,8 +134,7 @@ class CertificateServiceImplDiscoveredImportTest {
 
     @Test
     void skipsBothInsertsWhenTheCertificateIsAlreadyKnown() throws Exception {
-        X509CertificateEntity existing = new X509CertificateEntity();
-        existing.setUuid(UUID.randomUUID());
+        X509CertificateEntity existing = aCertificate().withUuid(UUID.randomUUID()).build();
         when(certificateRepository.findByFingerprint(anyString())).thenReturn(Optional.of(existing));
 
         DiscoveredCertificateImport result = service.createDiscoveredCertificateAtomic(x509Certificate);
