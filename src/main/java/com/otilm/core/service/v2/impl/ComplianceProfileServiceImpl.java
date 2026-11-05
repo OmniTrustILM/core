@@ -739,9 +739,10 @@ public class ComplianceProfileServiceImpl
                 .orElseThrow(() -> new NotFoundException(CertificateRequestEntity.class, certificateRequestUuid));
         resourceService.getResourceObject(Resource.CERTIFICATE, certificateUuid);
         X509CertificateRequestEntity x509Request = X509CertificateRequestEntity.fromOrNull(certificateRequest);
-        String name = certificateRequest.getCommonName() != null
-                ? certificateRequest.getCommonName()
-                : x509Request != null ? x509Request.getSubjectDn() : null;
+        String name = certificateRequest.getCommonName();
+        if (name == null && x509Request != null) {
+            name = x509Request.getSubjectDn();
+        }
         return new ResourceObjectDto(Resource.CERTIFICATE_REQUEST, certificateRequestUuid, name);
     }
 

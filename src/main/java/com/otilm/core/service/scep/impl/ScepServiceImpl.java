@@ -37,7 +37,6 @@ import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
-import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
@@ -154,7 +153,6 @@ public class ScepServiceImpl implements ScepExternalService {
     private ScepProfileRepository scepProfileRepository;
     private ScepTransactionRepository scepTransactionRepository;
     private ScepRegistrationTrackingWriter scepRegistrationTrackingWriter;
-    private CertificateRepository certificateRepository;
     private X509CertificateRepository x509CertificateRepository;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private RegistrationChallengeStore registrationChallengeStore;
@@ -206,11 +204,6 @@ public class ScepServiceImpl implements ScepExternalService {
     @Autowired
     public void setClientOperationExternalService(ClientOperationExternalService clientOperationExternalService) {
         this.clientOperationExternalService = clientOperationExternalService;
-    }
-
-    @Autowired
-    public void setCertificateRepository(CertificateRepository certificateRepository) {
-        this.certificateRepository = certificateRepository;
     }
 
     @Autowired

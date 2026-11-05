@@ -5,7 +5,6 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Crl;
 import com.otilm.core.dao.entity.CrlEntry;
 import com.otilm.core.dao.entity.CrlEntryId;
-import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CrlEntryRepository;
 import com.otilm.core.dao.repository.CrlRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
@@ -54,7 +53,6 @@ public class CrlServiceImpl implements CrlService {
 
     private static final Duration CLOCK_SKEW = Duration.ofMinutes(5);
 
-    private CertificateRepository certificateRepository;
     private X509CertificateRepository x509CertificateRepository;
 
     private CrlRepository crlRepository;
@@ -64,11 +62,6 @@ public class CrlServiceImpl implements CrlService {
     private CrlWriter crlWriter;
 
     private EntityManager entityManager;
-
-    @Autowired
-    public void setCertificateRepository(CertificateRepository certificateRepository) {
-        this.certificateRepository = certificateRepository;
-    }
 
     @Autowired
     public void setX509CertificateRepository(X509CertificateRepository x509CertificateRepository) {

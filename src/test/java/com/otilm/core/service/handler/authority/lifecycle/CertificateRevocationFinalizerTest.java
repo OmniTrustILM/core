@@ -46,12 +46,12 @@ class CertificateRevocationFinalizerTest {
     private static final UUID KEY_UUID = UUID.randomUUID();
 
     @BeforeEach
-    void setUp() {
+    void createFinalizer() {
         finalizer = new CertificateRevocationFinalizer(attributeEngine, keyService, pendingRevokeWriter);
     }
 
     @Test
-    void prepareRevokeFinalization_appliesAttributes_capturesDestroyKey_clearsFields() throws Exception {
+    void appliesAttributesAndClearsPendingFields_whenPreparingRevokeFinalization() throws Exception {
         // given
         Certificate cert = certWithAuthority();
         when(cert.getPendingRevokeAttributes()).thenReturn(List.of(mock(RequestAttribute.class)));
@@ -71,7 +71,7 @@ class CertificateRevocationFinalizerTest {
     }
 
     @Test
-    void prepareRevokeFinalization_noAttributes_noDestroyKey_noKey() {
+    void skipsAttributesAndKeyCleanup_whenNothingWasPreserved() {
         // given
         Certificate cert = certWithAuthority();
         when(cert.getPendingRevokeAttributes()).thenReturn(null);
@@ -145,7 +145,7 @@ class CertificateRevocationFinalizerTest {
     }
 
     @Test
-    void clearPendingRevokeFields_clearsBoth() {
+    void clearsDestroyKeyAndAttributes_whenClearingPendingRevokeFields() {
         // given
         Certificate cert = mock(Certificate.class);
         when(cert.getUuid()).thenReturn(CERT_UUID);

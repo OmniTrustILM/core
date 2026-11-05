@@ -5,6 +5,7 @@ import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.entity.workflows.TriggerAssociation;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
@@ -228,8 +229,10 @@ class EventHandlerTriggerIdentityTest {
         EventContext<Certificate> context = contextFor(null);
         context.getPlatformTriggers().getTriggers().add(associationCreatedBy(deletedOwnerUuid));
 
-        assertThatThrownBy(() -> handler
-                .evaluateTriggers(context, context.getPlatformTriggers(), aCertificate().build(), null, null))
+        X509CertificateEntity certificate = aCertificate().build();
+
+        assertThatThrownBy(
+                () -> handler.evaluateTriggers(context, context.getPlatformTriggers(), certificate, null, null))
                 .as("the event must fail rather than evaluate the trigger under an anonymous principal")
                 .isInstanceOf(PlatformAuthenticationException.class);
 

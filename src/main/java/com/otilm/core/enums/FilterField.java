@@ -133,8 +133,8 @@ public enum FilterField {
     KEY_SIZE(Resource.CERTIFICATE, null, null, Certificate_.keySize, "Key Size", SearchFieldTypeEnum.LIST),
     ALT_KEY_SIZE(Resource.CERTIFICATE, null, null, X509CertificateEntity_.altKeySize, "Alternative Key Size",
             SearchFieldTypeEnum.LIST),
-    KEY_USAGE(Resource.CERTIFICATE, null, null, X509CertificateEntity_.keyUsage, "Key Usage", SearchFieldTypeEnum.LIST,
-            CertificateKeyUsage.class),
+    KEY_USAGE(Resource.CERTIFICATE, null, null, X509CertificateEntity_.keyUsage, Constants.KEY_USAGE,
+            SearchFieldTypeEnum.LIST, CertificateKeyUsage.class),
     SUBJECT_TYPE(Resource.CERTIFICATE, null, null, Certificate_.subjectType, "Subject Type", SearchFieldTypeEnum.LIST,
             CertificateSubjectType.class),
     SUBJECT_ALTERNATIVE_NAMES(Resource.CERTIFICATE, null, null, X509CertificateEntity_.subjectAlternativeNames,
@@ -206,7 +206,7 @@ public enum FilterField {
     CERT_REQUEST_COMPLIANCE_STATUS(Resource.CERTIFICATE_REQUEST, null, null, CertificateRequestEntity_.complianceStatus,
             "Compliance Status", SearchFieldTypeEnum.LIST, ComplianceStatus.class),
     CERT_REQUEST_KEY_USAGE(Resource.CERTIFICATE_REQUEST, null, null, X509CertificateRequestEntity_.keyUsage,
-            "Key Usage", SearchFieldTypeEnum.LIST, CertificateKeyUsage.class),
+            Constants.KEY_USAGE, SearchFieldTypeEnum.LIST, CertificateKeyUsage.class),
     CERT_REQUEST_SUBJECT_ALTERNATIVE_NAMES(Resource.CERTIFICATE_REQUEST, null, null,
             X509CertificateRequestEntity_.subjectAlternativeNames, "Subject Alternative Name",
             SearchFieldTypeEnum.STRING),
@@ -221,7 +221,7 @@ public enum FilterField {
             SearchFieldTypeEnum.LIST, KeyState.class, null, false, null),
     CKI_CRYPTOGRAPHIC_ALGORITHM(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.keyAlgorithm,
             "Cryptographic algorithm", SearchFieldTypeEnum.LIST, KeyAlgorithm.class, null, false, null),
-    CKI_USAGE(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.usage, "Key Usage",
+    CKI_USAGE(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.usage, Constants.KEY_USAGE,
             SearchFieldTypeEnum.LIST, KeyUsage.class, null, false, null),
     CKI_LENGTH(Resource.CRYPTOGRAPHIC_KEY, null, null, CryptographicKeyItem_.length, "Key Size",
             SearchFieldTypeEnum.NUMBER),
@@ -603,6 +603,7 @@ public enum FilterField {
         private static final String RESOURCE_OBJECTS_ARRAY = "objects[*]";
         private static final String VALIDATION_CHECK_STATUS = "status";
         public static final String STATE = "State";
+        public static final String KEY_USAGE = "Key Usage";
         public static final String ENABLED = "Enabled";
         public static final String STATUS = "Status";
         public static final String CREATED_AT = "Created At";

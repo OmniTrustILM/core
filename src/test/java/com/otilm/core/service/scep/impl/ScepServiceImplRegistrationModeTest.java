@@ -16,7 +16,6 @@ import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
-import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
 import com.otilm.core.oid.OidHandler;
@@ -81,7 +80,6 @@ class ScepServiceImplRegistrationModeTest {
 
     private ScepServiceImpl service;
     private ScepProfile profile;
-    private CertificateRepository certificateRepository;
     private X509CertificateRepository x509CertificateRepository;
     private CertificateEventHistoryInternalService eventHistoryService;
     private ScepTransactionRepository scepTransactionRepository;
@@ -119,7 +117,6 @@ class ScepServiceImplRegistrationModeTest {
         service = new ScepServiceImpl();
         profile = mock(ScepProfile.class);
         when(profile.getChallengeSource()).thenReturn(ProtocolChallengeSource.CERTIFICATE_REGISTRATION);
-        certificateRepository = mock(CertificateRepository.class);
         x509CertificateRepository = mock(X509CertificateRepository.class);
         eventHistoryService = mock(CertificateEventHistoryInternalService.class);
         scepTransactionRepository = mock(ScepTransactionRepository.class);
@@ -137,7 +134,6 @@ class ScepServiceImplRegistrationModeTest {
 
         ReflectionTestUtils.setField(service, "scepProfile", profile);
         ReflectionTestUtils.setField(service, "raProfile", raProfile);
-        ReflectionTestUtils.setField(service, "certificateRepository", certificateRepository);
         ReflectionTestUtils.setField(service, "x509CertificateRepository", x509CertificateRepository);
         ReflectionTestUtils.setField(service, "certificateEventHistoryService", eventHistoryService);
         ReflectionTestUtils.setField(service, "scepTransactionRepository", scepTransactionRepository);
