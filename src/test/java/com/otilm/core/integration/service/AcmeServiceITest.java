@@ -1831,7 +1831,7 @@ class AcmeServiceITest extends BaseSpringBootTest {
         // then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow().getPublicKey())
-                .isEqualTo(encodedPublicKeyOf(newKey));
+                .isEqualTo(encodePublicKey(newKey));
     }
 
     private void assertKeyRollover(ResponseEntity<?> response) {
@@ -2812,11 +2812,11 @@ class AcmeServiceITest extends BaseSpringBootTest {
     /** Makes the given key, which carries its private part, the key of the fixture's account. */
     private void useAsAccountKey(JWK key) throws JOSEException {
         AcmeAccount account = acmeAccountRepository.findByAccountId(ACME_ACCOUNT_ID_VALID).orElseThrow();
-        account.setPublicKey(encodedPublicKeyOf(key));
+        account.setPublicKey(encodePublicKey(key));
         acmeAccountRepository.save(account);
     }
 
-    private static String encodedPublicKeyOf(JWK key) throws JOSEException {
+    private static String encodePublicKey(JWK key) throws JOSEException {
         return AcmePublicKeyProcessor.publicKeyPemStringFromObject(((AsymmetricJWK) key).toPublicKey());
     }
 
@@ -2830,25 +2830,25 @@ class AcmeServiceITest extends BaseSpringBootTest {
         JWSObjectJSON innerJws = new JWSObjectJSON(
                 new Payload("{\"account\":\"" + account + "\",\"oldKey\":" + accountKey.toPublicJWK() + "}"));
         innerJws
-                .sign(new JWSHeader.Builder(signingAlgorithmOf(newKey))
+                .sign(new JWSHeader.Builder(selectSigningAlgorithm(newKey))
                         .jwk(newKey.toPublicJWK())
                         .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
-                        .build(), signerOf(newKey));
+                        .build(), createSigner(newKey));
         JWSObjectJSON outerJws = new JWSObjectJSON(new Payload(innerJws.serializeFlattened()));
         outerJws
-                .sign(new JWSHeader.Builder(signingAlgorithmOf(accountKey))
+                .sign(new JWSHeader.Builder(selectSigningAlgorithm(accountKey))
                         .keyID(account)
                         .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
                         .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
-                        .build(), signerOf(accountKey));
+                        .build(), createSigner(accountKey));
         return outerJws.serializeFlattened();
     }
 
-    private static JWSAlgorithm signingAlgorithmOf(JWK key) {
+    private static JWSAlgorithm selectSigningAlgorithm(JWK key) {
         return key instanceof ECKey ? JWSAlgorithm.ES256 : JWSAlgorithm.RS256;
     }
 
-    private static JWSSigner signerOf(JWK key) throws JOSEException {
+    private static JWSSigner createSigner(JWK key) throws JOSEException {
         return key instanceof ECKey ecKey ? new ECDSASigner(ecKey) : new RSASSASigner(key.toRSAKey());
     }
 
