@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -151,7 +152,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
     @Test
     void persistsAttributes_whenWriterSavesThem() {
         // given
-        X509CertificateEntity cert = certificateRepository.save(new X509CertificateEntity());
+        X509CertificateEntity cert = certificateRepository.save(aCertificate().build());
         RequestAttributeV2 attribute = aStringAttribute("dummy");
 
         // when
@@ -166,7 +167,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
     @Test
     void persistsNullAttributes_whenWriterClearsThem() {
         // given
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeAttributes(List.of(aStringAttribute("dummy")));
         certificateRepository.save(cert);
 
@@ -181,7 +182,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
     @Test
     void persistsNullDestroyKey_whenEntityClearsIt() {
         // given
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         cert.setPendingRevokeDestroyKey(Boolean.TRUE);
         certificateRepository.save(cert);
 
@@ -197,7 +198,7 @@ class CertificatePendingRevokeFieldsITest extends BaseSpringBootTest {
     @Test
     void newCertificate_archivedFlagUnaffected() {
         // Sanity: ensure adding the new columns hasn't broken the existing archived default.
-        X509CertificateEntity cert = new X509CertificateEntity();
+        X509CertificateEntity cert = aCertificate().build();
         certificateRepository.save(cert);
         assertFalse(certificateRepository.findByUuid(cert.getUuid()).orElseThrow().isArchived());
     }

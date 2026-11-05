@@ -10,6 +10,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,13 +21,16 @@ import org.springframework.core.io.ClassPathResource;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies {@code V202611051000__certificate_type_discriminator.sql} against rows seeded in the state it repairs. The
- * regular test bootstrap applies the migration to an empty schema, so without this test its backfill would never run
- * against data.
+ * Verifies the three {@code V20261105100x__certificate_type_discriminator*.sql} migrations against rows seeded in the
+ * state they repair. The regular test bootstrap applies them to an empty schema, so without this test the backfill
+ * would never run against data.
  */
 class CertificateTypeDiscriminatorMigrationITest extends BaseMigrationTest {
 
-    private static final String MIGRATION_RESOURCE = "db/migration/V202611051000__certificate_type_discriminator.sql";
+    private static final List<String> MIGRATION_RESOURCES = List
+            .of("db/migration/V202611051000__certificate_type_discriminator.sql",
+                    "db/migration/V202611051001__certificate_type_discriminator_validate.sql",
+                    "db/migration/V202611051002__certificate_type_discriminator_not_null.sql");
 
     @Autowired
     DataSource dataSource;
@@ -78,7 +82,9 @@ class CertificateTypeDiscriminatorMigrationITest extends BaseMigrationTest {
                     .execute("UPDATE certificate_request SET certificate_type = NULL WHERE uuid = '%s'"
                             .formatted(nullTypeRequestUuid));
 
-            statement.execute(new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8));
+            for (String migration : MIGRATION_RESOURCES) {
+                statement.execute(new ClassPathResource(migration).getContentAsString(StandardCharsets.UTF_8));
+            }
         }
 
         typeOfNullTypeCertificate = columnOf("certificate", "certificate_type", nullTypeCertificateUuid);

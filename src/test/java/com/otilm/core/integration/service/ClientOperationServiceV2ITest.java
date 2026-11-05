@@ -2683,6 +2683,31 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void leavesNoPendingRevokeAttributes_whenTheTransitionToPendingRevokeFails() {
+        // given
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke"))
+                        .willReturn(WireMock.aResponse().withStatus(202)));
+        RequestAttributeV2 revokeAttribute = new RequestAttributeV2(UUID.randomUUID(), "reasonDetail",
+                AttributeContentType.STRING, List.of(new StringAttributeContentV2("key compromise")));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of(revokeAttribute));
+        request.setDestroyKey(true);
+        doThrow(new RuntimeException("save failed")).when(certificateRepository).save(any());
+
+        // when
+        ThrowingCallable revoke = () -> clientOperationInternalService
+                .revokeCertificateAction(certificate.getUuid(), request, true);
+
+        // then
+        assertThatThrownBy(revoke).isInstanceOf(CertificateOperationException.class);
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        assertThat(fetched.getState()).isEqualTo(CertificateState.ISSUED);
+        assertThat(fetched.getPendingRevokeAttributes()).isNull();
+    }
+
+    @Test
     void revokeCertificateAction_completesSynchronously_on200WithEmptyBodyAndNoContentType() {
         // Default WireMock 200 response: no Content-Length, no Content-Type, no body.
         // This is the typical synchronous-success response from a v2 connector

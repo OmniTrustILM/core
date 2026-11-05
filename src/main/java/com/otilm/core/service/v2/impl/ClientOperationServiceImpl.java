@@ -175,6 +175,7 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service("clientOperationServiceImplV2")
 // Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
@@ -2804,11 +2805,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * (per the v2 contract); the platform tracks the operation by transactionId / certificate identity.
      */
     private void transitionToPendingRevoke(Certificate certificate, ClientCertificateRevocationDto request) {
-        certificate.setPendingRevokeDestroyKey(request.isDestroyKey());
-        pendingRevokeWriter.save(certificate.getUuid(), request.getAttributes());
-        stateMachine
-                .transition(certificate, CertificateState.PENDING_REVOKE, CertificateEvent.REVOKE,
-                        "Revocation accepted; awaiting asynchronous completion.");
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            certificate.setPendingRevokeDestroyKey(request.isDestroyKey());
+            pendingRevokeWriter.save(certificate.getUuid(), request.getAttributes());
+            stateMachine
+                    .transition(certificate, CertificateState.PENDING_REVOKE, CertificateEvent.REVOKE,
+                            "Revocation accepted; awaiting asynchronous completion.");
+        });
 
         scheduleStatusPoll(certificate, CertificateOperation.REVOKE);
 
