@@ -1105,7 +1105,7 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
                 .findByUuid(objectUuid)
                 .orElseThrow(() -> new NotFoundException(Location.class, objectUuid.getValue()));
         authorizationEnforcer
-                .enforce(Resource.AUTHORITY, ResourceAction.DETAIL,
+                .enforce(Resource.ENTITY, ResourceAction.DETAIL,
                         location.getEntityInstanceReference().getSecuredUuid());
         return new NameAndUuidDto(String.valueOf(objectUuid), location.getName());
     }

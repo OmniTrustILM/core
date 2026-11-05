@@ -1198,6 +1198,17 @@ class LocationServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void refusesResourceObject_whenTheCallerMayNotSeeTheOwningEntity() {
+        // given
+        denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL);
+        var locationUuid = location.getSecuredUuid();
+
+        // when / then
+        assertThatThrownBy(() -> locationInternalService.getResourceObjectExternal(locationUuid))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
     void refusesThePermissionChain_whenEntityDetailIsDenied() {
         // given
         denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL, entityInstanceReference.getUuid());
