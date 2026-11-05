@@ -233,8 +233,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         finalizeOrder(order.orderId, acmeAccountId);
 
         // ── Step 6: Wait for async certificate issuance ───────────────────────
-        // finalizeOrder triggers an @Async task that calls issueCertificateAction
-        // via the ActionProducer doAnswer; poll until the order reaches VALID.
+        // finalizeOrder hands the issuance to the ActionProducer doAnswer, which calls
+        // issueCertificateAction; poll until the order reaches VALID.
         awaitOrderStatus(order.orderId, OrderStatus.VALID);
 
         // Verify the issue call was routed to the exact authority instance (not just any authority).
