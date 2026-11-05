@@ -10,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -31,6 +32,13 @@ public class AcmeCommonHelper {
     private static final DateTimeFormatter WIRE_TIMESTAMP_FORMAT = DateTimeFormatter
             .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SS'Z'")
             .withZone(ZoneId.of("UTC"));
+
+    /**
+     * The range a timestamp may name: from the Unix epoch, well clear of the Julian dates a {@link Date} is written as
+     * before 1582, to the end of 9999, the last year RFC 3339 can write.
+     */
+    private static final Instant EARLIEST_TIMESTAMP = Instant.EPOCH;
+    private static final Instant LATEST_TIMESTAMP = Instant.parse("9999-12-31T23:59:59.999999999Z");
 
     public static Date getDefaultExpires() {
         return new Date(new Date().getTime() + COMMON_EXPIRES_IN_SECONDS);
@@ -78,11 +86,23 @@ public class AcmeCommonHelper {
         return WIRE_TIMESTAMP_FORMAT.format(dateTime.toInstant());
     }
 
+    /**
+     * The instant an RFC 3339 timestamp names, or null for none. {@link Instant#parse} reads it: a leap second is the
+     * last second of its day, and a fraction finer than nanoseconds or an offset beyond ±18:00, which no time zone
+     * uses, is not supported.
+     *
+     * @throws DateTimeException when the text is not a supported timestamp, or names an instant before 1970 or after
+     * 9999
+     */
     public static Date getDateFromString(String date) {
-        if (date == null || date.isEmpty()) {
+        if (date == null) {
             return null;
         }
-        return new Date(Instant.from(WIRE_TIMESTAMP_FORMAT.parse(date)).getEpochSecond());
+        Instant instant = Instant.parse(date);
+        if (instant.isBefore(EARLIEST_TIMESTAMP) || instant.isAfter(LATEST_TIMESTAMP)) {
+            throw new DateTimeException("The timestamp names an instant outside the supported range");
+        }
+        return Date.from(instant);
     }
 
     public static Date addSeconds(Date date, int seconds) {

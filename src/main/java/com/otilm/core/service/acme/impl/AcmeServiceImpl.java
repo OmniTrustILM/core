@@ -105,6 +105,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.text.ParseException;
+import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -1178,8 +1179,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
         order.setAcmeAccount(acmeAccount);
         order.setOrderId(AcmeRandomGeneratorAndValidator.generateRandomId());
         order.setStatus(OrderStatus.PENDING);
-        order.setNotAfter(AcmeCommonHelper.getDateFromString(orderRequest.getNotAfter()));
-        order.setNotBefore(AcmeCommonHelper.getDateFromString(orderRequest.getNotBefore()));
+        order.setNotAfter(readOrderTimestamp(orderRequest.getNotAfter(), "notAfter"));
+        order.setNotBefore(readOrderTimestamp(orderRequest.getNotBefore(), "notBefore"));
         order.setIdentifiers(SerializationUtil.serializeIdentifiers(identifiers));
         if (acmeAccount.getAcmeProfile().getValidity() != null) {
             order.setExpires(AcmeCommonHelper.addSeconds(new Date(), acmeAccount.getAcmeProfile().getValidity()));
@@ -1211,6 +1212,19 @@ public class AcmeServiceImpl implements AcmeExternalService {
                     "Every identifier must have a type and a value");
         }
         return identifiers;
+    }
+
+    /**
+     * A timestamp the order requests (RFC 8555 section 7.4), or null when the member is absent. A value that is not a
+     * supported RFC 3339 timestamp from 1970 to 9999 is refused as malformed.
+     */
+    private static Date readOrderTimestamp(String value, String member) throws AcmeProblemDocumentException {
+        try {
+            return AcmeCommonHelper.getDateFromString(value);
+        } catch (DateTimeException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
+                    member + " is not a supported RFC 3339 timestamp from 1970 to 9999");
+        }
     }
 
     /**
