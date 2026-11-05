@@ -966,12 +966,6 @@ class AcmeServiceITest extends BaseSpringBootTest {
         }
     }
 
-    private static void assertRefusedAsNotFound(AcmeProblemDocumentException refused) {
-        assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
-        assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
-        assertThat(refused.getProblemDocument().getDetail()).contains("not found");
-    }
-
     @Test
     void testRevokeCert_fail_archivedCertificate() throws URISyntaxException {
         String baseUri = RA_BASE_URI + RA_PROFILE_NAME;
@@ -983,18 +977,6 @@ class AcmeServiceITest extends BaseSpringBootTest {
                         .revokeCertificate(ACME_PROFILE_NAME,
                                 buildRevokeCertRequestJSON_withAccountKey(requestUri, baseUri, b64UrlCertificate),
                                 requestUri, false));
-    }
-
-    private String buildRevokeCertRequestJSON_unknownCertificate(URI requestUri, String baseUri) throws JOSEException {
-        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(
-                "{\"certificate\":\"MIIFOzCCAyOgAwIBAgITGAAAA4HCMidgplmlrQAAAAADgTANBgkqhkiG9w0BAQ0FADA3MRcwFQYDVQQDDA5EZW1vIE1TIFN1YiBDQTEcMBoGA1UECgwTM0tleSBDb21wYW55IHMuci5vLjAeFw0yNDAzMTIxMTI3MDBaFw0yNjAzMTIxMTI3MDBaMBgxFjAUBgNVBAMTDXRmdC4za2V5LnRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDgoHj1WO_sXoqfcr7pm5KUjsAnmdjgzBbFwHCAvlDwsF8Z6B6i77AB-xLIUdcVLPu417mApEbH9Nu9jvcO_b2QEh_tDAczbug6SVMwgl7va3H5qGwg_0qepRHNWAMt1TWgY-rFZbUn1WLSO97armFjVPKK-AeuBVz4EQIqS1vxLLg0MxajR19euvkLBjbjYtjp7pwgHT2jMsccJ06bGN3Ik7wTZMnObfwxhhmwApEjyeDevVywopULc9zarvOSgFTnejlfOmwUBnnHlp8Xpq7P_izt1AhJkij9eElzSXnZUHAFQoQh3fQ6yelXFBxDOEAao8o3FR-R6Ss3kZ3mxkbjAgMBAAGjggFdMIIBWTAnBgNVHREEIDAegg10ZnQuM2tleS50ZXN0gg13d3cuM2tleS50ZXN0MB0GA1UdDgQWBBSA81KtARou26mp921nppmTGjC6BTAfBgNVHSMEGDAWgBSSwrzfVcXBk4VJB_esyR0LaAEHUTBNBgNVHR8ERjBEMEKgQKA-hjxodHRwOi8vbGFiMDIuM2tleS5jb21wYW55L2NybHMvZGVtby9EZW1vJTIwTVMlMjBTdWIlMjBDQS5jcmwwVwYIKwYBBQUHAQEESzBJMEcGCCsGAQUFBzABhjtodHRwOi8vbGFiMDIuM2tleS5jb21wYW55L2Nhcy9kZW1vL0RlbW8lMjBNUyUyMFN1YiUyMENBLmNydDAhBgkrBgEEAYI3FAIEFB4SAFcAZQBiAFMAZQByAHYAZQByMA4GA1UdDwEB_wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATANBgkqhkiG9w0BAQ0FAAOCAgEAb_N3sf9Kda5t_jsL_VQYW0OPiHD0V1QcwqiyplvclD7NahnV7QiUwS7V-QmHHD1V2_xkYNhlgkinu1SWbpJ8gAcLDbADfnMkaOZNr6dvKiDGw0Xppmfbha1Bbb3JA_DOHFrXBm3795mQDgaRuvPke0qyyL1DP9xAdxubQaYQDZA9WAYNztgVe3V4zngwzI6P6BiDQ7CgZLNv_e8e5ME4_MCeO0cUFxt7mzKIhH54wL4yY8DJ3LHVWXsMPntRMdvYWjYf-1Ivb5x2WvuU_SPcnCSyEj0qdcLlm9BWxbfM-5h4gXWvsCjG2anGLtsl5Ut3Sz1vvoM49N981pZEZDlNFlsBgYCF-MDKZwBOiX8uTgQkv5bqA7_tPvIgQI_JTbSYeqRtb4J6SH1_uRrhyU7w88PlSmZwkf5S5ZxX9eqjSEFENB7ARh4KaiHyYqTfYxAP6-EFs9dxBTQ5eQu2jFXy4xJG4g-r1KZujv6wgPoDZsbbqTfBg27_sQsTyzZqI1vL5UrCqxDSo-Pw9JPITYi8AdOffT0hkgQ7RmLHb6HYV7JqABmhZ3G9QQfuk2W7_o6l6jnpZM7pHEkZ30s54cIHgYG3JifXd2m6uxU6iX48mJy_VUZcVikxSbCg5eLlvq_HWnxk2DE_9PWjA_YxZs2Jtqpi2FtLCli2cykGGumhhJ0\",\"reason\":8}"));
-        jwsObjectJSON
-                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
-                        .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
-                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
-                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
-                        .build(), rsa2048Signer);
-        return jwsObjectJSON.serializeFlattened();
     }
 
     @Test
@@ -1092,24 +1074,6 @@ class AcmeServiceITest extends BaseSpringBootTest {
                 .revokeCertificate(RA_PROFILE_NAME, buildRevokeCertRequestJSON_withPrivateKey(requestUri), requestUri,
                         true);
         assertRevokeCert_withPrivateKey(response);
-    }
-
-    private String buildRevokeCertRequestJSON_withPrivateKey(URI requestUri) throws JOSEException {
-        return buildRevokeCertRequestJSON(requestUri, b64UrlCertificate, rsa2048PublicJWK, rsa2048Signer);
-    }
-
-    /** A revocation request that names no account: it carries the public key it is signed with as its JWK. */
-    private String buildRevokeCertRequestJSON(URI requestUri, String certificate, RSAKey publicJWK, JWSSigner signer)
-            throws JOSEException {
-        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(
-                new Payload("{\"certificate\":\"" + certificate + "\",\"reason\":0}"));
-        jwsObjectJSON
-                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
-                        .jwk(publicJWK)
-                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
-                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
-                        .build(), signer);
-        return jwsObjectJSON.serializeFlattened();
     }
 
     private void assertRevokeCert_withPrivateKey(ResponseEntity<?> response) {
@@ -1893,6 +1857,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         Assertions.assertTrue(reloaded.getFailedOrders() >= failedBefore + 2);
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     /**
      * The state an instance without failure propagation leaves behind: the challenge is invalid, nothing else is.
      */
@@ -1983,5 +1949,41 @@ class AcmeServiceITest extends BaseSpringBootTest {
         attributes.put(records);
         return mockConstruction(InitialDirContext.class,
                 (mock, context) -> when(mock.getAttributes(anyString(), any(String[].class))).thenReturn(attributes));
+    }
+
+    private String buildRevokeCertRequestJSON_unknownCertificate(URI requestUri, String baseUri) throws JOSEException {
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(new Payload(
+                "{\"certificate\":\"MIIFOzCCAyOgAwIBAgITGAAAA4HCMidgplmlrQAAAAADgTANBgkqhkiG9w0BAQ0FADA3MRcwFQYDVQQDDA5EZW1vIE1TIFN1YiBDQTEcMBoGA1UECgwTM0tleSBDb21wYW55IHMuci5vLjAeFw0yNDAzMTIxMTI3MDBaFw0yNjAzMTIxMTI3MDBaMBgxFjAUBgNVBAMTDXRmdC4za2V5LnRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDgoHj1WO_sXoqfcr7pm5KUjsAnmdjgzBbFwHCAvlDwsF8Z6B6i77AB-xLIUdcVLPu417mApEbH9Nu9jvcO_b2QEh_tDAczbug6SVMwgl7va3H5qGwg_0qepRHNWAMt1TWgY-rFZbUn1WLSO97armFjVPKK-AeuBVz4EQIqS1vxLLg0MxajR19euvkLBjbjYtjp7pwgHT2jMsccJ06bGN3Ik7wTZMnObfwxhhmwApEjyeDevVywopULc9zarvOSgFTnejlfOmwUBnnHlp8Xpq7P_izt1AhJkij9eElzSXnZUHAFQoQh3fQ6yelXFBxDOEAao8o3FR-R6Ss3kZ3mxkbjAgMBAAGjggFdMIIBWTAnBgNVHREEIDAegg10ZnQuM2tleS50ZXN0gg13d3cuM2tleS50ZXN0MB0GA1UdDgQWBBSA81KtARou26mp921nppmTGjC6BTAfBgNVHSMEGDAWgBSSwrzfVcXBk4VJB_esyR0LaAEHUTBNBgNVHR8ERjBEMEKgQKA-hjxodHRwOi8vbGFiMDIuM2tleS5jb21wYW55L2NybHMvZGVtby9EZW1vJTIwTVMlMjBTdWIlMjBDQS5jcmwwVwYIKwYBBQUHAQEESzBJMEcGCCsGAQUFBzABhjtodHRwOi8vbGFiMDIuM2tleS5jb21wYW55L2Nhcy9kZW1vL0RlbW8lMjBNUyUyMFN1YiUyMENBLmNydDAhBgkrBgEEAYI3FAIEFB4SAFcAZQBiAFMAZQByAHYAZQByMA4GA1UdDwEB_wQEAwIFoDATBgNVHSUEDDAKBggrBgEFBQcDATANBgkqhkiG9w0BAQ0FAAOCAgEAb_N3sf9Kda5t_jsL_VQYW0OPiHD0V1QcwqiyplvclD7NahnV7QiUwS7V-QmHHD1V2_xkYNhlgkinu1SWbpJ8gAcLDbADfnMkaOZNr6dvKiDGw0Xppmfbha1Bbb3JA_DOHFrXBm3795mQDgaRuvPke0qyyL1DP9xAdxubQaYQDZA9WAYNztgVe3V4zngwzI6P6BiDQ7CgZLNv_e8e5ME4_MCeO0cUFxt7mzKIhH54wL4yY8DJ3LHVWXsMPntRMdvYWjYf-1Ivb5x2WvuU_SPcnCSyEj0qdcLlm9BWxbfM-5h4gXWvsCjG2anGLtsl5Ut3Sz1vvoM49N981pZEZDlNFlsBgYCF-MDKZwBOiX8uTgQkv5bqA7_tPvIgQI_JTbSYeqRtb4J6SH1_uRrhyU7w88PlSmZwkf5S5ZxX9eqjSEFENB7ARh4KaiHyYqTfYxAP6-EFs9dxBTQ5eQu2jFXy4xJG4g-r1KZujv6wgPoDZsbbqTfBg27_sQsTyzZqI1vL5UrCqxDSo-Pw9JPITYi8AdOffT0hkgQ7RmLHb6HYV7JqABmhZ3G9QQfuk2W7_o6l6jnpZM7pHEkZ30s54cIHgYG3JifXd2m6uxU6iX48mJy_VUZcVikxSbCg5eLlvq_HWnxk2DE_9PWjA_YxZs2Jtqpi2FtLCli2cykGGumhhJ0\",\"reason\":8}"));
+        jwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .keyID(baseUri + "/acct/" + ACME_ACCOUNT_ID_VALID)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), rsa2048Signer);
+        return jwsObjectJSON.serializeFlattened();
+    }
+
+    private String buildRevokeCertRequestJSON_withPrivateKey(URI requestUri) throws JOSEException {
+        return buildRevokeCertRequestJSON(requestUri, b64UrlCertificate, rsa2048PublicJWK, rsa2048Signer);
+    }
+
+    /** A revocation request that names no account: it carries the public key it is signed with as its JWK. */
+    private String buildRevokeCertRequestJSON(URI requestUri, String certificate, RSAKey publicJWK, JWSSigner signer)
+            throws JOSEException {
+        JWSObjectJSON jwsObjectJSON = new JWSObjectJSON(
+                new Payload("{\"certificate\":\"" + certificate + "\",\"reason\":0}"));
+        jwsObjectJSON
+                .sign(new JWSHeader.Builder(JWSAlgorithm.RS256)
+                        .jwk(publicJWK)
+                        .customParam(NONCE_HEADER_CUSTOM_PARAM, acmeValidNonce.getNonce())
+                        .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
+                        .build(), signer);
+        return jwsObjectJSON.serializeFlattened();
+    }
+
+    private static void assertRefusedAsNotFound(AcmeProblemDocumentException refused) {
+        assertThat(refused.getHttpStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        assertThat(refused.getProblemDocument().getType()).isEqualTo(Problem.MALFORMED.getType());
+        assertThat(refused.getProblemDocument().getDetail()).contains("not found");
     }
 }
