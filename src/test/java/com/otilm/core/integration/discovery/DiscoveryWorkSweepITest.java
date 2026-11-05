@@ -180,6 +180,25 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
     }
 
     @Test
+    void claimsNothing_whenATickLeasedTheRowAfterTheSweepReadIt() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
+        var admittedMeanwhile = UUID.randomUUID();
+        leaseRow(runUuid, DiscoveryWorkType.DRAIN, admittedMeanwhile,
+                OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2));
+        var now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        // when
+        boolean claimed = workWriter
+                .claim(runUuid, DiscoveryWorkType.DRAIN, UUID.randomUUID(), 1, now, now, now.plus(leaseDuration));
+
+        // then
+        assertThat(claimed).isFalse();
+        assertThat(workRepository.findAll().get(0).getLeaseToken()).isEqualTo(admittedMeanwhile);
+    }
+
+    @Test
     void carriesTheTokenTheRowHolds_whenClaimingIt() {
         // given
         UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();

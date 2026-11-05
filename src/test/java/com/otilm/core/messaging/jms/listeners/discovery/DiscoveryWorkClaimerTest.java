@@ -59,7 +59,7 @@ class DiscoveryWorkClaimerTest {
         // then
         assertThat(messages).isEmpty();
         verify(workRepository, never()).findClaimable(any(), any(), any());
-        verify(workWriter, never()).claim(any(), any(), any(), anyInt(), any());
+        verify(workWriter, never()).claim(any(), any(), any(), anyInt(), any(), any(), any());
     }
 
     @Test
@@ -74,7 +74,7 @@ class DiscoveryWorkClaimerTest {
 
         // then
         assertThat(messages).isEmpty();
-        verify(workWriter, never()).claim(any(), any(), any(), anyInt(), any());
+        verify(workWriter, never()).claim(any(), any(), any(), anyInt(), any(), any(), any());
     }
 
     @Test
@@ -84,7 +84,8 @@ class DiscoveryWorkClaimerTest {
         var runUuid = UUID.randomUUID();
         var attemptAtClaim = 2;
         when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of(workRow(runUuid, DiscoveryWorkType.DRAIN, attemptAtClaim)));
+                .thenReturn(List.of(buildWorkRow(runUuid, DiscoveryWorkType.DRAIN, attemptAtClaim)));
+        stubClaimSucceeding();
 
         // when
         List<DiscoveryWorkMessage> messages = claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
@@ -96,8 +97,8 @@ class DiscoveryWorkClaimerTest {
             assertThat(message.attempt()).isEqualTo(attemptAtClaim);
         });
         verify(workWriter)
-                .claim(eq(runUuid), eq(DiscoveryWorkType.DRAIN), any(UUID.class), eq(attemptAtClaim + 1),
-                        any(OffsetDateTime.class));
+                .claim(eq(runUuid), eq(DiscoveryWorkType.DRAIN), any(UUID.class), eq(attemptAtClaim + 1), eq(CUTOFF),
+                        any(OffsetDateTime.class), any(OffsetDateTime.class));
         // The sweep-wide claim window: the due query runs against the caller's cutoff, not a fresh now().
         verify(workRepository).findClaimable(eq(CUTOFF), any(OffsetDateTime.class), any(Pageable.class));
     }
@@ -107,14 +108,15 @@ class DiscoveryWorkClaimerTest {
         // given
         when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of(workRow(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0)));
+                .thenReturn(List.of(buildWorkRow(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0)));
+        stubClaimSucceeding();
 
         // when
         List<DiscoveryWorkMessage> messages = claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
 
         // then
         ArgumentCaptor<UUID> writtenToken = ArgumentCaptor.forClass(UUID.class);
-        verify(workWriter).claim(any(), any(), writtenToken.capture(), anyInt(), any());
+        verify(workWriter).claim(any(), any(), writtenToken.capture(), anyInt(), any(), any(), any());
         assertThat(writtenToken.getValue()).isNotNull();
         assertThat(messages)
                 .singleElement()
@@ -127,7 +129,8 @@ class DiscoveryWorkClaimerTest {
         // given
         when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
         when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of(workRow(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0)));
+                .thenReturn(List.of(buildWorkRow(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0)));
+        stubClaimSucceeding();
         var beforeClaim = OffsetDateTime.now();
 
         // when
@@ -135,15 +138,34 @@ class DiscoveryWorkClaimerTest {
 
         // then
         ArgumentCaptor<OffsetDateTime> leasedUntil = ArgumentCaptor.forClass(OffsetDateTime.class);
-        verify(workWriter).claim(any(), any(), any(), anyInt(), leasedUntil.capture());
+        verify(workWriter).claim(any(), any(), any(), anyInt(), any(), any(), leasedUntil.capture());
         assertThat(leasedUntil.getValue())
                 .isAfterOrEqualTo(beforeClaim.plus(LEASE_DURATION))
                 .isBeforeOrEqualTo(OffsetDateTime.now().plus(LEASE_DURATION));
     }
 
+    @Test
+    void publishesNothingForARow_whenATickLeasedItAfterTheSweepReadIt() {
+        // given
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
+        when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of(buildWorkRow(UUID.randomUUID(), DiscoveryWorkType.DRAIN, 0)));
+        when(workWriter.claim(any(), any(), any(), anyInt(), any(), any(), any())).thenReturn(false);
+
+        // when
+        List<DiscoveryWorkMessage> messages = claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
+
+        // then
+        assertThat(messages).isEmpty();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static DiscoveryWork workRow(UUID runUuid, DiscoveryWorkType type, int attempt) {
+    private void stubClaimSucceeding() {
+        when(workWriter.claim(any(), any(), any(), anyInt(), any(), any(), any())).thenReturn(true);
+    }
+
+    private static DiscoveryWork buildWorkRow(UUID runUuid, DiscoveryWorkType type, int attempt) {
         DiscoveryWork work = new DiscoveryWork();
         work.setDiscoveryUuid(runUuid);
         work.setWorkType(type);

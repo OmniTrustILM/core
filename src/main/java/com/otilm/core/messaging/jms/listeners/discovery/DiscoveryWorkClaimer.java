@@ -78,11 +78,14 @@ public class DiscoveryWorkClaimer {
         List<DiscoveryWorkMessage> messages = new ArrayList<>(claimable.size());
         for (DiscoveryWork work : claimable) {
             UUID leaseToken = UUID.randomUUID();
-            workWriter
-                    .claim(work.getDiscoveryUuid(), work.getWorkType(), leaseToken, work.getAttempt() + 1, leasedUntil);
-            messages
-                    .add(new DiscoveryWorkMessage(work.getDiscoveryUuid(), work.getWorkType(), work.getAttempt(),
-                            leaseToken));
+            boolean claimed = workWriter
+                    .claim(work.getDiscoveryUuid(), work.getWorkType(), leaseToken, work.getAttempt() + 1, dueCutoff,
+                            now, leasedUntil);
+            if (claimed) {
+                messages
+                        .add(new DiscoveryWorkMessage(work.getDiscoveryUuid(), work.getWorkType(), work.getAttempt(),
+                                leaseToken));
+            }
         }
         return messages;
     }

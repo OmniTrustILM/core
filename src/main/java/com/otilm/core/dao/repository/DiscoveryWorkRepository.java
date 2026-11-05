@@ -26,14 +26,19 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
 
     /**
      * Leases a row to a new tick: a fresh token, the attempt it is charged at, and a due time no earlier than the
-     * lease's end, so the row comes due again only once the lease could have run out.
+     * lease's end, so the row comes due again only once the lease could have run out. The row must still be due and
+     * free when the update runs: a tick admitted after the sweep read it keeps it.
+     *
+     * @return 1 when the row was claimed, 0 when it is no longer due or a live lease now holds it
      */
     @Modifying
     @Query("UPDATE DiscoveryWork w SET w.leaseToken = :leaseToken, w.leaseExpiresAt = :leasedUntil, "
             + "w.attempt = :attempt, w.nextDueAt = :leasedUntil "
-            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType")
-    void claim(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.nextDueAt <= :dueCutoff "
+            + "AND (w.leaseToken IS NULL OR w.leaseExpiresAt <= :now)")
+    int claim(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
             @Param("leaseToken") UUID leaseToken, @Param("attempt") int attempt,
+            @Param("dueCutoff") OffsetDateTime dueCutoff, @Param("now") OffsetDateTime now,
             @Param("leasedUntil") OffsetDateTime leasedUntil);
 
     /**

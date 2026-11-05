@@ -64,13 +64,17 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Leases an agenda row to the tick the sweep is about to publish. {@code REQUIRED} (not {@code REQUIRES_NEW}) so it
-     * joins the sweep claimer's lock-holding transaction — a row is read and claimed atomically, or neither.
+     * Leases an agenda row to the tick the sweep is about to publish, if it is still due at {@code dueCutoff} and no
+     * live lease holds it at {@code now}. {@code REQUIRED} (not {@code REQUIRES_NEW}) so it joins the sweep claimer's
+     * lock-holding transaction. The sweep's lock does not hold off admission, so the row is checked again here rather
+     * than trusted from the read.
+     *
+     * @return whether the row was claimed
      */
     @Transactional
-    public void claim(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, int attempt,
-            OffsetDateTime leasedUntil) {
-        workRepository.claim(discoveryUuid, workType, leaseToken, attempt, leasedUntil);
+    public boolean claim(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, int attempt,
+            OffsetDateTime dueCutoff, OffsetDateTime now, OffsetDateTime leasedUntil) {
+        return workRepository.claim(discoveryUuid, workType, leaseToken, attempt, dueCutoff, now, leasedUntil) > 0;
     }
 
     /**
