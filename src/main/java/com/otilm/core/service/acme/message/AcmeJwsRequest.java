@@ -1,7 +1,6 @@
 package com.otilm.core.service.acme.message;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.google.gson.Gson;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSObject;
@@ -81,6 +80,10 @@ public class AcmeJwsRequest {
     public void readRequest() throws AcmeProblemDocumentException {
         try {
             JwsBody jwsBody = AcmeJsonProcessor.generalBodyJsonParser(request, JwsBody.class);
+            if (jwsBody == null || jwsBody.getProtected() == null || jwsBody.getPayload() == null
+                    || jwsBody.getSignature() == null) {
+                throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED);
+            }
             this.jwsObject = new JWSObject(new Base64URL(jwsBody.getProtected()), new Base64URL(jwsBody.getPayload()),
                     new Base64URL(jwsBody.getSignature()));
             this.jwsHeader = jwsObject.getHeader();
@@ -102,7 +105,9 @@ public class AcmeJwsRequest {
                 logger.error("JWK Header does not contains kid nor jwk");
                 throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED);
             }
-        } catch (ParseException | JsonProcessingException e) {
+        } catch (ParseException | JsonProcessingException | RuntimeException e) {
+            // nimbus throws unchecked exceptions for some malformed header members, such as a NullPointerException
+            // for an RSA key whose other primes lack their members
             logger.error("Error while parsing JWS request, {}", e.getMessage());
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED);
         }
@@ -160,15 +165,9 @@ public class AcmeJwsRequest {
         }
     }
 
-    public String getJsonStringPayload() {
-        final Map<String, Object> map = jwsObject.getPayload().toJSONObject();
+    public String getJsonStringPayload() throws AcmeProblemDocumentException {
+        final Map<String, Object> map = AcmeJsonProcessor.getPayloadAsJsonObject(jwsObject);
         return new JSONObject(map).toJSONString();
-    }
-
-    public JWK getOldKeyJWK() throws ParseException {
-        return jwsPayload.toJSONObject().get("oldKey") != null
-                ? JWK.parse(new Gson().toJsonTree(jwsPayload.toJSONObject().get("oldKey")).toString())
-                : null;
     }
 
 }
