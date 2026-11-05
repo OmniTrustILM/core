@@ -93,6 +93,16 @@ public final class ScepMessageTestData {
     }
 
     /**
+     * A message whose PKCS#10 request for {@link #SUBJECT_DN} names a freshly generated RSA key but is signed with the
+     * given key instead, so it does not prove possession of the key it asks a certificate for.
+     */
+    public static byte[] passwordEnvelopedMessageWithCsrSignedBy(MessageType messageType, PrivateKey csrSigningKey,
+            String csrSignatureAlgorithm) throws Exception {
+        byte[] csr = csrSignedBy(csrSigningKey, csrSignatureAlgorithm);
+        return signedMessage(envelopedPkcs10Request(csr), messageType).getEncoded();
+    }
+
+    /**
      * A signed PKCSReq whose PKCS#10 request — for an arbitrary subject, with optional dNSName SANs and an optional
      * challengePassword — is enveloped via RSA key transport to the recipient CA certificate, the way a client talks to
      * an RSA-keyed CA. Opening it requires the CA private key (in tests: a stubbed connector decrypt returning the
@@ -179,6 +189,17 @@ public final class ScepMessageTestData {
         ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                 .build(keyPair.getPrivate());
+        return builder.build(signer).getEncoded();
+    }
+
+    private static byte[] csrSignedBy(PrivateKey signingKey, String signatureAlgorithm) throws Exception {
+        Security.addProvider(new BouncyCastleProvider());
+        KeyPair requestedKeyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        JcaPKCS10CertificationRequestBuilder builder = new JcaPKCS10CertificationRequestBuilder(
+                new X500Name(SUBJECT_DN), requestedKeyPair.getPublic());
+        ContentSigner signer = new JcaContentSignerBuilder(signatureAlgorithm)
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .build(signingKey);
         return builder.build(signer).getEncoded();
     }
 
