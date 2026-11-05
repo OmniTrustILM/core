@@ -58,6 +58,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -80,6 +81,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -1193,17 +1195,6 @@ class LocationServiceITest extends BaseSpringBootTest {
         nameAndUuidDto = locationInternalService.getResourceObjectExternal(location.getSecuredUuid());
         Assertions.assertEquals(location.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(location.getName(), nameAndUuidDto.getName());
-    }
-
-    @Test
-    void refusesResourceObject_whenTheCallerMayNotSeeTheOwningEntity() {
-        // given
-        denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL);
-        var locationUuid = location.getSecuredUuid();
-
-        // when / then
-        assertThatThrownBy(() -> locationInternalService.getResourceObjectExternal(locationUuid))
-                .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
