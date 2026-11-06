@@ -18,6 +18,7 @@ import com.otilm.core.messaging.jms.listeners.discovery.DiscoveryWorkListener;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkLease;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
@@ -216,22 +217,16 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
 
     // ------------------------------------------------------------------ the lease across sweeps
 
-    /**
-     * Seventy seconds outlives the claim floor the lease replaced: under the floor the row came due again after fifty
-     * seconds, and the sweep published a second tick while the first was still at the connector.
-     */
     @Test
-    void publishesNoSecondTick_whenATickOutlivesTheOldClaimFloor() {
+    void publishesNoSecondTick_whenTheRowComesDueWhileItsTickStillHoldsIt() {
         // given
         UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
         workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
         DiscoveryWorkMessage claimed = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC)).getFirst();
-        workLease.admit(claimed).orElseThrow();
-        var heldFor = Duration.ofSeconds(70);
-        var claimedAt = OffsetDateTime.now(ZoneOffset.UTC).minus(heldFor);
-        var dueUnderTheOldFloor = claimedAt.plusSeconds(50);
-        setLease(runUuid, DiscoveryWorkType.DRAIN, claimed.leaseToken(), claimedAt.plus(leaseDuration),
-                dueUnderTheOldFloor);
+        DiscoveryWorkTick workingTick = workLease.admit(claimed).orElseThrow();
+        var admittedAt = OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(70);
+        var dueAgain = OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(20);
+        setLease(runUuid, DiscoveryWorkType.DRAIN, workingTick.token(), admittedAt.plus(leaseDuration), dueAgain);
 
         // when
         List<DiscoveryWorkMessage> sweptAgain = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC));
@@ -282,6 +277,27 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
                 .singleElement()
                 .extracting(DiscoveryWorkMessage::leaseToken)
                 .isNotEqualTo(neverConsumed.leaseToken());
+    }
+
+    @Test
+    void claimsTheRowAgain_whenItsAdmittedTickDiedAndTheLeaseRanOut() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(1));
+        DiscoveryWorkMessage claimed = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC)).getFirst();
+        DiscoveryWorkTick diedWithItsNode = workLease.admit(claimed).orElseThrow();
+        var lastRenewedAt = OffsetDateTime.now(ZoneOffset.UTC).minus(leaseDuration).minusSeconds(1);
+        setLease(runUuid, DiscoveryWorkType.DRAIN, diedWithItsNode.token(), lastRenewedAt.plus(leaseDuration),
+                lastRenewedAt);
+
+        // when
+        List<DiscoveryWorkMessage> sweptAgain = claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC));
+
+        // then
+        assertThat(sweptAgain)
+                .singleElement()
+                .extracting(DiscoveryWorkMessage::leaseToken)
+                .isNotEqualTo(diedWithItsNode.token());
     }
 
     // ------------------------------------------------------------------ lifecycle clears the lease
