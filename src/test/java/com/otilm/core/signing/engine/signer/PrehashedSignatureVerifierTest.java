@@ -13,10 +13,12 @@ import java.security.spec.ECGenParameterSpec;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.PSSParameterSpec;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,8 +34,8 @@ class PrehashedSignatureVerifierTest {
 
     @BeforeAll
     static void generateKeys() throws GeneralSecurityException {
-        rsaKeys = generateRsa();
-        otherRsaKeys = generateRsa();
+        rsaKeys = generateRsa(2048);
+        otherRsaKeys = generateRsa(2048);
         p256Keys = generateEc("secp256r1");
         p384Keys = generateEc("secp384r1");
     }
@@ -76,6 +78,44 @@ class PrehashedSignatureVerifierTest {
 
         // then
         assertThat(verified).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"brainpoolP256r1", "secp224r1"})
+    void returnsTrue_whenTheCurveIsOneSunEcCannotCompute(String curve) throws Exception {
+        // given — SunEC cannot sign on these curves, so BouncyCastle makes the signature
+        var bouncyCastle = new BouncyCastleProvider();
+        var generator = KeyPairGenerator.getInstance("EC", bouncyCastle);
+        generator.initialize(new ECGenParameterSpec(curve));
+        KeyPair keys = generator.generateKeyPair();
+        var signer = Signature.getInstance("SHA256withECDSA", bouncyCastle);
+        signer.initSign(keys.getPrivate());
+        signer.update(MESSAGE);
+        byte[] signature = signer.sign();
+        SignatureAlgorithm algorithm = SignatureAlgorithm.SHA256_WITH_ECDSA;
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, keys.getPublic(), digestOf(algorithm, MESSAGE), signature);
+
+        // then
+        assertThat(verified).isTrue();
+    }
+
+    @Test
+    void returnsFalse_whenTheRsaKeyIsTooSmallForThePssParameters() throws Exception {
+        // given — PSS with SHA-512 and a 64-byte salt needs a modulus of at least 1034 bits
+        KeyPair rsa1024Keys = generateRsa(1024);
+        SignatureAlgorithm algorithm = SignatureAlgorithm.SHA512_WITH_RSA_PSS;
+        byte[] signatureOfTheModulusLength = new byte[128];
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, rsa1024Keys.getPublic(), digestOf(algorithm, MESSAGE),
+                        signatureOfTheModulusLength);
+
+        // then
+        assertThat(verified).isFalse();
     }
 
     @ParameterizedTest
@@ -185,9 +225,9 @@ class PrehashedSignatureVerifierTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static KeyPair generateRsa() throws GeneralSecurityException {
+    private static KeyPair generateRsa(int modulusBits) throws GeneralSecurityException {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048);
+        generator.initialize(modulusBits);
         return generator.generateKeyPair();
     }
 
