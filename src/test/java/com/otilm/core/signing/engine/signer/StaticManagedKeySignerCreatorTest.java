@@ -217,7 +217,7 @@ class StaticManagedKeySignerCreatorTest {
                             .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.MLDSA),
                                     CryptographicKeyItemModelFixtures
                                             .publicKey(KeyAlgorithm.MLDSA, SignatureAlgorithm.ML_DSA_65.getCode())),
-                    aChain(generateKeyPair()), List.of());
+                    buildChain(generateKeyPair()), List.of());
             given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
                     .willReturn(SignatureAlgorithm.ML_DSA_65);
 
@@ -235,7 +235,7 @@ class StaticManagedKeySignerCreatorTest {
             var publicKey = CryptographicKeyItemModelFixtures
                     .publicKey(KeyAlgorithm.MLDSA, SignatureAlgorithm.ML_DSA_65.getCode());
             ResolvedStaticKeyManagedSigning scheme = new ResolvedStaticKeyManagedSigning(
-                    SigningCertificateBuilder.valid(), List.of(privateKey, publicKey), aChain(generateKeyPair()),
+                    SigningCertificateBuilder.valid(), List.of(privateKey, publicKey), buildChain(generateKeyPair()),
                     List.of());
             given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
                     .willReturn(SignatureAlgorithm.ML_DSA_65);
@@ -248,87 +248,90 @@ class StaticManagedKeySignerCreatorTest {
         }
 
         @Test
-        void givesTheSignerTheSigningCertificatesKey_soItAcceptsItsSignature() throws Exception {
+        void acceptsASignatureByTheCertificatesKey() throws Exception {
             // given
             var keyPair = generateKeyPair();
             var signer = createRsaSigner(keyPair);
             var message = new byte[]{1, 2, 3};
+            var jdkSignature = signWithJdk(keyPair, message);
             given(cryptographicOperationService
                     .signDataWithoutEventHistory(any(), any(), any(), any(), any(),
                             eq(SignatureInputMode.PREHASHED_DIGEST)))
-                    .willReturn(answeredWith(signedBy(keyPair, message)));
+                    .willReturn(answerWithSignature(jdkSignature));
 
             // when
-            List<byte[]> signatures = signer.signAll(List.of(sha256Of(message)), SignatureInputMode.PREHASHED_DIGEST);
+            List<byte[]> signatures = signer
+                    .signAll(List.of(hashWithSha256(message)), SignatureInputMode.PREHASHED_DIGEST);
 
             // then
-            assertThat(signatures).hasSize(1);
+            assertThat(signatures).containsExactly(jdkSignature);
         }
 
         @Test
-        void givesTheSignerTheSigningCertificatesKey_soItRejectsAnotherKeysSignature() throws Exception {
+        void throwsSignerFault_whenAnotherKeySigned() throws Exception {
             // given
             var signer = createRsaSigner(generateKeyPair());
             var message = new byte[]{1, 2, 3};
+            var signatureByAnotherKey = signWithJdk(generateKeyPair(), message);
             given(cryptographicOperationService
                     .signDataWithoutEventHistory(any(), any(), any(), any(), any(),
                             eq(SignatureInputMode.PREHASHED_DIGEST)))
-                    .willReturn(answeredWith(signedBy(generateKeyPair(), message)));
+                    .willReturn(answerWithSignature(signatureByAnotherKey));
 
             // when
             ThrowingCallable signDigest = () -> signer
-                    .signAll(List.of(sha256Of(message)), SignatureInputMode.PREHASHED_DIGEST);
+                    .signAll(List.of(hashWithSha256(message)), SignatureInputMode.PREHASHED_DIGEST);
 
             // then
-            assertThatThrownBy(signDigest)
-                    .isInstanceOfSatisfying(SigningEngineException.class,
-                            ex -> assertThat(ex.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT));
+            assertThatThrownBy(signDigest).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
+                assertThat(ex.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT);
+                assertThat(ex.operatorMessage()).contains("does not verify");
+            });
         }
 
-    }
+        // ── Helpers ───────────────────────────────────────────────────────────
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+        private Signer createRsaSigner(KeyPair signingKeyPair) throws Exception {
+            var scheme = new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(),
+                    List
+                            .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
+                                    CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
+                    buildChain(signingKeyPair), List.of());
+            given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
+                    .willReturn(SignatureAlgorithm.SHA256_WITH_RSA);
+            return creator.create(scheme);
+        }
 
-    private Signer createRsaSigner(KeyPair signingKeyPair) throws Exception {
-        var scheme = new ResolvedStaticKeyManagedSigning(SigningCertificateBuilder.valid(),
-                List
-                        .of(CryptographicKeyItemModelFixtures.activeSigningPrivateKey(KeyAlgorithm.RSA),
-                                CryptographicKeyItemModelFixtures.publicKey(KeyAlgorithm.RSA)),
-                aChain(signingKeyPair), List.of());
-        given(cryptographicOperationService.resolveSignatureAlgorithm(any(), any(), anyList()))
-                .willReturn(SignatureAlgorithm.SHA256_WITH_RSA);
-        return creator.create(scheme);
-    }
+        private static KeyPair generateKeyPair() throws Exception {
+            var generator = KeyPairGenerator.getInstance("RSA");
+            generator.initialize(2048);
+            return generator.generateKeyPair();
+        }
 
-    private static KeyPair generateKeyPair() throws Exception {
-        var generator = KeyPairGenerator.getInstance("RSA");
-        generator.initialize(2048);
-        return generator.generateKeyPair();
-    }
+        private static CertificateChain buildChain(KeyPair signingKeyPair) throws Exception {
+            var caKeys = generateKeyPair();
+            var caCertificate = CertificateGeneratorHelper.generateCACertificate(caKeys, "CN=Test CA");
+            var signingCertificate = CertificateGeneratorHelper
+                    .generateEndEntityCertificate(caKeys, caCertificate, signingKeyPair, "CN=Test Signer", null);
+            return new CertificateChain(signingCertificate, List.of(signingCertificate, caCertificate));
+        }
 
-    private static CertificateChain aChain(KeyPair signingKeyPair) throws Exception {
-        var caKeys = generateKeyPair();
-        var caCertificate = CertificateGeneratorHelper.generateCACertificate(caKeys, "CN=Test CA");
-        var signingCertificate = CertificateGeneratorHelper
-                .generateEndEntityCertificate(caKeys, caCertificate, signingKeyPair, "CN=Test Signer", null);
-        return new CertificateChain(signingCertificate, List.of(signingCertificate, caCertificate));
-    }
+        private static byte[] hashWithSha256(byte[] message) throws Exception {
+            return MessageDigest.getInstance("SHA-256").digest(message);
+        }
 
-    private static byte[] sha256Of(byte[] message) throws Exception {
-        return MessageDigest.getInstance("SHA-256").digest(message);
-    }
+        private static byte[] signWithJdk(KeyPair keyPair, byte[] message) throws Exception {
+            var signature = Signature.getInstance("SHA256withRSA");
+            signature.initSign(keyPair.getPrivate());
+            signature.update(message);
+            return signature.sign();
+        }
 
-    private static byte[] signedBy(KeyPair keyPair, byte[] message) throws Exception {
-        var signature = Signature.getInstance("SHA256withRSA");
-        signature.initSign(keyPair.getPrivate());
-        signature.update(message);
-        return signature.sign();
-    }
-
-    private static SignDataResponseDto answeredWith(byte[] signature) {
-        var result = new SignatureResponseData();
-        result.setIdentifier("0");
-        result.setData(Base64.getEncoder().encodeToString(signature));
-        return new SignDataResponseDto(List.of(result));
+        private static SignDataResponseDto answerWithSignature(byte[] signature) {
+            var result = new SignatureResponseData();
+            result.setIdentifier("0");
+            result.setData(Base64.getEncoder().encodeToString(signature));
+            return new SignDataResponseDto(List.of(result));
+        }
     }
 }

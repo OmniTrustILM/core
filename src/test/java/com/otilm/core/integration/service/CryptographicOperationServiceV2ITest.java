@@ -952,7 +952,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     private void advertisePrehashedSigning() {
-        connectorMock.advertising(FeatureFlag.PREHASHED_SIGNING);
+        connectorMock.stubInfoAdvertising(FeatureFlag.PREHASHED_SIGNING);
         cryptographyInterface.setFeatures(List.of(FeatureFlag.STATELESS, FeatureFlag.PREHASHED_SIGNING));
         connectorInterfaceRepository.save(cryptographyInterface);
     }

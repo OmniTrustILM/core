@@ -438,6 +438,25 @@ class KeyProviderV1AdapterTest {
         assertEquals(Base64.getEncoder().encodeToString(new byte[]{9}), response.getSignatures().get(0).getData());
     }
 
+    @Test
+    void signData_throwsValidationException_whenModeIsPrehashedDigest() {
+        // given
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+
+        // when
+        ThrowingCallable sign = () -> adapter.signData(context, request, SignatureInputMode.PREHASHED_DIGEST);
+
+        // then
+        assertThatThrownBy(sign)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("cannot sign prehashed digests");
+        verifyNoInteractions(operationsClient);
+    }
+
     @ParameterizedTest(name = "{0} / {1}")
     @MethodSource("unsupportedV1Keys")
     void operation_rejectsKeyWithoutV1Remotes_beforeCallingConnector(String operation, String reason,
@@ -509,25 +528,6 @@ class KeyProviderV1AdapterTest {
     @FunctionalInterface
     interface OperationCall {
         void run(KeyProviderV1Adapter adapter, CryptographicKeyItemOperationModel context) throws ConnectorException;
-    }
-
-    @Test
-    void signData_throwsValidationException_whenModeIsPrehashedDigest() {
-        // given
-        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
-                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
-        SignDataRequestDto request = new SignDataRequestDto();
-        request.setSignatureAttributes(List.of());
-        request.setData(List.of());
-
-        // when
-        ThrowingCallable sign = () -> adapter.signData(context, request, SignatureInputMode.PREHASHED_DIGEST);
-
-        // then
-        assertThatThrownBy(sign)
-                .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("cannot sign prehashed digests");
-        verifyNoInteractions(operationsClient);
     }
 
     @Test

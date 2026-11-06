@@ -32,14 +32,12 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
-import com.otilm.core.model.connector.ImmutableConnectorInterface;
 import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.ImmutableTokenInstanceBasicModel;
 import com.otilm.core.model.crypto.ImmutableTokenProfileBasicModel;
 import com.otilm.core.model.crypto.RemoteKeyReference;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
-import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -57,6 +55,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.function.Executable;
@@ -69,6 +68,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.TokenInstanceFullModelBuilder.aTokenSnapshot;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -80,7 +80,6 @@ import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -112,10 +111,13 @@ class CryptographicOperationServiceImplTest {
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     @Mock
     private TokenProfileRepository tokenProfileRepository;
-    @Mock
-    private ConnectorCapabilityService connectorCapabilityService;
     @InjectMocks
     private CryptographicOperationServiceImpl service;
+
+    @BeforeEach
+    void wireCapabilityService() {
+        service.setConnectorCapabilityService(new ConnectorCapabilityService());
+    }
 
     @Test
     void randomData_routesThroughTokenAdapter_forV1Token() throws Exception {
@@ -504,11 +506,9 @@ class CryptographicOperationServiceImplTest {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
-        TokenInstanceFullModel token = mock(TokenInstanceFullModel.class);
+        var tokenWithoutTheFlag = aTokenSnapshot().build();
         when(tokenInstanceReferenceRepository.findFullModelByUuid(key.tokenInstanceReferenceUuid()))
-                .thenReturn(Optional.of(token));
-        when(connectorCapabilityService
-                .supports((ImmutableConnectorInterface) any(), eq(FeatureFlag.PREHASHED_SIGNING))).thenReturn(false);
+                .thenReturn(Optional.of(tokenWithoutTheFlag));
 
         // when
         ThrowingCallable sign = () -> signPrehashed(key);
@@ -527,11 +527,9 @@ class CryptographicOperationServiceImplTest {
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
         when(keyProviderAdapterFactory.forKeyItem(key)).thenReturn(adapter);
-        TokenInstanceFullModel token = mock(TokenInstanceFullModel.class);
+        var tokenAdvertisingTheFlag = aTokenSnapshot().withConnectorFeatures(FeatureFlag.PREHASHED_SIGNING).build();
         when(tokenInstanceReferenceRepository.findFullModelByUuid(key.tokenInstanceReferenceUuid()))
-                .thenReturn(Optional.of(token));
-        when(connectorCapabilityService
-                .supports((ImmutableConnectorInterface) any(), eq(FeatureFlag.PREHASHED_SIGNING))).thenReturn(true);
+                .thenReturn(Optional.of(tokenAdvertisingTheFlag));
         SignDataResponseDto expected = new SignDataResponseDto();
         when(adapter.signData(eq(key), any(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenReturn(expected);
 
@@ -556,7 +554,7 @@ class CryptographicOperationServiceImplTest {
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
-        verifyNoInteractions(tokenInstanceReferenceRepository, connectorCapabilityService);
+        verifyNoInteractions(tokenInstanceReferenceRepository);
     }
 
     @Test

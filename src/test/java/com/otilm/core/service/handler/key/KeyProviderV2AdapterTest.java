@@ -2398,7 +2398,7 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void signData_sendsPrehashedDigest_whenModeIsPrehashedDigest() throws Exception {
+        void sendsPrehashedDigest_whenModeIsPrehashedDigest() throws Exception {
             // given
             stubSynchronousSigning();
             SignatureInputMode prehashed = SignatureInputMode.PREHASHED_DIGEST;
@@ -2411,7 +2411,7 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void signData_sendsNoMode_whenModeIsData() throws Exception {
+        void sendsNoMode_whenModeIsData() throws Exception {
             // given
             stubSynchronousSigning();
 
@@ -2420,19 +2420,6 @@ class KeyProviderV2AdapterTest {
 
             // then
             assertThat(sentSignBody().getSignatureInputMode()).isNull();
-        }
-
-        private void stubSynchronousSigning() throws Exception {
-            when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
-            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
-            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
-            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
-        }
-
-        private SignDataRequestV2Dto sentSignBody() throws Exception {
-            ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
-            verify(operationsClient).signData(any(), sent.capture());
-            return sent.getValue();
         }
 
         @Test
@@ -2875,6 +2862,19 @@ class KeyProviderV2AdapterTest {
             return Stream
                     .of(named("leading zero", "01"), named("explicit plus sign", "+1"),
                             named("Arabic-Indic digit one", "\u0661"));
+        }
+
+        private void stubSynchronousSigning() throws Exception {
+            when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        }
+
+        private SignDataRequestV2Dto sentSignBody() throws Exception {
+            ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+            verify(operationsClient).signData(any(), sent.capture());
+            return sent.getValue();
         }
     }
 

@@ -21,6 +21,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.Signature;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,6 +31,7 @@ import java.util.UUID;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Nested;
@@ -65,11 +67,18 @@ class CryptographicOperationServiceSignerTest {
     @Mock
     private CryptographicOperationInternalService cryptographicOperationService;
 
+    private static KeyPair rsaKeyPair;
+
     private CryptographicOperationServiceSigner signer;
 
+    @BeforeAll
+    static void generateRsaKeyPair() throws Exception {
+        rsaKeyPair = generateKeyPair("RSA", 2048);
+    }
+
     @BeforeEach
-    void createSigner() throws Exception {
-        signer = signerFor(SignatureAlgorithm.SHA256_WITH_RSA, generateKeyPair("RSA", 2048));
+    void createSigner() {
+        signer = signerFor(SignatureAlgorithm.SHA256_WITH_RSA, rsaKeyPair.getPublic());
     }
 
     // ── Sign ──────────────────────────────────────────────────────────────────
@@ -355,6 +364,21 @@ class CryptographicOperationServiceSignerTest {
             assertSignerFault(signOneItem);
         }
 
+        @Test
+        void rethrowsTheValidationExceptionUnchanged_whenTheServiceRefusesData() throws Exception {
+            // given
+            var refusal = new ValidationException(ValidationError.create("Cannot sign empty data"));
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willThrow(refusal);
+            var oneItem = List.of(DTBS_0);
+
+            // when
+            ThrowingCallable signOneItem = () -> signer.signAll(oneItem);
+
+            // then
+            assertThatThrownBy(signOneItem).isSameAs(refusal);
+        }
+
         @ParameterizedTest
         @MethodSource("provideInvalidBatches")
         void throwsIllegalArgument_whenBatchOrItemIsNullOrEmpty(List<byte[]> invalidBatch) throws Exception {
@@ -395,15 +419,13 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void returnsTheSignatures_whenEachVerifiesAgainstItsDigest() throws Exception {
             // given
-            var keyPair = generateKeyPair("RSA", 2048);
-            var rsaSigner = signerFor(SignatureAlgorithm.SHA256_WITH_RSA, keyPair);
-            var messages = List.of(message(1), message(2), message(3));
-            var digests = sha256Of(messages);
-            var signatures = jdkSignatures("SHA256withRSA", keyPair.getPrivate(), messages);
-            given(prehashedServiceCall()).willReturn(answering(signatures));
+            var messages = List.of(buildMessage(1), buildMessage(2), buildMessage(3));
+            var digests = hashWithSha256(messages);
+            var signatures = signWithJdk("SHA256withRSA", rsaKeyPair.getPrivate(), messages);
+            given(callPrehashedSign()).willReturn(answerWithSignatures(signatures));
 
             // when
-            List<byte[]> result = rsaSigner.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
+            List<byte[]> result = signer.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
 
             // then
             assertThat(result).containsExactlyElementsOf(signatures);
@@ -413,11 +435,11 @@ class CryptographicOperationServiceSignerTest {
         void returnsTheSignature_whenAnEcdsaSignatureVerifiesAgainstItsDigest() throws Exception {
             // given
             var keyPair = generateKeyPair("EC", 256);
-            var ecSigner = signerFor(SignatureAlgorithm.SHA256_WITH_ECDSA, keyPair);
-            var messages = List.of(message(4));
-            var digests = sha256Of(messages);
-            var signatures = jdkSignatures("SHA256withECDSA", keyPair.getPrivate(), messages);
-            given(prehashedServiceCall()).willReturn(answering(signatures));
+            var ecSigner = signerFor(SignatureAlgorithm.SHA256_WITH_ECDSA, keyPair.getPublic());
+            var messages = List.of(buildMessage(4));
+            var digests = hashWithSha256(messages);
+            var signatures = signWithJdk("SHA256withECDSA", keyPair.getPrivate(), messages);
+            given(callPrehashedSign()).willReturn(answerWithSignatures(signatures));
 
             // when
             List<byte[]> result = ecSigner.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
@@ -429,14 +451,12 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void callsThePrehashedOverload() throws Exception {
             // given
-            var keyPair = generateKeyPair("RSA", 2048);
-            var rsaSigner = signerFor(SignatureAlgorithm.SHA256_WITH_RSA, keyPair);
-            var messages = List.of(message(1));
-            var signatures = jdkSignatures("SHA256withRSA", keyPair.getPrivate(), messages);
-            given(prehashedServiceCall()).willReturn(answering(signatures));
+            var messages = List.of(buildMessage(1));
+            var signatures = signWithJdk("SHA256withRSA", rsaKeyPair.getPrivate(), messages);
+            given(callPrehashedSign()).willReturn(answerWithSignatures(signatures));
 
             // when
-            rsaSigner.signAll(sha256Of(messages), SignatureInputMode.PREHASHED_DIGEST);
+            signer.signAll(hashWithSha256(messages), SignatureInputMode.PREHASHED_DIGEST);
 
             // then
             then(cryptographicOperationService)
@@ -451,14 +471,18 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void throwsInvalidInput_whenTheAlgorithmIsOutsideTheBound() throws Exception {
             // given
-            var outsideTheBound = signerFor(SignatureAlgorithm.ML_DSA_65, generateKeyPair("RSA", 2048));
-            var digests = sha256Of(List.of(message(1)));
+            var outsideTheBound = signerFor(SignatureAlgorithm.ML_DSA_65, null);
+            var digests = hashWithSha256(List.of(buildMessage(1)));
 
             // when
             ThrowingCallable signDigests = () -> outsideTheBound.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
 
             // then
-            assertInvalidInput(signDigests, "The signing profile's signature algorithm cannot sign a digest.");
+            assertThatThrownBy(signDigests).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
+                assertThat(ex.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(ex.clientMessage())
+                        .isEqualTo("The signing profile's signature algorithm cannot sign a digest.");
+            });
             then(cryptographicOperationService).shouldHaveNoInteractions();
         }
 
@@ -473,10 +497,11 @@ class CryptographicOperationServiceSignerTest {
             ThrowingCallable signDigests = () -> signer.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
 
             // then
-            assertInvalidInput(signDigests, "Each digest must be 32 bytes for " + algorithmCode + ".");
-            assertThatThrownBy(signDigests)
-                    .isInstanceOfSatisfying(SigningEngineException.class,
-                            ex -> assertThat(ex.operatorMessage()).contains("1", "31"));
+            assertThatThrownBy(signDigests).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
+                assertThat(ex.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(ex.operatorMessage()).contains("Digest 1 is " + tooShortForSha256.length + " bytes");
+                assertThat(ex.clientMessage()).isEqualTo("Each digest must be 32 bytes for " + algorithmCode + ".");
+            });
             then(cryptographicOperationService).shouldHaveNoInteractions();
         }
 
@@ -484,8 +509,8 @@ class CryptographicOperationServiceSignerTest {
         void throwsMisconfigured_whenTheServiceRefusesTheKey() throws Exception {
             // given
             var refusal = "The key sits behind a connector that cannot sign digests";
-            given(prehashedServiceCall()).willThrow(new ValidationException(ValidationError.create(refusal)));
-            var digests = sha256Of(List.of(message(1)));
+            given(callPrehashedSign()).willThrow(new ValidationException(ValidationError.create(refusal)));
+            var digests = hashWithSha256(List.of(buildMessage(1)));
 
             // when
             ThrowingCallable signDigests = () -> signer.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
@@ -501,18 +526,16 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void throwsSignerFault_whenTheProviderHashedTheDigestAgain() throws Exception {
             // given
-            var keyPair = generateKeyPair("RSA", 2048);
-            var rsaSigner = signerFor(SignatureAlgorithm.SHA256_WITH_RSA, keyPair);
-            var messages = List.of(message(1), message(2));
-            var digests = sha256Of(messages);
-            var firstSignedCorrectly = jdkSignatures("SHA256withRSA", keyPair.getPrivate(), messages).getFirst();
-            var secondSignedOverTheDigestAsData = jdkSignatures("SHA256withRSA", keyPair.getPrivate(),
+            var messages = List.of(buildMessage(1), buildMessage(2));
+            var digests = hashWithSha256(messages);
+            var firstSignedCorrectly = signWithJdk("SHA256withRSA", rsaKeyPair.getPrivate(), messages).getFirst();
+            var secondSignedOverTheDigestAsData = signWithJdk("SHA256withRSA", rsaKeyPair.getPrivate(),
                     List.of(digests.get(1))).getFirst();
-            given(prehashedServiceCall())
-                    .willReturn(answering(List.of(firstSignedCorrectly, secondSignedOverTheDigestAsData)));
+            given(callPrehashedSign())
+                    .willReturn(answerWithSignatures(List.of(firstSignedCorrectly, secondSignedOverTheDigestAsData)));
 
             // when
-            ThrowingCallable signDigests = () -> rsaSigner.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
+            ThrowingCallable signDigests = () -> signer.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
 
             // then
             assertThatThrownBy(signDigests).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
@@ -530,8 +553,8 @@ class CryptographicOperationServiceSignerTest {
             unsupported.setTitle("PARAMETER_UNSUPPORTED");
             unsupported.setDetail("PARAMETER_UNSUPPORTED");
             unsupported.setRetryable(false);
-            given(prehashedServiceCall()).willThrow(new ConnectorProblemException(unsupported));
-            var digests = sha256Of(List.of(message(1)));
+            given(callPrehashedSign()).willThrow(new ConnectorProblemException(unsupported));
+            var digests = hashWithSha256(List.of(buildMessage(1)));
 
             // when
             ThrowingCallable signDigests = () -> signer.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
@@ -564,29 +587,29 @@ class CryptographicOperationServiceSignerTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private SignDataResponseDto prehashedServiceCall() throws Exception {
+        private SignDataResponseDto callPrehashedSign() throws Exception {
             return cryptographicOperationService
                     .signDataWithoutEventHistory(any(), any(), any(), any(), any(),
                             eq(SignatureInputMode.PREHASHED_DIGEST));
         }
 
-        private static SignDataResponseDto answering(List<byte[]> signatures) {
+        private static SignDataResponseDto answerWithSignatures(List<byte[]> signatures) {
             return new SignDataResponseDto(IntStream
                     .range(0, signatures.size())
                     .mapToObj(i -> createSignatureResult(Integer.toString(i), signatures.get(i)))
                     .toList());
         }
 
-        private static byte[] message(int seed) {
+        private static byte[] buildMessage(int seed) {
             return new byte[]{(byte) seed, 7, 7, 7};
         }
 
-        private static List<byte[]> sha256Of(List<byte[]> messages) throws Exception {
+        private static List<byte[]> hashWithSha256(List<byte[]> messages) throws Exception {
             var sha256 = MessageDigest.getInstance("SHA-256");
             return messages.stream().map(sha256::digest).toList();
         }
 
-        private static List<byte[]> jdkSignatures(String jdkAlgorithm, PrivateKey key, List<byte[]> messages)
+        private static List<byte[]> signWithJdk(String jdkAlgorithm, PrivateKey key, List<byte[]> messages)
                 throws Exception {
             var signatures = new ArrayList<byte[]>();
             for (byte[] message : messages) {
@@ -596,13 +619,6 @@ class CryptographicOperationServiceSignerTest {
                 signatures.add(signature.sign());
             }
             return signatures;
-        }
-
-        private static void assertInvalidInput(ThrowingCallable call, String clientMessage) {
-            assertThatThrownBy(call).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
-                assertThat(ex.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
-                assertThat(ex.clientMessage()).isEqualTo(clientMessage);
-            });
         }
     }
 
@@ -622,10 +638,10 @@ class CryptographicOperationServiceSignerTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private CryptographicOperationServiceSigner signerFor(SignatureAlgorithm algorithm, KeyPair keyPair) {
+    private CryptographicOperationServiceSigner signerFor(SignatureAlgorithm algorithm, PublicKey signingKey) {
         return new CryptographicOperationServiceSigner(cryptographicOperationService,
                 SecuredParentUUID.fromUUID(UUID.randomUUID()), SecuredUUID.fromUUID(UUID.randomUUID()),
-                UUID.randomUUID(), UUID.randomUUID(), List.of(), algorithm, keyPair.getPublic());
+                UUID.randomUUID(), UUID.randomUUID(), List.of(), algorithm, signingKey);
     }
 
     private static KeyPair generateKeyPair(String algorithm, int size) throws Exception {
