@@ -20,7 +20,6 @@ import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
-import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
 import com.otilm.api.model.common.attribute.v3.mapping.SanMappedField;
 import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
@@ -146,6 +145,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
+import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedDataAttribute;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
@@ -1076,13 +1076,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         // given — a csrAttribute mapping the CN RDN; the orchestrator projects it once, derives the placeholder DN
         // from that content and forwards the content to register()
         var cnUuid = UUID.randomUUID();
-        var rdn = new RdnMappedField();
-        rdn.setFieldType(FieldType.RDN);
-        rdn.setRdn("2.5.4.3");
-        var fieldMapping = new FieldMapping();
-        fieldMapping.setFields(List.of(rdn));
-        var cnDefinition = aDataAttribute().withUuid(cnUuid).withName("commonName").build();
-        cnDefinition.setFieldMapping(fieldMapping);
+        var cnDefinition = aMappedDataAttribute().withUuid(cnUuid).withName("commonName").mappingRdn("2.5.4.3").build();
         when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of(cnDefinition));
         var contentCaptor = ArgumentCaptor.forClass(X509RequestContent.class);
         when(registeringAdapter().register(Mockito.any(), Mockito.any(), contentCaptor.capture()))

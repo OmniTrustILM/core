@@ -140,6 +140,8 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -3057,10 +3059,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     private RequestAttributeV3 registerDataAttributeWithValue(String name) throws AttributeException {
-        DataAttributeV3 attribute = DataAttributeV3Builder.aDataAttribute().withName(name).build();
+        DataAttributeV3 attribute = aDataAttribute().withName(name).build();
         attributeEngine.updateDataAttributeDefinitions(null, null, List.of(attribute));
-        return RequestAttributeV3Builder
-                .aCustomAttribute()
+        return aCustomAttribute()
                 .withUuid(attribute.getUuid())
                 .withName(name)
                 .withStringContent(name + "-value")
