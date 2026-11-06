@@ -20,7 +20,6 @@ import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldMapping;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
-import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
 import com.otilm.api.model.common.attribute.v3.mapping.SanMappedField;
 import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
@@ -147,6 +146,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
+import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedDataAttribute;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -1088,55 +1091,44 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void registerProjectsStructuredCsrAttributesAndForwardsContent() throws Exception {
-        // Structured identity: a csrAttribute mapping the CN RDN. The orchestrator resolves definitions, projects
-        // the attributes once, derives the placeholder DN from that content, and forwards the content to register().
-        UUID cnUuid = UUID.randomUUID();
-        DataAttributeV3 cnDef = new DataAttributeV3();
-        cnDef.setUuid(cnUuid.toString());
-        cnDef.setName("commonName");
-        RdnMappedField rdn = new RdnMappedField();
-        rdn.setFieldType(FieldType.RDN);
-        rdn.setRdn("2.5.4.3");
-        FieldMapping fieldMapping = new FieldMapping();
-        fieldMapping.setFields(List.of(rdn));
-        cnDef.setFieldMapping(fieldMapping);
-        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of(cnDef));
-
-        ArgumentCaptor<X509RequestContent> contentCaptor = ArgumentCaptor.forClass(X509RequestContent.class);
+    void registersTheProjectedIdentity_whenRequestCarriesCsrAttributes() throws Exception {
+        // given — a csrAttribute mapping the CN RDN; the orchestrator projects it once, derives the placeholder DN
+        // from that content and forwards the content to register()
+        var cnUuid = UUID.randomUUID();
+        var cnDefinition = aMappedDataAttribute().withUuid(cnUuid).withName("commonName").mappingRdn("2.5.4.3").build();
+        when(issuanceDefinitionResolver.resolve(Mockito.any())).thenReturn(List.of(cnDefinition));
+        var contentCaptor = ArgumentCaptor.forClass(X509RequestContent.class);
         when(registeringAdapter().register(Mockito.any(), Mockito.any(), contentCaptor.capture()))
                 .thenReturn(AdapterOperationResult.syncOk(null, List.of(), CertificateType.X509));
+        var commonName = "device-9";
+        var commonNameValue = aCustomAttribute()
+                .withUuid(cnUuid)
+                .withName("commonName")
+                .withStringContent(commonName)
+                .build();
+        var request = new ClientCertificateRegistrationDto();
+        request.setCsrAttributes(List.of(commonNameValue));
 
-        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
-        request
-                .setCsrAttributes(List
-                        .of(new RequestAttributeV3(cnUuid, "commonName", AttributeContentType.STRING,
-                                List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-9")))));
-
+        // when
         ClientCertificateDataResponseDto response = clientOperationService
                 .registerCertificate(authorityParent, securedRaProfile, request);
 
-        // The projected structured content (subject from the attribute, not a flat DN) is forwarded to register().
-        Assertions.assertEquals("device-9", contentCaptor.getValue().getSubject().get(0).getValue());
-        X509CertificateEntity cert = X509CertificateEntity
-                .from(certificateRepository.findByUuid(UUID.fromString(response.getUuid())).orElseThrow());
-        Assertions.assertEquals(CertificateState.REGISTERED, cert.getState());
-
-        // The submitted request-attribute values are persisted on the certificate itself, connectorless at
-        // operation=null (the key getCertificate reads into registrationRequestAttributes).
-        ArgumentCaptor<ObjectAttributeContentInfo> infoCaptor = ArgumentCaptor
-                .forClass(ObjectAttributeContentInfo.class);
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<RequestAttribute>> valuesCaptor = ArgumentCaptor.forClass(List.class);
-        verify(attributeEngine).updateObjectDataAttributesContent(infoCaptor.capture(), valuesCaptor.capture());
-        Assertions.assertEquals(Resource.CERTIFICATE, infoCaptor.getValue().objectType());
-        Assertions.assertEquals(cert.getUuid(), infoCaptor.getValue().objectUuid());
-        Assertions
-                .assertNull(infoCaptor.getValue().operation(), "register request values are stored at operation=null");
-        Assertions
-                .assertNull(infoCaptor.getValue().connectorUuid(), "register request values are stored connectorless");
-        Assertions.assertEquals(1, valuesCaptor.getValue().size());
-        Assertions.assertEquals(cnUuid, valuesCaptor.getValue().get(0).getUuid());
+        // then — the projected subject reaches register(), and the request values are stored on the new
+        // certificate, connectorless at operation=null, the key getCertificate reads into
+        // registrationRequestAttributes
+        var certificateUuid = UUID.fromString(response.getUuid());
+        var infoCaptor = ArgumentCaptor.forClass(ObjectAttributeContentInfo.class);
+        verify(attributeEngine)
+                .createObjectDataAttributesContent(infoCaptor.capture(), Mockito.eq(List.of(commonNameValue)));
+        verify(attributeEngine, never()).updateObjectDataAttributesContent(Mockito.any(), Mockito.anyList());
+        assertThat(contentCaptor.getValue().getSubject().getFirst().getValue()).isEqualTo(commonName);
+        assertThat(certificateRepository.findByUuid(certificateUuid).orElseThrow().getState())
+                .isEqualTo(CertificateState.REGISTERED);
+        ObjectAttributeContentInfo info = infoCaptor.getValue();
+        assertThat(info.objectType()).isEqualTo(Resource.CERTIFICATE);
+        assertThat(info.objectUuid()).isEqualTo(certificateUuid);
+        assertThat(info.operation()).isNull();
+        assertThat(info.connectorUuid()).isNull();
     }
 
     // ── registered identity (SAN / extensions) on the placeholder ────────────
@@ -1328,34 +1320,35 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void registerPersistsConnectorRegisterAttributesUnderTheRegisterOperation() throws Exception {
-        // A connector-backed registration carrying connector register attributes stores them on the certificate
-        // under the register operation (+ connector), so they surface as registerAttributes on the detail.
-        RegisterCapability adapter = registeringAdapter();
+    void createsRegisterAttributeContent_whenRegisteringThroughAConnector() throws Exception {
+        // given — connector register attributes, stored under the register operation and the connector so they
+        // surface as registerAttributes on the detail
+        var adapter = registeringAdapter();
         when(adapter.register(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(AdapterOperationResult.syncOk(null, null, CertificateType.X509));
         when(adapter.listRegisterAttributes(Mockito.any(), Mockito.any())).thenReturn(List.of());
-
-        RequestAttribute registerAttr = new RequestAttributeV3(UUID.randomUUID(), "registerParam",
-                AttributeContentType.STRING, List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("v")));
-        ClientCertificateRegistrationDto request = new ClientCertificateRegistrationDto();
+        var registerAttribute = aCustomAttribute()
+                .withUuid(UUID.randomUUID())
+                .withName("registerParam")
+                .withStringContent("v")
+                .build();
+        var request = new ClientCertificateRegistrationDto();
         request.setSubjectDn("CN=device-conn-attrs,O=Acme");
-        request.setAttributes(List.of(registerAttr));
+        request.setAttributes(List.of(registerAttribute));
 
+        // when
         ClientCertificateDataResponseDto response = clientOperationService
                 .registerCertificate(authorityParent, securedRaProfile, request);
 
-        UUID certUuid = UUID.fromString(response.getUuid());
-        ArgumentCaptor<ObjectAttributeContentInfo> infoCaptor = ArgumentCaptor
-                .forClass(ObjectAttributeContentInfo.class);
-        verify(attributeEngine).updateObjectDataAttributesContent(infoCaptor.capture(), Mockito.anyList());
+        // then
+        var infoCaptor = ArgumentCaptor.forClass(ObjectAttributeContentInfo.class);
+        verify(attributeEngine).createObjectDataAttributesContent(infoCaptor.capture(), Mockito.anyList());
+        verify(attributeEngine, never()).updateObjectDataAttributesContent(Mockito.any(), Mockito.anyList());
         ObjectAttributeContentInfo info = infoCaptor.getValue();
-        Assertions.assertEquals(Resource.CERTIFICATE, info.objectType());
-        Assertions.assertEquals(certUuid, info.objectUuid());
-        Assertions
-                .assertEquals(AttributeOperation.CERTIFICATE_REGISTER, info.operation(),
-                        "connector register attributes are stored under the register operation");
-        Assertions.assertNotNull(info.connectorUuid(), "connector register attributes are connector-scoped");
+        assertThat(info.objectType()).isEqualTo(Resource.CERTIFICATE);
+        assertThat(info.objectUuid()).isEqualTo(UUID.fromString(response.getUuid()));
+        assertThat(info.operation()).isEqualTo(AttributeOperation.CERTIFICATE_REGISTER);
+        assertThat(info.connectorUuid()).isNotNull();
     }
 
     @Test
@@ -2104,6 +2097,37 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .assertTrue(registrationChallengeStore.verify(copied, CHALLENGE),
                         "the successor's copied authorization must verify against the same challenge");
         verify(actionProducer).produceMessage(Mockito.argThat(m -> m.getResourceAction() == ResourceAction.REKEY));
+    }
+
+    @Test
+    void createsRenewAttributeContentOnTheSuccessor_whenRenewingWithAttributes() throws Exception {
+        // given
+        var keyPair = generateKeyPair();
+        var issued = seedIssuedCertWithContent(keyPair);
+        var adapter = (AuthorityProviderAdapter) registeringAdapter();
+        when(adapter.listRenewAttributes(Mockito.any(), Mockito.any())).thenReturn(List.of(aDataAttribute().build()));
+        var renewAttribute = aCustomAttribute()
+                .withUuid(UUID.randomUUID())
+                .withName("validityOverride")
+                .withStringContent("P90D")
+                .build();
+        var request = new ClientCertificateRenewRequestDto();
+        request.setRequest(csrBase64(keyPair, RENEWABLE_SUBJECT_DN));
+        request.setAttributes(List.of(renewAttribute));
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationService
+                .renewCertificate(authorityParent, securedRaProfile, issued.getUuid().toString(), request);
+
+        // then
+        var successorUuid = UUID.fromString(response.getUuid());
+        verify(attributeEngine)
+                .createObjectDataAttributesContent(
+                        Mockito
+                                .argThat(info -> successorUuid.equals(info.objectUuid())
+                                        && info.operation() == AttributeOperation.CERTIFICATE_RENEW),
+                        Mockito.eq(List.of(renewAttribute)));
+        verify(attributeEngine, never()).updateObjectDataAttributesContent(Mockito.any(), Mockito.anyList());
     }
 
     @Test

@@ -138,6 +138,7 @@ import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.WireMockPorts;
 import com.otilm.core.util.X509ObjectToString;
 import com.otilm.core.util.builders.ComplianceProfileFixtures;
@@ -1545,6 +1546,23 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .findByUuid(second.getCertificateRequest().getUuid())
                     .orElseThrow()
                     .getContent()).isEqualTo(SAMPLE_PKCS10);
+        }
+
+        @Test
+        void sendsNoAttributeMappingDelete_whenSubmittingARequest() throws Exception {
+            // given — a request without attributes, as CMP submits one
+
+            // when
+            List<String> statements = SqlCapture
+                    .during(() -> certificateService
+                            .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(),
+                                    List.of(), List.of(), List.of(), null, null, raProfile.getUuid(), null, null))
+                    .statements();
+
+            // then
+            assertThat(statements)
+                    .noneMatch(sql -> sql.startsWith("delete from core.attribute_content_2_object"))
+                    .noneMatch(sql -> sql.contains("values(0)"));
         }
     }
 
