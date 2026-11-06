@@ -25,5 +25,9 @@ public class AcmeConstants {
     public static final String HTTP_CHALLENGE_REQUEST_METHOD = "GET";
     public static final String LOCATION_HEADER_NAME = "Location";
     public static final String HTTP_CHALLENGE_BASE_URL = "http://%s/.well-known/acme-challenge/%s";
+    /** The Retry-After of a profile that sets no retry interval, in seconds, as the ACME profile API documents. */
+    public static final int DEFAULT_RETRY_INTERVAL = 30;
+    /** How long orders and authorizations stay valid when their profile sets no validity, in seconds, as documented. */
+    public static final int DEFAULT_ORDER_VALIDITY = 36000;
 
 }

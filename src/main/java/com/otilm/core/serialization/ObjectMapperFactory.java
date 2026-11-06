@@ -6,7 +6,10 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.cfg.CoercionAction;
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.type.LogicalType;
 import com.fasterxml.jackson.dataformat.csv.CsvGenerator;
 import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -136,10 +139,45 @@ public final class ObjectMapperFactory {
     }
 
     /**
-     * The ACME-request recipe. An unrecognised member is rejected, because RFC 8555 request bodies are exact.
+     * The ACME-request recipe. An unrecognised member is rejected, because RFC 8555 request bodies are exact, and a
+     * number or a boolean is not read as text.
      */
     public static ObjectMapper acmeRequest() {
-        return JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
+        ObjectMapper mapper = JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
+        refuseScalarsAsText(mapper);
+        return mapper;
+    }
+
+    /**
+     * The recipe for the payload of an ACME request: {@link #lenientStorage()}, since a server ignores the members it
+     * does not know, but no scalar is converted to another type, so a member of the wrong JSON type is refused rather
+     * than read as text, a boolean or an integer. A status is read from its text code, and an empty or blank string is
+     * not read as an absent boolean or integer.
+     */
+    public static ObjectMapper acmePayload() {
+        ObjectMapper mapper = lenientStorage();
+        refuseScalarsAsText(mapper);
+        mapper
+                .coercionConfigFor(LogicalType.Boolean)
+                .setCoercion(CoercionInputShape.String, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Float, CoercionAction.Fail);
+        mapper
+                .coercionConfigFor(LogicalType.Integer)
+                .setCoercion(CoercionInputShape.String, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail);
+        return mapper;
+    }
+
+    private static void refuseScalarsAsText(ObjectMapper mapper) {
+        mapper
+                .coercionConfigFor(LogicalType.Textual)
+                .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail);
     }
 
     /**
