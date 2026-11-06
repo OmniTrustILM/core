@@ -1,10 +1,10 @@
 package com.otilm.core.service.handler;
 
-import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.dao.repository.CertificateRepository;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,11 +33,11 @@ public class CertificateValidationStatusPoller {
      */
     private static final long DEFAULT_WAIT_MS = 3_000L;
 
-    private CertificateInternalService certificateService;
+    private CertificateRepository certificateRepository;
 
     @Autowired
-    public void setCertificateService(CertificateInternalService certificateService) {
-        this.certificateService = certificateService;
+    public void setCertificateRepository(CertificateRepository certificateRepository) {
+        this.certificateRepository = certificateRepository;
     }
 
     /**
@@ -53,10 +53,11 @@ public class CertificateValidationStatusPoller {
      * </p>
      *
      * <p>
-     * Runs with {@link Propagation#NOT_SUPPORTED} so the caller's transaction is suspended for the duration of the wait
-     * rather than held open across the sleeps (see core/CLAUDE.md "Transactions and external calls"). Each sample
-     * re-reads through {@link CertificateInternalService#getCertificateEntity}, which — with no ambient transaction —
-     * runs in its own short transaction, so nothing is pinned between samples.
+     * Runs with {@link Propagation#NOT_SUPPORTED} so a caller's transaction is suspended for the duration of the wait
+     * rather than held open across the sleeps (see core/CLAUDE.md "Transactions and external calls"). Each sample reads
+     * the status alone, through {@link CertificateRepository#findValidationStatusByUuid}: the request's EntityManager,
+     * bound by open-in-view, already holds the certificate as it was when the chain was loaded, and reading the entity
+     * would return that copy for the whole budget.
      * </p>
      *
      * @param certificate the certificate whose status to resolve (its DTO status is the starting point)
@@ -76,13 +77,11 @@ public class CertificateValidationStatusPoller {
         if (certificate.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED) {
             return certificate.getValidationStatus();
         }
-        SecuredUUID certUuid = SecuredUUID.fromString(certificate.getUuid());
+        UUID certUuid = UUID.fromString(certificate.getUuid());
         long deadline = System.currentTimeMillis() + budgetMs;
         try {
-            CertificateValidationStatus status = certificateService
-                    .getCertificateEntity(certUuid)
-                    .getValidationStatus();
-            while (status == CertificateValidationStatus.NOT_CHECKED) {
+            Optional<CertificateValidationStatus> status = certificateRepository.findValidationStatusByUuid(certUuid);
+            while (status.isPresent() && status.get() == CertificateValidationStatus.NOT_CHECKED) {
                 long remaining = deadline - System.currentTimeMillis();
                 if (remaining <= 0) {
                     break;
@@ -90,12 +89,13 @@ public class CertificateValidationStatusPoller {
                 // Clamp to the remaining budget so total wait never exceeds budgetMs, even
                 // when budgetMs is smaller than one sampling interval.
                 TimeUnit.MILLISECONDS.sleep(Math.min(POLL_INTERVAL_MS, remaining));
-                status = certificateService.getCertificateEntity(certUuid).getValidationStatus();
+                status = certificateRepository.findValidationStatusByUuid(certUuid);
             }
-            return status;
-        } catch (NotFoundException e) {
-            log.warn("UUID={} | certificate not found while waiting for validation status", certificate.getUuid());
-            return certificate.getValidationStatus();
+            if (status.isEmpty()) {
+                log.warn("UUID={} | certificate not found while waiting for validation status", certificate.getUuid());
+                return certificate.getValidationStatus();
+            }
+            return status.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.debug("UUID={} | validation-status wait interrupted; keeping current status", certificate.getUuid());
