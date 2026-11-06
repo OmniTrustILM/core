@@ -121,7 +121,7 @@ public class CrmfKurMessageHandler implements MessageHandler<ClientCertificateDa
         Certificate dbCertificate = getCertificate(tid, certRequest);
         LoggingHelper
                 .putLogResourceInfo(Resource.CERTIFICATE, false, dbCertificate.getUuid().toString(),
-                        X509CertificateEntity.from(dbCertificate).getSubjectDn());
+                        X509CertificateEntity.subjectDnOrNull(dbCertificate));
         if (configuration.isProtectedByAnotherCertificate(dbCertificate)) {
             throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized,
                     "re-key operation failed: the request is not protected by the certificate it updates");

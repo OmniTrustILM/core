@@ -835,7 +835,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         Certificate cert = loadCertificateToRevoke(certificateDer);
         LoggingHelper
                 .putLogResourceInfo(com.otilm.api.model.core.auth.Resource.CERTIFICATE, false,
-                        cert.getUuid().toString(), X509CertificateEntity.from(cert).getSubjectDn());
+                        cert.getUuid().toString(), X509CertificateEntity.subjectDnOrNull(cert));
         if (cert.isArchived()) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.ARCHIVED);
         }

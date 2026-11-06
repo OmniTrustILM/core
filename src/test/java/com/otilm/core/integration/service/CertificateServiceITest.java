@@ -809,7 +809,6 @@ class CertificateServiceITest extends BaseSpringBootTest {
                 throws NotFoundException, CertificateException, IOException, AttributeException {
             // given
             CertificateRequestEntity csrEntity = aCertificateRequest().withContent(SAMPLE_PKCS10).build();
-            csrEntity.setCertificateType(CertificateType.X509);
             certificateRequestRepository.save(csrEntity);
             certificate.setCertificateRequest(csrEntity);
             certificate.setCertificateRequestUuid(csrEntity.getUuid());
@@ -1911,6 +1910,42 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(stored.getPublicKeyFingerprint()).isNull();
             assertThat(stored.getKeyUuid()).isNull();
             assertThat(stored.getAltKeyUuid()).isNull();
+        }
+
+        @Test
+        void linksTheKey_whenTheCertificateHasThePublicKeyFingerprint() {
+            // given
+            String keyFingerprint = "linked-public-key-fingerprint";
+            CryptographicKey key = cryptographicKeyRepository.save(aCryptographicKey().build());
+            X509CertificateEntity linked = certificateRepository
+                    .save(aCertificate().withPublicKeyFingerprint(keyFingerprint).build());
+
+            // when
+            certificateService.updateCertificateKeys(key.getUuid(), keyFingerprint);
+
+            // then
+            X509CertificateEntity stored = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(linked.getUuid()).orElseThrow());
+            assertThat(stored.getKeyUuid()).isEqualTo(key.getUuid());
+            assertThat(stored.getAltKeyUuid()).isNull();
+        }
+
+        @Test
+        void linksTheAlternativeKey_whenTheCertificateHasTheAlternativeKeyFingerprint() {
+            // given
+            String keyFingerprint = "linked-alternative-key-fingerprint";
+            CryptographicKey key = cryptographicKeyRepository.save(aCryptographicKey().build());
+            X509CertificateEntity linked = certificateRepository
+                    .save(aCertificate().withAltKeyFingerprint(keyFingerprint).build());
+
+            // when
+            certificateService.updateCertificateKeys(key.getUuid(), keyFingerprint);
+
+            // then
+            X509CertificateEntity stored = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(linked.getUuid()).orElseThrow());
+            assertThat(stored.getAltKeyUuid()).isEqualTo(key.getUuid());
+            assertThat(stored.getKeyUuid()).isNull();
         }
     }
 

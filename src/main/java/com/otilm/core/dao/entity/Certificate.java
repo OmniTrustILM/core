@@ -46,6 +46,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -188,6 +189,7 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
     private Integer keySize;
 
     @Column(name = "certificate_type", nullable = false, insertable = false, updatable = false)
+    @Setter(AccessLevel.PROTECTED)
     @Enumerated(EnumType.STRING)
     private CertificateType certificateType;
 
@@ -255,6 +257,10 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
      * Preserves the revoke attributes from a revocation request whose connector response was asynchronous. Applied at
      * manual revoke confirmation time, cleared on confirm or cancel. Always {@code null} outside the
      * {@code PENDING_REVOKE} state.
+     *
+     * <p>
+     * Written only through {@code CertificatePendingRevokeWriter}: on a managed entity, the UPDATE leaves a changed
+     * value out and this setter stores nothing.
      */
     @Column(name = "pending_revoke_attributes", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)

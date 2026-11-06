@@ -29,7 +29,6 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -290,7 +289,6 @@ class EventHandlersITest extends BaseSpringBootTest {
                 .withNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)))
                 .withNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)))
                 .build();
-        certificate.setCertificateType(CertificateType.X509);
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.INACTIVE);
         certificate.setCertificateContent(certificateContent);
@@ -1266,7 +1264,6 @@ class EventHandlersITest extends BaseSpringBootTest {
         squatter.setState(CertificateState.ISSUED);
         squatter.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
         squatter.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
-        squatter.setCertificateType(CertificateType.X509);
         certificateRepository.save(squatter);
     }
 
@@ -1623,7 +1620,6 @@ class EventHandlersITest extends BaseSpringBootTest {
                 .withNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)))
                 .withNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)))
                 .build();
-        certificate.setCertificateType(CertificateType.X509);
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.INACTIVE);
         certificate.setCertificateContent(certificateContent);

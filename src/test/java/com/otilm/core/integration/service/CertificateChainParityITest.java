@@ -2,7 +2,6 @@ package com.otilm.core.integration.service;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
@@ -237,7 +236,6 @@ class CertificateChainParityITest extends BaseSpringBootTest {
                 .withIssuerDn(x509.getIssuerX500Principal().getName())
                 .withSerialNumber(x509.getSerialNumber().toString(16))
                 .build();
-        cert.setCertificateType(CertificateType.X509);
         cert.setState(CertificateState.ISSUED);
         cert.setValidationStatus(CertificateValidationStatus.VALID);
         cert.setNotBefore(new Date(x509.getNotBefore().getTime()));
@@ -254,7 +252,6 @@ class CertificateChainParityITest extends BaseSpringBootTest {
                 .withIssuerDn("CN=No-Content")
                 .withSerialNumber("deadbeef")
                 .build();
-        cert.setCertificateType(CertificateType.X509);
         cert.setState(CertificateState.REQUESTED);
         cert.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
         cert.setNotBefore(new Date());

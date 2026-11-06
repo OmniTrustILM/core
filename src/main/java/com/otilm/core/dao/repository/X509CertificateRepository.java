@@ -26,8 +26,41 @@ public interface X509CertificateRepository extends CertificateBaseRepository<X50
     Optional<X509CertificateEntity> findByIssuerDnNormalizedAndSerialNumber(String issuerDnNormalized,
             String serialNumber);
 
-    List<X509CertificateEntity> findByPublicKeyFingerprintOrAltKeyFingerprint(String publicKeyFingerprint,
-            String altKeyFingerprint);
+    List<X509CertificateEntity> findByAltKeyFingerprint(String altKeyFingerprint);
+
+    @Modifying
+    @Query("UPDATE X509CertificateEntity c SET c.altKeyUuid = ?1, c.hybridCertificate = true WHERE c.uuid IN ?2")
+    void setAltKeyUuidAndHybridCertificate(UUID keyUuid, List<UUID> uuids);
+
+    @Modifying
+    @Query(value = """
+            INSERT INTO {h-schema}certificate (
+            uuid, i_author, i_cre, i_upd, ra_profile_uuid,certificate_content_id,
+            certificate_request_uuid,issuer_certificate_uuid,certificate_type,
+            state,validation_status,certificate_validation_result,status_validation_timestamp,
+            compliance_status,compliance_result,common_name,not_after,not_before,
+            extended_key_usage,fingerprint,issuer_common_name,issuer_dn,issuer_dn_normalized,
+            issuer_serial_number,key_size,key_usage,key_uuid,public_key_algorithm,
+            public_key_fingerprint,serial_number,signature_algorithm,subject_alternative_names,
+            subject_dn,subject_dn_normalized,subject_type,trusted_ca,user_uuid,hybrid_certificate,alt_signature_algorithm,archived,alt_key_fingerprint,
+            qc_compliance,extended_key_usage_critical,qc_sscd,qc_type,qc_cc_legislation)
+            VALUES (
+            :#{#cert.uuid}, :#{#cert.author}, :#{#cert.created}, :#{#cert.updated}, :#{#cert.raProfileUuid}, :#{#cert.certificateContentId},
+            :#{#cert.certificateRequestUuid}, :#{#cert.issuerCertificateUuid}, :#{#cert.certificateType.name()},
+            :#{#cert.state.name()}, :#{#cert.validationStatus.name()}, :#{#cert.certificateValidationResult}, :#{#cert.statusValidationTimestamp},
+            :#{#cert.complianceStatus.name()}, :#{#cert.complianceResult}, :#{#cert.commonName}, :#{#cert.notAfter}, :#{#cert.notBefore},
+            :#{#cert.extendedKeyUsage}, :#{#cert.fingerprint}, :#{#cert.issuerCommonName}, :#{#cert.issuerDn}, :#{#cert.issuerDnNormalized},
+            :#{#cert.issuerSerialNumber}, :#{#cert.keySize}, :#{#cert.keyUsageBitMask}, :#{#cert.keyUuid}, :#{#cert.publicKeyAlgorithm},
+            :#{#cert.publicKeyFingerprint}, :#{#cert.serialNumber}, :#{#cert.signatureAlgorithm}, :#{#cert.subjectAlternativeNames},
+            :#{#cert.subjectDn}, :#{#cert.subjectDnNormalized}, :#{#cert.subjectType.name()}, :#{#cert.trustedCa}, :#{#cert.userUuid},
+            :#{#cert.hybridCertificate}, :#{#cert.altSignatureAlgorithm}, :#{#cert.archived}, :#{#cert.altKeyFingerprint},
+            :#{#cert.qcCompliance}, :#{#cert.extendedKeyUsageCritical}, :#{#cert.qcSscd}, :#{#cert.qcType}, :#{#cert.qcCcLegislation}
+            )
+            ON CONFLICT (fingerprint)
+            DO NOTHING
+            """,
+            nativeQuery = true)
+    Integer insertWithFingerprintConflictResolve(@Param("cert") X509CertificateEntity certificate);
 
     /**
      * The pre-registrations a protocol enrolment presenting the given normalized subject can complete under the RA

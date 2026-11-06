@@ -1,7 +1,6 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.model.core.oid.OidCategory;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
@@ -103,7 +102,7 @@ class CertificateServiceImplDiscoveredImportTest {
         assertThat(result.certificate().getUuid())
                 .as("the loser must adopt the committed row, not the identifier it generated itself")
                 .isEqualTo(winner.getUuid());
-        verify(contentWriter).insertCertificate(any(Certificate.class));
+        verify(contentWriter).insertCertificate(any(X509CertificateEntity.class));
     }
 
     /**
@@ -118,7 +117,7 @@ class CertificateServiceImplDiscoveredImportTest {
 
         service.createDiscoveredCertificateAtomic(x509Certificate);
 
-        ArgumentCaptor<Certificate> inserted = ArgumentCaptor.forClass(Certificate.class);
+        ArgumentCaptor<X509CertificateEntity> inserted = ArgumentCaptor.forClass(X509CertificateEntity.class);
         verify(contentWriter).insertCertificate(inserted.capture());
         assertThat(inserted.getValue()).satisfies(entity -> {
             assertThat(entity.getUuid()).isNotNull();
@@ -141,6 +140,6 @@ class CertificateServiceImplDiscoveredImportTest {
 
         assertThat(result.certificate().getUuid()).isEqualTo(existing.getUuid());
         verify(contentWriter, never()).insertContent(anyString(), anyString());
-        verify(contentWriter, never()).insertCertificate(any(Certificate.class));
+        verify(contentWriter, never()).insertCertificate(any(X509CertificateEntity.class));
     }
 }

@@ -71,7 +71,6 @@ class CertificateDetailDtoMapperTest {
         certificate = aCertificate().build();
         certificate.uuid = UUID.randomUUID();
         certificate.setCommonName("test.example.com");
-        certificate.setCertificateType(CertificateType.X509);
         certificate.setState(CertificateState.ISSUED);
         certificate.setSubjectDn("CN=test.example.com");
         certificate.setIssuerCommonName("Example CA");
@@ -137,7 +136,6 @@ class CertificateDetailDtoMapperTest {
         X509CertificateRequestEntity request = aCertificateRequest().build();
         request.uuid = UUID.randomUUID();
         request.setContent("csrContent");
-        request.setCertificateType(CertificateType.X509);
         request.setCommonName("test.example.com");
         request.setSubjectDn("CN=test.example.com");
         request.setSignatureAlgorithm("SHA256withRSA");

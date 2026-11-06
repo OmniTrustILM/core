@@ -8,7 +8,6 @@ import com.otilm.api.model.client.approvalprofile.ApprovalStepRequestDto;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.dao.entity.ApprovalProfile;
@@ -120,7 +119,6 @@ public abstract class AbstractApprovalWorkflowITest extends BaseMessagingIntTest
                 .withState(CertificateState.PENDING_APPROVAL)
                 .withValidationStatus(CertificateValidationStatus.NOT_CHECKED)
                 .build();
-        certificate.setCertificateType(CertificateType.X509);
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());
         certificate.setNotBefore(Date.from(Instant.now().minus(1, ChronoUnit.DAYS)));

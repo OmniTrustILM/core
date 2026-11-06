@@ -147,7 +147,7 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                 Certificate certificate = getCertificate(serialNumber, tid);
                 LoggingHelper
                         .putLogResourceInfo(Resource.CERTIFICATE, false, certificate.getUuid().toString(),
-                                X509CertificateEntity.from(certificate).getSubjectDn());
+                                X509CertificateEntity.subjectDnOrNull(certificate));
                 if (configuration.isProtectedByAnotherCertificate(certificate)) {
                     throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized,
                             "SN=" + serialNumber + " | revocation is not protected by the certificate it revokes");

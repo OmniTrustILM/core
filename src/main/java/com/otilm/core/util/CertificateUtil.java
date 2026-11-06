@@ -13,7 +13,6 @@ import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationResultDto;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.certificate.GeneralNameType;
@@ -441,7 +440,6 @@ public class CertificateUtil {
         modal.setPublicKeyAlgorithm(getKeyAlgorithmStringFromProviderName(certificate.getPublicKey().getAlgorithm()));
         modal.setSignatureAlgorithm(certificate.getSigAlgName().replace("WITH", "with"));
         modal.setKeySize(KeySizeUtil.getKeyLength(certificate.getPublicKey()));
-        modal.setCertificateType(CertificateType.fromCode(certificate.getType()));
         byte[] alternativeSignatureAlgorithm = certificate.getExtensionValue(Extension.altSignatureAlgorithm.getId());
         byte[] alternativeSignature = certificate.getExtensionValue(Extension.altSignatureValue.getId());
         if (alternativeSignatureAlgorithm != null && alternativeSignature != null) {

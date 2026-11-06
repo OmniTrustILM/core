@@ -1688,7 +1688,6 @@ public class CertificateServiceImpl
         certificate.setState(CertificateState.REQUESTED);
         certificate.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
         certificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
-        certificate.setCertificateType(CertificateType.X509);
         certificate.setRaProfile(raProfile);
         certificate = certificateRepository.save(certificate);
         if (source != null) {
@@ -1784,7 +1783,6 @@ public class CertificateServiceImpl
         final String fingerprint = CertificateUtil.getThumbprint(normalizedDer);
         X509CertificateRequestEntity certificateRequestEntity = new X509CertificateRequestEntity();
         CertificateUtil.prepareCertificateRequestEntityFromCsr(certificateRequestEntity, request);
-        certificateRequestEntity.setCertificateType(CertificateType.X509);
         certificateRequestEntity.setCertificateRequestFormat(issueRequest.getFormat());
         certificateRequestEntity.setFingerprint(fingerprint);
         certificateRequestEntity.setContent(Base64.getEncoder().encodeToString(normalizedDer));
@@ -1996,7 +1994,7 @@ public class CertificateServiceImpl
         certificateEntity.setCertificateContent(certificateContent);
         CertificateUtil.prepareIssuedCertificate(certificateEntity, x509Cert);
 
-        Integer countInserted = certificateRepository.insertWithFingerprintConflictResolve(certificateEntity);
+        Integer countInserted = x509CertificateRepository.insertWithFingerprintConflictResolve(certificateEntity);
         certificateEntity = X509CertificateEntity
                 .from(certificateRepository
                         .findByFingerprint(fingerprint)
@@ -2425,15 +2423,14 @@ public class CertificateServiceImpl
         if (publicKeyFingerprint == null) {
             return;
         }
-        for (X509CertificateEntity certificate : x509CertificateRepository
-                .findByPublicKeyFingerprintOrAltKeyFingerprint(publicKeyFingerprint, publicKeyFingerprint)) {
-            if (publicKeyFingerprint.equals(certificate.getPublicKeyFingerprint())) {
-                certificate.setKeyUuid(keyUuid);
-            }
-            if (publicKeyFingerprint.equals(certificate.getAltKeyFingerprint())) {
-                certificate.setAltKeyUuid(keyUuid);
-            }
+        for (Certificate certificate : certificateRepository.findByPublicKeyFingerprint(publicKeyFingerprint)) {
+            certificate.setKeyUuid(keyUuid);
             certificateRepository.save(certificate);
+        }
+        for (X509CertificateEntity certificate : x509CertificateRepository
+                .findByAltKeyFingerprint(publicKeyFingerprint)) {
+            certificate.setAltKeyUuid(keyUuid);
+            x509CertificateRepository.save(certificate);
         }
     }
 
@@ -2542,7 +2539,6 @@ public class CertificateServiceImpl
         certificate.setState(CertificateState.REQUESTED);
         certificate.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
         certificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
-        certificate.setCertificateType(CertificateType.X509);
         certificate.setRaProfileUuid(raProfileUuid);
 
         // Signature attributes are written under the connector of the key they belong to.

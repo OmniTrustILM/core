@@ -40,6 +40,15 @@ public class X509CertificateEntity extends Certificate {
     }
 
     /**
+     * The subject DN of an X.509 certificate, or null for a certificate of another type. For log context that must not
+     * turn into a refusal.
+     */
+    public static String subjectDnOrNull(Certificate certificate) {
+        X509CertificateEntity x509 = fromOrNull(certificate);
+        return x509 == null ? null : x509.getSubjectDn();
+    }
+
+    /**
      * Views a certificate as X.509 for an operation that exists only for that type.
      *
      * @throws ValidationException if the certificate is of another type

@@ -22,6 +22,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.UUID;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -40,6 +41,7 @@ import org.hibernate.type.SqlTypes;
 public abstract class CertificateRequestEntity extends UniquelyIdentifiedAndAudited implements ComplianceSubject {
 
     @Column(name = "certificate_type", nullable = false, insertable = false, updatable = false)
+    @Setter(AccessLevel.PROTECTED)
     @Enumerated(EnumType.STRING)
     private CertificateType certificateType;
 

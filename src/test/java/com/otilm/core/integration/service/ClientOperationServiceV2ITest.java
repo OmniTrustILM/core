@@ -45,7 +45,6 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -3722,7 +3721,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .withPublicKeyAlgorithm("RSA")
                 .withSignatureAlgorithm("SHA256WithRSA")
                 .build();
-        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         certificate.setState(CertificateState.PENDING_ISSUE);
@@ -4309,7 +4307,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .withPublicKeyAlgorithm("RSA")
                 .withSignatureAlgorithm("SHA256WithRSA")
                 .build();
-        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         certificate.setState(CertificateState.REQUESTED);

@@ -227,7 +227,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         certificate.setSerialNumber("123456789");
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateType(CertificateType.X509);
         certificate.setNotBefore(new Date());
         certificate.setNotAfter(new Date());
         certificate.setCertificateContent(certificateContent);
@@ -2372,7 +2371,6 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 .withSerialNumber("000000")
                 .withState(CertificateState.REQUESTED)
                 .build();
-        certNoContent.setCertificateType(CertificateType.X509);
         certNoContent.setNotBefore(new Date());
         certNoContent.setNotAfter(new Date());
         // intentionally no certificateContent set → null

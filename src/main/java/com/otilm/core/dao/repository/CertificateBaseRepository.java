@@ -113,6 +113,8 @@ public interface CertificateBaseRepository<T extends Certificate> extends Compli
 
     Optional<T> findByFingerprint(String fingerprint);
 
+    List<T> findByPublicKeyFingerprint(String publicKeyFingerprint);
+
     boolean existsByCertificateRequestUuid(UUID certificateRequestUuid);
 
     List<T> findByRaProfile(RaProfile raProfile);
