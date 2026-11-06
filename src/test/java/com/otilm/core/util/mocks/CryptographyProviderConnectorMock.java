@@ -1,6 +1,7 @@
 package com.otilm.core.util.mocks;
 
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.extension.Parameters;
 import com.otilm.api.model.client.connector.InfoResponse;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -17,6 +18,8 @@ import java.util.UUID;
  * Mock of a V1 cryptography-provider connector.
  */
 public class CryptographyProviderConnectorMock extends BaseConnectorMock {
+
+    private static final String SIGN_PATH = "/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/sign";
 
     private final RealSignerTransformer realSignerTransformer;
 
@@ -167,14 +170,33 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
     }
 
     public CryptographyProviderConnectorMock stubRealSigning() {
+        return stubRealSigning(Parameters.empty());
+    }
+
+    /**
+     * Answers {@code signData} with a real signature of every item under its own identifier, in reverse request order.
+     */
+    public CryptographyProviderConnectorMock stubRealSigningInReverseOrder() {
+        return stubRealSigning(Parameters.one(RealSignerTransformer.REVERSED_ORDER, true));
+    }
+
+    /**
+     * Answers {@code signData} with a real signature of every item in request order, without identifiers.
+     */
+    public CryptographyProviderConnectorMock stubRealSigningWithoutIdentifiers() {
+        return stubRealSigning(Parameters.one(RealSignerTransformer.WITHOUT_IDENTIFIERS, true));
+    }
+
+    private CryptographyProviderConnectorMock stubRealSigning(Parameters signerParameters) {
         server
                 .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/sign"))
+                        .post(WireMock.urlPathMatching(SIGN_PATH))
                         .willReturn(WireMock
                                 .aResponse()
                                 .withStatus(200)
                                 .withHeader("Content-Type", "application/json")
-                                .withTransformers(RealSignerTransformer.NAME)));
+                                .withTransformers(RealSignerTransformer.NAME)
+                                .withTransformerParameters(signerParameters)));
         return this;
     }
 
@@ -188,16 +210,17 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
         String sig = Base64.getEncoder().encodeToString(signature);
         server
                 .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/sign"))
+                        .post(WireMock.urlPathMatching(SIGN_PATH))
                         .willReturn(WireMock.okJson("{\"signatures\":[{\"data\":\"" + sig + "\"}]}")));
         return this;
     }
 
     public CryptographyProviderConnectorMock verifyNoDataWasSigned() {
-        server
-                .verify(0, WireMock
-                        .postRequestedFor(
-                                WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/sign")));
+        return verifySignRequests(0);
+    }
+
+    public CryptographyProviderConnectorMock verifySignRequests(int count) {
+        server.verify(count, WireMock.postRequestedFor(WireMock.urlPathMatching(SIGN_PATH)));
         return this;
     }
 }
