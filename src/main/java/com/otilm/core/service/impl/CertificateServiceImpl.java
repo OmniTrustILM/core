@@ -2570,17 +2570,17 @@ public class CertificateServiceImpl
             certificateRequestRepository.save(certificateRequestEntity);
 
             requestAttributes = attributeEngine
-                    .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                    .createObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                             .build(), csrAttributes);
             requestSignatureAttributes = attributeEngine
-                    .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                    .createObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                             .connector(signatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
                             .build(), signatureAttributes);
             requestAltSignatureAttributes = attributeEngine
-                    .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                    .createObjectDataAttributesContent(ObjectAttributeContentInfo
                             .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                             .connector(altSignatureAttributeOwner)
                             .operation(AttributeOperation.SIGN)
@@ -2618,7 +2618,7 @@ public class CertificateServiceImpl
         dto.getCertificateRequest().setAltSignatureAttributes(requestAltSignatureAttributes);
         dto
                 .setIssueAttributes(attributeEngine
-                        .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .createObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE, certificate.getUuid())
                                 .connector(raProfile.getAuthorityInstanceReference().getConnectorUuid())
                                 .operation(AttributeOperation.CERTIFICATE_ISSUE)
