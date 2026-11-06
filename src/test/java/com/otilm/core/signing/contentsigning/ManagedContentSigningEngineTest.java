@@ -8,6 +8,7 @@ import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
@@ -588,6 +589,18 @@ class ManagedContentSigningEngineTest {
                         assertThat(refusal.operatorMessage()).contains("transferMode digestOnly");
                     });
             verifyNoInteractions(signingCertificateValidatorFactory, acquisitions, formattingClient);
+        }
+
+        @Test
+        void asksForTheDigest_whenTheRefusedModeIsInline() {
+            // given
+            DocumentTransferMode refused = DocumentTransferMode.INLINE;
+
+            // when
+            String message = ManagedContentSigningEngine.clientRefusal(SignatureFamily.CADES, refused);
+
+            // then
+            assertThat(message).isEqualTo("CAdES signing needs only the document's digest, not the document itself");
         }
 
         @Test
