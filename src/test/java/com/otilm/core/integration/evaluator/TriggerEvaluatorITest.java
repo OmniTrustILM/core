@@ -6,6 +6,7 @@ import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.RuleException;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
@@ -112,6 +113,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class TriggerEvaluatorITest extends BaseSpringBootTest {
 
@@ -369,6 +372,106 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
         Assertions
                 .assertFalse(certificateTriggerEvaluator
                         .evaluateConditionItem(condition, certificate, Resource.CERTIFICATE));
+    }
+
+    @Test
+    void testApprovalRuleEvaluatorOnStatusProperty() throws RuleException {
+        Approval approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(List.of(ApprovalStatusEnum.PENDING.name()));
+
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        approval.setStatus(ApprovalStatusEnum.APPROVED);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+
+        approval.setStatus(null);
+        Assertions.assertFalse(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        Assertions.assertTrue(approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL));
+    }
+
+    @Test
+    void meetsEquals_whenApprovalStatusConditionHoldsTheStatusCode() throws Exception {
+        // given
+        var approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        var pendingCode = ApprovalStatusEnum.PENDING.getCode();
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EQUALS);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(List.of(pendingCode));
+
+        // when
+        boolean met = approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL);
+
+        // then
+        assertThat(met).isTrue();
+    }
+
+    @Test
+    void failsNotEquals_whenApprovalStatusConditionHoldsTheStatusCode() throws Exception {
+        // given
+        var approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        var pendingCode = ApprovalStatusEnum.PENDING.getCode();
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.NOT_EQUALS);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(List.of(pendingCode));
+
+        // when
+        boolean met = approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL);
+
+        // then
+        assertThat(met).isFalse();
+    }
+
+    @Test
+    void meetsNotEmpty_whenApprovalStatusConditionHasNoValue() throws Exception {
+        // given
+        var approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.NOT_EMPTY);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(null);
+
+        // when
+        boolean met = approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL);
+
+        // then
+        assertThat(met).isTrue();
+    }
+
+    @Test
+    void failsEmpty_whenApprovalStatusConditionHasNoValue() throws Exception {
+        // given
+        var approval = new Approval();
+        approval.setStatus(ApprovalStatusEnum.PENDING);
+        condition.setFieldSource(FilterFieldSource.PROPERTY);
+        condition.setOperator(FilterConditionOperator.EMPTY);
+        condition.setFieldIdentifier(FilterField.APPROVAL_STATUS.name());
+        condition.setValue(null);
+
+        // when
+        boolean met = approvalTriggerEvaluator.evaluateConditionItem(condition, approval, Resource.APPROVAL);
+
+        // then
+        assertThat(met).isFalse();
     }
 
     @Test
