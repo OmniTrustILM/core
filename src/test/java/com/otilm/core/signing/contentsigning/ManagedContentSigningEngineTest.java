@@ -22,7 +22,6 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.InlineDocu
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
-import com.otilm.api.model.connector.signatures.contentsigning.pades.PadesComputeDtbsRequestDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
@@ -548,8 +547,8 @@ class ManagedContentSigningEngineTest {
             // then: the connector received them on the PAdES request, unchanged
             ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
             verify(formattingClient).computeDtbs(any(), captured.capture());
-            assertThat(captured.getValue()).isInstanceOf(PadesComputeDtbsRequestDto.class);
-            assertThat(((PadesComputeDtbsRequestDto) captured.getValue()).getSignatureParameters()).isSameAs(effective);
+            assertThat(captured.getValue().getFamily()).isEqualTo(SignatureFamily.PADES);
+            assertThat(captured.getValue().getSignatureParameters()).isSameAs(effective);
         }
 
         @Test
@@ -567,11 +566,11 @@ class ManagedContentSigningEngineTest {
             // then
             ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
             verify(formattingClient).computeDtbs(any(), captured.capture());
-            assertThat(((PadesComputeDtbsRequestDto) captured.getValue()).getSignatureParameters()).isNull();
+            assertThat(captured.getValue().getSignatureParameters()).isNull();
         }
 
         @Test
-        void refusesADigestOnlyDocumentBeforeCallingTheConnector_whenTheFamilyIsPades() {
+        void refusesADigestOnlyDocumentBeforeResolvingTheSigner_whenTheFamilyIsPades() {
             // given
             DigestOnlyDocumentTransferDto digestOnly = new DigestOnlyDocumentTransferDto(digestOf(DOCUMENT),
                     DigestAlgorithm.SHA_256);
@@ -584,10 +583,10 @@ class ManagedContentSigningEngineTest {
             // then
             assertThatThrownBy(sign)
                     .isInstanceOf(SigningEngineException.class)
-                    .hasMessageContaining("PAdES signing needs the document itself")
+                    .hasMessageContaining("PAdES signing does not accept transferMode digestOnly")
                     .satisfies(e -> assertThat(((SigningEngineException) e).failure())
                             .isEqualTo(SigningEngineFailure.INVALID_INPUT));
-            verifyNoInteractions(formattingClient);
+            verifyNoInteractions(signingCertificateValidatorFactory, acquisitions, formattingClient);
         }
 
         @Test
@@ -605,7 +604,10 @@ class ManagedContentSigningEngineTest {
                             aSignedOnlyProfileOf(SignatureFamily.CADES), SigningProtocol.CSC_API);
 
             // then
-            verify(formattingClient).computeDtbs(any(), any());
+            ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
+            verify(formattingClient).computeDtbs(any(), captured.capture());
+            assertThat(captured.getValue().getFamily()).isEqualTo(SignatureFamily.CADES);
+            assertThat(captured.getValue().getDocument()).isEqualTo(digestOnly);
         }
     }
 
