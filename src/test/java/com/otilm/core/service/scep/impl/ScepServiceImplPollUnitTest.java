@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -204,12 +205,12 @@ class ScepServiceImplPollUnitTest {
     // ==================== helpers ====================
 
     private static Certificate certificateInState(CertificateState state) {
-        Certificate cert = new Certificate();
-        cert.setUuid(UUID.randomUUID());
-        cert.setState(state);
-        cert.setSerialNumber("01");
-        cert.setSubjectDn("CN=test");
-        return cert;
+        return aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withState(state)
+                .withSerialNumber("01")
+                .withSubjectDn("CN=test")
+                .build();
     }
 
     private static ScepTransaction transactionWithCert(Certificate cert) {

@@ -62,8 +62,8 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
@@ -98,6 +98,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -187,13 +189,13 @@ class AuthorityProviderV3AdapterTest {
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setAuthorityInstanceReference(authority);
 
-        CertificateRequestEntity certRequest = new CertificateRequestEntity();
+        X509CertificateRequestEntity certRequest = aCertificateRequest().build();
         certRequest.setContent("dGVzdGNzcg=="); // "testcsr" Base64
 
         CertificateContent certContent = new CertificateContent();
         certContent.setContent("dGVzdGNlcnQ="); // "testcert" Base64
 
-        cert = new Certificate();
+        cert = aCertificate().build();
         cert.setUuid(UUID.randomUUID());
         cert.setRaProfile(raProfile);
         cert.setCertificateRequest(certRequest);
@@ -202,7 +204,7 @@ class AuthorityProviderV3AdapterTest {
         CertificateContent oldCertContent = new CertificateContent();
         oldCertContent.setContent("b2xkY2VydA=="); // "oldcert" Base64
 
-        oldCert = new Certificate();
+        oldCert = aCertificate().build();
         oldCert.setUuid(UUID.randomUUID());
         oldCert.setRaProfile(raProfile);
         oldCert.setCertificateContent(oldCertContent);

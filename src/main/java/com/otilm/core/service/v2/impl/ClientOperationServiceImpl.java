@@ -72,6 +72,7 @@ import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
@@ -123,6 +124,7 @@ import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
+import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
 import com.otilm.core.service.writer.CertificateRequestWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -173,6 +175,7 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service("clientOperationServiceImplV2")
 // Roll back on any exception, checked included, so a connector or attribute failure never commits partial state.
@@ -225,6 +228,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private EventProducer eventProducer;
     private CertificateStatusPollWriter pollWriter;
     private CertificatePendingIssueClaimWriter pendingIssueClaimWriter;
+    private CertificatePendingRevokeWriter pendingRevokeWriter;
     private CertificateRegistrationWriter certificateRegistrationWriter;
     private CertificateRegistrationRepository certificateRegistrationRepository;
     private CertificateLocationRepository certificateLocationRepository;
@@ -286,6 +290,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setPollWriter(CertificateStatusPollWriter pollWriter) {
         this.pollWriter = pollWriter;
+    }
+
+    @Autowired
+    public void setPendingRevokeWriter(CertificatePendingRevokeWriter pendingRevokeWriter) {
+        this.pendingRevokeWriter = pendingRevokeWriter;
     }
 
     @Autowired
@@ -1589,7 +1598,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             CertificateRequestContent identityContent = capabilityService
                     .supports(authority, FeatureFlag.CERTIFICATE_REQUEST_STRUCTURED)
                     && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_IDENTITY_OVERRIDE)
-                            ? RegisterWireBuilder.buildIdentityContent(certificate.getSubjectDn())
+                            ? RegisterWireBuilder
+                                    .buildIdentityContent(X509CertificateEntity.from(certificate).getSubjectDn())
                             : null;
             managed.setPendingIssueClaimedAt(OffsetDateTime.now(ZoneOffset.UTC));
             stateMachine
@@ -2450,7 +2460,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         UUID altTokenProfileUuid = null;
         List<RequestAttribute> altSignatureAttributes = null;
-        if (oldCertificate.isHybridCertificate() && request.getAltKeyUuid() == null) {
+        if (X509CertificateEntity.from(oldCertificate).isHybridCertificate() && request.getAltKeyUuid() == null) {
             throw new ValidationException("Missing alternative key for re-keying of hybrid certificate");
         }
         if (request.getAltKeyUuid() != null) {
@@ -2795,11 +2805,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * (per the v2 contract); the platform tracks the operation by transactionId / certificate identity.
      */
     private void transitionToPendingRevoke(Certificate certificate, ClientCertificateRevocationDto request) {
-        certificate.setPendingRevokeDestroyKey(request.isDestroyKey());
-        certificate.setPendingRevokeAttributes(request.getAttributes());
-        stateMachine
-                .transition(certificate, CertificateState.PENDING_REVOKE, CertificateEvent.REVOKE,
-                        "Revocation accepted; awaiting asynchronous completion.");
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            certificate.setPendingRevokeDestroyKey(request.isDestroyKey());
+            pendingRevokeWriter.save(certificate.getUuid(), request.getAttributes());
+            stateMachine
+                    .transition(certificate, CertificateState.PENDING_REVOKE, CertificateEvent.REVOKE,
+                            "Revocation accepted; awaiting asynchronous completion.");
+        });
 
         scheduleStatusPoll(certificate, CertificateOperation.REVOKE);
 
@@ -3135,7 +3147,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         // Since altKeyUuid will not be null at this point, we only need to check if for hybrid certificate there is a
         // different key used for rekey
-        if (certificate.isHybridCertificate()) {
+        if (X509CertificateEntity.from(certificate).isHybridCertificate()) {
             if (altKeyUuid != null && altKeyUuid.equals(certificate.getAltKeyUuid())) {
                 throw new ValidationException(ValidationError
                         .create("Rekey operation not permitted. Cannot use same alternative key to rekey certificate"));
@@ -3661,7 +3673,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             destroyKey = Boolean.TRUE.equals(cert.getPendingRevokeDestroyKey());
             keyUuid = cert.getKey() != null ? cert.getKeyUuid() : null;
             cert.setPendingRevokeDestroyKey(null);
-            cert.setPendingRevokeAttributes(null);
+            pendingRevokeWriter.clear(cert.getUuid());
             stateMachine
                     .transition(cert, CertificateState.REVOKED, CertificateEvent.REVOKE,
                             "Revocation confirmed manually");
@@ -3983,7 +3995,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 fresh.getPredecessorRelations().clear();
             } else {
                 fresh.setPendingRevokeDestroyKey(null);
-                fresh.setPendingRevokeAttributes(null);
+                pendingRevokeWriter.clear(fresh.getUuid());
             }
             // Cancelling a pending operation is a non-success outcome. Routing through the SM records
             // the audit with the transition row's status — FAILED for both PENDING_ISSUE→FAILED and

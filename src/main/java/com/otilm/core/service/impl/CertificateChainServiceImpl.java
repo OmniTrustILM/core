@@ -2,7 +2,9 @@ package com.otilm.core.service.impl;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.service.CertificateChainService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.writer.CertificateChainWriter;
@@ -49,13 +51,16 @@ public class CertificateChainServiceImpl implements CertificateChainService {
     private int certificateChainMaxDepth;
 
     private final CertificateRepository certificateRepository;
+    private final X509CertificateRepository x509CertificateRepository;
     private final CertificateChainWriter chainWriter;
     private final CertificateInternalService certificateService;
 
     @Autowired
-    public CertificateChainServiceImpl(CertificateRepository certificateRepository, CertificateChainWriter chainWriter,
+    public CertificateChainServiceImpl(CertificateRepository certificateRepository,
+            X509CertificateRepository x509CertificateRepository, CertificateChainWriter chainWriter,
             @Lazy CertificateInternalService certificateService) {
         this.certificateRepository = certificateRepository;
+        this.x509CertificateRepository = x509CertificateRepository;
         this.chainWriter = chainWriter;
         this.certificateService = certificateService;
     }
@@ -80,11 +85,11 @@ public class CertificateChainServiceImpl implements CertificateChainService {
             return;
         }
         boolean issuerInInventory = false;
-        for (Certificate issuer : certificateRepository
-                .findBySubjectDnNormalized(certificate.getIssuerDnNormalized())) {
+        for (Certificate issuer : x509CertificateRepository
+                .findBySubjectDnNormalized(X509CertificateEntity.from(certificate).getIssuerDnNormalized())) {
             X509Certificate issCert = parseOrNull(issuer.getCertificateContent().getContent());
             if (issCert != null && verifySignature(subCert, issCert)) {
-                certificate.setIssuerSerialNumber(issuer.getSerialNumber());
+                X509CertificateEntity.from(certificate).setIssuerSerialNumber(issuer.getSerialNumber());
                 certificate.setIssuerCertificateUuid(issuer.getUuid());
                 chainWriter.applyIssuerReference(certificate.getUuid(), issuer.getSerialNumber(), issuer.getUuid());
                 issuerInInventory = true;
@@ -104,7 +109,9 @@ public class CertificateChainServiceImpl implements CertificateChainService {
                     nextInChain = certificateService.createCertificateAtomic(chainCertificate, false);
                     assert nextInChain != null;
                     previousCertificate.setIssuerCertificateUuid(nextInChain.getUuid());
-                    previousCertificate.setIssuerSerialNumber(nextInChain.getSerialNumber());
+                    X509CertificateEntity
+                            .from(previousCertificate)
+                            .setIssuerSerialNumber(nextInChain.getSerialNumber());
                     chainWriter
                             .applyIssuerReference(previousCertificate.getUuid(), nextInChain.getSerialNumber(),
                                     nextInChain.getUuid());
@@ -183,7 +190,7 @@ public class CertificateChainServiceImpl implements CertificateChainService {
             } else {
                 // Dangling FK — clear the references and return an incomplete chain.
                 lastCertificate.setIssuerCertificateUuid(null);
-                lastCertificate.setIssuerSerialNumber(null);
+                X509CertificateEntity.from(lastCertificate).setIssuerSerialNumber(null);
                 chainWriter.clearIssuerReference(lastCertificate.getUuid());
                 break;
             }

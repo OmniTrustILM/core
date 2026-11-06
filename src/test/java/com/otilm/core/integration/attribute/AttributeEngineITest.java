@@ -77,11 +77,11 @@ import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.AttributeRelation;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeContentItemRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
@@ -140,6 +140,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -183,7 +184,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
 
     private Connector connectorAuthority;
     private Connector connectorDiscovery;
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
     private UUID authorityDiscoveryUuid;
     private UUID networkDiscoveryUuid;
 
@@ -225,7 +226,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         raProfile.setAuthorityInstanceReference(authorityInstance);
         raProfile = raProfileRepository.save(raProfile);
 
-        certificate = new Certificate();
+        certificate = aCertificate().build();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCercertificatetificate");
         certificate.setSerialNumber("123456789");
@@ -1128,11 +1129,12 @@ class AttributeEngineITest extends BaseSpringBootTest {
     @Test
     void testBulkDeleteObjectAttributeContent() throws AttributeException, NotFoundException {
         // Use existing certificate and create another one
-        Certificate certificate2 = new Certificate();
-        certificate2.setFingerprint("fingerprint2");
-        certificate2.setSubjectDn("CN=test2");
-        certificate2.setIssuerDn("CN=test2");
-        certificate2.setSerialNumber("2");
+        X509CertificateEntity certificate2 = aCertificate()
+                .withFingerprint("fingerprint2")
+                .withSubjectDn("CN=test2")
+                .withIssuerDn("CN=test2")
+                .withSerialNumber("2")
+                .build();
         certificate2 = certificateRepository.save(certificate2);
 
         // Add some attributes to both

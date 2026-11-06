@@ -57,6 +57,7 @@ import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.GroupAssociation;
 import com.otilm.core.dao.entity.Location;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.AuditLogRepository;
@@ -125,6 +126,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aCustomAttributeFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aMetaAttributeFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEmptyFilter;
@@ -203,8 +205,8 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
     private CriteriaBuilder criteriaBuilder;
 
-    private Certificate certificate1;
-    private Certificate certificate2;
+    private X509CertificateEntity certificate1;
+    private X509CertificateEntity certificate2;
     private Certificate certificate3;
 
     private CriteriaQuery<Certificate> criteriaQuery;
@@ -217,11 +219,11 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
     @BeforeEach
     public void prepare() throws AlreadyExistException, AttributeException, NotFoundException {
 
-        certificate1 = new Certificate();
+        certificate1 = aCertificate().build();
         certificate1.setSubjectType(CertificateSubjectType.ROOT_CA);
-        certificate2 = new Certificate();
+        certificate2 = aCertificate().build();
         certificate2.setSubjectType(CertificateSubjectType.END_ENTITY);
-        certificate3 = new Certificate();
+        certificate3 = aCertificate().build();
         certificate3.setSubjectType(CertificateSubjectType.END_ENTITY);
         certificateRepository.saveAll(List.of(certificate1, certificate2, certificate3));
 

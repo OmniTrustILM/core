@@ -17,8 +17,9 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistration;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
@@ -61,6 +62,8 @@ import org.mockito.Mockito;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
@@ -96,7 +99,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     private RaProfile raProfile;
     private AuthorityInstanceReference authority;
     private UUID certUuid;
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
     private CertificateRegistration binding;
 
     private static Map<String, OidRecord> savedRdnCache;
@@ -169,11 +172,12 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setAuthorityInstanceReference(authority);
 
-        CertificateRequestEntity request = new CertificateRequestEntity();
-        request.setContent(Base64.getEncoder().encodeToString("csr-content".getBytes()));
+        X509CertificateRequestEntity request = aCertificateRequest()
+                .withContent(Base64.getEncoder().encodeToString("csr-content".getBytes()))
+                .build();
 
         certUuid = UUID.randomUUID();
-        certificate = new Certificate();
+        certificate = aCertificate().build();
         certificate.setUuid(certUuid);
         certificate.setState(CertificateState.REGISTERED);
         certificate.setRaProfile(raProfile);
@@ -259,8 +263,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     @EnumSource(value = CertificateState.class, names = {"FAILED", "PENDING_ISSUE"})
     void racedStateIsRejectedWithoutConnectorCall(CertificateState racedState) {
         RegisterCapability adapter = registerCapableAdapter();
-        Certificate racedRead = new Certificate();
-        racedRead.setState(racedState);
+        X509CertificateEntity racedRead = aCertificate().withState(racedState).build();
         when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(racedRead));
 
         assertThatThrownBy(this::issue).isInstanceOf(CertificateOperationException.class).hasMessageContaining("raced");

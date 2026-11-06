@@ -1,8 +1,8 @@
 package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
-import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * Verifies the data transforms of {@code V202607141200__align_certificate_schema_with_entities.sql} against seeded
@@ -40,14 +42,14 @@ class AlignCertificateSchemaWithEntitiesITest extends BaseMigrationTest {
 
     @Test
     void testMigration() throws Exception {
-        Certificate certificateWithNulls = new Certificate();
-        Certificate certificateWithValues = new Certificate();
+        X509CertificateEntity certificateWithNulls = aCertificate().build();
+        X509CertificateEntity certificateWithValues = aCertificate().build();
         certificateWithValues.setUsage(List.of(CertificateKeyUsage.DIGITAL_SIGNATURE));
         certificateWithValues.setHybridCertificate(true);
         certificateWithValues.setArchived(true);
         certificateRepository.saveAll(List.of(certificateWithNulls, certificateWithValues));
 
-        CertificateRequestEntity certificateRequest = CertificateRequestEntityBuilder
+        X509CertificateRequestEntity certificateRequest = CertificateRequestEntityBuilder
                 .aCertificateRequest()
                 .withContent("content")
                 .build();
@@ -66,18 +68,22 @@ class AlignCertificateSchemaWithEntitiesITest extends BaseMigrationTest {
             assertNotNullable(connection, "certificate_request", "key_usage");
         }
 
-        certificateWithNulls = certificateRepository.findByUuid(certificateWithNulls.getUuid()).orElseThrow();
+        certificateWithNulls = X509CertificateEntity
+                .from(certificateRepository.findByUuid(certificateWithNulls.getUuid()).orElseThrow());
         Assertions.assertEquals(0, certificateWithNulls.getKeyUsageBitMask());
         Assertions.assertFalse(certificateWithNulls.isHybridCertificate());
         Assertions.assertFalse(certificateWithNulls.isArchived());
 
         // Backfill must only touch NULL rows; populated values survive unchanged.
-        certificateWithValues = certificateRepository.findByUuid(certificateWithValues.getUuid()).orElseThrow();
+        certificateWithValues = X509CertificateEntity
+                .from(certificateRepository.findByUuid(certificateWithValues.getUuid()).orElseThrow());
         Assertions.assertEquals(Set.of(CertificateKeyUsage.DIGITAL_SIGNATURE), certificateWithValues.getKeyUsage());
         Assertions.assertTrue(certificateWithValues.isHybridCertificate());
         Assertions.assertTrue(certificateWithValues.isArchived());
 
-        certificateRequest = certificateRequestRepository.findByUuid(certificateRequest.getUuid()).orElseThrow();
+        certificateRequest = (X509CertificateRequestEntity) certificateRequestRepository
+                .findByUuid(certificateRequest.getUuid())
+                .orElseThrow();
         Assertions.assertEquals(0, certificateRequest.getKeyUsage());
     }
 

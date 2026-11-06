@@ -22,10 +22,10 @@ import com.otilm.api.model.core.workflows.ObjectEventHistoryDto;
 import com.otilm.api.model.core.workflows.TriggerHistoryObjectSummaryDto;
 import com.otilm.api.model.core.workflows.TriggerRequestDto;
 import com.otilm.api.model.core.workflows.TriggerType;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Comment;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.workflows.EventHistory;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
 import com.otilm.core.dao.repository.CertificateContentRepository;
@@ -48,6 +48,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 class EventServiceITest extends BaseSpringBootTest {
 
@@ -489,14 +491,15 @@ class EventServiceITest extends BaseSpringBootTest {
         content.setContent(UUID.randomUUID().toString());
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
-        certificate.setSubjectDn("CN=test");
-        certificate.setIssuerDn("CN=issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString());
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContent(content);
-        certificate.setCertificateContentId(content.getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("CN=test")
+                .withIssuerDn("CN=issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .build();
         return certificateRepository.save(certificate).getUuid();
     }
 

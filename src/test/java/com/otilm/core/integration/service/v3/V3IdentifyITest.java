@@ -8,8 +8,8 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -39,6 +39,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * Integration test for the identify half of the operation-attribute round trip: values submitted with an RA-profile
@@ -117,14 +118,15 @@ class V3IdentifyITest extends BaseSpringBootTest {
                                 .withBody("{\"meta\": []}")));
 
         CertificateContent content = certificateContentRepository.save(new CertificateContent());
-        Certificate certificate = new Certificate();
-        certificate.setSubjectDn("CN=identify-" + UUID.randomUUID());
-        certificate.setIssuerDn("CN=test-issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString());
-        certificate.setCertificateContent(content);
-        certificate.setCertificateContentId(content.getId());
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("CN=identify-" + UUID.randomUUID())
+                .withIssuerDn("CN=test-issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .build();
         certificate = certificateRepository.save(certificate);
 
         RequestAttributeV3 identifyValue = new RequestAttributeV3(

@@ -18,6 +18,7 @@ import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.AttributeRelation;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
@@ -34,6 +35,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authorization.AuthorizationDeniedException;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * End-to-end tests for the {@link com.otilm.core.security.authz.ExternalAuthorizationDynamic} annotation exercised
@@ -110,14 +113,15 @@ class ExternalAuthorizationDynamicITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        Certificate certificate = new Certificate();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContent(certificateContent);
-        certificate.setCertificateContentId(certificateContent.getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCertificate")
+                .withSerialNumber("123456789")
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContent(certificateContent)
+                .withCertificateContentId(certificateContent.getId())
+                .build();
         return certificateRepository.save(certificate);
     }
 
