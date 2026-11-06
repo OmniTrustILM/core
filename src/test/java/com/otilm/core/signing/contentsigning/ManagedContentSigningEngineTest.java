@@ -582,10 +582,11 @@ class ManagedContentSigningEngineTest {
 
             // then
             assertThatThrownBy(sign)
-                    .isInstanceOf(SigningEngineException.class)
-                    .hasMessageContaining("PAdES signing does not accept transferMode digestOnly")
-                    .satisfies(e -> assertThat(((SigningEngineException) e).failure())
-                            .isEqualTo(SigningEngineFailure.INVALID_INPUT));
+                    .hasMessageContaining("PAdES signing needs the document itself, not only its digest")
+                    .isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                        assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                        assertThat(refusal.operatorMessage()).contains("transferMode digestOnly");
+                    });
             verifyNoInteractions(signingCertificateValidatorFactory, acquisitions, formattingClient);
         }
 

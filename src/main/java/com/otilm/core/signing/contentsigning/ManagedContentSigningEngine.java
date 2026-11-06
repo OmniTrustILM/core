@@ -181,7 +181,7 @@ public class ManagedContentSigningEngine {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
                     "a %s run was given transferMode %s, which %s signing does not accept"
                             .formatted(family.getLabel(), mode.getCode(), family.getLabel()),
-                    "%s signing does not accept transferMode %s".formatted(family.getLabel(), mode.getCode()));
+                    "%s signing needs the document itself, not only its digest".formatted(family.getLabel()));
         }
     }
 
