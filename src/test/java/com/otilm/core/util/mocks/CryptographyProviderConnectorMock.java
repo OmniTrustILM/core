@@ -169,6 +169,7 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
         return this;
     }
 
+    /** Answers {@code signData} with a real signature of every item under its own identifier, in request order. */
     public CryptographyProviderConnectorMock stubRealSigning() {
         return stubRealSigning(Parameters.empty());
     }
@@ -206,6 +207,7 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
         return this;
     }
 
+    /** Answers {@code signData} with the given signature as one item, without an identifier. */
     public CryptographyProviderConnectorMock stubSignData(byte[] signature) {
         String sig = Base64.getEncoder().encodeToString(signature);
         server

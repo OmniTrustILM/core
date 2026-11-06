@@ -110,9 +110,11 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
             v2Token.connectorMock().stubSignatureAlgorithmAttribute(SIGNATURE_ALGORITHM);
             CryptographicKey key = keySeeder
                     .seedKey("v2-batch-key", v2Token.profile(), v2Token.token(),
-                            KeyItemSpec.signingPrivateKey(KeyAlgorithm.RSA).withKeyMeta(List.of(providerHandle())));
-            signer = signerFor(v2Token.token().getUuid(), v2Token.profile().getUuid(), key.getUuid(),
-                    privateKeyItemUuid(key));
+                            KeyItemSpec
+                                    .signingPrivateKey(KeyAlgorithm.RSA)
+                                    .withKeyMeta(List.of(createProviderHandle())));
+            signer = createSigner(v2Token.token().getUuid(), v2Token.profile().getUuid(), key.getUuid(),
+                    findPrivateKeyItemUuid(key));
         }
 
         @AfterEach
@@ -148,7 +150,7 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private static UUID privateKeyItemUuid(CryptographicKey key) {
+        private static UUID findPrivateKeyItemUuid(CryptographicKey key) {
             return key
                     .getItems()
                     .stream()
@@ -158,7 +160,7 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
                     .orElseThrow();
         }
 
-        private static MetadataAttribute providerHandle() {
+        private static MetadataAttribute createProviderHandle() {
             MetadataAttributeV3 handle = new MetadataAttributeV3();
             handle.setUuid(UUID.randomUUID().toString());
             handle.setName("provider-handle");
@@ -202,8 +204,8 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
             KeyDetailDto key = cryptographicKeyService
                     .createKey(UUID.fromString(token.getUuid()), SecuredParentUUID.fromString(profile.getUuid()),
                             KeyRequestType.KEY_PAIR, aKeyPairRequest().withName("v1-batch-key").build());
-            signer = signerFor(UUID.fromString(token.getUuid()), UUID.fromString(profile.getUuid()),
-                    UUID.fromString(key.getUuid()), privateKeyItemUuid(key));
+            signer = createSigner(UUID.fromString(token.getUuid()), UUID.fromString(profile.getUuid()),
+                    UUID.fromString(key.getUuid()), findPrivateKeyItemUuid(key));
         }
 
         @AfterEach
@@ -239,7 +241,7 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private static UUID privateKeyItemUuid(KeyDetailDto key) {
+        private static UUID findPrivateKeyItemUuid(KeyDetailDto key) {
             return key
                     .getItems()
                     .stream()
@@ -253,7 +255,7 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private Signer signerFor(UUID tokenUuid, UUID tokenProfileUuid, UUID keyUuid, UUID privateKeyItemUuid) {
+    private Signer createSigner(UUID tokenUuid, UUID tokenProfileUuid, UUID keyUuid, UUID privateKeyItemUuid) {
         return new CryptographicOperationServiceSigner(cryptographicOperationService,
                 SecuredParentUUID.fromUUID(tokenUuid), SecuredUUID.fromUUID(tokenProfileUuid), keyUuid,
                 privateKeyItemUuid, SignatureAlgorithmMapping.toAttributes(SIGNATURE_ALGORITHM), SIGNATURE_ALGORITHM);
