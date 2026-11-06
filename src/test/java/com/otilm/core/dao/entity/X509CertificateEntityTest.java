@@ -4,11 +4,12 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class X509CertificateEntityTest {
 
@@ -42,10 +43,10 @@ class X509CertificateEntityTest {
         Certificate certificate = aCertificateOfAnotherType();
 
         // when
-        Throwable refusal = catchThrowable(() -> X509CertificateEntity.from(certificate));
+        ThrowingCallable viewingAsX509 = () -> X509CertificateEntity.from(certificate);
 
         // then
-        assertThat(refusal)
+        assertThatThrownBy(viewingAsX509)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining(certificate.getUuid().toString());
     }

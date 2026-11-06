@@ -7,7 +7,6 @@ import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.util.BaseSpringBootTest;
-import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import jakarta.persistence.EntityManager;
 import org.hibernate.Hibernate;
 import org.junit.jupiter.api.Test;
@@ -15,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CertificateTypeViewITest extends BaseSpringBootTest {
@@ -49,8 +49,7 @@ class CertificateTypeViewITest extends BaseSpringBootTest {
     void unwrapsTheProxy_whenViewingALazyRequestReferenceAsX509() {
         // given
         String subject = "CN=lazy-request-holder";
-        X509CertificateRequestEntity request = CertificateRequestEntityBuilder
-                .aCertificateRequest()
+        X509CertificateRequestEntity request = aCertificateRequest()
                 .withContent("content")
                 .withSubjectDn(subject)
                 .build();
