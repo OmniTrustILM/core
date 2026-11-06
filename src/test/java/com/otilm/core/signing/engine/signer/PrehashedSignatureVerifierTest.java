@@ -1,0 +1,231 @@
+package com.otilm.core.signing.engine.signer;
+
+import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.security.spec.ECGenParameterSpec;
+import java.security.spec.MGF1ParameterSpec;
+import java.security.spec.PSSParameterSpec;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class PrehashedSignatureVerifierTest {
+
+    private static final byte[] MESSAGE = "message to be signed".getBytes(StandardCharsets.UTF_8);
+
+    private static KeyPair rsaKeys;
+    private static KeyPair otherRsaKeys;
+    private static KeyPair p256Keys;
+    private static KeyPair p384Keys;
+
+    @BeforeAll
+    static void generateKeys() throws GeneralSecurityException {
+        rsaKeys = generateRsa();
+        otherRsaKeys = generateRsa();
+        p256Keys = generateEc("secp256r1");
+        p384Keys = generateEc("secp384r1");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SignatureAlgorithm.class,
+            names = {
+                    "SHA256_WITH_RSA",
+                    "SHA384_WITH_RSA",
+                    "SHA512_WITH_RSA",
+                    "SHA256_WITH_RSA_PSS",
+                    "SHA384_WITH_RSA_PSS",
+                    "SHA512_WITH_RSA_PSS",
+                    "SHA256_WITH_ECDSA",
+                    "SHA384_WITH_ECDSA",
+                    "SHA512_WITH_ECDSA"})
+    void verifies_returnsTrue_forAJdkSignatureOverTheMessage(SignatureAlgorithm algorithm) throws Exception {
+        // given
+        KeyPair keys = keysFor(algorithm);
+        byte[] signature = signWithJdk(algorithm, keys.getPrivate(), MESSAGE);
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, keys.getPublic(), digestOf(algorithm, MESSAGE), signature);
+
+        // then
+        assertThat(verified).isTrue();
+    }
+
+    @Test
+    void verifies_returnsTrue_forP256WithSha512() throws Exception {
+        // given
+        SignatureAlgorithm digestLongerThanTheCurve = SignatureAlgorithm.SHA512_WITH_ECDSA;
+        byte[] signature = signWithJdk(digestLongerThanTheCurve, p256Keys.getPrivate(), MESSAGE);
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(digestLongerThanTheCurve, p256Keys.getPublic(), digestOf(digestLongerThanTheCurve, MESSAGE),
+                        signature);
+
+        // then
+        assertThat(verified).isTrue();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SignatureAlgorithm.class,
+            names = {
+                    "SHA256_WITH_RSA",
+                    "SHA384_WITH_RSA",
+                    "SHA512_WITH_RSA",
+                    "SHA256_WITH_RSA_PSS",
+                    "SHA384_WITH_RSA_PSS",
+                    "SHA512_WITH_RSA_PSS",
+                    "SHA256_WITH_ECDSA",
+                    "SHA384_WITH_ECDSA",
+                    "SHA512_WITH_ECDSA"})
+    void verifies_returnsFalse_whenTheDigestWasHashedAgain(SignatureAlgorithm algorithm) throws Exception {
+        // given — a provider that ignored the mode signs the digest bytes as data
+        KeyPair keys = keysFor(algorithm);
+        byte[] digest = digestOf(algorithm, MESSAGE);
+        byte[] signatureOverHashedDigest = signWithJdk(algorithm, keys.getPrivate(), digest);
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, keys.getPublic(), digest, signatureOverHashedDigest);
+
+        // then
+        assertThat(verified).isFalse();
+    }
+
+    @Test
+    void verifies_returnsFalse_forASignatureByAnotherKey() throws Exception {
+        // given
+        SignatureAlgorithm algorithm = SignatureAlgorithm.SHA256_WITH_RSA;
+        byte[] signatureByOtherKey = signWithJdk(algorithm, otherRsaKeys.getPrivate(), MESSAGE);
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, rsaKeys.getPublic(), digestOf(algorithm, MESSAGE), signatureByOtherKey);
+
+        // then
+        assertThat(verified).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SignatureAlgorithm.class,
+            names = {"SHA256_WITH_RSA", "SHA256_WITH_RSA_PSS", "SHA256_WITH_ECDSA"})
+    void verifies_returnsFalse_forMalformedSignatureBytes(SignatureAlgorithm algorithm) throws Exception {
+        // given
+        byte[] threeBytes = {1, 2, 3};
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, keysFor(algorithm).getPublic(), digestOf(algorithm, MESSAGE), threeBytes);
+
+        // then
+        assertThat(verified).isFalse();
+    }
+
+    @Test
+    void verifies_returnsFalse_forPssWithAnotherSaltLength() throws Exception {
+        // given
+        SignatureAlgorithm algorithm = SignatureAlgorithm.SHA256_WITH_RSA_PSS;
+        int saltShorterThanTheDigest = 20;
+        Signature signer = Signature.getInstance("RSASSA-PSS");
+        signer
+                .setParameter(
+                        new PSSParameterSpec("SHA-256", "MGF1", MGF1ParameterSpec.SHA256, saltShorterThanTheDigest, 1));
+        signer.initSign(rsaKeys.getPrivate());
+        signer.update(MESSAGE);
+        byte[] signature = signer.sign();
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, rsaKeys.getPublic(), digestOf(algorithm, MESSAGE), signature);
+
+        // then
+        assertThat(verified).isFalse();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SignatureAlgorithm.class,
+            names = {"SHA256_WITH_RSA", "SHA256_WITH_RSA_PSS", "SHA256_WITH_ECDSA"})
+    void verifies_returnsFalse_whenTheKeyDoesNotFitTheCodesFamily(SignatureAlgorithm algorithm) throws Exception {
+        // given — an RSA code is checked with an EC key and the ECDSA code with an RSA key
+        KeyPair keyOfAnotherFamily = algorithm == SignatureAlgorithm.SHA256_WITH_ECDSA ? rsaKeys : p256Keys;
+        byte[] signature = signWithJdk(algorithm, keysFor(algorithm).getPrivate(), MESSAGE);
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, keyOfAnotherFamily.getPublic(), digestOf(algorithm, MESSAGE), signature);
+
+        // then
+        assertThat(verified).isFalse();
+    }
+
+    @Test
+    void verifies_throwsIllegalArgument_whenTheCodeIsOutsideTheBound() {
+        // given
+        byte[] anyBytes = {1};
+
+        // when
+        ThrowingCallable verify = () -> PrehashedSignatureVerifier
+                .verifies(SignatureAlgorithm.ED25519, rsaKeys.getPublic(), anyBytes, anyBytes);
+
+        // then
+        assertThatThrownBy(verify).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static KeyPair generateRsa() throws GeneralSecurityException {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        return generator.generateKeyPair();
+    }
+
+    private static KeyPair generateEc(String curve) throws GeneralSecurityException {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec(curve));
+        return generator.generateKeyPair();
+    }
+
+    private static KeyPair keysFor(SignatureAlgorithm algorithm) {
+        String code = algorithm.name();
+        if (code.endsWith("ECDSA")) {
+            return code.startsWith("SHA256") ? p256Keys : p384Keys;
+        }
+        return rsaKeys;
+    }
+
+    private static byte[] digestOf(SignatureAlgorithm algorithm, byte[] data) throws GeneralSecurityException {
+        DigestAlgorithm digest = PrehashedSigning.digestAlgorithm(algorithm);
+        return MessageDigest.getInstance(digest.getProviderName()).digest(data);
+    }
+
+    private static byte[] signWithJdk(SignatureAlgorithm algorithm, PrivateKey key, byte[] data)
+            throws GeneralSecurityException {
+        String code = algorithm.name();
+        Signature signature;
+        if (code.endsWith("RSA_PSS")) {
+            DigestAlgorithm digest = PrehashedSigning.digestAlgorithm(algorithm);
+            signature = Signature.getInstance("RSASSA-PSS");
+            signature
+                    .setParameter(new PSSParameterSpec(digest.getProviderName(), "MGF1",
+                            new MGF1ParameterSpec(digest.getProviderName()), digest.getDigestSizeBytes(), 1));
+        } else {
+            String hash = code.substring(0, "SHA256".length());
+            signature = Signature.getInstance(hash + (code.endsWith("ECDSA") ? "withECDSA" : "withRSA"));
+        }
+        signature.initSign(key);
+        signature.update(data);
+        return signature.sign();
+    }
+}
