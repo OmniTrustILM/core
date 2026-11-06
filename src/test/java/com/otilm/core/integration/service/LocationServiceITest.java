@@ -76,6 +76,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -87,6 +88,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -1246,6 +1249,43 @@ class LocationServiceITest extends BaseSpringBootTest {
         nameAndUuidDto = locationInternalService.getResourceObjectExternal(location.getSecuredUuid());
         Assertions.assertEquals(location.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(location.getName(), nameAndUuidDto.getName());
+    }
+
+    @Test
+    void refusesResourceObject_whenTheCallerMayNotSeeTheOwningEntity() {
+        // given
+        denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL);
+        var locationUuid = location.getSecuredUuid();
+
+        // when / then
+        assertThatThrownBy(() -> locationInternalService.getResourceObjectExternal(locationUuid))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void refusesThePermissionChain_whenEntityDetailIsDenied() {
+        // given
+        denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL, entityInstanceReference.getUuid());
+        SecuredUUID locationUuid = location.getSecuredUuid();
+
+        // when
+        ThrowingCallable evaluatePermissionChain = () -> locationInternalService.evaluatePermissionChain(locationUuid);
+
+        // then
+        assertThatThrownBy(evaluatePermissionChain).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void allowsThePermissionChain_whenOnlyAuthorityDetailIsDenied() {
+        // given
+        denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL, entityInstanceReference.getUuid());
+        SecuredUUID locationUuid = location.getSecuredUuid();
+
+        // when
+        ThrowingCallable evaluatePermissionChain = () -> locationInternalService.evaluatePermissionChain(locationUuid);
+
+        // then
+        assertThatCode(evaluatePermissionChain).doesNotThrowAnyException();
     }
 
     private RaProfile getRaProfile() {

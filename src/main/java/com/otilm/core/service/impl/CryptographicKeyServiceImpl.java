@@ -438,10 +438,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
 
     @Override
     @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.CREATE,
-            parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+            parentResource = Resource.TOKEN_PROFILE, parentAction = ResourceAction.DETAIL)
     public KeyDetailDto createKey(UUID tokenInstanceUuid, SecuredParentUUID tokenProfileUuid, KeyRequestType type,
             KeyRequestDto request) throws AlreadyExistException, ValidationException, ConnectorException,
             AttributeException, NotFoundException {
+        authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, SecuredUUID.fromUUID(tokenInstanceUuid));
         logger.debug("Creating a new key for Token profile {}", tokenProfileUuid);
 
         if (cryptographicKeyRepository.existsByName(request.getName())) {
@@ -713,6 +714,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             parentResource = Resource.TOKEN_PROFILE, parentAction = ResourceAction.DETAIL)
     public List<BaseAttribute> listCreateKeyAttributes(UUID tokenInstanceUuid, SecuredParentUUID tokenProfileUuid,
             KeyRequestType type) throws ConnectorException, NotFoundException {
+        authorizationEnforcer.enforce(Resource.TOKEN, ResourceAction.DETAIL, SecuredUUID.fromUUID(tokenInstanceUuid));
         logger.debug("Request to list the attributes for creating a new key on Token profile: {}", tokenProfileUuid);
 
         TokenProfileFullModel tokenProfile = getTokenProfile(tokenInstanceUuid, tokenProfileUuid);
