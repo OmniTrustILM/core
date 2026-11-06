@@ -18,10 +18,11 @@ jobs:
   # The image is built from `mvn package` against the interfaces version in the pom, and the shared workflow below
   # takes no Maven argument. A PR whose body carries `Depends-On: OmniTrustILM/interfaces#<n>` for an unmerged
   # interfaces PR (see build_pr.yml) compiles only against that PR's snapshot, so the image build would fail on the
-  # contract rather than on the image. While the dependency is unmerged, or merged but not yet published, the image
-  # test waits; once it is published, re-running all jobs - on this workflow as well as on Build PR - runs it for
-  # real. An `Interfaces-Version:` override waits the same way. Merging stays blocked meanwhile by the `Build` job of
-  # build_pr.yml, which is red whenever a marker is active, so nothing is skipped past.
+  # contract rather than on the image. While the dependency is unmerged, or merged but not yet published, this job
+  # fails and the image test is skipped; an `Interfaces-Version:` override fails it the same way. The red run marks
+  # the re-run still owed: nothing re-triggers this workflow when the interfaces PR merges, and the skipped image test
+  # leaves its required checks pending. Once the dependency is published, or the override removed, re-run all jobs on
+  # Build PR and Test Docker image.
   interfaces-dependency:
     name: Interfaces dependency
     runs-on: ubuntu-latest
@@ -47,7 +48,7 @@ jobs:
             { echo "### Interfaces dependency"; echo ""; echo "- image test: $([ "$1" = true ] && echo runs || echo waits)"; echo "- $2"; } >> "$GITHUB_STEP_SUMMARY"
             echo "$2"
           }
-          wait_for() { echo "::notice::$1 The image test waits; then re-run all jobs on this workflow as well as on Build PR."; decide false "$1"; exit 0; }
+          wait_for() { local m="$1 $2, then re-run all jobs on Build PR and Test Docker image."; decide false "$m"; fail "$m"; }
 
           if [ "$EVENT" != pull_request ]; then
             decide true "Not a pull_request event - building against the pom value."; exit 0
@@ -61,12 +62,11 @@ jobs:
           # Fenced blocks and HTML comments go first; the probes are line-oriented.
           BODY=$(printf '%s\n' "$BODY" | python3 -c 'import re,sys; t=sys.stdin.read(); t=re.sub(r"<!--.*?-->","",t,flags=re.S); t=re.sub(r"^[ \t]*(```|~~~).*?^[ \t]*\1","",t,flags=re.S|re.M); sys.stdout.write(t)')
 
-          # Loose probes, as in build_pr.yml: any marker-shaped line - decorated, bulleted, or mistyped - makes
-          # this wait. build_pr.yml is what tells the author which form is accepted; here the safe answer is to
-          # not build against a contract the marker was meant to replace. Herestrings, not pipes: `grep -q`
-          # closing the pipe early would otherwise read as "no marker" under pipefail.
+          # Loose probes, as in build_pr.yml: any marker-shaped line - decorated, bulleted, or mistyped - fails
+          # this job, so nothing builds against a contract the marker was meant to replace. Herestrings, not
+          # pipes: `grep -q` closing the pipe early would otherwise read as "no marker" under pipefail.
           if grep -qiP '^[[:space:]>*_+#.)0-9-]*Interfaces-Version[[:space:]*_]*:' <<<"$BODY"; then
-            wait_for "An Interfaces-Version override is present in the PR body."
+            wait_for "An Interfaces-Version override is present in the PR body." "Remove it from the PR body"
           fi
           if ! grep -qiP '^[[:space:]>*_+#.)0-9-]*Depends-On[[:space:]*_]*:[[:space:]*_]*(https?://github\.com/)?OmniTrustILM/interfaces(?![0-9A-Za-z._-])' <<<"$BODY"; then
             decide true "No interfaces dependency marker - building against the pom value."; exit 0
@@ -74,16 +74,21 @@ jobs:
 
           NUM=$(grep -oiP '^Depends-On:[[:space:]]*OmniTrustILM/interfaces#\K[0-9]{1,7}(?=[[:space:]]*$)' <<<"$BODY" | head -1 || true)
           if [ -z "$NUM" ]; then
-            wait_for "A Depends-On marker for interfaces is present but not in the form build_pr.yml accepts."
+            wait_for "A Depends-On marker for interfaces is present but not in the form build_pr.yml accepts." \
+              "Rewrite it as a line of its own that reads exactly Depends-On: OmniTrustILM/interfaces#<number>"
           fi
 
-          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
+          if ! IPR=$(gh api "repos/OmniTrustILM/interfaces/pulls/$NUM" --jq '[.merged, .state, (.merge_commit_sha // ""), (.merged_at // "")] | @tsv'); then
             fail "Cannot read OmniTrustILM/interfaces#${NUM} - check that the number names an existing pull request."
           fi
-          read -r MERGED MSHA MAT <<<"$IPR"
+          read -r MERGED ISTATE MSHA MAT <<<"$IPR"
 
           if [ "$MERGED" != true ]; then
-            wait_for "This PR depends on the unmerged OmniTrustILM/interfaces#${NUM}."
+            if [ "$ISTATE" = closed ]; then
+              wait_for "OmniTrustILM/interfaces#${NUM} was closed without merging." \
+                "Remove the Depends-On line, or repoint it at whatever superseded it"
+            fi
+            wait_for "This PR depends on the unmerged OmniTrustILM/interfaces#${NUM}." "Merge it and wait for the publish"
           fi
 
           # Merged, but the mainline SNAPSHOT carries the change only once the interfaces publish finishes; the
@@ -95,7 +100,7 @@ jobs:
           if ! grep -qE "^[0-9][0-9A-Za-z.-]*-M[0-9]+-${MSHA:0:8}\$" <<<"$VERSIONS"; then
             AGE=$(( $(date -u +%s) - $(date -u -d "${MAT:-@0}" +%s) ))
             if [ "$AGE" -lt 900 ]; then
-              wait_for "OmniTrustILM/interfaces#${NUM} merged ${AGE}s ago and its build has not published yet."
+              wait_for "OmniTrustILM/interfaces#${NUM} merged ${AGE}s ago and its build has not published yet." "Wait for it"
             fi
             echo "::warning::interfaces#${NUM} merged ${AGE}s ago with no -M build; a release-cut merge produces none. Proceeding against mainline."
           fi

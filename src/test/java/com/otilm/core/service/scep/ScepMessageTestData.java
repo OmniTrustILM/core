@@ -7,26 +7,36 @@ import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
-import java.util.Collections;
 import java.util.Hashtable;
 import java.util.List;
+import java.util.function.UnaryOperator;
+import org.bouncycastle.asn1.ASN1Encoding;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERPrintableString;
 import org.bouncycastle.asn1.DERSet;
 import org.bouncycastle.asn1.cms.Attribute;
 import org.bouncycastle.asn1.cms.AttributeTable;
+import org.bouncycastle.asn1.cms.CMSObjectIdentifiers;
+import org.bouncycastle.asn1.cms.ContentInfo;
+import org.bouncycastle.asn1.cms.EncryptedContentInfo;
+import org.bouncycastle.asn1.cms.EnvelopedData;
+import org.bouncycastle.asn1.cms.PasswordRecipientInfo;
+import org.bouncycastle.asn1.cms.RecipientInfo;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
-import org.bouncycastle.cert.jcajce.JcaCertStore;
+import org.bouncycastle.cert.X509CertificateHolder;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
 import org.bouncycastle.cms.CMSAlgorithm;
 import org.bouncycastle.cms.CMSEnvelopedData;
 import org.bouncycastle.cms.CMSEnvelopedDataGenerator;
@@ -44,6 +54,7 @@ import org.bouncycastle.operator.OutputEncryptor;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
+import org.bouncycastle.util.CollectionStore;
 
 /**
  * SCEP wire messages for tests. The material is a P-256 signer certificate with its private key and a PKCS#10 request
@@ -71,6 +82,23 @@ public final class ScepMessageTestData {
     }
 
     /**
+     * A message of the type carrying the PKCS#10 request given as DER, enveloped to {@link #CHALLENGE_PASSWORD}.
+     */
+    public static byte[] passwordEnvelopedMessageWithCsr(MessageType messageType, byte[] csr) throws Exception {
+        return signedMessage(envelopedPkcs10Request(csr), messageType).getEncoded();
+    }
+
+    /**
+     * The same message signed with the signature algorithm and the key for the signer certificate, and carrying the
+     * certificates as given, whatever keys they hold.
+     */
+    public static byte[] passwordEnvelopedPkcsReqSignedWith(String signatureAlgorithm, PrivateKey signingKey,
+            X509CertificateHolder signerCertificate, List<X509CertificateHolder> certificates) throws Exception {
+        return signedMessage(envelopedPkcs10Request(generatedCsr(null)), MessageType.PKCS_REQ, TRANSACTION_ID,
+                signatureAlgorithm, signingKey, signerCertificate, certificates).getEncoded();
+    }
+
+    /**
      * The same message with a freshly generated PKCS#10 request for {@link #SUBJECT_DN}, optionally carrying a
      * challengePassword attribute — {@code null} reproduces a renewal request, which omits it (RFC 8894 §3.3.1.2).
      */
@@ -86,10 +114,71 @@ public final class ScepMessageTestData {
                 .getEncoded();
     }
 
+    /** A PKCSReq enveloped to {@link #CHALLENGE_PASSWORD} with a key derived over the iteration count. */
+    public static byte[] pkcsReqEnvelopedWithIterations(int iterationCount) throws Exception {
+        PasswordRecipientInfoGenerator recipientGenerator = new JcePasswordRecipientInfoGenerator(
+                CMSAlgorithm.AES128_CBC, CHALLENGE_PASSWORD.toCharArray())
+                .setSaltAndIterationCount(new byte[16], iterationCount);
+        return signedMessage(envelopedPkcs10Request(generatedCsr(null), recipientGenerator, CMSAlgorithm.AES256_CBC),
+                MessageType.PKCS_REQ).getEncoded();
+    }
+
+    /** A PKCSReq enveloped to {@link #CHALLENGE_PASSWORD} with its content encrypted with the algorithm. */
+    public static byte[] passwordEnvelopedPkcsReqEncryptedWith(ASN1ObjectIdentifier contentEncryptionAlgorithm)
+            throws Exception {
+        PasswordRecipientInfoGenerator recipientGenerator = new JcePasswordRecipientInfoGenerator(
+                CMSAlgorithm.AES128_CBC, CHALLENGE_PASSWORD.toCharArray());
+        return signedMessage(envelopedPkcs10Request(generatedCsr(null), recipientGenerator, contentEncryptionAlgorithm),
+                MessageType.PKCS_REQ).getEncoded();
+    }
+
+    /**
+     * A PKCSReq enveloped to {@link #CHALLENGE_PASSWORD} whose password recipient states the key derivation, or none
+     * when it is null, in place of the one that its key was wrapped with, so the stated derivation never runs here.
+     */
+    public static byte[] pkcsReqStatingKeyDerivation(AlgorithmIdentifier keyDerivation) throws Exception {
+        CMSProcessableByteArray envelope = restated(envelopedPkcs10Request(generatedCsr(null)),
+                envelopedData -> withKeyDerivation(envelopedData, keyDerivation));
+        return signedMessage(envelope, MessageType.PKCS_REQ).getEncoded();
+    }
+
+    /**
+     * A PKCSReq enveloped to {@link #CHALLENGE_PASSWORD} whose content states the encryption algorithm in place of the
+     * one that it was encrypted with.
+     */
+    public static byte[] passwordEnvelopedPkcsReqStatingContentEncryption(AlgorithmIdentifier contentEncryption)
+            throws Exception {
+        CMSProcessableByteArray envelope = restated(envelopedPkcs10Request(generatedCsr(null)),
+                envelopedData -> withContentEncryption(envelopedData, contentEncryption));
+        return signedMessage(envelope, MessageType.PKCS_REQ).getEncoded();
+    }
+
+    /**
+     * A PKCSReq enveloped by key transport to the CA certificate whose content states the encryption algorithm in place
+     * of the one that it was encrypted with.
+     */
+    public static byte[] keyTransportEnvelopedPkcsReqStatingContentEncryption(X509Certificate recipientCaCertificate,
+            AlgorithmIdentifier contentEncryption) throws Exception {
+        CMSProcessableByteArray envelope = restated(
+                keyTransportEnvelopedRequest(generatedCsr(null), recipientCaCertificate),
+                envelopedData -> withContentEncryption(envelopedData, contentEncryption));
+        return signedMessage(envelope, MessageType.PKCS_REQ).getEncoded();
+    }
+
     /** The same message declared as an arbitrary SCEP message type. */
     public static byte[] passwordEnvelopedMessage(MessageType messageType, String csrChallengePassword)
             throws Exception {
         return signedMessage(envelopedPkcs10Request(generatedCsr(csrChallengePassword)), messageType).getEncoded();
+    }
+
+    /**
+     * A message whose PKCS#10 request for {@link #SUBJECT_DN} names a freshly generated RSA key but is signed with the
+     * given key instead, so it does not prove possession of the key it asks a certificate for.
+     */
+    public static byte[] passwordEnvelopedMessageWithCsrSignedBy(MessageType messageType, PrivateKey csrSigningKey,
+            String csrSignatureAlgorithm) throws Exception {
+        byte[] csr = csrSignedBy(csrSigningKey, csrSignatureAlgorithm);
+        return signedMessage(envelopedPkcs10Request(csr), messageType).getEncoded();
     }
 
     /**
@@ -112,6 +201,29 @@ public final class ScepMessageTestData {
                 transactionId).getEncoded();
     }
 
+    /**
+     * As {@link #keyTransportEnvelopedPkcsReq(X509Certificate, String, List, String)}, declared as the given message
+     * type, for a PKCS#10 request without SANs.
+     */
+    public static byte[] keyTransportEnvelopedMessage(MessageType messageType, X509Certificate recipientCaCertificate,
+            String subjectDn, String csrChallengePassword) throws Exception {
+        byte[] csrBytes = generatedCsr(subjectDn, null, csrChallengePassword);
+        return signedMessage(keyTransportEnvelopedRequest(csrBytes, recipientCaCertificate), messageType).getEncoded();
+    }
+
+    /**
+     * As above, but the PKCS#10 request names one freshly generated RSA key and is signed with another, so it does not
+     * prove possession of the key it asks a certificate for.
+     */
+    public static byte[] keyTransportEnvelopedMessageWithForgedCsr(MessageType messageType,
+            X509Certificate recipientCaCertificate, String subjectDn, String csrChallengePassword) throws Exception {
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+        PublicKey requestedKey = keyPairGenerator.generateKeyPair().getPublic();
+        PrivateKey anotherKey = keyPairGenerator.generateKeyPair().getPrivate();
+        byte[] csrBytes = generatedCsr(subjectDn, null, csrChallengePassword, requestedKey, anotherKey);
+        return signedMessage(keyTransportEnvelopedRequest(csrBytes, recipientCaCertificate), messageType).getEncoded();
+    }
+
     private static CMSProcessableByteArray keyTransportEnvelopedRequest(byte[] csrBytes,
             X509Certificate recipientCaCertificate) throws Exception {
         Security.addProvider(new BouncyCastleProvider());
@@ -131,8 +243,13 @@ public final class ScepMessageTestData {
     private static byte[] generatedCsr(String subjectDn, List<String> dnsSans, String challengePassword)
             throws Exception {
         KeyPair keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        return generatedCsr(subjectDn, dnsSans, challengePassword, keyPair.getPublic(), keyPair.getPrivate());
+    }
+
+    private static byte[] generatedCsr(String subjectDn, List<String> dnsSans, String challengePassword,
+            PublicKey requestedKey, PrivateKey signingKey) throws Exception {
         JcaPKCS10CertificationRequestBuilder builder = new JcaPKCS10CertificationRequestBuilder(new X500Name(subjectDn),
-                keyPair.getPublic());
+                requestedKey);
         if (challengePassword != null) {
             builder
                     .addAttribute(PKCSObjectIdentifiers.pkcs_9_at_challengePassword,
@@ -150,7 +267,7 @@ public final class ScepMessageTestData {
         }
         ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA")
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                .build(keyPair.getPrivate());
+                .build(signingKey);
         return builder.build(signer).getEncoded();
     }
 
@@ -182,6 +299,17 @@ public final class ScepMessageTestData {
         return builder.build(signer).getEncoded();
     }
 
+    private static byte[] csrSignedBy(PrivateKey signingKey, String signatureAlgorithm) throws Exception {
+        Security.addProvider(new BouncyCastleProvider());
+        KeyPair requestedKeyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        JcaPKCS10CertificationRequestBuilder builder = new JcaPKCS10CertificationRequestBuilder(
+                new X500Name(SUBJECT_DN), requestedKeyPair.getPublic());
+        ContentSigner signer = new JcaContentSignerBuilder(signatureAlgorithm)
+                .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                .build(signingKey);
+        return builder.build(signer).getEncoded();
+    }
+
     /** The signer certificate the message above is signed with. */
     public static X509Certificate signerCertificate() throws Exception {
         return CertificateUtil.parseCertificate(SIGNER_CERT_B64);
@@ -193,19 +321,54 @@ public final class ScepMessageTestData {
 
     private static CMSProcessableByteArray envelopedPkcs10Request(byte[] csrBytes, String envelopePassword)
             throws Exception {
-        Security.addProvider(new BouncyCastleProvider());
+        return envelopedPkcs10Request(csrBytes,
+                new JcePasswordRecipientInfoGenerator(CMSAlgorithm.AES128_CBC, envelopePassword.toCharArray()),
+                CMSAlgorithm.AES256_CBC);
+    }
 
-        PasswordRecipientInfoGenerator recipientGenerator = new JcePasswordRecipientInfoGenerator(
-                CMSAlgorithm.AES128_CBC, envelopePassword.toCharArray());
+    private static CMSProcessableByteArray envelopedPkcs10Request(byte[] csrBytes,
+            PasswordRecipientInfoGenerator recipientGenerator, ASN1ObjectIdentifier contentEncryptionAlgorithm)
+            throws Exception {
+        Security.addProvider(new BouncyCastleProvider());
 
         CMSEnvelopedDataGenerator envelopedDataGenerator = new CMSEnvelopedDataGenerator();
         envelopedDataGenerator.addRecipientInfoGenerator(recipientGenerator);
 
-        OutputEncryptor encryptor = new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES256_CBC)
+        OutputEncryptor encryptor = new JceCMSContentEncryptorBuilder(contentEncryptionAlgorithm)
                 .setProvider("BC")
                 .build();
         CMSEnvelopedData envelope = envelopedDataGenerator.generate(new CMSProcessableByteArray(csrBytes), encryptor);
         return new CMSProcessableByteArray(envelope.getEncoded());
+    }
+
+    /** The envelope with the restatement applied to its EnvelopedData, encoded again as a CMS content. */
+    private static CMSProcessableByteArray restated(CMSProcessableByteArray envelope,
+            UnaryOperator<EnvelopedData> restatement) throws Exception {
+        EnvelopedData envelopedData = EnvelopedData
+                .getInstance(ContentInfo.getInstance(envelope.getContent()).getContent());
+        byte[] restatedContent = new ContentInfo(CMSObjectIdentifiers.envelopedData, restatement.apply(envelopedData))
+                .getEncoded(ASN1Encoding.DER);
+        return new CMSProcessableByteArray(restatedContent);
+    }
+
+    private static EnvelopedData withKeyDerivation(EnvelopedData envelopedData, AlgorithmIdentifier keyDerivation) {
+        PasswordRecipientInfo recipient = PasswordRecipientInfo
+                .getInstance(RecipientInfo.getInstance(envelopedData.getRecipientInfos().getObjectAt(0)).getInfo());
+        PasswordRecipientInfo restatedRecipient = keyDerivation == null
+                ? new PasswordRecipientInfo(recipient.getKeyEncryptionAlgorithm(), recipient.getEncryptedKey())
+                : new PasswordRecipientInfo(keyDerivation, recipient.getKeyEncryptionAlgorithm(),
+                        recipient.getEncryptedKey());
+        return new EnvelopedData(envelopedData.getOriginatorInfo(), new DERSet(new RecipientInfo(restatedRecipient)),
+                envelopedData.getEncryptedContentInfo(), envelopedData.getUnprotectedAttrs());
+    }
+
+    private static EnvelopedData withContentEncryption(EnvelopedData envelopedData,
+            AlgorithmIdentifier contentEncryption) {
+        EncryptedContentInfo content = envelopedData.getEncryptedContentInfo();
+        EncryptedContentInfo restatedContent = new EncryptedContentInfo(content.getContentType(), contentEncryption,
+                content.getEncryptedContent());
+        return new EnvelopedData(envelopedData.getOriginatorInfo(), envelopedData.getRecipientInfos(), restatedContent,
+                envelopedData.getUnprotectedAttrs());
     }
 
     private static org.bouncycastle.cms.CMSSignedData signedMessage(CMSProcessableByteArray content,
@@ -215,16 +378,22 @@ public final class ScepMessageTestData {
 
     private static org.bouncycastle.cms.CMSSignedData signedMessage(CMSProcessableByteArray content,
             MessageType messageType, String transactionId) throws Exception {
-        Security.addProvider(new BouncyCastleProvider());
-
-        X509Certificate signerCertificate = signerCertificate();
+        X509CertificateHolder signerCertificate = new JcaX509CertificateHolder(signerCertificate());
         PrivateKey signerPrivateKey = KeyFactory
                 .getInstance("EC")
                 .generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(SIGNER_KEY_B64)));
+        return signedMessage(content, messageType, transactionId, "SHA256WithECDSA", signerPrivateKey,
+                signerCertificate, List.of(signerCertificate));
+    }
 
-        ContentSigner contentSigner = new JcaContentSignerBuilder("SHA256WithECDSA")
+    private static org.bouncycastle.cms.CMSSignedData signedMessage(CMSProcessableByteArray content,
+            MessageType messageType, String transactionId, String signatureAlgorithm, PrivateKey signingKey,
+            X509CertificateHolder signerCertificate, List<X509CertificateHolder> certificates) throws Exception {
+        Security.addProvider(new BouncyCastleProvider());
+
+        ContentSigner contentSigner = new JcaContentSignerBuilder(signatureAlgorithm)
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                .build(signerPrivateKey);
+                .build(signingKey);
         JcaDigestCalculatorProviderBuilder digestProviderBuilder = new JcaDigestCalculatorProviderBuilder()
                 .setProvider(BouncyCastleProvider.PROVIDER_NAME);
         JcaSignerInfoGeneratorBuilder signerInfoBuilder = new JcaSignerInfoGeneratorBuilder(
@@ -235,7 +404,7 @@ public final class ScepMessageTestData {
 
         CMSSignedDataGenerator signedDataGenerator = new CMSSignedDataGenerator();
         signedDataGenerator.addSignerInfoGenerator(signerInfoBuilder.build(contentSigner, signerCertificate));
-        signedDataGenerator.addCertificates(new JcaCertStore(Collections.singletonList(signerCertificate)));
+        signedDataGenerator.addCertificates(new CollectionStore<>(certificates));
 
         return signedDataGenerator.generate(content, true);
     }

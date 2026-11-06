@@ -5,7 +5,6 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.aop.CertificateRepositoryCacheEvictionAspect;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.custom.CustomCertificateRepository;
 import jakarta.persistence.LockModeType;
@@ -139,8 +138,6 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
     Optional<Certificate> findForSigningByUuid(UUID uuid);
 
     Optional<Certificate> findBySerialNumberIgnoreCase(String serialNumber);
-
-    Certificate findByCertificateContent(CertificateContent certificateContent);
 
     Optional<Certificate> findByFingerprint(String fingerprint);
 
@@ -433,6 +430,30 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
                   )
             """)
     List<UUID> findExpiringCertificatesWithoutRenewal();
+
+    @Query(value = """
+            SELECT DISTINCT c.uuid
+              FROM {h-schema}certificate c
+              JOIN {h-schema}pending_notification p
+                ON p.object_uuid = c.uuid AND p.resource = 'CERTIFICATE' AND p.event = 'CERTIFICATE_NOT_COMPLIANT'
+              JOIN {h-schema}notification_profile_version v
+                ON v.notification_profile_uuid = p.notification_profile_uuid AND v.version = p.version
+             WHERE c.compliance_status = 'NOK'
+               AND c.archived = false
+               AND c.state = 'ISSUED'
+               AND (c.validation_status IS NULL OR c.validation_status <> 'EXPIRED')
+               AND (v.frequency IS NOT NULL OR v.repetitions IS NOT NULL)
+               AND (v.repetitions IS NULL OR p.repetitions < v.repetitions)
+               AND (v.frequency IS NULL OR p.last_sent_at + v.frequency < :now)
+               AND NOT EXISTS (
+                     SELECT 1
+                       FROM {h-schema}certificate_relation cr
+                       JOIN {h-schema}certificate sc ON sc.uuid = cr.successor_certificate_uuid
+                      WHERE cr.predecessor_certificate_uuid = c.uuid
+                        AND sc.state = 'ISSUED'
+                   )
+            """, nativeQuery = true)
+    List<UUID> findNonCompliantCertificatesWithReminders(@Param("now") OffsetDateTime now);
 
     @Query(value = """
                 UPDATE {h-schema}certificate

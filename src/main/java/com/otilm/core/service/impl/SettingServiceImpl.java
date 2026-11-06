@@ -18,6 +18,8 @@ import com.otilm.api.model.core.settings.CertificateRegistrationSettingsUpdateDt
 import com.otilm.api.model.core.settings.CertificateRequestAttributesSettingsDto;
 import com.otilm.api.model.core.settings.CertificateRequestAttributesSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateSettingsDto;
+import com.otilm.api.model.core.settings.CertificateUploadSettingsDto;
+import com.otilm.api.model.core.settings.CertificateUploadSettingsUpdateDto;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.EventSettingsDto;
@@ -105,6 +107,7 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
     public static final String CBOM_SYNC_INGEST_RETRY_AFTER_SECONDS_NAME = "cbomSyncIngestRetryAfterSeconds";
     public static final String CERTIFICATES_VALIDATION_SETTINGS_NAME = "certificatesValidation";
     public static final String CERTIFICATES_REGISTRATION_SETTINGS_NAME = "certificatesRegistration";
+    public static final String CERTIFICATES_UPLOAD_SETTINGS_NAME = "certificatesUpload";
 
     public static final String LOGGING_AUDIT_LOG_OUTPUT_NAME = "output";
     public static final String LOGGING_AUDIT_LOG_VERBOSE_NAME = "verbose";
@@ -269,6 +272,21 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
             }
         } else {
             certificateSettingsDto.setRegistration(defaultRegistrationSettings);
+        }
+
+        CertificateUploadSettingsDto defaultUploadSettings = new CertificateUploadSettingsDto();
+        if (certificateSettings != null && certificateSettings.get(CERTIFICATES_UPLOAD_SETTINGS_NAME) != null) {
+            try {
+                certificateSettingsDto
+                        .setUpload(storageMapper
+                                .readValue(certificateSettings.get(CERTIFICATES_UPLOAD_SETTINGS_NAME).getValue(),
+                                        CertificateUploadSettingsDto.class));
+            } catch (JsonProcessingException e) {
+                logger.warn("Cannot deserialize platform certificates upload settings. Returning default settings.");
+                certificateSettingsDto.setUpload(defaultUploadSettings);
+            }
+        } else {
+            certificateSettingsDto.setUpload(defaultUploadSettings);
         }
 
         platformSettings.setCertificates(certificateSettingsDto);
@@ -625,6 +643,18 @@ public class SettingServiceImpl implements SettingExternalService, SettingIntern
                 throw new ValidationException("Cannot serialize platform certificates settings.");
             }
             settingRepository.save(registrationSetting);
+        }
+
+        CertificateUploadSettingsUpdateDto upload = platformSettings.getCertificates().getUpload();
+        if (upload != null) {
+            Setting uploadSetting = certificateSetting(certificateSettings, CERTIFICATES_UPLOAD_SETTINGS_NAME);
+            try {
+                uploadSetting.setValue(storageMapper.writeValueAsString(upload));
+            } catch (JsonProcessingException e) {
+                logger.warn("Failed to serialize platform certificates upload settings", e);
+                throw new ValidationException("Cannot serialize platform certificates settings.");
+            }
+            settingRepository.save(uploadSetting);
         }
     }
 

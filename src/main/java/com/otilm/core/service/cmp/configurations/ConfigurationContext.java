@@ -80,4 +80,21 @@ public interface ConfigurationContext {
 
     /** The matched registration's challenge plaintext — the {@code authorizationSecret} for completion. */
     String getMatchedChallenge();
+
+    /**
+     * The inventory certificate whose key protects a signature-protected request, set once protection validation has
+     * verified the signature and trusts the certificate; {@code null} for a request protected any other way.
+     */
+    Certificate getProtectionCertificate();
+
+    void setProtectionCertificate(Certificate protectionCertificate);
+
+    /**
+     * Whether a signature-protected request is protected by a certificate other than {@code certificate}. A key update
+     * and a revocation must be protected by the certificate they act on (RFC 9483 §4.1.3, §4.2).
+     */
+    default boolean isProtectedByAnotherCertificate(Certificate certificate) {
+        Certificate protectionCertificate = getProtectionCertificate();
+        return protectionCertificate != null && !protectionCertificate.getUuid().equals(certificate.getUuid());
+    }
 }

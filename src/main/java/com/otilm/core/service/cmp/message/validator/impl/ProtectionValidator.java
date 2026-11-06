@@ -4,15 +4,27 @@ import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
 import com.otilm.api.interfaces.core.cmp.error.CmpConfigurationException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
+import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
+import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
 import com.otilm.core.service.cmp.message.protection.ProtectionStrategy;
 import com.otilm.core.service.cmp.message.protection.impl.PasswordBasedMacProtectionStrategy;
 import com.otilm.core.service.cmp.message.protection.impl.SingatureBaseProtectionStrategy;
 import com.otilm.core.service.cmp.message.validator.BiValidator;
+import com.otilm.core.util.CertificateUtil;
+import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.EnumSet;
+import java.util.Set;
 import org.bouncycastle.asn1.ASN1BitString;
 import org.bouncycastle.asn1.ASN1OctetString;
+import org.bouncycastle.asn1.cmp.CMPCertificate;
 import org.bouncycastle.asn1.cmp.CMPObjectIdentifiers;
 import org.bouncycastle.asn1.cmp.PKIBody;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
@@ -21,6 +33,7 @@ import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,30 +84,35 @@ public class ProtectionValidator implements BiValidator<Void, Void> {
 
     private static final Logger LOG = LoggerFactory.getLogger(ProtectionValidator.class.getName());
 
+    private static final String UNTRUSTED_PROTECTION_CERTIFICATE = "the CMP protection certificate is not trusted";
+
+    // EnumSet tolerates a null argument to contains(), unlike Set.of.
+    private static final Set<CertificateValidationStatus> TRUSTED_VALIDATION_STATUSES = EnumSet
+            .of(CertificateValidationStatus.VALID, CertificateValidationStatus.EXPIRING);
+
+    private CertificateRepository certificateRepository;
+
+    @Autowired
+    public void setCertificateRepository(CertificateRepository certificateRepository) {
+        this.certificateRepository = certificateRepository;
+    }
+
     @Override
     public Void validateIn(PKIMessage request, ConfigurationContext configuration) throws CmpBaseException {
         ASN1BitString protection = request.getProtection();
         ASN1OctetString tid = request.getHeader().getTransactionID();
+
+        // The message protection is the only authentication of a CMP client, so RFC 9483 §3.5 refuses a request
+        // without it, whatever protection the profile expects.
+        if (protection == null) {
+            throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized, ImplFailureInfo.CMPVALPRO530);
+        }
 
         /*
          * The protectionAlg field specifies the algorithm used to protect the message. If no protection bits are
          * supplied (note that PKIProtection is OPTIONAL) then this field MUST be omitted; if protection bits are
          * supplied, then this field MUST be supplied.
          */
-        if (protection == null && request.getHeader().getProtectionAlg() == null) {
-            // A registration-mode profile authenticates every request solely by its challenge MAC, so an
-            // unprotected message carries no authentication and must be rejected here rather than reaching a
-            // handler that would otherwise run without a verified challenge.
-            if (configuration.isRegistrationMode()) {
-                throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized, ImplFailureInfo.CMPVALPRO530);
-            }
-            return null;
-        }
-
-        if (protection == null) {
-            throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized, ImplFailureInfo.CMPVALPRO530);
-        }
-
         final AlgorithmIdentifier protectionAlg = request.getHeader().getProtectionAlg();
         if (protectionAlg == null) {
             throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized, ImplFailureInfo.CMPVALPRO532);
@@ -107,7 +125,61 @@ public class ProtectionValidator implements BiValidator<Void, Void> {
         } else if (PKCSObjectIdentifiers.id_PBMAC1.equals(protectionAlg.getAlgorithm())) {
             new ProtectionPBMac1Validator().validate(request, configuration);
         } else {
-            new ProtectionSignatureValidator().validate(request, configuration);
+            new ProtectionSignatureValidator(true).validate(request, configuration);
+            configuration.setProtectionCertificate(trustedProtectionCertificate(request, configuration));
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the CMP protection certificate of a verified signature, the first of the request's extraCerts, to the
+     * inventory. Core trusts it as RFC 9483 §4.1.2 trusts an end entity enrolled by the same PKI: a certificate of the
+     * profile's RA profile that is issued, not archived, validated as valid or expiring, and within its validity
+     * period. Every refusal answers alike, so a client cannot probe the inventory; the log names the reason.
+     */
+    private Certificate trustedProtectionCertificate(PKIMessage request, ConfigurationContext configuration)
+            throws CmpProcessingException {
+        Certificate certificate = findInventoryCertificate(request.getExtraCerts()[0]);
+        String refusal = protectionCertificateRefusal(certificate, configuration.getRaProfile());
+        if (refusal != null) {
+            ASN1OctetString tid = request.getHeader().getTransactionID();
+            LOG
+                    .warn("TID={}, PN={} | signature-protected request refused: {}", tid,
+                            configuration.getCmpProfile().getName(), refusal);
+            throw new CmpProcessingException(tid, PKIFailureInfo.signerNotTrusted, UNTRUSTED_PROTECTION_CERTIFICATE);
+        }
+        return certificate;
+    }
+
+    private Certificate findInventoryCertificate(CMPCertificate protectionCertificate) {
+        try {
+            String fingerprint = CertificateUtil.getThumbprint(protectionCertificate.getEncoded());
+            return certificateRepository.findByFingerprint(fingerprint).orElse(null);
+        } catch (IOException | NoSuchAlgorithmException e) {
+            LOG.debug("The CMP protection certificate cannot be fingerprinted", e);
+            return null;
+        }
+    }
+
+    /** Why Core does not trust {@code certificate} as a CMP protection certificate, or {@code null} when it does. */
+    private static String protectionCertificateRefusal(Certificate certificate, RaProfile raProfile) {
+        if (certificate == null) {
+            return "the protection certificate is not in the inventory";
+        }
+        String subject = "protection certificate " + certificate.getUuid();
+        if (certificate.getRaProfileUuid() == null || !certificate.getRaProfileUuid().equals(raProfile.getUuid())) {
+            return subject + " belongs to another RA profile";
+        }
+        if (certificate.isArchived() || certificate.getState() != CertificateState.ISSUED) {
+            return subject + " is archived or not issued, state " + certificate.getState();
+        }
+        if (!TRUSTED_VALIDATION_STATUSES.contains(certificate.getValidationStatus())) {
+            return subject + " has validation status " + certificate.getValidationStatus();
+        }
+        Instant now = Instant.now();
+        if (now.isBefore(certificate.getNotBefore().toInstant())
+                || now.isAfter(certificate.getNotAfter().toInstant())) {
+            return subject + " is outside its validity period";
         }
         return null;
     }
@@ -151,7 +223,7 @@ public class ProtectionValidator implements BiValidator<Void, Void> {
         } else if (PKCSObjectIdentifiers.id_PBMAC1.getId().equals(protectionAlgId)) {
             new ProtectionPBMac1Validator().validate(response, configuration);
         } else {
-            new ProtectionSignatureValidator().validate(response, configuration);
+            new ProtectionSignatureValidator(false).validate(response, configuration);
         }
 
         return null;

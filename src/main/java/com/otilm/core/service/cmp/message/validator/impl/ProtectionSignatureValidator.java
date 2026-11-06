@@ -7,6 +7,7 @@ import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.PkiMessageDumper;
 import com.otilm.core.service.cmp.message.validator.Validator;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.SignatureVerificationBounds;
 import java.security.KeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.Signature;
@@ -19,6 +20,8 @@ import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIHeader;
 import org.bouncycastle.asn1.cmp.PKIMessage;
 import org.bouncycastle.asn1.cmp.ProtectedPart;
+import org.bouncycastle.asn1.x509.Certificate;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +40,16 @@ import org.slf4j.LoggerFactory;
 class ProtectionSignatureValidator implements Validator<PKIMessage, Void> {
 
     private static final Logger LOG = LoggerFactory.getLogger(ProtectionSignatureValidator.class.getName());
+
+    private final boolean signedByClient;
+
+    /**
+     * @param signedByClient whether a client signed the message, as it signs a request: the key of the certificate that
+     * the client supplies is then judged before the certificate is parsed, since parsing it builds the key
+     */
+    ProtectionSignatureValidator(boolean signedByClient) {
+        this.signedByClient = signedByClient;
+    }
 
     /**
      * Signature-base protection implementation assumes:
@@ -82,6 +95,12 @@ class ProtectionSignatureValidator implements Validator<PKIMessage, Void> {
             PKIHeader header = message.getHeader();
             byte[] protectedBytes = new ProtectedPart(header, message.getBody()).getEncoded(ASN1Encoding.DER);
             byte[] protectionBytes = message.getProtection().getBytes();
+            if (signedByClient) {
+                SubjectPublicKeyInfo signerKey = Certificate
+                        .getInstance(extraCerts[0].getEncoded())
+                        .getSubjectPublicKeyInfo();
+                SignatureVerificationBounds.requireSupportedPublicKey(signerKey);
+            }
             X509Certificate singerCertificate = CertificateUtil.getX509Certificate(extraCerts[0].getEncoded());
             if (configuration.dumpSigning()) {
                 PkiMessageDumper.dumpSingerCertificate("validator", singerCertificate, null);

@@ -15,6 +15,7 @@ import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import java.net.ConnectException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
@@ -433,7 +434,12 @@ public class ProxyClientImpl implements ProxyClient {
 
             case "not_found" -> sneakyThrow(new ConnectorEntityNotFoundException(errorMessage));
 
-            case "timeout", "connection" -> sneakyThrow(new ConnectorCommunicationException(errorMessage, connector));
+            // The proxy reports a transport failure only as a category; the cause records which one, so a
+            // caller can tell an unreachable connector from one that answered with something unusable.
+            case "timeout" -> sneakyThrow(
+                    new ConnectorCommunicationException(errorMessage, new TimeoutException(errorMessage), connector));
+            case "connection" -> sneakyThrow(
+                    new ConnectorCommunicationException(errorMessage, new ConnectException(errorMessage), connector));
 
             case "server_error" -> sneakyThrow(new ConnectorServerException(errorMessage,
                     response.getStatusCode() > 0

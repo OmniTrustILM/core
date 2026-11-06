@@ -43,7 +43,9 @@ public final class ExternalAccountBindingJws {
                 return null;
             }
             return new ExternalAccountBindingJws(jws, JWK.parse(jws.getPayload().toString()));
-        } catch (ParseException | IllegalArgumentException e) {
+        } catch (ParseException | RuntimeException e) {
+            // nimbus throws unchecked exceptions for some malformed keys, such as a NullPointerException for an RSA
+            // key whose other primes lack their members
             return null;
         }
     }
