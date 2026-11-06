@@ -26,6 +26,7 @@ import com.otilm.core.dao.entity.signing.TimeQualityConfiguration;
 import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.dao.entity.signing.TspProfileBasicCredential;
 import com.otilm.core.model.auth.ResourceAction;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -47,7 +48,8 @@ import java.util.function.Function;
 public final class ObjectActionRequirements {
 
     /** A condition an action on the object requires. */
-    public sealed interface Requirement permits OnObject, OnObjectUnder, OnResource, OnAncestor, OnLinked {
+    public sealed interface Requirement
+            permits OnObject, OnObjectUnder, OnResource, OnAncestor, OnLinked, OnLinkedThrough {
     }
 
     /**
@@ -98,95 +100,199 @@ public final class ObjectActionRequirements {
     }
 
     /**
-     * How the objects of one resource are stored, how the list endpoints admit one, and what each reported action
-     * requires.
+     * The requirement evaluated against the object whose UUID the entity attribute holds instead of this object, such
+     * as members on the vault profile of the secret a credential keeps its password in. Refused when the attribute is
+     * empty.
+     */
+    public record OnLinkedThrough(Resource through, String attribute, Requirement requirement) implements Requirement {
+    }
+
+    /**
+     * How the objects of one resource are stored, how the list and detail endpoints admit one, and what each reported
+     * action requires.
      *
      * @param entity entity holding the objects, used to tell whether an object exists
      * @param parent resource of the object's parent, or {@link Resource#NONE}
      * @param parentAttribute entity attribute holding the parent's UUID, or {@code null} without a parent
      * @param listing what the list endpoints require for the object to be listed
+     * @param viewing what the endpoint loading the object's detail requires, which can be less than every endpoint
+     * reporting detail asks for
      */
-    public record ResourceObjects(Class<?> entity, Resource parent, String parentAttribute, Requirement listing,
-            Map<ResourceAction, List<Requirement>> actions) {
+    public record ResourceObjects(Class<?> entity, Resource parent, String parentAttribute, List<Requirement> listing,
+            List<Requirement> viewing, Map<ResourceAction, List<Requirement>> actions) {
     }
+
+    private static final String UUID_ATTRIBUTE = "uuid";
+
+    private static final String CONNECTOR_UUID = "connectorUuid";
+
+    private static final String RA_PROFILE_UUID = "raProfileUuid";
+
+    private static final String TOKEN_UUID = "tokenInstanceReferenceUuid";
+
+    private static final String TOKEN_PROFILE_UUID = "tokenProfileUuid";
+
+    private static final String SOURCE_VAULT_PROFILE_UUID = "sourceVaultProfileUuid";
 
     private static final Map<Resource, ResourceObjects> TABLE = new EnumMap<>(Resource.class);
 
-    private static final OnObject LISTED = new OnObject(ResourceAction.LIST);
+    private static final List<Requirement> LISTED = List.of(new OnObject(ResourceAction.LIST));
 
     static {
         onObject(Resource.CREDENTIAL, Credential.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
+        also(Resource.CREDENTIAL, ResourceAction.UPDATE,
+                OnLinked.required(Resource.CONNECTOR, CONNECTOR_UUID, ResourceAction.ANY));
         onObject(Resource.CONNECTOR, Connector.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.APPROVE, ResourceAction.CONNECT);
         onResource(Resource.ATTRIBUTE, AttributeDefinition.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
+        also(Resource.ATTRIBUTE, ResourceAction.DETAIL, new OnObject(ResourceAction.DETAIL));
         onObject(Resource.PROXY, Proxy.class, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
                 ResourceAction.GET_PROXY_INSTALLATION);
+        // Deleting an ACME or CMP profile first lists the RA profiles using it.
         onObject(Resource.ACME_PROFILE, AcmeProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
+        also(Resource.ACME_PROFILE, ResourceAction.DELETE, new OnResource(Resource.RA_PROFILE, ResourceAction.LIST));
         onObject(Resource.SCEP_PROFILE, ScepProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         onObject(Resource.CMP_PROFILE, CmpProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
+        also(Resource.CMP_PROFILE, ResourceAction.DELETE, new OnResource(Resource.RA_PROFILE, ResourceAction.LIST));
+        // Updating an authority or entity loads its connector and the credentials its attributes name.
         onObject(Resource.AUTHORITY, AuthorityInstanceReference.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE);
+        also(Resource.AUTHORITY, ResourceAction.UPDATE,
+                OnLinked.required(Resource.CONNECTOR, CONNECTOR_UUID, ResourceAction.DETAIL),
+                new OnResource(Resource.CREDENTIAL, ResourceAction.DETAIL));
         underParent(Resource.RA_PROFILE, RaProfile.class, Resource.AUTHORITY, "authorityInstanceReferenceUuid",
                 ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
         alsoOnObject(Resource.RA_PROFILE, ResourceAction.CHECK_COMPLIANCE, ResourceAction.MEMBERS);
+        also(Resource.RA_PROFILE, ResourceAction.CHECK_COMPLIANCE,
+                new OnResource(Resource.COMPLIANCE_PROFILE, ResourceAction.CHECK_COMPLIANCE));
         onObject(Resource.GROUP, Group.class, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
                 ResourceAction.MEMBERS);
+        // Adding or removing a compliance group returns the profile through its detail check.
         onObject(Resource.COMPLIANCE_PROFILE, ComplianceProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.CHECK_COMPLIANCE);
+        also(Resource.COMPLIANCE_PROFILE, ResourceAction.UPDATE, new OnObject(ResourceAction.DETAIL));
         onObject(Resource.ENTITY, EntityInstanceReference.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE);
+        also(Resource.ENTITY, ResourceAction.UPDATE,
+                OnLinked.required(Resource.CONNECTOR, CONNECTOR_UUID, ResourceAction.ANY),
+                new OnResource(Resource.CREDENTIAL, ResourceAction.DETAIL));
         underParent(Resource.LOCATION, Location.class, Resource.ENTITY, "entityInstanceReferenceUuid",
                 ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
         onObject(Resource.TOKEN, TokenInstanceReference.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ACTIVATE, ResourceAction.MEMBERS);
-        underParent(Resource.TOKEN_PROFILE, TokenProfile.class, Resource.TOKEN, "tokenInstanceReferenceUuid",
-                ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
-        alsoOnObject(Resource.TOKEN_PROFILE, ResourceAction.MEMBERS);
+        // The bulk token profile endpoints check token detail on the resource as a whole.
+        underParent(Resource.TOKEN_PROFILE, TokenProfile.class, Resource.TOKEN, TOKEN_UUID, ResourceAction.DETAIL,
+                ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
+        for (ResourceAction action : List.of(ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE)) {
+            also(Resource.TOKEN_PROFILE, action, new OnResource(Resource.TOKEN, ResourceAction.DETAIL));
+        }
+        TABLE
+                .get(Resource.TOKEN_PROFILE)
+                .actions()
+                .put(ResourceAction.MEMBERS,
+                        List
+                                .of(new OnObjectUnder(ResourceAction.MEMBERS, Resource.TOKEN, TOKEN_UUID,
+                                        ResourceAction.MEMBERS)));
+        // Vault detail and update have endpoints checking the resource and others checking the object, and update
+        // loads the vault's connector.
         onResource(Resource.VAULT, VaultInstance.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE);
+        also(Resource.VAULT, ResourceAction.DETAIL, new OnObject(ResourceAction.DETAIL));
+        also(Resource.VAULT, ResourceAction.UPDATE, new OnObject(ResourceAction.UPDATE),
+                OnLinked.required(Resource.CONNECTOR, CONNECTOR_UUID, ResourceAction.DETAIL));
         underParent(Resource.VAULT_PROFILE, VaultProfile.class, Resource.VAULT, "vaultInstanceUuid",
                 ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
         alsoOnObject(Resource.VAULT_PROFILE, ResourceAction.MEMBERS);
+        // Signing profile detail includes its signing records, and deleting one first lists the TSP profiles using it
+        // as their default, checking TSP profile list against the signing profile's UUID.
         onObject(Resource.SIGNING_PROFILE, SigningProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
+        also(Resource.SIGNING_PROFILE, ResourceAction.DETAIL, new OnResource(ResourceAction.DETAIL),
+                new OnResource(Resource.SIGNING_RECORD, ResourceAction.LIST));
+        also(Resource.SIGNING_PROFILE, ResourceAction.DELETE, new OnResource(ResourceAction.DETAIL),
+                OnLinked.required(Resource.TSP_PROFILE, UUID_ATTRIBUTE, ResourceAction.LIST));
+        // Time quality configuration and TSP profile lookups of the signing profiles using them check signing profile
+        // list. A TSP profile timestamps by name, through loaders checking detail on both resources.
         onObject(Resource.TIME_QUALITY_CONFIGURATION, TimeQualityConfiguration.class, ResourceAction.DETAIL,
                 ResourceAction.UPDATE, ResourceAction.DELETE);
+        also(Resource.TIME_QUALITY_CONFIGURATION, ResourceAction.DETAIL,
+                new OnResource(Resource.SIGNING_PROFILE, ResourceAction.LIST));
+        also(Resource.TIME_QUALITY_CONFIGURATION, ResourceAction.DELETE, new OnObject(ResourceAction.DETAIL),
+                new OnResource(Resource.SIGNING_PROFILE, ResourceAction.LIST));
         onObject(Resource.TSP_PROFILE, TspProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE, ResourceAction.TIMESTAMP);
-        underParent(Resource.TSP_PROFILE_BASIC_CREDENTIAL, TspProfileBasicCredential.class, Resource.TSP_PROFILE,
-                "tspProfileUuid", ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE);
+        also(Resource.TSP_PROFILE, ResourceAction.ENABLE, new OnObject(ResourceAction.DETAIL));
+        also(Resource.TSP_PROFILE, ResourceAction.DELETE, new OnObject(ResourceAction.DETAIL),
+                new OnResource(Resource.SIGNING_PROFILE, ResourceAction.LIST));
+        also(Resource.TSP_PROFILE, ResourceAction.TIMESTAMP, new OnResource(ResourceAction.DETAIL),
+                new OnResource(Resource.SIGNING_PROFILE, ResourceAction.DETAIL));
 
-        // Every secret endpoint loads the secret through a check of members on its source vault profile.
+        // Every secret endpoint loads the secret through a check of members on its source vault profile. Detail,
+        // update and content each have endpoints checking the resource and others checking the object.
         OnLinked sourceVaultProfileMembers = OnLinked
-                .ifSet(Resource.VAULT_PROFILE, "sourceVaultProfileUuid", ResourceAction.MEMBERS);
+                .ifSet(Resource.VAULT_PROFILE, SOURCE_VAULT_PROFILE_UUID, ResourceAction.MEMBERS);
         Map<ResourceAction, List<Requirement>> secret = new LinkedHashMap<>();
-        for (ResourceAction action : List
-                .of(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE,
-                        ResourceAction.GET_SECRET_CONTENT)) {
+        for (ResourceAction action : List.of(ResourceAction.DELETE, ResourceAction.ENABLE)) {
             secret.put(action, List.of(new OnResource(action), sourceVaultProfileMembers));
         }
+        for (ResourceAction action : List
+                .of(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.GET_SECRET_CONTENT)) {
+            secret.put(action, List.of(new OnResource(action), new OnObject(action), sourceVaultProfileMembers));
+        }
+        secret
+                .put(ResourceAction.COMMENT,
+                        List
+                                .of(new OnObject(ResourceAction.COMMENT), new OnObject(ResourceAction.DETAIL),
+                                        sourceVaultProfileMembers));
         TABLE
                 .put(Resource.SECRET,
-                        new ResourceObjects(
-                                Secret.class, Resource.NONE, null, new OnObjectUnder(ResourceAction.LIST,
-                                        Resource.VAULT_PROFILE, "sourceVaultProfileUuid", ResourceAction.MEMBERS),
-                                secret));
+                        new ResourceObjects(Secret.class, Resource.NONE, null,
+                                List
+                                        .of(new OnObjectUnder(ResourceAction.LIST, Resource.VAULT_PROFILE,
+                                                SOURCE_VAULT_PROFILE_UUID, ResourceAction.MEMBERS)),
+                                List.of(new OnResource(ResourceAction.DETAIL), sourceVaultProfileMembers), secret));
 
-        // Certificate detail, update and delete also check members on the RA profile. Renew, issue and revoke check
-        // the resource and the RA profile and authority they run under. Rekey checks renew, so it has no entry.
-        OnObjectUnder inRaProfile = new OnObjectUnder(ResourceAction.DETAIL, Resource.RA_PROFILE, "raProfileUuid",
+        // A basic credential is listed and read with the name of the user it maps to, and keeps its password in a
+        // secret, which update rotates and delete removes.
+        OnResource userDetail = new OnResource(Resource.USER, ResourceAction.DETAIL);
+        OnAncestor tspProfileDetail = new OnAncestor(Resource.TSP_PROFILE, ResourceAction.DETAIL);
+        underParent(Resource.TSP_PROFILE_BASIC_CREDENTIAL, TspProfileBasicCredential.class, Resource.TSP_PROFILE,
+                "tspProfileUuid", ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE);
+        also(Resource.TSP_PROFILE_BASIC_CREDENTIAL, ResourceAction.DETAIL, userDetail);
+        also(Resource.TSP_PROFILE_BASIC_CREDENTIAL, ResourceAction.UPDATE, userDetail,
+                new OnResource(Resource.SECRET, ResourceAction.UPDATE),
+                new OnLinkedThrough(Resource.SECRET, "secretUuid", sourceVaultProfileMembers));
+        also(Resource.TSP_PROFILE_BASIC_CREDENTIAL, ResourceAction.DELETE,
+                new OnResource(Resource.SECRET, ResourceAction.DELETE),
+                new OnLinkedThrough(Resource.SECRET, "secretUuid", sourceVaultProfileMembers));
+        ResourceObjects basicCredential = TABLE.get(Resource.TSP_PROFILE_BASIC_CREDENTIAL);
+        TABLE
+                .put(Resource.TSP_PROFILE_BASIC_CREDENTIAL,
+                        new ResourceObjects(basicCredential.entity(), basicCredential.parent(),
+                                basicCredential.parentAttribute(),
+                                List.of(new OnResource(ResourceAction.LIST), tspProfileDetail, userDetail),
+                                basicCredential.actions().get(ResourceAction.DETAIL), basicCredential.actions()));
+
+        // Certificate detail, update and delete also check members on the RA profile, and bulk delete detail on it.
+        // Renew, issue and revoke check the resource and the RA profile and authority they run under, and issue loads
+        // the certificate through its detail check. Rekey checks renew, so it has no entry.
+        OnObjectUnder inRaProfile = new OnObjectUnder(ResourceAction.DETAIL, Resource.RA_PROFILE, RA_PROFILE_UUID,
                 ResourceAction.MEMBERS);
         OnAncestor raProfileDetail = new OnAncestor(Resource.RA_PROFILE, ResourceAction.DETAIL);
         OnAncestor authorityDetail = new OnAncestor(Resource.AUTHORITY, ResourceAction.DETAIL);
         Map<ResourceAction, List<Requirement>> certificate = new LinkedHashMap<>();
-        for (ResourceAction action : List.of(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE)) {
+        for (ResourceAction action : List.of(ResourceAction.DETAIL, ResourceAction.UPDATE)) {
             certificate.put(action, List.of(new OnObject(action), inRaProfile));
         }
+        certificate
+                .put(ResourceAction.DELETE, List
+                        .of(new OnObject(ResourceAction.DELETE), inRaProfile, new OnObjectUnder(ResourceAction.DELETE,
+                                Resource.RA_PROFILE, RA_PROFILE_UUID, ResourceAction.DETAIL)));
         certificate.put(ResourceAction.ARCHIVE, List.of(new OnObject(ResourceAction.ARCHIVE)));
         certificate
                 .put(ResourceAction.CHECK_COMPLIANCE,
@@ -199,10 +305,9 @@ public final class ObjectActionRequirements {
                                 .of(new OnResource(ResourceAction.RENEW), new OnResource(ResourceAction.CREATE),
                                         raProfileDetail, authorityDetail));
         certificate
-                .put(ResourceAction.ISSUE,
-                        List
-                                .of(new OnResource(ResourceAction.ISSUE), new OnResource(ResourceAction.CREATE),
-                                        raProfileDetail, authorityDetail));
+                .put(ResourceAction.ISSUE, List
+                        .of(new OnResource(ResourceAction.ISSUE), new OnResource(ResourceAction.CREATE),
+                                raProfileDetail, authorityDetail, new OnObject(ResourceAction.DETAIL), inRaProfile));
         certificate
                 .put(ResourceAction.REVOKE,
                         List.of(new OnResource(ResourceAction.REVOKE), raProfileDetail, authorityDetail));
@@ -211,75 +316,78 @@ public final class ObjectActionRequirements {
                         .of(new OnObject(ResourceAction.COMMENT), new OnObject(ResourceAction.DETAIL), inRaProfile));
         TABLE
                 .put(Resource.CERTIFICATE,
-                        new ResourceObjects(Certificate.class, Resource.RA_PROFILE, "raProfileUuid",
-                                new OnObjectUnder(ResourceAction.LIST, Resource.RA_PROFILE, "raProfileUuid",
-                                        ResourceAction.MEMBERS),
-                                certificate));
+                        new ResourceObjects(Certificate.class, Resource.RA_PROFILE, RA_PROFILE_UUID,
+                                List
+                                        .of(new OnObjectUnder(ResourceAction.LIST, Resource.RA_PROFILE, RA_PROFILE_UUID,
+                                                ResourceAction.MEMBERS)),
+                                List.of(new OnObject(ResourceAction.DETAIL), inRaProfile), certificate));
 
         // Key detail includes the event history, and key update the compromise and usage endpoints, which check only
-        // the resource. The key endpoints also check the key's token in code, export also its token profile, and the
-        // operations with a key run through its token profile, which they check first.
-        OnLinked tokenDetail = OnLinked.ifSet(Resource.TOKEN, "tokenInstanceReferenceUuid", ResourceAction.DETAIL);
-        OnLinked tokenMembers = OnLinked.ifSet(Resource.TOKEN, "tokenInstanceReferenceUuid", ResourceAction.MEMBERS);
-        OnLinked tokenProfileDetail = OnLinked.ifSet(Resource.TOKEN_PROFILE, "tokenProfileUuid", ResourceAction.DETAIL);
+        // the resource. The bulk key endpoints check token detail, and inventory removal token members, on the
+        // resource as a whole, and deleting key items filters them by members on their token profile. The key
+        // endpoints also check the key's token in code and export also its token profile. The operations with a key
+        // check the operation against the UUID of the token profile they run through, then detail on that profile.
+        OnLinked tokenDetail = OnLinked.ifSet(Resource.TOKEN, TOKEN_UUID, ResourceAction.DETAIL);
+        OnLinked tokenMembers = OnLinked.ifSet(Resource.TOKEN, TOKEN_UUID, ResourceAction.MEMBERS);
+        OnLinked tokenProfileDetail = OnLinked.ifSet(Resource.TOKEN_PROFILE, TOKEN_PROFILE_UUID, ResourceAction.DETAIL);
+        OnResource anyTokenDetail = new OnResource(Resource.TOKEN, ResourceAction.DETAIL);
         Map<ResourceAction, List<Requirement>> key = new LinkedHashMap<>();
         key
                 .put(ResourceAction.DETAIL, List
                         .of(new OnObject(ResourceAction.DETAIL), new OnResource(ResourceAction.DETAIL), tokenMembers));
         key
-                .put(ResourceAction.UPDATE,
-                        List
-                                .of(new OnObject(ResourceAction.UPDATE), new OnResource(ResourceAction.UPDATE),
-                                        tokenDetail, tokenMembers));
+                .put(ResourceAction.UPDATE, List
+                        .of(new OnObject(ResourceAction.UPDATE), new OnResource(ResourceAction.UPDATE),
+                                new OnObject(ResourceAction.DETAIL), anyTokenDetail, tokenDetail, tokenMembers));
         key
                 .put(ResourceAction.DELETE,
                         List
                                 .of(new OnObject(ResourceAction.DELETE), new OnResource(ResourceAction.DELETE),
+                                        anyTokenDetail, new OnResource(Resource.TOKEN, ResourceAction.MEMBERS),
+                                        new OnObjectUnder(ResourceAction.DELETE, Resource.TOKEN_PROFILE,
+                                                TOKEN_PROFILE_UUID, ResourceAction.MEMBERS),
                                         tokenDetail, tokenMembers));
-        key.put(ResourceAction.ENABLE, List.of(new OnResource(ResourceAction.ENABLE), tokenDetail));
+        key.put(ResourceAction.ENABLE, List.of(new OnResource(ResourceAction.ENABLE), anyTokenDetail, tokenDetail));
         key
                 .put(ResourceAction.EXPORT_KEY,
                         List
                                 .of(new OnResource(ResourceAction.EXPORT_KEY), new OnObject(ResourceAction.DETAIL),
                                         tokenProfileDetail, tokenDetail, tokenMembers));
-        OnLinked operationTokenProfile = OnLinked
-                .required(Resource.TOKEN_PROFILE, "tokenProfileUuid", ResourceAction.DETAIL);
         for (ResourceAction action : List
                 .of(ResourceAction.ENCRYPT, ResourceAction.DECRYPT, ResourceAction.SIGN, ResourceAction.VERIFY)) {
             key
-                    .put(action,
-                            List
-                                    .of(new OnResource(action), operationTokenProfile,
-                                            new OnAncestor(Resource.TOKEN, ResourceAction.DETAIL)));
+                    .put(action, List
+                            .of(OnLinked.required(Resource.CRYPTOGRAPHIC_KEY, TOKEN_PROFILE_UUID, action), OnLinked
+                                    .required(Resource.TOKEN_PROFILE, TOKEN_PROFILE_UUID, ResourceAction.DETAIL),
+                                    new OnAncestor(Resource.TOKEN, ResourceAction.DETAIL)));
         }
         key
                 .put(ResourceAction.COMMENT, List
                         .of(new OnObject(ResourceAction.COMMENT), new OnObject(ResourceAction.DETAIL), tokenMembers));
         TABLE
                 .put(Resource.CRYPTOGRAPHIC_KEY,
-                        new ResourceObjects(CryptographicKey.class, Resource.TOKEN, "tokenInstanceReferenceUuid",
-                                new OnObjectUnder(ResourceAction.LIST, Resource.TOKEN, "tokenInstanceReferenceUuid",
-                                        ResourceAction.MEMBERS),
-                                key));
+                        new ResourceObjects(CryptographicKey.class, Resource.TOKEN, TOKEN_UUID,
+                                List
+                                        .of(new OnObjectUnder(ResourceAction.LIST, Resource.TOKEN, TOKEN_UUID,
+                                                ResourceAction.MEMBERS)),
+                                List.of(new OnObject(ResourceAction.DETAIL), tokenMembers), key));
 
-        secret
-                .put(ResourceAction.COMMENT,
-                        List
-                                .of(new OnObject(ResourceAction.COMMENT), new OnObject(ResourceAction.DETAIL),
-                                        sourceVaultProfileMembers));
-        // Commenting loads the host object through its detail check.
+        // Commenting loads the host object through its detail check, which also checks detail on its parent if set.
         for (Resource commentable : Resource.getCommentableResources()) {
             ResourceObjects objects = TABLE.get(commentable);
             if (objects != null && !objects.actions().containsKey(ResourceAction.COMMENT)) {
-                objects
-                        .actions()
-                        .put(ResourceAction.COMMENT,
-                                List.of(new OnObject(ResourceAction.COMMENT), new OnObject(ResourceAction.DETAIL)));
+                List<Requirement> comment = new ArrayList<>(
+                        List.of(new OnObject(ResourceAction.COMMENT), new OnObject(ResourceAction.DETAIL)));
+                if (objects.parent() != Resource.NONE) {
+                    comment.add(OnLinked.ifSet(objects.parent(), objects.parentAttribute(), ResourceAction.DETAIL));
+                }
+                objects.actions().put(ResourceAction.COMMENT, List.copyOf(comment));
             }
         }
         TABLE
                 .replaceAll((resource, objects) -> new ResourceObjects(objects.entity(), objects.parent(),
-                        objects.parentAttribute(), objects.listing(), Collections.unmodifiableMap(objects.actions())));
+                        objects.parentAttribute(), objects.listing(), objects.viewing(),
+                        Collections.unmodifiableMap(objects.actions())));
     }
 
     private ObjectActionRequirements() {
@@ -303,6 +411,13 @@ public final class ObjectActionRequirements {
         }
     }
 
+    private static void also(Resource resource, ResourceAction action, Requirement... requirements) {
+        Map<ResourceAction, List<Requirement>> actions = TABLE.get(resource).actions();
+        List<Requirement> combined = new ArrayList<>(actions.get(action));
+        combined.addAll(List.of(requirements));
+        actions.put(action, List.copyOf(combined));
+    }
+
     private static void onResource(Resource resource, Class<?> entity, ResourceAction... actions) {
         register(resource, entity, Resource.NONE, null, actions, action -> List.of(new OnResource(action)));
     }
@@ -313,12 +428,15 @@ public final class ObjectActionRequirements {
                 action -> List.of(new OnObject(action), new OnAncestor(parent, ResourceAction.DETAIL)));
     }
 
+    /** The object is viewable through its detail requirement as registered, before {@link #also} adds to it. */
     private static void register(Resource resource, Class<?> entity, Resource parent, String parentAttribute,
             ResourceAction[] actions, Function<ResourceAction, List<Requirement>> requirements) {
         Map<ResourceAction, List<Requirement>> byAction = new LinkedHashMap<>();
         for (ResourceAction action : actions) {
             byAction.put(action, requirements.apply(action));
         }
-        TABLE.put(resource, new ResourceObjects(entity, parent, parentAttribute, LISTED, byAction));
+        TABLE
+                .put(resource, new ResourceObjects(entity, parent, parentAttribute, LISTED,
+                        requirements.apply(ResourceAction.DETAIL), byAction));
     }
 }

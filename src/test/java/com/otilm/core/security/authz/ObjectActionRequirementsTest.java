@@ -4,16 +4,20 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnAncestor;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnLinked;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnLinkedThrough;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObjectUnder;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -28,86 +32,175 @@ class ObjectActionRequirementsTest {
     private static final Map<Resource, ResourceObjects> TABLE = ObjectActionRequirements.all();
 
     @Test
-    void coversEveryResourceWhoseObjectsAreAuthorizedIndividually() {
-        Set<Resource> expected = Arrays
+    void coversResource_whenItsObjectsAreAuthorizedIndividually() {
+        // given
+        Set<Resource> individuallyAuthorized = Arrays
                 .stream(Resource.values())
                 .filter(resource -> resource.hasObjectAccess() || resource.hasOwner())
                 .filter(resource -> !WITHOUT_OBJECTS_BY_UUID.contains(resource))
                 .collect(Collectors.toSet());
 
-        assertThat(TABLE.keySet()).containsExactlyInAnyOrderElementsOf(expected);
+        // when
+        Set<Resource> tabled = TABLE.keySet();
+
+        // then
+        assertThat(tabled).containsExactlyInAnyOrderElementsOf(individuallyAuthorized);
     }
 
     @Test
-    void reportsOnlyGrantableActionsThatActOnAnExistingObject() {
-        TABLE
-                .forEach((resource, objects) -> assertThat(objects.actions().keySet())
-                        .as(resource.getCode())
-                        .isNotEmpty()
-                        .allSatisfy(action -> {
+    void reportsOnlyGrantableActions_whenTheyActOnAnExistingObject() {
+        // given
+        Set<ResourceAction> notOnAnExistingObject = Set
+                .of(ResourceAction.CREATE, ResourceAction.LIST, ResourceAction.ANY);
+
+        // when
+        Map<Resource, Set<ResourceAction>> reported = reportedActions();
+
+        // then
+        reported
+                .forEach((resource,
+                        actions) -> assertThat(actions).as(resource.getCode()).isNotEmpty().allSatisfy(action -> {
                             assertThat(action.getAccessType()).isNotEqualTo(ResourceAction.AccessType.NOT_GRANTABLE);
-                            assertThat(action).isNotIn(ResourceAction.CREATE, ResourceAction.LIST, ResourceAction.ANY);
+                            assertThat(action).isNotIn(notOnAnExistingObject);
                         }));
     }
 
     @Test
-    void reachesEveryAncestorThroughTheParentChain() {
+    void reachesAncestor_whenARequirementNamesOne() {
+        // given — the table as declared
+
+        // when
+        Map<Resource, Set<Resource>> ancestors = new EnumMap<>(Resource.class);
         TABLE
-                .forEach((resource, objects) -> objects
-                        .actions()
-                        .values()
-                        .stream()
-                        .flatMap(List::stream)
-                        .filter(OnAncestor.class::isInstance)
-                        .map(OnAncestor.class::cast)
-                        .forEach(requirement -> assertThat(chainOf(resource))
-                                .as(resource.getCode() + " reaches " + requirement.ancestor().getCode())
-                                .contains(requirement.ancestor())));
+                .forEach((resource, objects) -> ancestors
+                        .put(resource,
+                                requirementsOf(objects)
+                                        .filter(OnAncestor.class::isInstance)
+                                        .map(requirement -> ((OnAncestor) requirement).ancestor())
+                                        .collect(Collectors.toSet())));
+
+        // then
+        ancestors
+                .forEach((resource, named) -> assertThat(chainOf(resource))
+                        .as(resource.getCode() + " reaches its ancestors")
+                        .containsAll(named));
     }
 
     @Test
-    void namesAParentAttributeTheEntityHas() {
+    void namesParentAttribute_whenTheEntityHasIt() {
+        // given — the table as declared
+
+        // when
+        Set<String> inconsistent = new TreeSet<>();
         TABLE.forEach((resource, objects) -> {
-            assertThat(objects.parent() == Resource.NONE).isEqualTo(objects.parentAttribute() == null);
-            if (objects.parentAttribute() != null) {
-                assertThat(hasField(objects.entity(), objects.parentAttribute()))
-                        .as(resource.getCode() + "." + objects.parentAttribute())
-                        .isTrue();
+            if ((objects.parent() == Resource.NONE) != (objects.parentAttribute() == null)) {
+                inconsistent.add(resource.getCode() + " parent without attribute");
+            } else if (objects.parentAttribute() != null) {
+                requireField(resource, objects.entity(), objects.parentAttribute(), inconsistent);
             }
         });
+
+        // then
+        assertThat(inconsistent).isEmpty();
     }
 
     @Test
-    void namesALinkedAttributeTheEntityHas() {
+    void namesLinkedAttribute_whenTheEntityItIsReadFromHasIt() {
+        // given — the table as declared
+
+        // when
+        Set<String> missing = new TreeSet<>();
         TABLE
-                .forEach((resource, objects) -> Stream
-                        .concat(Stream.of(objects.listing()), objects.actions().values().stream().flatMap(List::stream))
-                        .map(ObjectActionRequirementsTest::linkedAttribute)
-                        .flatMap(Optional::stream)
-                        .forEach(attribute -> assertThat(hasField(objects.entity(), attribute))
-                                .as(resource.getCode() + "." + attribute)
-                                .isTrue()));
+                .forEach((resource, objects) -> requirementsOf(objects)
+                        .forEach(requirement -> collectMissingAttributes(resource, requirement, missing)));
+
+        // then
+        assertThat(missing).isEmpty();
     }
 
     @Test
-    void decidesVisibilityByListingOrDetail() {
-        TABLE.forEach((resource, objects) -> {
-            assertThat(objects.actions()).as(resource.getCode()).containsKey(ResourceAction.DETAIL);
-            assertThat(objects.listing())
+    void admitsObjectToTheList_whenListOrAListUnderItsParentIsAllowed() {
+        // given
+        Set<ResourceAction> listedBy = Set.of(ResourceAction.LIST);
+
+        // when
+        Map<Resource, Set<ResourceAction>> listingActions = new EnumMap<>(Resource.class);
+        TABLE
+                .forEach((resource, objects) -> listingActions
+                        .put(resource,
+                                objects
+                                        .listing()
+                                        .stream()
+                                        .map(ObjectActionRequirementsTest::ownAction)
+                                        .flatMap(Optional::stream)
+                                        .collect(Collectors.toSet())));
+
+        // then
+        listingActions.forEach((resource, actions) -> assertThat(actions).as(resource.getCode()).isEqualTo(listedBy));
+    }
+
+    @Test
+    void viewsObject_throughNoMoreThanItsDetailAction() {
+        // given — the table as declared
+
+        // when
+        Map<Resource, ResourceObjects> tabled = TABLE;
+
+        // then
+        tabled.forEach((resource, objects) -> {
+            assertThat(objects.viewing()).as(resource.getCode()).isNotEmpty();
+            assertThat(objects.actions().get(ResourceAction.DETAIL))
                     .as(resource.getCode())
-                    .satisfiesAnyOf(listing -> assertThat(listing).isEqualTo(new OnObject(ResourceAction.LIST)),
-                            listing -> assertThat(listing)
-                                    .isInstanceOfSatisfying(OnObjectUnder.class,
-                                            under -> assertThat(under.action()).isEqualTo(ResourceAction.LIST)));
+                    .containsAll(objects.viewing());
         });
     }
 
-    private static Optional<String> linkedAttribute(Requirement requirement) {
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Map<Resource, Set<ResourceAction>> reportedActions() {
+        Map<Resource, Set<ResourceAction>> reported = new EnumMap<>(Resource.class);
+        TABLE.forEach((resource, objects) -> reported.put(resource, objects.actions().keySet()));
+        return reported;
+    }
+
+    private static Stream<Requirement> requirementsOf(ResourceObjects objects) {
+        return Stream
+                .of(objects.listing().stream(), objects.viewing().stream(),
+                        objects.actions().values().stream().flatMap(List::stream))
+                .flatMap(requirements -> requirements);
+    }
+
+    private static Optional<ResourceAction> ownAction(Requirement requirement) {
         return switch (requirement) {
-            case OnLinked onLinked -> Optional.of(onLinked.attribute());
-            case OnObjectUnder under -> Optional.of(under.parentAttribute());
+            case OnObject onObject -> Optional.of(onObject.action());
+            case OnObjectUnder under -> Optional.of(under.action());
+            case OnResource onResource when onResource.resource() == null -> Optional.of(onResource.action());
             default -> Optional.empty();
         };
+    }
+
+    private static void collectMissingAttributes(Resource resource, Requirement requirement, Set<String> missing) {
+        Class<?> entity = TABLE.get(resource).entity();
+        switch (requirement) {
+            case OnLinked onLinked -> requireField(resource, entity, onLinked.attribute(), missing);
+            case OnObjectUnder under -> requireField(resource, entity, under.parentAttribute(), missing);
+            case OnLinkedThrough through -> {
+                requireField(resource, entity, through.attribute(), missing);
+                if (!TABLE.containsKey(through.through())) {
+                    missing.add(resource.getCode() + " through untabled " + through.through().getCode());
+                } else {
+                    collectMissingAttributes(through.through(), through.requirement(), missing);
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private static void requireField(Resource resource, Class<?> entity, String attribute, Set<String> missing) {
+        if (!hasField(entity, attribute)) {
+            missing.add(resource.getCode() + "." + attribute);
+        }
     }
 
     private static Set<Resource> chainOf(Resource resource) {

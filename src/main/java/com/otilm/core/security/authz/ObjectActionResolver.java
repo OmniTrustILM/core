@@ -7,6 +7,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnAncestor;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnLinked;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnLinkedThrough;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObjectUnder;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
@@ -87,11 +88,13 @@ public class ObjectActionResolver {
             attributes.add(objects.parentAttribute());
         }
         Stream
-                .concat(Stream.of(objects.listing()), objects.actions().values().stream().flatMap(List::stream))
+                .of(Stream.of(objects.listing(), objects.viewing()), objects.actions().values().stream())
+                .flatMap(lists -> lists.flatMap(List::stream))
                 .forEach(requirement -> {
                     switch (requirement) {
                         case OnLinked onLinked -> attributes.add(onLinked.attribute());
                         case OnObjectUnder under -> attributes.add(under.parentAttribute());
+                        case OnLinkedThrough through -> attributes.add(through.attribute());
                         default -> {
                         }
                     }
@@ -130,9 +133,7 @@ public class ObjectActionResolver {
         }
 
         boolean isVisible(Resource resource, ResourceObjects objects, UUID objectUuid) {
-            return isMet(objects.listing(), resource, objectUuid) || allMet(
-                    objects.actions().getOrDefault(ResourceAction.DETAIL, List.of(new OnObject(ResourceAction.DETAIL))),
-                    resource, objectUuid);
+            return allMet(objects.listing(), resource, objectUuid) || allMet(objects.viewing(), resource, objectUuid);
         }
 
         boolean allMet(List<Requirement> requirements, Resource resource, UUID objectUuid) {
@@ -151,6 +152,9 @@ public class ObjectActionResolver {
                 case OnLinked onLinked -> attribute(resource, onLinked.attribute(), objectUuid)
                         .map(linkedUuid -> onObject(onLinked.resource(), onLinked.action(), linkedUuid))
                         .orElse(onLinked.metWhenEmpty());
+                case OnLinkedThrough through -> attribute(resource, through.attribute(), objectUuid)
+                        .map(linkedUuid -> isMet(through.requirement(), through.through(), linkedUuid))
+                        .orElse(false);
             };
         }
 
