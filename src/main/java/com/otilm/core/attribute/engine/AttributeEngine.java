@@ -1762,17 +1762,39 @@ public class AttributeEngine {
         return mapping.values().stream().toList();
     }
 
+    /**
+     * Stores data attribute content for an object that has none yet, such as one created in the same transaction. It
+     * skips the delete {@link #updateObjectDataAttributesContent} runs first, and with no attributes it sends no SQL.
+     */
+    public List<ResponseAttribute> createObjectDataAttributesContent(ObjectAttributeContentInfo info,
+            List<RequestAttribute> requestAttributes)
+            throws ValidationException, NotFoundException, AttributeException {
+        if (requestAttributes == null || requestAttributes.isEmpty()) {
+            return List.of();
+        }
+        logger
+                .debug("Creating the content of data attributes for resource {} with UUID: {} version: {}",
+                        info.objectType().getLabel(), info.objectUuid(), info.objectVersion());
+        writeObjectDataAttributesContent(info, requestAttributes);
+        return getObjectDataAttributesContent(info);
+    }
+
     public List<ResponseAttribute> updateObjectDataAttributesContent(ObjectAttributeContentInfo info,
             List<RequestAttribute> requestAttributes)
             throws ValidationException, NotFoundException, AttributeException {
         logger
                 .debug("Updating the content of data attributes for resource {} with UUID: {} version: {}",
                         info.objectType().getLabel(), info.objectUuid(), info.objectVersion());
-        if (requestAttributes == null) {
-            requestAttributes = new ArrayList<>();
-        }
-
         deleteOperationObjectAttributesContent(AttributeType.DATA, info);
+        if (requestAttributes != null) {
+            writeObjectDataAttributesContent(info, requestAttributes);
+        }
+        return getObjectDataAttributesContent(info);
+    }
+
+    private void writeObjectDataAttributesContent(ObjectAttributeContentInfo info,
+            List<RequestAttribute> requestAttributes)
+            throws ValidationException, NotFoundException, AttributeException {
         List<ContentWrite> writes = new ArrayList<>();
         for (RequestAttribute requestAttribute : requestAttributes) {
             AttributeDefinition attributeDefinition = attributeDefinitionRepository
@@ -1784,8 +1806,6 @@ public class AttributeEngine {
         for (var write : inDefinitionOrder(writes)) {
             createObjectAttributeContent(write.definition(), info, write.content());
         }
-
-        return getObjectDataAttributesContent(info);
     }
 
     /**

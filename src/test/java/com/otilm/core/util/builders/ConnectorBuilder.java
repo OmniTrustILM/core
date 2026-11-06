@@ -37,6 +37,11 @@ public final class ConnectorBuilder {
         return this;
     }
 
+    public ConnectorBuilder withUrl(String url) {
+        this.connectorUrl = url;
+        return this;
+    }
+
     public ConnectorBuilder withInterfaceCode(ConnectorInterface code) {
         this.interfaceCode = code;
         return this;

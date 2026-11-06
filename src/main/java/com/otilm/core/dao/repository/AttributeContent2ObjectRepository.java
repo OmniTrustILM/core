@@ -314,19 +314,27 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
      * matching — a {@code null} argument deletes only rows where the corresponding column {@code IS NULL}.
      * {@code objectVersion} must be non-null; use {@link #deleteOperationObjectAttributesUnversioned} for the
      * {@code object_version IS NULL} slice.
+     * <p>
+     * The definition is matched in a subquery correlated through the plain {@code attributeContentItemUuid} column, as
+     * {@link #deleteAllOperationAttributesByVersion} and {@link #deleteOperationObjectAttributesUnversioned} do. A path
+     * through {@code aco.attributeContentItem} makes Hibernate emulate the join in a subquery that also holds the
+     * object conditions, so PostgreSQL cannot use {@code idx_aco_type_uuid_version} and scans the whole table on every
+     * call.
      */
     @Modifying
     @Query("""
             DELETE FROM AttributeContent2Object aco
-                WHERE aco.attributeContentItem.attributeDefinition.type = :type
-                    AND ((:operation IS NULL AND aco.attributeContentItem.attributeDefinition.operation IS NULL) OR aco.attributeContentItem.attributeDefinition.operation = :operation)
-                    AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                WHERE ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
                     AND ((:connectorUuid IS NULL AND aco.connectorUuid IS NULL) OR aco.connectorUuid = :connectorUuid)
                     AND aco.objectType = :objectType
                     AND aco.objectUuid = :objectUuid
                     AND aco.objectVersion = :objectVersion
                     AND ((:sourceObjectType IS NULL AND aco.sourceObjectType IS NULL) OR aco.sourceObjectType = :sourceObjectType)
                     AND ((:sourceObjectUuid IS NULL AND aco.sourceObjectUuid IS NULL) OR aco.sourceObjectUuid = :sourceObjectUuid)
+                    AND EXISTS (SELECT 1 FROM AttributeContentItem aci JOIN aci.attributeDefinition ad
+                        WHERE aci.uuid = aco.attributeContentItemUuid
+                            AND ad.type = :type
+                            AND ((:operation IS NULL AND ad.operation IS NULL) OR ad.operation = :operation))
             """)
     Long deleteOperationObjectAttributesByVersion(@Param("type") AttributeType type,
             @Param("operation") String operation, @Param("purpose") String purpose,
@@ -350,12 +358,14 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
     @Modifying
     @Query("""
             DELETE FROM AttributeContent2Object aco
-                WHERE aco.attributeContentItem.attributeDefinition.type = :type
-                    AND aco.attributeContentItem.attributeDefinition.operation = :operation
-                    AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                WHERE ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
                     AND aco.objectType = :objectType
                     AND aco.objectUuid = :objectUuid
                     AND aco.objectVersion = :objectVersion
+                    AND EXISTS (SELECT 1 FROM AttributeContentItem aci JOIN aci.attributeDefinition ad
+                        WHERE aci.uuid = aco.attributeContentItemUuid
+                            AND ad.type = :type
+                            AND ad.operation = :operation)
             """)
     Long deleteAllOperationAttributesByVersion(@Param("type") AttributeType type, @Param("operation") String operation,
             @Param("purpose") String purpose, @Param("objectType") Resource objectType,
@@ -370,15 +380,17 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
     @Modifying
     @Query("""
             DELETE FROM AttributeContent2Object aco
-                WHERE aco.attributeContentItem.attributeDefinition.type = :type
-                    AND ((:operation IS NULL AND aco.attributeContentItem.attributeDefinition.operation IS NULL) OR aco.attributeContentItem.attributeDefinition.operation = :operation)
-                    AND ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
+                WHERE ((:purpose IS NULL AND aco.purpose IS NULL) OR aco.purpose = :purpose)
                     AND ((:connectorUuid IS NULL AND aco.connectorUuid IS NULL) OR aco.connectorUuid = :connectorUuid)
                     AND aco.objectType = :objectType
                     AND aco.objectUuid = :objectUuid
                     AND aco.objectVersion IS NULL
                     AND ((:sourceObjectType IS NULL AND aco.sourceObjectType IS NULL) OR aco.sourceObjectType = :sourceObjectType)
                     AND ((:sourceObjectUuid IS NULL AND aco.sourceObjectUuid IS NULL) OR aco.sourceObjectUuid = :sourceObjectUuid)
+                    AND EXISTS (SELECT 1 FROM AttributeContentItem aci JOIN aci.attributeDefinition ad
+                        WHERE aci.uuid = aco.attributeContentItemUuid
+                            AND ad.type = :type
+                            AND ((:operation IS NULL AND ad.operation IS NULL) OR ad.operation = :operation))
             """)
     Long deleteOperationObjectAttributesUnversioned(@Param("type") AttributeType type,
             @Param("operation") String operation, @Param("purpose") String purpose,
