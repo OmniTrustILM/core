@@ -10,6 +10,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -55,6 +56,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * Integration tests for cancel flows on v3 authorities.
@@ -340,15 +342,16 @@ class V3CancelITest extends BaseSpringBootTest {
     private Certificate seedCertificate(AuthorityFixtures.Fixture fixture, CertificateState state) {
         CertificateContent content = certificateContentRepository.save(new CertificateContent());
 
-        Certificate cert = new Certificate();
-        cert.setSubjectDn("CN=cancel-test-" + UUID.randomUUID());
-        cert.setIssuerDn("CN=test-issuer");
-        cert.setSerialNumber(UUID.randomUUID().toString());
-        cert.setCertificateContent(content);
-        cert.setCertificateContentId(content.getId());
-        cert.setState(state);
-        cert.setValidationStatus(CertificateValidationStatus.VALID);
-        cert.setRaProfile(fixture.raProfile());
+        X509CertificateEntity cert = aCertificate()
+                .withSubjectDn("CN=cancel-test-" + UUID.randomUUID())
+                .withIssuerDn("CN=test-issuer")
+                .withSerialNumber(UUID.randomUUID().toString())
+                .withCertificateContent(content)
+                .withCertificateContentId(content.getId())
+                .withState(state)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withRaProfile(fixture.raProfile())
+                .build();
         return certificateRepository.save(cert);
     }
 

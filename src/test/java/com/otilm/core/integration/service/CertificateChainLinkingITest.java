@@ -4,6 +4,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
@@ -18,6 +19,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * The certificate-chain read links a leaf to its issuer the first time it finds the issuer in inventory. A request that
@@ -67,7 +70,7 @@ class CertificateChainLinkingITest extends BaseSpringBootTest {
         content.setContent(Base64.getEncoder().encodeToString(x509.getEncoded()));
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(certificate, x509);
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());

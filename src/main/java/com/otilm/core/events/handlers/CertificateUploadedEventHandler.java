@@ -20,6 +20,7 @@ import com.otilm.api.model.core.workflows.ExecutionType;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.workflows.EventHistory;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.workflows.TriggerHistoryRepository;
@@ -113,7 +114,8 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
 
     @Override
     protected EventContext<Certificate> prepareContext(EventMessage eventMessage) throws EventException {
-        EventContext<Certificate> context = new EventContext<>(eventMessage, triggerEvaluator, new Certificate(), null);
+        EventContext<Certificate> context = new EventContext<>(eventMessage, triggerEvaluator,
+                new X509CertificateEntity(), null);
         fetchEventTriggers(context, null, null); // triggers without resource and its UUID are platform ones
         return context;
     }
@@ -151,7 +153,7 @@ public class CertificateUploadedEventHandler extends EventHandler<Certificate> {
             saveEventHistory(eventHistory, EventStatus.FAILED);
             return;
         }
-        Certificate certificate = context.getResourceObjects().getFirst();
+        X509CertificateEntity certificate = X509CertificateEntity.from(context.getResourceObjects().getFirst());
         CertificateUtil.prepareIssuedCertificate(certificate, x509Certificate);
         certificate.setFingerprint(fingerprint);
         CertificateEventData eventData = (CertificateEventData) getEventData(certificate, eventMessageData);

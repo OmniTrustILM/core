@@ -1,11 +1,11 @@
 package com.otilm.core.integration.repository;
 
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.sql.SQLException;
 import java.util.Set;
@@ -21,6 +21,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -28,9 +29,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /** Proves each pessimistic lock query on an entity with an inverse {@code @OneToOne} really takes the row lock. */
 public class PessimisticLockITest extends BaseSpringBootTest {
 
-    /** The lock queries the cases below exercise; LockedInverseOneToOneGuardTest keeps it complete. */
+    /**
+     * The lock queries the cases below exercise; LockedInverseOneToOneGuardTest keeps it complete. The query declared
+     * on the shared certificate repository is exercised through each repository that inherits it.
+     */
     public static final Set<String> LOCK_QUERIES = Set
             .of("CertificateRepository#findAndLockWithAssociationsByUuid",
+                    "CertificateBaseRepository#findAndLockWithAssociationsByUuid",
+                    "X509CertificateRepository#findAndLockWithAssociationsByUuid",
                     "CryptographicKeyRepository#findForUpdateByUuid", "RaProfileRepository#findWithLockByUuid");
 
     /** PostgreSQL's SQLSTATE for a NOWAIT lock request on a row another transaction holds. */
@@ -38,6 +44,9 @@ public class PessimisticLockITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateRepository certificateRepository;
+
+    @Autowired
+    private X509CertificateRepository x509CertificateRepository;
 
     @Autowired
     private CryptographicKeyRepository cryptographicKeyRepository;
@@ -52,10 +61,27 @@ public class PessimisticLockITest extends BaseSpringBootTest {
     private DataSource dataSource;
 
     @Test
-    void certificateLockQueryTakesTheRowLock() {
-        UUID uuid = certificateRepository.save(new Certificate()).getUuid();
-        assertRowLockedWhile("certificate", uuid,
-                () -> certificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow());
+    void locksTheCertificateRow_whenFindingItForUpdate() {
+        // given
+        UUID uuid = certificateRepository.save(aCertificate().build()).getUuid();
+
+        // when
+        Runnable findForUpdate = () -> certificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow();
+
+        // then
+        assertRowLockedWhile("certificate", uuid, findForUpdate);
+    }
+
+    @Test
+    void locksTheCertificateRow_whenFindingItForUpdateThroughTheX509Repository() {
+        // given
+        UUID uuid = x509CertificateRepository.save(aCertificate().build()).getUuid();
+
+        // when
+        Runnable findForUpdate = () -> x509CertificateRepository.findAndLockWithAssociationsByUuid(uuid).orElseThrow();
+
+        // then
+        assertRowLockedWhile("certificate", uuid, findForUpdate);
     }
 
     @Test

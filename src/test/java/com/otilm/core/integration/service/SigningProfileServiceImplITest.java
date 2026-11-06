@@ -80,6 +80,7 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
@@ -313,9 +314,10 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
      * stale NOT_CHECKED validation status back.
      */
     private void widenDefaultSigningCertificate(CertificateKeyUsage keyUsage, String extendedKeyUsageOid) {
-        Certificate stored = certificateRepository
-                .findByUuid(SecuredUUID.fromUUID(defaultSigningCertificate.getUuid()))
-                .orElseThrow();
+        X509CertificateEntity stored = X509CertificateEntity
+                .from(certificateRepository
+                        .findByUuid(SecuredUUID.fromUUID(defaultSigningCertificate.getUuid()))
+                        .orElseThrow());
         stored.setUsage(List.of(keyUsage));
         stored.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(extendedKeyUsageOid)));
         certificateRepository.save(stored);

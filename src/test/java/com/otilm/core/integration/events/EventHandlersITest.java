@@ -29,7 +29,6 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -68,6 +67,7 @@ import com.otilm.core.dao.entity.GroupAssociation;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.ScheduledJob;
 import com.otilm.core.dao.entity.ScheduledJobHistory;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.notifications.NotificationInstanceReference;
 import com.otilm.core.dao.entity.notifications.PendingNotification;
 import com.otilm.core.dao.entity.workflows.EventHistory;
@@ -155,6 +155,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.argThat;
@@ -280,14 +281,14 @@ class EventHandlersITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        final Certificate certificate = new Certificate();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCercertificatetificate");
-        certificate.setSerialNumber("123456789");
-        certificate.setRaProfileUuid(raProfile.getUuid());
-        certificate.setNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)));
-        certificate.setNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)));
-        certificate.setCertificateType(CertificateType.X509);
+        final X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCercertificatetificate")
+                .withSerialNumber("123456789")
+                .withRaProfileUuid(raProfile.getUuid())
+                .withNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)))
+                .withNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)))
+                .build();
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.INACTIVE);
         certificate.setCertificateContent(certificateContent);
@@ -1257,14 +1258,12 @@ class EventHandlersITest extends BaseSpringBootTest {
     }
 
     private void occupyContentIdWithAnotherCertificate(CertificateContent content) {
-        Certificate squatter = new Certificate();
-        squatter.setUuid(UUID.randomUUID());
+        X509CertificateEntity squatter = aCertificate().withUuid(UUID.randomUUID()).build();
         squatter.setFingerprint("squatter-" + UUID.randomUUID());
         squatter.setCertificateContentId(content.getId());
         squatter.setState(CertificateState.ISSUED);
         squatter.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
         squatter.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
-        squatter.setCertificateType(CertificateType.X509);
         certificateRepository.save(squatter);
     }
 
@@ -1540,7 +1539,8 @@ class EventHandlersITest extends BaseSpringBootTest {
                 .assertDoesNotThrow(() -> certificateUploadedEventHandler
                         .handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
 
-        Certificate uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        X509CertificateEntity uploadedCertificate = X509CertificateEntity
+                .from(certificateRepository.findByFingerprint(fingerprint).orElseThrow());
         Assertions.assertEquals(certificate.getSubjectX500Principal().getName(), uploadedCertificate.getSubjectDn());
         Assertions.assertNotNull(uploadedCertificate.getCertificateContent());
         Assertions.assertNotNull(uploadedCertificate.getKey());
@@ -1553,7 +1553,8 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions
                 .assertDoesNotThrow(() -> certificateUploadedEventHandler
                         .handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
-        uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        uploadedCertificate = X509CertificateEntity
+                .from(certificateRepository.findByFingerprint(fingerprint).orElseThrow());
         CertificateDetailDto certificateDetailDto = certificateService
                 .getCertificate(uploadedCertificate.getSecuredUuid());
         Assertions.assertFalse(certificateDetailDto.getCustomAttributes().isEmpty());
@@ -1575,7 +1576,8 @@ class EventHandlersITest extends BaseSpringBootTest {
         Assertions
                 .assertDoesNotThrow(() -> certificateUploadedEventHandler
                         .handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData2)));
-        uploadedCertificate = certificateRepository.findByFingerprint(fingerprint).orElseThrow();
+        uploadedCertificate = X509CertificateEntity
+                .from(certificateRepository.findByFingerprint(fingerprint).orElseThrow());
         certificateDetailDto = certificateService.getCertificate(uploadedCertificate.getSecuredUuid());
         Assertions.assertFalse(certificateDetailDto.getCustomAttributes().isEmpty());
         Optional<ResponseAttribute> customAttributeDtoOptional = certificateDetailDto
@@ -1611,13 +1613,13 @@ class EventHandlersITest extends BaseSpringBootTest {
         certificateContent.setContent("123456");
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        final Certificate certificate = new Certificate();
-        certificate.setSubjectDn("testCertificate");
-        certificate.setIssuerDn("testCertificateIssuer");
-        certificate.setSerialNumber("123456789");
-        certificate.setNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)));
-        certificate.setNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)));
-        certificate.setCertificateType(CertificateType.X509);
+        final X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn("testCertificate")
+                .withIssuerDn("testCertificateIssuer")
+                .withSerialNumber("123456789")
+                .withNotBefore(Date.from(Instant.now().minus(100, ChronoUnit.DAYS)))
+                .withNotAfter(Date.from(Instant.now().plus(100, ChronoUnit.DAYS)))
+                .build();
         certificate.setState(CertificateState.ISSUED);
         certificate.setValidationStatus(CertificateValidationStatus.INACTIVE);
         certificate.setCertificateContent(certificateContent);

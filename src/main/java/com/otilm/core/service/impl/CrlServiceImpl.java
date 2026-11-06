@@ -5,9 +5,9 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Crl;
 import com.otilm.core.dao.entity.CrlEntry;
 import com.otilm.core.dao.entity.CrlEntryId;
-import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CrlEntryRepository;
 import com.otilm.core.dao.repository.CrlRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.service.CrlService;
 import com.otilm.core.service.writer.CrlEntryData;
 import com.otilm.core.service.writer.CrlWriter;
@@ -53,7 +53,7 @@ public class CrlServiceImpl implements CrlService {
 
     private static final Duration CLOCK_SKEW = Duration.ofMinutes(5);
 
-    private CertificateRepository certificateRepository;
+    private X509CertificateRepository x509CertificateRepository;
 
     private CrlRepository crlRepository;
 
@@ -64,8 +64,8 @@ public class CrlServiceImpl implements CrlService {
     private EntityManager entityManager;
 
     @Autowired
-    public void setCertificateRepository(CertificateRepository certificateRepository) {
-        this.certificateRepository = certificateRepository;
+    public void setX509CertificateRepository(X509CertificateRepository x509CertificateRepository) {
+        this.x509CertificateRepository = x509CertificateRepository;
     }
 
     @Autowired
@@ -95,7 +95,7 @@ public class CrlServiceImpl implements CrlService {
         String issuerDn = X500Name.getInstance(new PlatformX500NameStyle(true), issuerDnPrincipalEncoded).toString();
         String issuerSerialNumber = issuerCertificate.getSerialNumber().toString(16);
         Crl crl = findStoredCrl(issuerDn, issuerSerialNumber);
-        Certificate caCertificate = certificateRepository
+        Certificate caCertificate = x509CertificateRepository
                 .findBySubjectDnNormalizedAndSerialNumber(issuerDn, issuerSerialNumber)
                 .orElse(null);
         byte[] crlDistributionPoints = certificate.getExtensionValue(Extension.cRLDistributionPoints.getId());
