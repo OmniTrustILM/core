@@ -57,16 +57,16 @@ public class CryptographicOperationServiceSigner implements Signer {
     }
 
     @Override
-    public List<byte[]> signAll(List<byte[]> dtbsList, SignatureInputMode inputMode) throws SigningEngineException {
+    public List<byte[]> signAll(List<byte[]> items, SignatureInputMode inputMode) throws SigningEngineException {
         boolean prehashed = inputMode == SignatureInputMode.PREHASHED_DIGEST;
-        List<SignatureRequestData> items = buildItems(dtbsList);
+        List<SignatureRequestData> requestItems = buildRequestItems(items);
         if (prehashed) {
-            checkDigests(dtbsList);
+            checkDigests(items);
         }
 
         SignDataRequestDto request = new SignDataRequestDto();
         request.setSignatureAttributes(signatureAttributes);
-        request.setData(items);
+        request.setData(requestItems);
 
         try {
             SignDataResponseDto response = prehashed
@@ -80,9 +80,9 @@ public class CryptographicOperationServiceSigner implements Signer {
             if (response == null || response.getSignatures() == null || response.getSignatures().isEmpty()) {
                 throw signerFault("Signing operation returned no signatures");
             }
-            List<byte[]> signatures = matchByIdentifier(response.getSignatures(), items.size());
+            List<byte[]> signatures = matchByIdentifier(response.getSignatures(), requestItems.size());
             if (prehashed) {
-                verifyAgainstDigests(dtbsList, signatures);
+                verifyAgainstDigests(items, signatures);
             }
             return signatures;
 
@@ -101,22 +101,22 @@ public class CryptographicOperationServiceSigner implements Signer {
         }
     }
 
-    private static List<SignatureRequestData> buildItems(List<byte[]> dtbsList) {
-        if (dtbsList == null || dtbsList.isEmpty()) {
-            throw new IllegalArgumentException("dtbsList must not be null or empty");
+    private static List<SignatureRequestData> buildRequestItems(List<byte[]> items) {
+        if (items == null || items.isEmpty()) {
+            throw new IllegalArgumentException("items must not be null or empty");
         }
-        List<SignatureRequestData> items = new ArrayList<>(dtbsList.size());
-        for (int i = 0; i < dtbsList.size(); i++) {
-            byte[] dtbs = dtbsList.get(i);
-            if (dtbs == null || dtbs.length == 0) {
-                throw new IllegalArgumentException("dtbs must not be null or empty");
+        List<SignatureRequestData> requestItems = new ArrayList<>(items.size());
+        for (int i = 0; i < items.size(); i++) {
+            byte[] item = items.get(i);
+            if (item == null || item.length == 0) {
+                throw new IllegalArgumentException("item must not be null or empty");
             }
             SignatureRequestData requestData = new SignatureRequestData();
             requestData.setIdentifier(Integer.toString(i));
-            requestData.setData(Base64.getEncoder().encodeToString(dtbs));
-            items.add(requestData);
+            requestData.setData(Base64.getEncoder().encodeToString(item));
+            requestItems.add(requestData);
         }
-        return items;
+        return requestItems;
     }
 
     // A wrong input is the caller's to fix, so it is refused here rather than left to the provider as a fault.

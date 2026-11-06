@@ -345,6 +345,8 @@ public class CryptographicOperationServiceImpl
         return executeSignData(adapter, keyItem, request, mode);
     }
 
+    // The flag is read from the token instance on every call: the cached key item is not refreshed when a
+    // connector's capabilities change.
     private void requirePrehashedSigning(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
         if (!keyItem.hasConnectorInterface()) {
             throw new ValidationException("Key item " + keyItem.keyItemUuid()

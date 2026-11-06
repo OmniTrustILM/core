@@ -8,8 +8,7 @@ import java.util.Set;
 /**
  * The signature algorithms that may sign a client-supplied digest: RSA PKCS#1 v1.5, RSA-PSS and ECDSA over SHA-2. Each
  * fixes the digest it signs and can be checked against the signing key's public key, which a prehashed signature needs
- * because no provider can be trusted to have honored the mode. Both the prehashed signing path and a raw profile's save
- * check against this one set.
+ * because no provider can be trusted to have honored the mode.
  */
 public final class PrehashedSigning {
 
