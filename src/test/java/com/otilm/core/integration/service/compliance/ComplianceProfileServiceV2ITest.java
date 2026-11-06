@@ -26,7 +26,6 @@ import com.otilm.api.model.core.other.ResourceObjectDto;
 import com.otilm.api.model.core.search.FilterConditionOperator;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.workflows.ConditionItemRequestDto;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.ComplianceInternalRule;
@@ -35,6 +34,7 @@ import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -60,6 +60,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
@@ -901,18 +902,20 @@ class ComplianceProfileServiceV2ITest extends BaseComplianceTest {
 
     @Test
     void testDisassociateProfile() throws NotFoundException {
-        Certificate archivedCertificate = new Certificate();
-        archivedCertificate.setArchived(true);
-        archivedCertificate.setRaProfileUuid(associatedRaProfileUuid);
-        archivedCertificate.setComplianceStatus(ComplianceStatus.OK);
+        X509CertificateEntity archivedCertificate = aCertificate()
+                .withArchived(true)
+                .withRaProfileUuid(associatedRaProfileUuid)
+                .withComplianceStatus(ComplianceStatus.OK)
+                .build();
         CertificateContent certificateContent = new CertificateContent();
         certificateContent.setContent("c");
         certificateContentRepository.save(certificateContent);
         archivedCertificate.setCertificateContent(certificateContent);
         certificateRepository.save(archivedCertificate);
-        Certificate notArchivedCertificate = new Certificate();
-        notArchivedCertificate.setRaProfileUuid(associatedRaProfileUuid);
-        notArchivedCertificate.setComplianceStatus(ComplianceStatus.OK);
+        X509CertificateEntity notArchivedCertificate = aCertificate()
+                .withRaProfileUuid(associatedRaProfileUuid)
+                .withComplianceStatus(ComplianceStatus.OK)
+                .build();
         CertificateContent certificateContent2 = new CertificateContent();
         certificateContent2.setContent("c2");
         certificateContentRepository.save(certificateContent2);

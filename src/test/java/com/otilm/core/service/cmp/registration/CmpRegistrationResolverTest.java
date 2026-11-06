@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -112,11 +113,11 @@ class CmpRegistrationResolverTest {
     }
 
     private Certificate registeredCertificate() {
-        Certificate certificate = new Certificate();
-        certificate.setUuid(CERT_UUID);
-        certificate.setState(CertificateState.REGISTERED);
-        certificate.setRaProfileUuid(RA_PROFILE_UUID);
-        return certificate;
+        return aCertificate()
+                .withUuid(CERT_UUID)
+                .withState(CertificateState.REGISTERED)
+                .withRaProfileUuid(RA_PROFILE_UUID)
+                .build();
     }
 
     private Answer<Boolean> gateRunsPredicateWith(String plaintext) {

@@ -14,6 +14,7 @@ import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CrlEntry;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CrlService;
@@ -92,8 +93,9 @@ public class X509CertificateValidator implements ICertificateValidator {
 
             boolean isEndCertificate = i == 0;
             validationOutput = validatePathCertificate(x509Certificate, x509IssuerCertificate,
-                    certificateChain.get(i).getTrustedCa(), previousCertStatus, isCompleteChain, isEndCertificate,
-                    certificateChain.get(i).getSubjectType(), certificate.getRaProfile());
+                    X509CertificateEntity.from(certificateChain.get(i)).getTrustedCa(), previousCertStatus,
+                    isCompleteChain, isEndCertificate, certificateChain.get(i).getSubjectType(),
+                    certificate.getRaProfile());
             CertificateValidationStatus resultStatus = calculateResultStatus(validationOutput);
             finalizeValidation(certificateChain.get(i), resultStatus, validationOutput);
 

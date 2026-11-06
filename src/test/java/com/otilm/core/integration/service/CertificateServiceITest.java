@@ -88,6 +88,8 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
@@ -310,7 +312,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
     @Autowired
     private AttributeContent2ObjectRepository attributeContent2ObjectRepository;
 
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
 
     private RaProfile raProfile;
 
@@ -375,17 +377,18 @@ class CertificateServiceITest extends BaseSpringBootTest {
         raProfileOld.setAuthorityInstanceReference(authorityInstance);
         raProfileOld = raProfileRepository.save(raProfileOld);
 
-        certificate = aCertificate()
-                .withSubjectDn("testCertificate")
-                .withIssuerDn("testCertificateCertificate")
-                .withSerialNumber("123456789")
-                .withState(CertificateState.ISSUED)
-                .withValidationStatus(CertificateValidationStatus.VALID)
-                .withCertificateContent(certificateContent)
-                .withCertificateContentId(certificateContent.getId())
-                .withIssuerCertificateUuid(UUID.randomUUID())
-                .withRaProfile(raProfileOld)
-                .build();
+        certificate = X509CertificateEntity
+                .from(aCertificate()
+                        .withSubjectDn("testCertificate")
+                        .withIssuerDn("testCertificateCertificate")
+                        .withSerialNumber("123456789")
+                        .withState(CertificateState.ISSUED)
+                        .withValidationStatus(CertificateValidationStatus.VALID)
+                        .withCertificateContent(certificateContent)
+                        .withCertificateContentId(certificateContent.getId())
+                        .withIssuerCertificateUuid(UUID.randomUUID())
+                        .withRaProfile(raProfileOld)
+                        .build());
         certificate = certificateRepository.save(certificate);
 
         // Ensure OwnerAssociation is created and associated
@@ -483,7 +486,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertGroupDtoMatches(actualGroup, expectedGroup);
         }
 
-        private void assertCertificateDtoMatches(CertificateDto actualDto, Certificate expectedCertificate) {
+        private void assertCertificateDtoMatches(CertificateDto actualDto, X509CertificateEntity expectedCertificate) {
             assertThat(actualDto.getUuid()).isEqualTo(expectedCertificate.getUuid().toString());
             assertThat(actualDto.getCommonName())
                     .isEqualTo(CertificateUtil.formatCommonName(expectedCertificate.getCommonName()));
@@ -806,7 +809,6 @@ class CertificateServiceITest extends BaseSpringBootTest {
                 throws NotFoundException, CertificateException, IOException, AttributeException {
             // given
             CertificateRequestEntity csrEntity = aCertificateRequest().withContent(SAMPLE_PKCS10).build();
-            csrEntity.setCertificateType(CertificateType.X509);
             certificateRequestRepository.save(csrEntity);
             certificate.setCertificateRequest(csrEntity);
             certificate.setCertificateRequestUuid(csrEntity.getUuid());
@@ -902,7 +904,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void createsCertificateEntity_fromX509() {
             // when
-            Certificate cert = certificateService.createCertificateEntity(x509Cert);
+            X509CertificateEntity cert = X509CertificateEntity
+                    .from(certificateService.createCertificateEntity(x509Cert));
 
             // then
             assertThat(cert).isNotNull();
@@ -915,10 +918,11 @@ class CertificateServiceITest extends BaseSpringBootTest {
                 throws InvalidAlgorithmParameterException, CertificateException, NoSuchAlgorithmException,
                 SignatureException, InvalidKeyException, OperatorCreationException, IOException, AlreadyExistException {
             // when
-            Certificate hybridCertificate = certificateService
-                    .checkCreateCertificate(Base64
-                            .getEncoder()
-                            .encodeToString(CertificateTestUtil.createHybridCertificate().getEncoded()));
+            X509CertificateEntity hybridCertificate = X509CertificateEntity
+                    .from(certificateService
+                            .checkCreateCertificate(Base64
+                                    .getEncoder()
+                                    .encodeToString(CertificateTestUtil.createHybridCertificate().getEncoded())));
 
             // then
             assertThat(hybridCertificate.isHybridCertificate()).isTrue();
@@ -934,8 +938,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
         void createsCertificate_fromBase64Content()
                 throws CertificateException, AlreadyExistException, NoSuchAlgorithmException {
             // when
-            Certificate cert = certificateService
-                    .checkCreateCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded()));
+            X509CertificateEntity cert = X509CertificateEntity
+                    .from(certificateService
+                            .checkCreateCertificate(Base64.getEncoder().encodeToString(x509Cert.getEncoded())));
 
             // then
             assertThat(cert).isNotNull();
@@ -1086,11 +1091,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
             // Two batches of certificates to delete, based on spring.jpa.properties.hibernate.jdbc.batch_size
             IntStream.range(0, 99).forEach(i -> {
-                Certificate cert = aCertificate()
-                        .withCommonName("test" + i)
-                        .withSerialNumber(UUID.randomUUID().toString())
-                        .withFingerprint(UUID.randomUUID().toString())
-                        .build();
+                X509CertificateEntity cert = X509CertificateEntity
+                        .from(aCertificate()
+                                .withCommonName("test" + i)
+                                .withSerialNumber(UUID.randomUUID().toString())
+                                .withFingerprint(UUID.randomUUID().toString())
+                                .build());
                 certificateRepository.save(cert);
                 uuids.add(cert.getUuid().toString());
             });
@@ -1236,7 +1242,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         void deletesItsRequest_whenDeletingTheCertificate() throws Exception {
             // given
             CertificateRequestEntity request = newCertificateRequest("CN=deletedRequest");
-            Certificate issued = newCertificateOf(request);
+            X509CertificateEntity issued = X509CertificateEntity.from(newCertificateOf(request));
             mapAttributeValueTo(request, issued);
             ComplianceProfileFixtures
                     .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
@@ -1281,7 +1287,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         void deletesItsRequest_whenBulkDeletingTheCertificate() {
             // given
             CertificateRequestEntity request = newCertificateRequest("CN=bulkDeletedRequest");
-            Certificate issued = newCertificateOf(request);
+            X509CertificateEntity issued = X509CertificateEntity.from(newCertificateOf(request));
             ComplianceProfileFixtures
                     .associateNewComplianceProfile(complianceProfileRepository, complianceProfileAssociationRepository,
                             Resource.CERTIFICATE_REQUEST, request.getUuid());
@@ -1400,7 +1406,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
             // when
             certificateService.clearKeyAssociations(key.getUuid());
-            certificate = certificateRepository.findByUuid(certificate.getUuid()).get();
+            certificate = X509CertificateEntity.from(certificateRepository.findByUuid(certificate.getUuid()).get());
             altCertificate = certificateRepository.findByUuid(altCertificate.getUuid()).get();
 
             // then
@@ -1752,7 +1758,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateService.updateCertificateObjects(uuid, request);
 
             // then
-            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getTrustedCa()).isTrue();
+            assertThat(X509CertificateEntity
+                    .from(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow())
+                    .getTrustedCa()).isTrue();
         }
 
         @Test
@@ -1858,7 +1866,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
             // when
             certificateService.updateCertificateDNs(oid, newCode, oldCode);
-            certificate = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            certificate = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow());
 
             // then
             assertThat(certificate.getSubjectDn()).isEqualTo("%s=org, %sA=cn".formatted(newCode, oldCode));
@@ -1868,14 +1877,16 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificate.setSubjectDn("CN=cn, %s=org".formatted(oldCode));
             certificateRepository.save(certificate);
             certificateService.updateCertificateDNs(oid, newCode, oldCode);
-            certificate = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            certificate = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow());
             assertThat(certificate.getIssuerDn()).isEqualTo("%s=org, CN=cn".formatted(newCode));
             assertThat(certificate.getSubjectDn()).isEqualTo("CN=cn, %s=org".formatted(newCode));
 
             certificate.setIssuerDnNormalized("1.2.3.4=a, 1a2x3=f");
             certificateRepository.save(certificate);
             certificateService.updateCertificateDNs(oid, "new", newCode);
-            certificate = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            certificate = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow());
             assertThat(certificate.getIssuerDn()).isEqualTo("%s=org, CN=cn".formatted(newCode));
 
         }
@@ -1894,10 +1905,47 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateService.updateCertificateKeys(key.getUuid(), null);
 
             // then
-            Certificate stored = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+            X509CertificateEntity stored = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow());
             assertThat(stored.getPublicKeyFingerprint()).isNull();
             assertThat(stored.getKeyUuid()).isNull();
             assertThat(stored.getAltKeyUuid()).isNull();
+        }
+
+        @Test
+        void linksTheKey_whenTheCertificateHasThePublicKeyFingerprint() {
+            // given
+            String keyFingerprint = "linked-public-key-fingerprint";
+            CryptographicKey key = cryptographicKeyRepository.save(aCryptographicKey().build());
+            X509CertificateEntity linked = certificateRepository
+                    .save(aCertificate().withPublicKeyFingerprint(keyFingerprint).build());
+
+            // when
+            certificateService.updateCertificateKeys(key.getUuid(), keyFingerprint);
+
+            // then
+            X509CertificateEntity stored = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(linked.getUuid()).orElseThrow());
+            assertThat(stored.getKeyUuid()).isEqualTo(key.getUuid());
+            assertThat(stored.getAltKeyUuid()).isNull();
+        }
+
+        @Test
+        void linksTheAlternativeKey_whenTheCertificateHasTheAlternativeKeyFingerprint() {
+            // given
+            String keyFingerprint = "linked-alternative-key-fingerprint";
+            CryptographicKey key = cryptographicKeyRepository.save(aCryptographicKey().build());
+            X509CertificateEntity linked = certificateRepository
+                    .save(aCertificate().withAltKeyFingerprint(keyFingerprint).build());
+
+            // when
+            certificateService.updateCertificateKeys(key.getUuid(), keyFingerprint);
+
+            // then
+            X509CertificateEntity stored = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(linked.getUuid()).orElseThrow());
+            assertThat(stored.getAltKeyUuid()).isEqualTo(key.getUuid());
+            assertThat(stored.getKeyUuid()).isNull();
         }
     }
 
@@ -2410,7 +2458,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // given — re-issue after the chain can no longer be rebuilt (no content, null issuer serial)
             Certificate notIssued = setUpRequestedIssueChain();
             certificateService.issueRequestedCertificate(notIssued.getUuid(), EE_BASE64_CONTENT, null);
-            Certificate issued = certificateRepository.findByUuid(notIssued.getUuid()).orElseThrow();
+            X509CertificateEntity issued = X509CertificateEntity
+                    .from(certificateRepository.findByUuid(notIssued.getUuid()).orElseThrow());
             issued.setState(CertificateState.PENDING_ISSUE);
             issued.setFingerprint(null);
             issued.setCertificateContent(null);
@@ -2456,7 +2505,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
         /** Builds an issuer + a not-yet-issued certificate with a PENDING relation, ready to be issued. */
         private Certificate setUpRequestedIssueChain() throws Exception {
-            Certificate commonIssuer = new Certificate();
+            X509CertificateEntity commonIssuer = aCertificate().build();
             CertificateUtil
                     .prepareIssuedCertificate(commonIssuer, CertificateUtil.getX509Certificate(CA_BASE64_CONTENT));
             commonIssuer
@@ -2517,7 +2566,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // then — content and fingerprint are derived from the normalized DER
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
+            X509CertificateRequestEntity stored = (X509CertificateRequestEntity) certificateRequestRepository
+                    .findByUuid(requestUuid)
+                    .orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
             assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
@@ -2541,7 +2592,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // have been stored for the equivalent plain base64(DER) input
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
+            X509CertificateRequestEntity stored = (X509CertificateRequestEntity) certificateRequestRepository
+                    .findByUuid(requestUuid)
+                    .orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
             assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
@@ -2565,7 +2618,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // then — the double encoding must not leak into the stored content/fingerprint
             byte[] expectedDer = Base64.getDecoder().decode(SAMPLE_PKCS10);
             String expectedFingerprint = CertificateUtil.getThumbprint(expectedDer);
-            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
+            X509CertificateRequestEntity stored = (X509CertificateRequestEntity) certificateRequestRepository
+                    .findByUuid(requestUuid)
+                    .orElseThrow();
             assertThat(stored.getContent()).isEqualTo(Base64.getEncoder().encodeToString(expectedDer));
             assertThat(stored.getFingerprint()).isEqualTo(expectedFingerprint);
         }
@@ -2588,7 +2643,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
             UUID requestUuid = certificateService.addCertificateRequestToExisting(registered.getUuid(), issueRequest);
 
             // then — identity and format come from the CSR, not the placeholder
-            CertificateRequestEntity stored = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
+            X509CertificateRequestEntity stored = (X509CertificateRequestEntity) certificateRequestRepository
+                    .findByUuid(requestUuid)
+                    .orElseThrow();
             assertThat(stored.getCommonName()).isEqualTo("new_cert");
             assertThat(stored.getSubjectDn()).isEqualTo("CN=new_cert");
             assertThat(stored.getCertificateRequestFormat()).isEqualTo(CertificateRequestFormat.PKCS10);
@@ -2604,7 +2661,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void issueRequestedCertificate_pendingIssue_transitionsToIssuedViaStateMachine() throws Exception {
             // given — a PENDING_ISSUE cert with an RA profile
-            Certificate cert = certificateRepository
+            X509CertificateEntity cert = certificateRepository
                     .save(aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build());
 
             // generate a unique cert so its fingerprint is not already in DB
@@ -2632,7 +2689,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void issueRequestedCertificate_illegalFromState_throwsInvalidTransition() throws Exception {
             // given — a cert in REVOKED state (not a valid predecessor for ISSUED)
-            Certificate cert = certificateRepository
+            X509CertificateEntity cert = certificateRepository
                     .save(aCertificate().withRaProfile(raProfile).withState(CertificateState.REVOKED).build());
 
             // generate a unique cert data (fingerprint collision check runs before SM)
@@ -2657,11 +2714,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void revokeCertificateBySerial_issued_transitionsToRevokedAndAudits() {
             // given — seed an ISSUED cert with a unique serial number
-            Certificate cert = aCertificate()
-                    .withSerialNumber("smc3-issued-" + UUID.randomUUID())
-                    .withState(CertificateState.ISSUED)
-                    .withValidationStatus(CertificateValidationStatus.VALID)
-                    .build();
+            X509CertificateEntity cert = X509CertificateEntity
+                    .from(aCertificate()
+                            .withSerialNumber("smc3-issued-" + UUID.randomUUID())
+                            .withState(CertificateState.ISSUED)
+                            .withValidationStatus(CertificateValidationStatus.VALID)
+                            .build());
             cert = certificateRepository.save(cert);
             final String serial = cert.getSerialNumber();
             final UUID certUuid = cert.getUuid();
@@ -2683,11 +2741,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void revokeCertificateBySerial_illegalFromState_isNoOp() {
             // given — seed a cert in a non-revocable state (REQUESTED has no ->REVOKED arc)
-            Certificate cert = aCertificate()
-                    .withSerialNumber("smc3-requested-" + UUID.randomUUID())
-                    .withState(CertificateState.REQUESTED)
-                    .withValidationStatus(CertificateValidationStatus.NOT_CHECKED)
-                    .build();
+            X509CertificateEntity cert = X509CertificateEntity
+                    .from(aCertificate()
+                            .withSerialNumber("smc3-requested-" + UUID.randomUUID())
+                            .withState(CertificateState.REQUESTED)
+                            .withValidationStatus(CertificateValidationStatus.NOT_CHECKED)
+                            .build());
             cert = certificateRepository.save(cert);
             final String serial = cert.getSerialNumber();
             final UUID certUuid = cert.getUuid();
@@ -3134,7 +3193,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
     private void prepareDigitalSigningCertificate(String testCaseName, CryptographicKey key,
             CertificateState certificateState, CertificateValidationStatus validationStatus, boolean archived,
             List<String> extendedKeyUsages, boolean extendedKeyUsageCritical, Boolean qcCompliance) {
-        Certificate cert = createCertificateEntity(testCaseName, key, certificateState, validationStatus, archived);
+        X509CertificateEntity cert = X509CertificateEntity
+                .from(createCertificateEntity(testCaseName, key, certificateState, validationStatus, archived));
         if (!extendedKeyUsages.isEmpty()) {
             cert.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(extendedKeyUsages));
         }
@@ -3169,15 +3229,16 @@ class CertificateServiceITest extends BaseSpringBootTest {
     private Certificate createCertificateEntity(String commonName, CryptographicKey key, CertificateState state,
             CertificateValidationStatus validationStatus, boolean archived) {
         String serialNumber = commonName.toLowerCase().replace(" ", "-") + "-serial" + UUID.randomUUID();
-        Certificate cert = aCertificate()
-                .withCommonName(commonName)
-                .withSerialNumber(serialNumber)
-                .withKey(key)
-                .withKeyUuid(key != null ? key.getUuid() : null)
-                .withState(state)
-                .withValidationStatus(validationStatus)
-                .withArchived(archived)
-                .build();
+        X509CertificateEntity cert = X509CertificateEntity
+                .from(aCertificate()
+                        .withCommonName(commonName)
+                        .withSerialNumber(serialNumber)
+                        .withKey(key)
+                        .withKeyUuid(key != null ? key.getUuid() : null)
+                        .withState(state)
+                        .withValidationStatus(validationStatus)
+                        .withArchived(archived)
+                        .build());
         certificateRepository.save(cert);
         return cert;
     }

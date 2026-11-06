@@ -33,11 +33,12 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
-import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
 import com.otilm.core.intune.scepvalidation.IntuneConfigProperties;
@@ -152,7 +153,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private ScepProfileRepository scepProfileRepository;
     private ScepTransactionRepository scepTransactionRepository;
     private ScepRegistrationTrackingWriter scepRegistrationTrackingWriter;
-    private CertificateRepository certificateRepository;
+    private X509CertificateRepository x509CertificateRepository;
     private CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
     private RegistrationChallengeStore registrationChallengeStore;
     private RegistrationChallengeGate registrationChallengeGate;
@@ -206,8 +207,8 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     @Autowired
-    public void setCertificateRepository(CertificateRepository certificateRepository) {
-        this.certificateRepository = certificateRepository;
+    public void setX509CertificateRepository(X509CertificateRepository x509CertificateRepository) {
+        this.x509CertificateRepository = x509CertificateRepository;
     }
 
     @Autowired
@@ -1071,7 +1072,7 @@ public class ScepServiceImpl implements ScepExternalService {
             logger.info("SCEP registration enrolment rejected: unable to read the CSR identity", e);
             throw new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK);
         }
-        List<Certificate> candidates = certificateRepository
+        List<X509CertificateEntity> candidates = x509CertificateRepository
                 .findRegisteredWithActiveRegistrationAuthorizationByRaProfileUuidAndSubjectDnNormalized(
                         raProfile.getUuid(),
                         CertificateUtil.normalizeSubjectDn(scepRequest.getPkcs10Request().getSubject()));
@@ -1409,7 +1410,8 @@ public class ScepServiceImpl implements ScepExternalService {
         // A subject DN mismatch rejects the request rather than merely withholding the waiver, which is the
         // behaviour that predates the waiver: signing with a certificate and then asking for a different
         // subject is treated as a malformed renewal, not as an enrollment the shared secret could authorize.
-        if (!(new X500Name(renewedCertificate.getSubjectDn())).equals(scepRequest.getPkcs10Request().getSubject())) {
+        if (!(new X500Name(X509CertificateEntity.from(renewedCertificate).getSubjectDn()))
+                .equals(scepRequest.getPkcs10Request().getSubject())) {
             throw new ScepException("Subject DN for the renewal request does not match the original certificate",
                     FailInfo.BAD_REQUEST);
         }

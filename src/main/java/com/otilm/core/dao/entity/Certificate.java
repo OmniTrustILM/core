@@ -2,12 +2,10 @@ package com.otilm.core.dao.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.common.enums.IPlatformEnum;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
-import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -22,11 +20,13 @@ import com.otilm.core.util.DtoMapper;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
+import jakarta.persistence.DiscriminatorColumn;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
+import jakarta.persistence.Inheritance;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
@@ -40,13 +40,13 @@ import jakarta.persistence.Table;
 import java.io.Serial;
 import java.time.OffsetDateTime;
 import java.util.Date;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -55,7 +55,6 @@ import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.Mutability;
 import org.hibernate.annotations.SQLJoinTableRestriction;
-import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
 import org.hibernate.type.descriptor.java.Immutability;
 
@@ -97,9 +96,12 @@ import org.hibernate.type.descriptor.java.Immutability;
 // A request may hold a copy read before a revocation or another state change committed; writing only what it changed
 // keeps the state the change gave the certificate. The JSON columns are marked immutable for the same reason:
 // Hibernate would otherwise compare them by value and write the copy's old value back. Replace them, never mutate them
-// in place.
+// in place. The exception is pendingRevokeAttributes: a changed value is left out of the UPDATE altogether, so
+// CertificatePendingRevokeWriter writes it.
 @DynamicUpdate
-public class Certificate extends UniquelyIdentifiedAndAudited
+@Inheritance
+@DiscriminatorColumn(name = "certificate_type")
+public abstract class Certificate extends UniquelyIdentifiedAndAudited
         implements
             ComplianceSubject,
             DtoMapper<CertificateDetailDto> {
@@ -124,18 +126,6 @@ public class Certificate extends UniquelyIdentifiedAndAudited
     @Column(name = "certificate_content_id", unique = true)
     private Long certificateContentId;
 
-    @Column(name = "issuer_dn")
-    private String issuerDn;
-
-    @Column(name = "issuer_dn_normalized")
-    private String issuerDnNormalized;
-
-    @Column(name = "subject_dn")
-    private String subjectDn;
-
-    @Column(name = "subject_dn_normalized")
-    private String subjectDnNormalized;
-
     @Column(name = "not_before")
     private Date notBefore;
 
@@ -147,27 +137,6 @@ public class Certificate extends UniquelyIdentifiedAndAudited
 
     @Column(name = "signature_algorithm")
     private String signatureAlgorithm;
-
-    @Column(name = "extended_key_usage")
-    private String extendedKeyUsage;
-
-    @Column(name = "extended_key_usage_critical")
-    private Boolean extendedKeyUsageCritical;
-
-    @Column(name = "qc_compliance")
-    private Boolean qcCompliance;
-
-    @Column(name = "qc_sscd")
-    private Boolean qcSscd;
-
-    @Column(name = "qc_type")
-    private String qcType;
-
-    @Column(name = "qc_cc_legislation")
-    private String qcCcLegislation;
-
-    @Column(name = "key_usage", nullable = false)
-    private int keyUsage;
 
     @Column(name = "subject_type", nullable = false)
     @Enumerated(EnumType.STRING)
@@ -186,9 +155,6 @@ public class Certificate extends UniquelyIdentifiedAndAudited
 
     @Column(name = "public_key_fingerprint")
     private String publicKeyFingerprint;
-
-    @Column(name = "subject_alternative_names")
-    private String subjectAlternativeNames;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ra_profile_uuid", insertable = false, updatable = false)
@@ -223,12 +189,10 @@ public class Certificate extends UniquelyIdentifiedAndAudited
     @Column(name = "key_size")
     private Integer keySize;
 
-    @Column(name = "certificate_type")
+    @Column(name = "certificate_type", nullable = false, insertable = false, updatable = false)
+    @Setter(AccessLevel.PROTECTED)
     @Enumerated(EnumType.STRING)
     private CertificateType certificateType;
-
-    @Column(name = "issuer_serial_number")
-    private String issuerSerialNumber;
 
     @Column(name = "issuer_certificate_uuid")
     private UUID issuerCertificateUuid;
@@ -261,6 +225,16 @@ public class Certificate extends UniquelyIdentifiedAndAudited
     @Column(name = "key_uuid")
     private UUID keyUuid;
 
+    // Kept on the base: entity graphs and fetch joins name this association on a Certificate root, which Hibernate does
+    // not resolve for an attribute declared on a subclass.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "alt_key_uuid", insertable = false, updatable = false)
+    @ToString.Exclude
+    private CryptographicKey altKey;
+
+    @Column(name = "alt_key_uuid")
+    private UUID altKeyUuid;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "certificate_request_uuid", insertable = false, updatable = false)
     @ToString.Exclude
@@ -268,32 +242,6 @@ public class Certificate extends UniquelyIdentifiedAndAudited
 
     @Column(name = "certificate_request_uuid")
     private UUID certificateRequestUuid;
-
-    @Column(name = "trusted_ca")
-    private Boolean trustedCa;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "alt_key_uuid", insertable = false, updatable = false)
-    @ToString.Exclude
-    private CryptographicKey altKey;
-
-    @Column(name = "alt_public_key_algorithm")
-    private String altPublicKeyAlgorithm;
-
-    @Column(name = "alt_key_size")
-    private Integer altKeySize;
-
-    @Column(name = "alt_key_uuid")
-    private UUID altKeyUuid;
-
-    @Column(name = "alt_key_fingerprint")
-    private String altKeyFingerprint;
-
-    @Column(name = "alt_signature_algorithm")
-    private String altSignatureAlgorithm;
-
-    @Column(name = "hybrid_certificate", nullable = false)
-    private boolean hybridCertificate = false;
 
     @Column(name = "archived", nullable = false)
     private boolean archived = false;
@@ -310,6 +258,10 @@ public class Certificate extends UniquelyIdentifiedAndAudited
      * Preserves the revoke attributes from a revocation request whose connector response was asynchronous. Applied at
      * manual revoke confirmation time, cleared on confirm or cancel. Always {@code null} outside the
      * {@code PENDING_REVOKE} state.
+     *
+     * <p>
+     * Written only through {@code CertificatePendingRevokeWriter}: on a managed entity, the UPDATE leaves a changed
+     * value out and this setter stores nothing.
      */
     @Column(name = "pending_revoke_attributes", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
@@ -359,18 +311,8 @@ public class Certificate extends UniquelyIdentifiedAndAudited
         return CertificateDetailDtoMapper.toSimpleDto(this, relationType);
     }
 
-    public CertificateRequestEntity prepareCertificateRequest(final CertificateRequestFormat certificateRequestFormat) {
-        final CertificateRequestEntity newCertificateRequestEntity = new CertificateRequestEntity();
-        newCertificateRequestEntity.setCertificateType(this.certificateType);
-        newCertificateRequestEntity.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
-        newCertificateRequestEntity.setKeyUsage(this.keyUsage);
-        newCertificateRequestEntity.setCommonName(this.commonName);
-        newCertificateRequestEntity.setPublicKeyAlgorithm(this.publicKeyAlgorithm);
-        newCertificateRequestEntity.setSubjectAlternativeNames(this.subjectAlternativeNames);
-        newCertificateRequestEntity.setSubjectDn(this.subjectDn);
-        newCertificateRequestEntity.setCertificateRequestFormat(certificateRequestFormat);
-        return newCertificateRequestEntity;
-    }
+    public abstract CertificateRequestEntity prepareCertificateRequest(
+            CertificateRequestFormat certificateRequestFormat);
 
     public void setCertificateContent(CertificateContent certificateContent) {
         this.certificateContent = certificateContent;
@@ -413,24 +355,6 @@ public class Certificate extends UniquelyIdentifiedAndAudited
         this.certificateRequestEntity = certificateRequestEntity;
     }
 
-    public void setTrustedCa(boolean trustedCa) {
-        this.trustedCa = trustedCa;
-    }
-
-    public Set<CertificateKeyUsage> getKeyUsage() {
-        return CertificateKeyUsage.convertBitMaskToSet(keyUsage);
-    }
-
-    public int getKeyUsageBitMask() {
-        return keyUsage;
-    }
-
-    public void setUsage(List<CertificateKeyUsage> usage) {
-        this.keyUsage = BitMaskEnum
-                .convertSetToBitMask(
-                        usage.isEmpty() ? EnumSet.noneOf(CertificateKeyUsage.class) : EnumSet.copyOf(usage));
-    }
-
     @Override
     public IPlatformEnum getType() {
         return this.certificateType;
@@ -454,29 +378,18 @@ public class Certificate extends UniquelyIdentifiedAndAudited
         if (o == null) {
             return false;
         }
-        Class<?> oEffectiveClass = o instanceof HibernateProxy proxy
-                ? proxy.getHibernateLazyInitializer().getPersistentClass()
-                : o.getClass();
-        Class<?> thisEffectiveClass = this instanceof HibernateProxy proxy
-                ? proxy.getHibernateLazyInitializer().getPersistentClass()
-                : this.getClass();
-        if (thisEffectiveClass != oEffectiveClass) {
+        if (!(o instanceof Certificate that)) {
             return false;
         }
-        Certificate that = (Certificate) o;
         return getUuid() != null && Objects.equals(getUuid(), that.getUuid());
     }
 
     @Override
     public final int hashCode() {
-        return this instanceof HibernateProxy proxy
-                ? proxy.getHibernateLazyInitializer().getPersistentClass().hashCode()
-                : getClass().hashCode();
+        return Certificate.class.hashCode();
     }
 
     public String toStringShort() {
-        return String
-                .format("Certificate(UUID=%s, subjectDn=%s, issuerDn=%s, serialNumber=%s, fingerprint=%s)", uuid,
-                        subjectDn, issuerDn, serialNumber, fingerprint);
+        return String.format("Certificate(UUID=%s, serialNumber=%s, fingerprint=%s)", uuid, serialNumber, fingerprint);
     }
 }
