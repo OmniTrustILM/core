@@ -12,6 +12,7 @@ import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.logging.LoggingHelper;
@@ -146,7 +147,7 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                 Certificate certificate = getCertificate(serialNumber, tid);
                 LoggingHelper
                         .putLogResourceInfo(Resource.CERTIFICATE, false, certificate.getUuid().toString(),
-                                certificate.getSubjectDn());
+                                X509CertificateEntity.subjectDnOrNull(certificate));
                 if (configuration.isProtectedByAnotherCertificate(certificate)) {
                     throw new CmpProcessingException(tid, PKIFailureInfo.notAuthorized,
                             "SN=" + serialNumber + " | revocation is not protected by the certificate it revokes");

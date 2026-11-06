@@ -7,6 +7,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.scep.FailInfo;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
@@ -40,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -367,12 +369,13 @@ class ScepServiceImplRenewalAuthenticationTest {
     }
 
     private Certificate inventoryCertificate(UUID raProfileUuid) {
-        Certificate certificate = new Certificate();
-        certificate.setUuid(UUID.randomUUID());
-        certificate.setSubjectDn(SUBJECT_DN);
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setRaProfileUuid(raProfileUuid);
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withSubjectDn(SUBJECT_DN)
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withRaProfileUuid(raProfileUuid)
+                .build();
         // 10 days left of a 40-day validity: inside the profile's 30-day renewal threshold.
         certificate.setNotBefore(new Date(System.currentTimeMillis() - 30L * 24 * 3600 * 1000));
         certificate.setNotAfter(new Date(System.currentTimeMillis() + 10L * 24 * 3600 * 1000));

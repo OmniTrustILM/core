@@ -13,7 +13,6 @@ import com.otilm.api.model.connector.v3.certificate.GeneralNameEntry;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationResultDto;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.certificate.GeneralNameType;
@@ -25,8 +24,9 @@ import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.core.container.KeystoreDetection;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
@@ -391,7 +391,7 @@ public class CertificateUtil {
             discoveryCertificate.setNotBefore(entry.getNotBefore());
             discoveryCertificate.setCertificateContent(entry.getCertificateContent());
         } else {
-            Certificate certificateModal = new Certificate();
+            X509CertificateEntity certificateModal = new X509CertificateEntity();
             setSubjectDNParams(certificateModal, X500Name
                     .getInstance(new PlatformX500NameStyle(false), certificate.getSubjectX500Principal().getEncoded()));
             setIssuerDNParams(certificateModal, X500Name
@@ -406,7 +406,7 @@ public class CertificateUtil {
         return discoveryCertificate;
     }
 
-    public static void prepareIssuedCertificate(Certificate modal, X509Certificate certificate) {
+    public static void prepareIssuedCertificate(X509CertificateEntity modal, X509Certificate certificate) {
         stampIssuedFields(modal, certificate);
         modal.setState(CertificateState.ISSUED);
     }
@@ -417,7 +417,7 @@ public class CertificateUtil {
      * transition; callers creating new certificate rows that bypass the SM use {@link #prepareIssuedCertificate}
      * instead.
      */
-    public static void stampIssuedFields(Certificate modal, X509Certificate certificate) {
+    public static void stampIssuedFields(X509CertificateEntity modal, X509Certificate certificate) {
         modal.setComplianceStatus(ComplianceStatus.NOT_CHECKED);
         modal.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
 
@@ -440,7 +440,6 @@ public class CertificateUtil {
         modal.setPublicKeyAlgorithm(getKeyAlgorithmStringFromProviderName(certificate.getPublicKey().getAlgorithm()));
         modal.setSignatureAlgorithm(certificate.getSigAlgName().replace("WITH", "with"));
         modal.setKeySize(KeySizeUtil.getKeyLength(certificate.getPublicKey()));
-        modal.setCertificateType(CertificateType.fromCode(certificate.getType()));
         byte[] alternativeSignatureAlgorithm = certificate.getExtensionValue(Extension.altSignatureAlgorithm.getId());
         byte[] alternativeSignature = certificate.getExtensionValue(Extension.altSignatureValue.getId());
         if (alternativeSignatureAlgorithm != null && alternativeSignature != null) {
@@ -597,7 +596,7 @@ public class CertificateUtil {
         return asn1InputStreamInner.readObject();
     }
 
-    public static void prepareCertificateFromCsr(Certificate modal, CertificateRequest certificateRequest)
+    public static void prepareCertificateFromCsr(X509CertificateEntity modal, CertificateRequest certificateRequest)
             throws NoSuchAlgorithmException, CertificateRequestException {
         CsrIdentity identity = deriveCsrIdentity(certificateRequest);
         modal.setSubjectDn(identity.subjectDn());
@@ -616,7 +615,7 @@ public class CertificateUtil {
         modal.setKeySize(KeySizeUtil.getKeyLength(certificateRequest.getPublicKey()));
     }
 
-    public static void prepareCertificateRequestEntityFromCsr(CertificateRequestEntity modal,
+    public static void prepareCertificateRequestEntityFromCsr(X509CertificateRequestEntity modal,
             CertificateRequest certificateRequest) throws NoSuchAlgorithmException, CertificateRequestException {
         CsrIdentity identity = deriveCsrIdentity(certificateRequest);
         modal.setSubjectDn(identity.subjectDn());
@@ -649,7 +648,7 @@ public class CertificateUtil {
                 serializeSans(certificateRequest.getSubjectAlternativeNames()));
     }
 
-    private static void setIssuerDNParams(Certificate modal, X500Name issuerDN) {
+    private static void setIssuerDNParams(X509CertificateEntity modal, X500Name issuerDN) {
         modal.setIssuerDn(issuerDN.toString());
         modal.setIssuerCommonName(getCommonNameFromDn(issuerDN));
     }
@@ -660,7 +659,7 @@ public class CertificateUtil {
      * them. A blank DN stores only the normalized empty subject (subject carried entirely in the SAN, permitted by RFC
      * 5280 §4.1.2.6).
      */
-    public static void applyRegistrationSubject(Certificate modal, String subjectDn) {
+    public static void applyRegistrationSubject(X509CertificateEntity modal, String subjectDn) {
         if (subjectDn == null || subjectDn.isBlank()) {
             // SAN-only registration: the normalized empty subject keeps the row reachable by the
             // registration lookup's normalized-subject equality.
@@ -712,7 +711,7 @@ public class CertificateUtil {
      * in the same map format used for issued certificates. No entries is a no-op, leaving the column null exactly as
      * for a DN-only registration.
      */
-    public static void applyRegistrationSan(Certificate modal, List<GeneralNameEntry> subjectAltNames) {
+    public static void applyRegistrationSan(X509CertificateEntity modal, List<GeneralNameEntry> subjectAltNames) {
         if (subjectAltNames == null || subjectAltNames.isEmpty()) {
             return;
         }
@@ -765,7 +764,7 @@ public class CertificateUtil {
         return commonName;
     }
 
-    private static void setSubjectDNParams(Certificate modal, X500Name subjectDN) {
+    private static void setSubjectDNParams(X509CertificateEntity modal, X500Name subjectDN) {
         modal.setSubjectDn(subjectDN.toString());
         modal.setCommonName(getCommonNameFromDn(subjectDN));
     }

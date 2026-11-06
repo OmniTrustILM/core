@@ -2,6 +2,7 @@ package com.otilm.core.aop;
 
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
+import com.otilm.core.dao.repository.CertificateBaseRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.Aspect;
@@ -10,8 +11,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Evicts the certificate-chain and signing-certificate caches after any mutation on {@link CertificateRepository}. The
- * intercepted verb prefixes are declared in the {@link #certificateMutation()} pointcut below.
+ * Evicts the certificate-chain and signing-certificate caches after any mutation on a certificate repository:
+ * {@link CertificateRepository} and the repository of each certificate type, which share
+ * {@link CertificateBaseRepository}. The intercepted verb prefixes are declared in the {@link #certificateMutation()}
+ * pointcut below.
  *
  * <p>
  * <strong>Eviction strategy.</strong> Every matched mutation triggers a full {@code cache.clear()} (deferred to
@@ -35,7 +38,7 @@ public class CertificateRepositoryCacheEvictionAspect {
         this.cacheEvictor = cacheEvictor;
     }
 
-    @Pointcut("target(com.otilm.core.dao.repository.CertificateRepository+) "
+    @Pointcut("target(com.otilm.core.dao.repository.CertificateBaseRepository+) "
             + "&& (execution(* save*(..)) || execution(* delete*(..)) || execution(* insert*(..)) "
             + "|| execution(* update*(..)) || execution(* clear*(..)) || execution(* archive*(..)) "
             + "|| execution(* set*(..)) || execution(* transition*(..)))")

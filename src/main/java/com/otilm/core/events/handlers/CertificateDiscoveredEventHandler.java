@@ -11,6 +11,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.workflows.EventHistory;
 import com.otilm.core.dao.entity.workflows.TriggerAssociation;
 import com.otilm.core.dao.entity.workflows.TriggerHistory;
@@ -169,8 +170,10 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         eventData.setCertificateUuid(certificate.getUuid());
         eventData.setFingerprint(certificate.getFingerprint());
         eventData.setSerialNumber(certificate.getSerialNumber());
-        eventData.setSubjectDn(certificate.getSubjectDn());
-        eventData.setIssuerDn(certificate.getIssuerDn());
+        if (X509CertificateEntity.fromOrNull(certificate) instanceof X509CertificateEntity x509Certificate) {
+            eventData.setSubjectDn(x509Certificate.getSubjectDn());
+            eventData.setIssuerDn(x509Certificate.getIssuerDn());
+        }
         eventData.setNotBefore(certificate.getNotBefore().toInstant().atZone(ZoneId.systemDefault()));
         eventData.setExpiresAt(certificate.getNotAfter().toInstant().atZone(ZoneId.systemDefault()));
 
@@ -722,13 +725,13 @@ public class CertificateDiscoveredEventHandler extends EventHandler<Certificate>
         List<UUID> rowUuids = group.rows().stream().map(DiscoveryCertificate::getUuid).toList();
 
         X509Certificate x509Cert;
-        Certificate candidate;
+        X509CertificateEntity candidate;
         try {
             CertificateContent content = group.rows().getFirst().getCertificateContent();
             x509Cert = CertificateUtil.parseCertificate(content.getContent());
             // Built in memory only. An ignore trigger must be able to keep this certificate out of the inventory,
             // so nothing is inserted until the ignore triggers have had their say.
-            candidate = new Certificate();
+            candidate = new X509CertificateEntity();
             CertificateUtil.prepareIssuedCertificate(candidate, x509Cert);
             // Trigger conditions read these reflectively, and prepareIssuedCertificate stamps neither. Left unset,
             // a rule conditioned on the fingerprint evaluates against null: the condition is recorded as failed and
