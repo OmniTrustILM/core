@@ -9,6 +9,7 @@ import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.DEROctetString;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -294,17 +295,35 @@ class PollFeatureTest {
     }
 
     @Test
-    void throwsCmpProcessingException_whenTimeoutAndStillTransitional() throws Exception {
-        // Cert in REQUESTED state never reaches ISSUED; 0 budget makes the timeout immediate.
+    void returnsStillPending_whenCertificateStaysRequested() throws Exception {
+        // given
         pollFeature.setPollFeatureTimeout(0);
         UUID certUuid = UUID.randomUUID();
-        Certificate cert = certificateInState(certUuid, CertificateState.REQUESTED);
-        when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(cert);
+        Certificate queuedCertificate = certificateInState(certUuid, CertificateState.REQUESTED);
+        when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(queuedCertificate);
 
-        assertThatThrownBy(() -> pollFeature
-                .pollCertificate(new DEROctetString(new byte[]{1}), "01", certUuid.toString(), CertificateState.ISSUED))
-                .isInstanceOf(CmpProcessingException.class)
-                .hasMessageContaining("polling timed out");
+        // when
+        PollResult result = pollFeature
+                .pollCertificate(new DEROctetString(new byte[]{1}), "01", certUuid.toString(), CertificateState.ISSUED);
+
+        // then
+        assertThat(result).isEqualTo(new PollResult.StillPending(CertificateState.REQUESTED));
+    }
+
+    @Test
+    void throwsTimeout_whenCertificateStaysPendingApproval() throws Exception {
+        // given
+        pollFeature.setPollFeatureTimeout(0);
+        UUID certUuid = UUID.randomUUID();
+        Certificate awaitingApproval = certificateInState(certUuid, CertificateState.PENDING_APPROVAL);
+        when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(awaitingApproval);
+
+        // when
+        ThrowingCallable poll = () -> pollFeature
+                .pollCertificate(new DEROctetString(new byte[]{1}), "01", certUuid.toString(), CertificateState.ISSUED);
+
+        // then
+        assertThatThrownBy(poll).isInstanceOf(CmpProcessingException.class).hasMessageContaining("polling timed out");
     }
 
     private static Certificate certificateInState(UUID uuid, CertificateState state) {

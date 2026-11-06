@@ -57,9 +57,10 @@ public class PollFeature {
      * <ul>
      * <li>{@link PollResult.Reached} when the certificate's state equals {@code expectedState};</li>
      * <li>{@link PollResult.StillPending} when the certificate is still in {@code PENDING_ISSUE} /
-     * {@code PENDING_REVOKE}}, or is a registration placeholder still {@code REGISTERED}, once the poll budget is
-     * exhausted. These are ridden out within the budget — every issuance routes through {@code PENDING_ISSUE} on the
-     * actions-listener thread (a registration placeholder is first claimed there out of {@code REGISTERED}), even when
+     * {@code PENDING_REVOKE}, is a submitted request the actions listener has not claimed yet ({@code REQUESTED}), or
+     * is a registration placeholder still {@code REGISTERED}, once the poll budget is exhausted. These are ridden out
+     * within the budget — every issuance routes through {@code PENDING_ISSUE} on the actions-listener thread (a request
+     * or a registration placeholder is first claimed there out of {@code REQUESTED} or {@code REGISTERED}), even when
      * the connector completes synchronously moments later, so an immediate return here would misreport nearly every
      * issuance as asynchronous;</li>
      * <li>{@link PollResult.Diverted} when the certificate reaches a terminal state (one of {@code ISSUED},
@@ -70,8 +71,9 @@ public class PollFeature {
      * <p>
      * Transitional states ({@code REGISTERED}, {@code REQUESTED}, {@code PENDING_APPROVAL}, {@code PENDING_*}) are not
      * reported back to the caller mid-budget — the loop sleeps and re-reads until one of the outcomes above is observed
-     * or the budget is exhausted (which yields {@link PollResult.StillPending} for {@code PENDING_*}, or a
-     * {@code REGISTERED} placeholder, or a timeout exception for the other transitional states).
+     * or the budget is exhausted (which yields {@link PollResult.StillPending} for {@code PENDING_ISSUE},
+     * {@code PENDING_REVOKE}, {@code REQUESTED} or a {@code REGISTERED} placeholder, or a timeout exception for the
+     * other transitional states).
      * </p>
      *
      * @param tid processing transaction id, see {@link PKIHeader#getTransactionID()}
@@ -122,10 +124,11 @@ public class PollFeature {
                     // PENDING_* is ridden out for the whole budget: even a synchronously-
                     // completing connector transits PENDING_ISSUE on the actions-listener
                     // thread, so only budget exhaustion makes "still pending" a verdict. A
-                    // registration placeholder stays REGISTERED until that same listener claims
-                    // it into PENDING_ISSUE, so it is asynchronous too — signal the client to retry.
+                    // submitted request stays REQUESTED, and a registration placeholder
+                    // REGISTERED, until that same listener claims it from the queue, so under a
+                    // backlog both are asynchronous too — signal the client to retry.
                     if (current == CertificateState.PENDING_ISSUE || current == CertificateState.PENDING_REVOKE
-                            || current == CertificateState.REGISTERED) {
+                            || current == CertificateState.REGISTERED || current == CertificateState.REQUESTED) {
                         log
                                 .debug("TID={}, SN={} | certificate uuid={} still in asynchronous state {} after {} ms — caller will signal client to retry",
                                         tid, serialNumber, certUUID, current, timeoutMs);
