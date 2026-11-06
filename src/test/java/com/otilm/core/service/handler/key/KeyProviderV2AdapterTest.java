@@ -49,6 +49,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
@@ -2394,6 +2395,44 @@ class KeyProviderV2AdapterTest {
             verify(operationsClient).signData(any(), sent.capture());
             assertThat(asked.getValue().getTokenAttributes()).isSameAs(resolvedEarlier);
             assertThat(sent.getValue().getTokenAttributes()).isSameAs(resolvedEarlier);
+        }
+
+        @Test
+        void signData_sendsPrehashedDigest_whenModeIsPrehashedDigest() throws Exception {
+            // given
+            stubSynchronousSigning();
+            SignatureInputMode prehashed = SignatureInputMode.PREHASHED_DIGEST;
+
+            // when
+            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), prehashed);
+
+            // then
+            assertThat(sentSignBody().getSignatureInputMode()).isEqualTo(prehashed);
+        }
+
+        @Test
+        void signData_sendsNoMode_whenModeIsData() throws Exception {
+            // given
+            stubSynchronousSigning();
+
+            // when
+            adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), SignatureInputMode.DATA);
+
+            // then
+            assertThat(sentSignBody().getSignatureInputMode()).isNull();
+        }
+
+        private void stubSynchronousSigning() throws Exception {
+            when(operationsClient.listSignAttributes(any(), any())).thenReturn(List.of());
+            SignDataResponseV2Dto body = new SignDataResponseV2Dto();
+            body.setSignatures(List.of(new SignatureResponseItemV2Dto(new byte[]{7}, "0")));
+            when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
+        }
+
+        private SignDataRequestV2Dto sentSignBody() throws Exception {
+            ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
+            verify(operationsClient).signData(any(), sent.capture());
+            return sent.getValue();
         }
 
         @Test

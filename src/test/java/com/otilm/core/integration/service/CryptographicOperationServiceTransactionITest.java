@@ -9,6 +9,7 @@ import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
@@ -49,6 +50,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -125,7 +127,7 @@ class CryptographicOperationServiceTransactionITest extends BaseSpringBootTest {
         AtomicBoolean transactionActive = new AtomicBoolean(true);
         KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);
         when(keyProviderAdapterFactory.forKeyItem(any())).thenReturn(adapter);
-        when(adapter.signData(any(), any())).thenAnswer(invocation -> {
+        when(adapter.signData(any(), any(), eq(SignatureInputMode.DATA))).thenAnswer(invocation -> {
             transactionActive.set(TransactionSynchronizationManager.isActualTransactionActive());
             return new SignDataResponseDto();
         });

@@ -46,11 +46,27 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String RESOLVE_KEYS = "/v2/cryptographyProvider/keys/resolve";
 
     CryptographyProviderV2ConnectorMock() {
+        advertising();
+    }
+
+    /** Advertises the given features on the cryptography interface in addition to the default ones. */
+    public CryptographyProviderV2ConnectorMock advertising(FeatureFlag... extraFeatures) {
+        List<FeatureFlag> features = new ArrayList<>(List.of(FeatureFlag.STATELESS));
+        features.addAll(List.of(extraFeatures));
         stubV2InfoDetails(List
                 .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
                         interfaceInfo(ConnectorInterface.HEALTH, List.of()),
                         interfaceInfo(ConnectorInterface.METRICS, List.of()),
-                        interfaceInfo(ConnectorInterface.CRYPTOGRAPHY, List.of(FeatureFlag.STATELESS))));
+                        interfaceInfo(ConnectorInterface.CRYPTOGRAPHY, features)));
+        return this;
+    }
+
+    public List<JsonNode> operationRequestBodies(String operation) throws JsonProcessingException {
+        List<JsonNode> bodies = new ArrayList<>();
+        for (Request request : server.findAll(postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation)))) {
+            bodies.add(ObjectMapperFactory.wire().readTree(request.getBodyAsString()));
+        }
+        return bodies;
     }
 
     public CryptographyProviderV2ConnectorMock stubOperationAttributes(String operation, String responseJson) {

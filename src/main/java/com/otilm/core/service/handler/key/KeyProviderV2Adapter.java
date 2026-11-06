@@ -34,6 +34,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.common.v2.OperationExecutionMode;
@@ -637,6 +638,12 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     @Override
     public SignDataResponseDto signData(CryptographicKeyItemOperationModel keyItem, SignDataRequestDto request)
             throws ConnectorException, NotFoundException {
+        return signData(keyItem, request, SignatureInputMode.DATA);
+    }
+
+    @Override
+    public SignDataResponseDto signData(CryptographicKeyItemOperationModel keyItem, SignDataRequestDto request,
+            SignatureInputMode inputMode) throws ConnectorException, NotFoundException {
         List<RequestAttribute> submittedAttributes = orEmpty(request.getSignatureAttributes());
         List<RequestAttribute> connectorAttributes = SignatureOperationAttributes.toConnector(submittedAttributes);
         TokenProfileScopedRequestV2Dto scope = validatedSignScope(keyItem, connectorAttributes);
@@ -645,6 +652,9 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         body.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
         body.setSignatureAttributes(connectorAttributes);
         body.setData(batch.items());
+        if (inputMode != null && inputMode != SignatureInputMode.DATA) {
+            body.setSignatureInputMode(inputMode);
+        }
         ResponseEntity<SignDataResponseV2Dto> response = operationsApiClient.signData(connectorInfo, body);
         SignDataResponseV2Dto responseBody = response.getBody();
         if (response.getStatusCode().value() != 200 || responseBody == null || responseBody.getSignatures() == null

@@ -14,6 +14,7 @@ import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.core.secret.Passphrase;
 import com.otilm.core.key.normalization.NormalizedKey;
 import com.otilm.core.model.crypto.CryptographicKeyFullModel;
@@ -119,6 +120,20 @@ public interface KeyProviderAdapter {
 
     SignDataResponseDto signData(CryptographicKeyItemOperationModel keyItem, SignDataRequestDto request)
             throws ConnectorException, NotFoundException;
+
+    /**
+     * Signs with the stated input mode. A provider that cannot sign a digest as is refuses it here, so an override is
+     * what makes a provider capable of it.
+     *
+     * @throws ValidationException when the mode is not {@link SignatureInputMode#DATA} and the provider cannot honor it
+     */
+    default SignDataResponseDto signData(CryptographicKeyItemOperationModel keyItem, SignDataRequestDto request,
+            SignatureInputMode inputMode) throws ConnectorException, NotFoundException {
+        if (inputMode == null || inputMode == SignatureInputMode.DATA) {
+            return signData(keyItem, request);
+        }
+        throw new ValidationException("This cryptography provider cannot sign prehashed digests.");
+    }
 
     /**
      * The signature algorithm the signing attributes select, read from the selection itself so it is known before

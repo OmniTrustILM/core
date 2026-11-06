@@ -8,6 +8,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -74,6 +75,19 @@ public interface CryptographicOperationInternalService {
      */
     SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID,
             UUID uuid, UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException;
+
+    /**
+     * Same as the overload without an input mode, but states what the submitted data is. With
+     * {@link SignatureInputMode#PREHASHED_DIGEST} each item is a digest the provider signs as is.
+     *
+     * @param inputMode what the submitted data is; {@code null} means {@link SignatureInputMode#DATA}
+     * @throws ValidationException when the mode is a prehashed digest and the key is served by a version 1 provider or
+     * by a provider that does not advertise prehashed signing
+     * @throws NotFoundException when the token instance with the specified UUID is not found
+     */
+    SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUUID,
+            UUID uuid, UUID keyItemUuid, SignDataRequestDto request, SignatureInputMode inputMode)
+            throws ConnectorException, NotFoundException;
 
     /**
      * Generate the CSR with the key and token profile and CSR parameters

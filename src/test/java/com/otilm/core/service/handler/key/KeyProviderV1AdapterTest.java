@@ -29,6 +29,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.key.CreateKeyRequestDto;
 import com.otilm.api.model.connector.cryptography.key.KeyData;
@@ -60,6 +61,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -71,6 +73,7 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -506,6 +509,25 @@ class KeyProviderV1AdapterTest {
     @FunctionalInterface
     interface OperationCall {
         void run(KeyProviderV1Adapter adapter, CryptographicKeyItemOperationModel context) throws ConnectorException;
+    }
+
+    @Test
+    void signData_throwsValidationException_whenModeIsPrehashedDigest() {
+        // given
+        CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
+                new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());
+        SignDataRequestDto request = new SignDataRequestDto();
+        request.setSignatureAttributes(List.of());
+        request.setData(List.of());
+
+        // when
+        ThrowingCallable sign = () -> adapter.signData(context, request, SignatureInputMode.PREHASHED_DIGEST);
+
+        // then
+        assertThatThrownBy(sign)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("cannot sign prehashed digests");
+        verifyNoInteractions(operationsClient);
     }
 
     @Test

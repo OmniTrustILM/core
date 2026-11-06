@@ -6,6 +6,7 @@ import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.DecryptDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.EncryptDataResponseDto;
@@ -19,6 +20,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.cryptography.key.KeyEvent;
 import com.otilm.api.model.core.cryptography.key.KeyEventStatus;
@@ -35,6 +37,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.AttributesWithOwner;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.crypto.TokenInstanceBasicModel;
+import com.otilm.core.model.crypto.TokenInstanceFullModel;
 import com.otilm.core.model.crypto.TokenProfileBasicModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -44,6 +47,7 @@ import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.service.handler.ConnectorCapabilityService;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.handler.key.KeyProviderV1Adapter;
@@ -109,8 +113,14 @@ public class CryptographicOperationServiceImpl
 
     private KeyProviderAdapterFactory keyProviderAdapterFactory;
     private TokenProviderAdapterFactory tokenProviderAdapterFactory;
+    private ConnectorCapabilityService connectorCapabilityService;
 
     // Setters
+
+    @Autowired
+    public void setConnectorCapabilityService(ConnectorCapabilityService connectorCapabilityService) {
+        this.connectorCapabilityService = connectorCapabilityService;
+    }
 
     @Autowired
     public void setKeyProviderAdapterFactory(KeyProviderAdapterFactory keyProviderAdapterFactory) {
@@ -302,7 +312,7 @@ public class CryptographicOperationServiceImpl
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
         KeyProviderAdapter adapter = adapterFor(keyItem);
         return recordEvent(keyItem, KeyEvent.SIGN, "Signing data success ", "Signing of data failed ",
-                () -> executeSignData(adapter, keyItem, request));
+                () -> executeSignData(adapter, keyItem, request, SignatureInputMode.DATA));
     }
 
     @Override
@@ -312,22 +322,52 @@ public class CryptographicOperationServiceImpl
     public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid,
             SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request)
             throws ConnectorException, NotFoundException {
+        return signDataWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, uuid, keyItemUuid, request,
+                SignatureInputMode.DATA);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.CRYPTOGRAPHIC_KEY, action = ResourceAction.SIGN,
+            parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid,
+            SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request,
+            SignatureInputMode inputMode) throws ConnectorException, NotFoundException {
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
         logger.info("Signing data (no event history) using key: {}", keyItemUuid);
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
+        SignatureInputMode mode = inputMode == null ? SignatureInputMode.DATA : inputMode;
+        if (mode == SignatureInputMode.PREHASHED_DIGEST) {
+            requirePrehashedSigning(keyItem);
+        }
         KeyProviderAdapter adapter = adapterFor(keyItem);
-        return executeSignData(adapter, keyItem, request);
+        return executeSignData(adapter, keyItem, request, mode);
+    }
+
+    private void requirePrehashedSigning(CryptographicKeyItemOperationModel keyItem) throws NotFoundException {
+        if (!keyItem.hasConnectorInterface()) {
+            throw new ValidationException("Key item " + keyItem.keyItemUuid()
+                    + " is served by a version 1 cryptography provider, which cannot sign prehashed digests.");
+        }
+        UUID tokenInstanceUuid = keyItem.tokenInstanceReferenceUuid();
+        TokenInstanceFullModel token = tokenInstanceReferenceRepository
+                .findFullModelByUuid(tokenInstanceUuid)
+                .orElseThrow(() -> new NotFoundException(TokenInstanceReference.class, tokenInstanceUuid));
+        if (!connectorCapabilityService.supports(token.connectorInterface(), FeatureFlag.PREHASHED_SIGNING)) {
+            throw new ValidationException("The cryptography provider of key item " + keyItem.keyItemUuid()
+                    + " does not support prehashed signing.");
+        }
     }
 
     private SignDataResponseDto executeSignData(KeyProviderAdapter adapter, CryptographicKeyItemOperationModel keyItem,
-            SignDataRequestDto request) throws ConnectorException, NotFoundException {
+            SignDataRequestDto request, SignatureInputMode inputMode) throws ConnectorException, NotFoundException {
         requireActive(keyItem);
         if (request.getData() == null) {
             throw new ValidationException(ValidationError.create("Cannot sign empty data"));
         }
         requireUsage(keyItem, KeyUsage.SIGN);
-        return adapter.signData(keyItem, request);
+        return adapter.signData(keyItem, request, inputMode);
     }
 
     @Override
