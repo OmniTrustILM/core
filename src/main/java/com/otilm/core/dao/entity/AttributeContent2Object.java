@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -22,7 +23,8 @@ import org.hibernate.proxy.HibernateProxy;
 @ToString
 @RequiredArgsConstructor
 @Entity
-@Table(name = "attribute_content_2_object")
+@Table(name = "attribute_content_2_object",
+        indexes = @Index(name = "idx_aco_type_uuid_version", columnList = "object_type, object_uuid, object_version"))
 public class AttributeContent2Object extends UniquelyIdentified {
 
     @ManyToOne(fetch = FetchType.LAZY)

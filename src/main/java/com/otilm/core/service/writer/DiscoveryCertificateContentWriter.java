@@ -1,8 +1,8 @@
 package com.otilm.core.service.writer;
 
-import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
-import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,12 +22,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class DiscoveryCertificateContentWriter {
 
     private final CertificateContentRepository certificateContentRepository;
-    private final CertificateRepository certificateRepository;
+    private final X509CertificateRepository x509CertificateRepository;
 
     public DiscoveryCertificateContentWriter(CertificateContentRepository certificateContentRepository,
-            CertificateRepository certificateRepository) {
+            X509CertificateRepository x509CertificateRepository) {
         this.certificateContentRepository = certificateContentRepository;
-        this.certificateRepository = certificateRepository;
+        this.x509CertificateRepository = x509CertificateRepository;
     }
 
     /**
@@ -44,8 +44,8 @@ public class DiscoveryCertificateContentWriter {
      * the same fingerprint and the caller must resolve the survivor by fingerprint
      */
     @Transactional
-    public int insertCertificate(Certificate entity) {
-        Integer inserted = certificateRepository.insertWithFingerprintConflictResolve(entity);
+    public int insertCertificate(X509CertificateEntity entity) {
+        Integer inserted = x509CertificateRepository.insertWithFingerprintConflictResolve(entity);
         return inserted == null ? 0 : inserted;
     }
 }

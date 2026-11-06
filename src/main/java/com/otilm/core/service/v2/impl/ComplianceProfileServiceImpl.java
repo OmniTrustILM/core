@@ -36,6 +36,7 @@ import com.otilm.core.dao.entity.ComplianceProfileAssociation;
 import com.otilm.core.dao.entity.ComplianceProfile_;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.entity.workflows.ConditionItem;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateRequestRepository;
@@ -737,9 +738,11 @@ public class ComplianceProfileServiceImpl
                 .findFirst()
                 .orElseThrow(() -> new NotFoundException(CertificateRequestEntity.class, certificateRequestUuid));
         resourceService.getResourceObject(Resource.CERTIFICATE, certificateUuid);
-        String name = certificateRequest.getCommonName() != null
-                ? certificateRequest.getCommonName()
-                : certificateRequest.getSubjectDn();
+        X509CertificateRequestEntity x509Request = X509CertificateRequestEntity.fromOrNull(certificateRequest);
+        String name = certificateRequest.getCommonName();
+        if (name == null && x509Request != null) {
+            name = x509Request.getSubjectDn();
+        }
         return new ResourceObjectDto(Resource.CERTIFICATE_REQUEST, certificateRequestUuid, name);
     }
 

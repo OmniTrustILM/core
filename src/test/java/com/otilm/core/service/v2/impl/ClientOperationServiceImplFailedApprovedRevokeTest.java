@@ -5,8 +5,8 @@ import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
@@ -25,6 +25,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.TransactionSystemException;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -64,10 +65,11 @@ class ClientOperationServiceImplFailedApprovedRevokeTest {
         raProfile.setAuthorityInstanceReference(authority);
 
         certificateUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
-        certificate.setUuid(certificateUuid);
-        certificate.setState(CertificateState.PENDING_APPROVAL);
-        certificate.setRaProfile(raProfile);
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(certificateUuid)
+                .withState(CertificateState.PENDING_APPROVAL)
+                .withRaProfile(raProfile)
+                .build();
         when(certificateRepository.findWithAssociationsByUuid(certificateUuid)).thenReturn(Optional.of(certificate));
 
         when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(adapter);
