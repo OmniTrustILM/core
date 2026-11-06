@@ -50,8 +50,8 @@ class DiscoveryWorkLadderConfigTest {
     }
 
     /**
-     * An unanswered drain or processing tick waits only its own rung before the next try, so the attempt budget alone
-     * sets how long a connector that stopped answering, or a batch that keeps failing, is tolerated.
+     * An unanswered drain or processing tick waits its own rung after its call before the next try, so the rungs set
+     * the least time a connector that stopped answering, or a batch that keeps failing, is tolerated.
      */
     @ParameterizedTest
     @ValueSource(strings = {"DRAIN", "PROCESS"})

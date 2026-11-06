@@ -118,8 +118,8 @@ discovery:
           - PT15S
           - PT30S
         max-attempts: 6000
-      # A failed drain or processing tick is retried at its own rung, so the budget alone sets how long failures are
-      # tolerated: 170 attempts on this ladder come to about 84 minutes.
+      # A failed drain or processing tick is retried at its own rung once its call returns, so 170 attempts on this
+      # ladder tolerate failures for at least 84 minutes, and longer when each call runs to its timeouts.
       DRAIN:
         delays:
           - PT1S
