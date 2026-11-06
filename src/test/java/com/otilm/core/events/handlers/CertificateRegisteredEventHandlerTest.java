@@ -7,6 +7,7 @@ import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
 import com.otilm.core.dao.entity.OwnerAssociation;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.evaluator.CertificateTriggerEvaluator;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -42,9 +44,7 @@ class CertificateRegisteredEventHandlerTest {
     @Test
     void getEventDataResolvesCredentialAndDeadlineAndKeepsCredentialOutOfToString() {
         UUID certUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
-        certificate.setUuid(certUuid);
-        certificate.setSubjectDn("CN=device-7");
+        X509CertificateEntity certificate = aCertificate().withUuid(certUuid).withSubjectDn("CN=device-7").build();
 
         CertificateRegistrationAuthorization authorization = new CertificateRegistrationAuthorization();
         authorization.setCertificateUuid(certUuid);
@@ -64,8 +64,7 @@ class CertificateRegisteredEventHandlerTest {
     @Test
     void getEventDataWithoutAuthorizationLeavesCredentialNull() {
         UUID certUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
-        certificate.setUuid(certUuid);
+        X509CertificateEntity certificate = aCertificate().withUuid(certUuid).build();
         when(authorizationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
 
         CertificateRegisteredEventData data = (CertificateRegisteredEventData) handler.getEventData(certificate, null);
@@ -81,9 +80,7 @@ class CertificateRegisteredEventHandlerTest {
 
         UUID certUuid = UUID.randomUUID();
         UUID ownerUuid = UUID.randomUUID();
-        Certificate certificate = new Certificate();
-        certificate.setUuid(certUuid);
-        certificate.setSubjectDn("CN=device-7");
+        X509CertificateEntity certificate = aCertificate().withUuid(certUuid).withSubjectDn("CN=device-7").build();
         OwnerAssociation owner = new OwnerAssociation();
         owner.setUuid(ownerUuid);
         certificate.setOwner(owner);

@@ -24,6 +24,7 @@ import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.RegistrationState;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -87,6 +88,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -208,9 +210,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     private Certificate seedRegistration(String subjectDn, Map<String, List<String>> sans, CertificateState state) {
-        Certificate certificate = new Certificate();
-        certificate.setUuid(UUID.randomUUID());
-        certificate.setSubjectDn(subjectDn);
+        X509CertificateEntity certificate = aCertificate().withUuid(UUID.randomUUID()).withSubjectDn(subjectDn).build();
         if (sans != null) {
             certificate.setSubjectAlternativeNames(CertificateUtil.serializeSans(sans));
         }
@@ -373,12 +373,12 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         CertificateContent plainContent = new CertificateContent();
         plainContent.setContent(content);
         plainContent.setFingerprint(certificateContent.getFingerprint());
-        Certificate pollResult = new Certificate();
-        pollResult.setUuid(persisted.getUuid());
-        pollResult.setSerialNumber(persisted.getSerialNumber());
-        pollResult.setState(CertificateState.ISSUED);
-        pollResult.setCertificateContent(plainContent);
-        return pollResult;
+        return aCertificate()
+                .withUuid(persisted.getUuid())
+                .withSerialNumber(persisted.getSerialNumber())
+                .withState(CertificateState.ISSUED)
+                .withCertificateContent(plainContent)
+                .build();
     }
 
     @Test

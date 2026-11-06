@@ -2,6 +2,7 @@ package com.otilm.core.service.acme.impl;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSObject;
+import com.nimbusds.jose.jwk.AsymmetricJWK;
 import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.util.Base64URL;
 import com.otilm.api.exception.AcmeProblemDocumentException;
@@ -45,6 +46,7 @@ import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
@@ -104,6 +106,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.text.ParseException;
+import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -115,6 +118,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -130,7 +134,6 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -143,9 +146,6 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class AcmeServiceImpl implements AcmeExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeServiceImpl.class);
-
-    /** What createAcmeProfile stores when a profile does not name one. */
-    private static final int DEFAULT_RETRY_INTERVAL = 36000;
 
     private static final int MAX_LISTED_IDENTIFIERS = 5;
 
@@ -449,7 +449,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         return ResponseEntity
                 .ok()
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME, account.getAcmeProfile().getRetryInterval().toString())
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(account))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                 .body(account.mapToDto());
     }
@@ -468,35 +468,18 @@ public class AcmeServiceImpl implements AcmeExternalService {
         validateRequest(jwsRequest, acmeProfileName, requestUri, isRaProfileBased);
 
         AcmeJwsRequest innerJws = new AcmeJwsRequest(jwsRequest.getJsonStringPayload());
+        validateKey(jwsRequest.getJwsObject(), innerJws.getJwsObject());
         validateRequestNoNonce(innerJws, acmeProfileName, requestUri, isRaProfileBased);
-
-        PublicKey newKey;
-        PublicKey oldKey;
-        try {
-            String keyType = innerJws.getJwk().getKeyType().toString();
-            if (keyType.equals(AcmeConstants.RSA_KEY_TYPE_NOTATION)) {
-                newKey = innerJws.getJwk().toRSAKey().toPublicKey();
-                oldKey = innerJws.getOldKeyJWK().toRSAKey().toPublicKey();
-            } else if (keyType.equals(AcmeConstants.EC_KEY_TYPE_NOTATION)) {
-                newKey = innerJws.getJwk().toECKey().toPublicKey();
-                oldKey = innerJws.getOldKeyJWK().toECKey().toPublicKey();
-            } else {
-                logger.error("Unsupported Key Type: {}", keyType);
-                throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
-                        "Unsupported Key Type");
-            }
-        } catch (JOSEException e) {
-            logger.error("Error while parsing JWS: {}", e.getMessage());
-            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
-                    "JWS Malformed. Error while decoding the JWS Object");
-        } catch (ParseException e) {
-            logger.error("Error while parsing JWS: {}", e.getMessage());
-            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
-                    "Error while parsing the JWS Payload");
+        KeyChange keyChange = AcmeJsonProcessor.getPayloadAsRequestObject(innerJws.getJwsObject(), KeyChange.class);
+        if (keyChange.account() == null || keyChange.oldKey() == null) {
+            throw AcmeJsonProcessor.malformedPayload();
         }
 
-        String account = innerJws.getJwsObject().getPayload().toJSONObject().get("account").toString();
-        String accountId = account.split("/")[account.split("/").length - 1];
+        PublicKey newKey = innerJws.getPublicKey();
+        PublicKey oldKey = parseOldKey(keyChange.oldKey());
+
+        String account = keyChange.account();
+        String accountId = account.substring(account.lastIndexOf('/') + 1);
 
         AcmeAccount acmeAccount;
         try {
@@ -525,8 +508,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
                     .body(new ProblemDocument("keyExists", "New Key already exists",
                             "New key already tagged to a different account"));
         }
-
-        validateKey(jwsRequest.getJwsObject(), innerJws.getJwsObject());
 
         acmeAccount.setPublicKey(AcmePublicKeyProcessor.publicKeyPemStringFromObject(newKey));
         acmeAccountRepository.save(acmeAccount);
@@ -575,8 +556,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         return ResponseEntity
                 .created(URI.create(order.getUrl()))
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME,
-                        order.getAcmeAccount().getAcmeProfile().getRetryInterval().toString())
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(order.getAcmeAccount()))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                 .body(order.mapToDto());
     }
@@ -622,6 +602,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         // Parse and check the JWS request
         AcmeJwsRequest jwsRequest = new AcmeJwsRequest(requestJson);
         validateRequest(jwsRequest, acmeProfileName, requestUri, isRaProfileBased);
+        boolean isDeactivateRequest = isDeactivationRequest(jwsRequest);
         AcmeAuthorization authorization = loadAuthorization(authorizationId);
         requireOwnership(jwsRequest, authorization.getOrder().getAcmeAccount());
         LoggingHelper
@@ -632,12 +613,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
                         authorization.getOrder().getUuid().toString(), authorization.getOrder().getOrderId());
         settleStaleStatuses(authorization.getOrder());
         rejectExpiredAuthorization(authorization);
-
-        boolean isDeactivateRequest = false;
-        if (jwsRequest.getJwsObject().getPayload().toJSONObject() != null) {
-            isDeactivateRequest = "deactivated"
-                    .equals(jwsRequest.getJwsObject().getPayload().toJSONObject().get("status"));
-        }
 
         if (isDeactivateRequest) {
             authorization = acmeChallengeWriter
@@ -729,6 +704,10 @@ public class AcmeServiceImpl implements AcmeExternalService {
         // Parse and check the JWS request
         AcmeJwsRequest jwsRequest = new AcmeJwsRequest(requestJson);
         validateRequest(jwsRequest, acmeProfileName, requestUri, isRaProfileBased);
+        CertificateFinalizeRequest request = AcmeJsonProcessor
+                .getPayloadAsRequestObject(jwsRequest.getJwsObject(), CertificateFinalizeRequest.class);
+        logger.debug("Finalize Order request: {}", request);
+        byte[] csr = decodeBase64Url(request.getCsr(), "CSR");
 
         logger.debug("Request to finalize the Order with ID: {}", orderId);
         AcmeOrder order = validateOrder(orderId);
@@ -752,31 +731,24 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
 
         // Now finalize the order
-        finalizeOrder(order, jwsRequest, isRaProfileBased);
+        finalizeOrder(order, csr, isRaProfileBased);
 
         return ResponseEntity
                 .ok()
                 .location(URI.create(order.getUrl()))
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME,
-                        order.getAcmeAccount().getAcmeProfile().getRetryInterval().toString())
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(order.getAcmeAccount()))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                 .body(order.mapToDto());
     }
 
-    @Transactional
-    @Async
-    public void finalizeOrder(AcmeOrder order, AcmeJwsRequest jwsRequest, boolean isRaProfileBased)
+    private void finalizeOrder(AcmeOrder order, byte[] csr, boolean isRaProfileBased)
             throws AcmeProblemDocumentException {
         logger.debug("Finalizing Order with ID: {}", order.getOrderId());
-        CertificateFinalizeRequest request = AcmeJsonProcessor
-                .getPayloadAsRequestObject(jwsRequest.getJwsObject(), CertificateFinalizeRequest.class);
-        logger.debug("Finalize Order request: {}", request);
-
         JcaPKCS10CertificationRequest p10Object;
         String decodedCsr;
         try {
-            p10Object = new JcaPKCS10CertificationRequest(Base64.getUrlDecoder().decode(request.getCsr()));
+            p10Object = new JcaPKCS10CertificationRequest(csr);
             validateCSR(p10Object, order);
             decodedCsr = CertificateRequestUtils.normalizeCsrContent(JcaPKCS10CertificationRequestToString(p10Object));
         } catch (IOException e) {
@@ -820,8 +792,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .ok()
                 .location(URI.create(order.getUrl()))
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME,
-                        order.getAcmeAccount().getAcmeProfile().getRetryInterval().toString())
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(order.getAcmeAccount()))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
                 .body(order.mapToDto());
     }
@@ -856,16 +827,15 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
         CertificateRevocationRequest request = AcmeJsonProcessor
                 .getPayloadAsRequestObject(jwsRequest.getJwsObject(), CertificateRevocationRequest.class);
+        byte[] certificateDer = decodeBase64Url(request.getCertificate(), "Certificate to revoke");
         logger.debug("Certificate revocation is triggered with the payload: {}", request.toString());
-
-        byte[] certificateDer = Base64.getUrlDecoder().decode(request.getCertificate());
 
         ClientCertificateRevocationDto revokeRequest = new ClientCertificateRevocationDto();
 
         Certificate cert = loadCertificateToRevoke(certificateDer);
         LoggingHelper
                 .putLogResourceInfo(com.otilm.api.model.core.auth.Resource.CERTIFICATE, false,
-                        cert.getUuid().toString(), cert.getSubjectDn());
+                        cert.getUuid().toString(), X509CertificateEntity.subjectDnOrNull(cert));
         if (cert.isArchived()) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.ARCHIVED);
         }
@@ -1100,12 +1070,21 @@ public class AcmeServiceImpl implements AcmeExternalService {
     }
 
     /**
-     * The retry hint, defaulted when the profile carries none. An edit that omits the interval stores null, and by this
-     * point the account is committed: throwing here would answer 500 for an account the client cannot find.
+     * The retry hint, defaulted when the profile carries none. An edit that omits the interval stores null, and a
+     * response is written after its changes are committed: throwing here would answer 500 for work already done.
      */
     private static String retryIntervalHeader(AcmeAccount account) {
         Integer retryInterval = account.getAcmeProfile().getRetryInterval();
-        return String.valueOf(retryInterval == null ? DEFAULT_RETRY_INTERVAL : retryInterval);
+        return String.valueOf(retryInterval == null ? AcmeConstants.DEFAULT_RETRY_INTERVAL : retryInterval);
+    }
+
+    /**
+     * How long an order and its authorizations stay valid, in seconds: the profile's validity, or the documented
+     * default when the profile sets none, as an edit that omits it leaves it.
+     */
+    private static int orderValidity(AcmeProfile profile) {
+        Integer validity = profile.getValidity();
+        return validity == null ? AcmeConstants.DEFAULT_ORDER_VALIDITY : validity;
     }
 
     /** The profile as the locked row has it, not as it was when the binding was verified. */
@@ -1179,11 +1158,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
                     "Inner JWS does not contain jwk");
         }
-        if (!jwsInnerObject
-                .getHeader()
-                .toJSONObject()
-                .getOrDefault("url", "innerUrl")
-                .equals(jwsRequestObject.getHeader().toJSONObject().getOrDefault("url", "outerUrl"))) {
+        if (!Objects
+                .equals(jwsInnerObject.getHeader().toJSONObject().getOrDefault("url", "innerUrl"),
+                        jwsRequestObject.getHeader().toJSONObject().getOrDefault("url", "outerUrl"))) {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
                     "URL in inner and outer JWS are different");
         }
@@ -1206,14 +1183,10 @@ public class AcmeServiceImpl implements AcmeExternalService {
         order.setAcmeAccount(acmeAccount);
         order.setOrderId(AcmeRandomGeneratorAndValidator.generateRandomId());
         order.setStatus(OrderStatus.PENDING);
-        order.setNotAfter(AcmeCommonHelper.getDateFromString(orderRequest.getNotAfter()));
-        order.setNotBefore(AcmeCommonHelper.getDateFromString(orderRequest.getNotBefore()));
+        order.setNotAfter(readOrderTimestamp(orderRequest.getNotAfter(), "notAfter"));
+        order.setNotBefore(readOrderTimestamp(orderRequest.getNotBefore(), "notBefore"));
         order.setIdentifiers(SerializationUtil.serializeIdentifiers(identifiers));
-        if (acmeAccount.getAcmeProfile().getValidity() != null) {
-            order.setExpires(AcmeCommonHelper.addSeconds(new Date(), acmeAccount.getAcmeProfile().getValidity()));
-        } else {
-            order.setExpires(AcmeCommonHelper.getDefaultExpires());
-        }
+        order.setExpires(AcmeCommonHelper.addSeconds(new Date(), orderValidity(acmeAccount.getAcmeProfile())));
         acmeOrderRepository.save(order);
         logger.debug("Order created: {}", order);
 
@@ -1234,7 +1207,24 @@ public class AcmeServiceImpl implements AcmeExternalService {
             throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
                     "The order must name at least one identifier");
         }
+        if (identifiers.stream().anyMatch(id -> id == null || id.getType() == null || id.getValue() == null)) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
+                    "Every identifier must have a type and a value");
+        }
         return identifiers;
+    }
+
+    /**
+     * A timestamp the order requests (RFC 8555 section 7.4), or null when the member is absent. A value that is not a
+     * supported RFC 3339 timestamp from 1970 to 9999 is refused as malformed.
+     */
+    private static Date readOrderTimestamp(String value, String member) throws AcmeProblemDocumentException {
+        try {
+            return AcmeCommonHelper.getDateFromString(value);
+        } catch (DateTimeException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
+                    member + " is not a supported RFC 3339 timestamp from 1970 to 9999");
+        }
     }
 
     /**
@@ -1314,13 +1304,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
         authorization.setAuthorizationId(AcmeRandomGeneratorAndValidator.generateRandomId());
         authorization.setStatus(preauthorized ? AuthorizationStatus.VALID : AuthorizationStatus.PENDING);
         authorization.setOrder(acmeOrder);
-        if (acmeOrder.getAcmeAccount().getAcmeProfile().getValidity() != null) {
-            authorization
-                    .setExpires(AcmeCommonHelper
-                            .addSeconds(new Date(), acmeOrder.getAcmeAccount().getAcmeProfile().getValidity()));
-        } else {
-            authorization.setExpires(AcmeCommonHelper.getDefaultExpires());
-        }
+        authorization
+                .setExpires(AcmeCommonHelper
+                        .addSeconds(new Date(), orderValidity(acmeOrder.getAcmeAccount().getAcmeProfile())));
         authorization.setWildcard(checkWildcard(identifier));
         authorization.setIdentifier(SerializationUtil.serialize(identifier));
         acmeAuthorizationRepository.save(authorization);
@@ -1708,7 +1694,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         } else {
             String kid = acmeJwsRequest.getKid();
             AcmeAccount account = acmeAccountRepository
-                    .findByAccountId(kid.split("/")[kid.split("/").length - 1])
+                    .findByAccountId(kid.substring(kid.lastIndexOf('/') + 1))
                     .orElseThrow(() -> new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST,
                             Problem.ACCOUNT_DOES_NOT_EXIST));
             PublicKey publicKey;
@@ -1865,6 +1851,59 @@ public class AcmeServiceImpl implements AcmeExternalService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is not available", e);
         }
+    }
+
+    /**
+     * The bytes of a member that RFC 8555 carries as base64url, such as the CSR to finalize an order with or the
+     * certificate to revoke. A member that is missing, empty or not base64url is refused as malformed.
+     */
+    private static byte[] decodeBase64Url(String value, String member) throws AcmeProblemDocumentException {
+        if (value == null || value.isEmpty()) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED, member + " is missing");
+        }
+        try {
+            return Base64.getUrlDecoder().decode(value);
+        } catch (IllegalArgumentException e) {
+            throw new AcmeProblemDocumentException(HttpStatus.BAD_REQUEST, Problem.MALFORMED,
+                    member + " is not base64url-encoded");
+        }
+    }
+
+    /**
+     * Whether the request asks to deactivate the authorization (RFC 8555 section 7.5.2). A POST-as-GET request carries
+     * an empty payload; any other payload is read strictly, before anything is settled for the authorization.
+     */
+    private static boolean isDeactivationRequest(AcmeJwsRequest jwsRequest) throws AcmeProblemDocumentException {
+        if (jwsRequest.getJwsObject().getPayload().toString().isEmpty()) {
+            return false;
+        }
+        AuthorizationUpdate update = AcmeJsonProcessor
+                .getPayloadAsRequestObject(jwsRequest.getJwsObject(), AuthorizationUpdate.class);
+        return "deactivated".equals(update.status());
+    }
+
+    /**
+     * The public key of the old key of a key change, converted by its own type. A key that is not a JWK of a public key
+     * is refused as a malformed payload, including one for which nimbus throws an unchecked exception, such as a
+     * NullPointerException for an RSA key whose other primes lack their members.
+     */
+    private static PublicKey parseOldKey(Map<String, Object> oldKey) throws AcmeProblemDocumentException {
+        try {
+            if (JWK.parse(oldKey) instanceof AsymmetricJWK asymmetricJwk) {
+                return asymmetricJwk.toPublicKey();
+            }
+        } catch (ParseException | JOSEException | RuntimeException e) {
+            logger.error("Error while parsing JWS: {}", e.getMessage());
+        }
+        throw AcmeJsonProcessor.malformedPayload();
+    }
+
+    /** The payload of the inner JWS of a key change (RFC 8555 section 7.3.5). */
+    private record KeyChange(String account, Map<String, Object> oldKey) {
+    }
+
+    /** The payload of a request to update an authorization (RFC 8555 section 7.5.2). */
+    private record AuthorizationUpdate(String status) {
     }
 
     private void validateAccount(String accountId) throws AcmeProblemDocumentException {

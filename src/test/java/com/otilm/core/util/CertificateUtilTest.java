@@ -7,8 +7,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.certificate.QcType;
 import com.otilm.api.model.core.oid.OidCategory;
-import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
@@ -61,6 +61,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -135,7 +137,7 @@ class CertificateUtilTest {
             InvalidKeyException, SignatureException, OperatorCreationException, CertificateException {
         X509Certificate certificate = CertificateTestUtil.createHybridCertificate();
 
-        Certificate certificateEntity = new Certificate();
+        X509CertificateEntity certificateEntity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(certificateEntity, certificate);
         Assertions.assertEquals("ML-DSA-44", certificateEntity.getAltSignatureAlgorithm());
 
@@ -159,15 +161,14 @@ class CertificateUtilTest {
 
     @Test
     void testIsValidationEnabled() {
-        Certificate certificate = new Certificate();
-        certificate.setArchived(true);
+        X509CertificateEntity certificate = aCertificate().withArchived(true).build();
         Assertions.assertFalse(CertificateUtil.isValidationEnabled(certificate, null));
     }
 
     @Test
     void testPrepareIssuedCertificate_noQcStatements() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertNull(entity.getQcCompliance(), "qcCompliance should be null when no QCStatements extension");
         Assertions.assertNull(entity.getQcSscd(), "qcSscd should be null when no QCStatements extension");
@@ -180,7 +181,7 @@ class CertificateUtilTest {
     @Test
     void testPrepareIssuedCertificate_noEku_extendedKeyUsageCriticalIsNull() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions
                 .assertNull(entity.getExtendedKeyUsage(),
@@ -193,7 +194,7 @@ class CertificateUtilTest {
     @Test
     void testPrepareIssuedCertificate_criticalEku_extendedKeyUsageCriticalIsTrue() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithEku(true);
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions
                 .assertNotNull(entity.getExtendedKeyUsage(),
@@ -206,7 +207,7 @@ class CertificateUtilTest {
     @Test
     void testPrepareIssuedCertificate_nonCriticalEku_extendedKeyUsageCriticalIsFalse() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithEku(false);
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions
                 .assertNotNull(entity.getExtendedKeyUsage(),
@@ -219,7 +220,7 @@ class CertificateUtilTest {
     @Test
     void testPrepareIssuedCertificate_qcComplianceOnly() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithQcStatements(true, false, null, null);
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertTrue(entity.getQcCompliance(), "qcCompliance should be true");
         Assertions.assertFalse(entity.getQcSscd(), "qcSscd should be false");
@@ -230,7 +231,7 @@ class CertificateUtilTest {
     @Test
     void testPrepareIssuedCertificate_qcSscdOnly() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithQcStatements(false, true, null, null);
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertFalse(entity.getQcCompliance(), "qcCompliance should be false");
         Assertions.assertTrue(entity.getQcSscd(), "qcSscd should be true");
@@ -242,7 +243,7 @@ class CertificateUtilTest {
     void testPrepareIssuedCertificate_qcTypeAllValues() throws Exception {
         X509Certificate x509 = CertificateTestUtil
                 .createCertificateWithQcStatements(false, false, List.of(QcType.ESIGN, QcType.ESEAL, QcType.WEB), null);
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertNotNull(entity.getQcType(), "qcType should not be null");
         List<String> types = MetaDefinitions.deserializeArrayString(entity.getQcType());
@@ -255,7 +256,7 @@ class CertificateUtilTest {
     void testPrepareIssuedCertificate_qcCcLegislation() throws Exception {
         X509Certificate x509 = CertificateTestUtil
                 .createCertificateWithQcStatements(false, false, null, List.of("DE", "FR"));
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertNotNull(entity.getQcCcLegislation(), "qcCcLegislation should not be null");
         List<String> countries = MetaDefinitions.deserializeArrayString(entity.getQcCcLegislation());
@@ -267,7 +268,7 @@ class CertificateUtilTest {
     void testPrepareIssuedCertificate_allQcStatements() throws Exception {
         X509Certificate x509 = CertificateTestUtil
                 .createCertificateWithQcStatements(true, true, List.of(QcType.ESIGN), List.of("AT"));
-        Certificate entity = new Certificate();
+        X509CertificateEntity entity = aCertificate().build();
         CertificateUtil.prepareIssuedCertificate(entity, x509);
         Assertions.assertTrue(entity.getQcCompliance(), "qcCompliance should be true");
         Assertions.assertTrue(entity.getQcSscd(), "qcSscd should be true");
@@ -280,8 +281,7 @@ class CertificateUtilTest {
     @Test
     void stampIssuedFields_setsFieldsButNotState() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
-        Certificate cert = new Certificate();
-        cert.setState(CertificateState.PENDING_ISSUE);
+        X509CertificateEntity cert = aCertificate().withState(CertificateState.PENDING_ISSUE).build();
 
         CertificateUtil.stampIssuedFields(cert, x509);
 
@@ -293,7 +293,7 @@ class CertificateUtilTest {
     @Test
     void prepareIssuedCertificate_stillSetsIssued() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
 
         CertificateUtil.prepareIssuedCertificate(cert, x509);
 
@@ -305,7 +305,7 @@ class CertificateUtilTest {
     void applyRegistrationSan_persistsOtherNameAsOidEqualsValue() {
         // The otherName serialized form must match the one written for issued certificates
         // (getSanValueString) — both go through the shared formatOtherNameSan.
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         GeneralNameEntry otherName = new GeneralNameEntry();
         otherName.setType(GeneralNameType.OTHER_NAME);
         otherName.setOtherNameOid("1.2.3.4");
@@ -321,7 +321,7 @@ class CertificateUtilTest {
     void applyRegistrationSan_rejectsEntryWithoutType() {
         // A type-less entry cannot be bucketed; it must surface as a controlled ValidationException
         // (not an NPE), and nothing may be persisted on the certificate.
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         GeneralNameEntry typeless = new GeneralNameEntry();
         typeless.setValue("device-9");
 
@@ -333,7 +333,7 @@ class CertificateUtilTest {
     void applyRegistrationSan_rejectsOtherNameWithoutOid() {
         // An OID-less otherName would serialize a literal "null=value" SAN; reject it as a controlled
         // ValidationException instead, and persist nothing on the certificate.
-        Certificate cert = new Certificate();
+        X509CertificateEntity cert = aCertificate().build();
         GeneralNameEntry otherName = new GeneralNameEntry();
         otherName.setType(GeneralNameType.OTHER_NAME);
         otherName.setValue("device-9");
@@ -344,7 +344,7 @@ class CertificateUtilTest {
 
     @Test
     void prepareCertificateRequestEntityFromCsr_populatesIdentityFromCsr() throws Exception {
-        CertificateRequestEntity entity = new CertificateRequestEntity();
+        X509CertificateRequestEntity entity = aCertificateRequest().build();
 
         CertificateUtil.prepareCertificateRequestEntityFromCsr(entity, generatePkcs10("CN=csr-cn", "csr.example.com"));
 
@@ -357,7 +357,7 @@ class CertificateUtilTest {
 
     @Test
     void prepareCertificateRequestEntityFromCsr_multiCnSubject_keepsLeadingCnOfRenderedSubjectDn() throws Exception {
-        CertificateRequestEntity entity = new CertificateRequestEntity();
+        X509CertificateRequestEntity entity = aCertificateRequest().build();
 
         CertificateUtil.prepareCertificateRequestEntityFromCsr(entity, generatePkcs10("CN=first,CN=last", null));
 
@@ -369,7 +369,7 @@ class CertificateUtilTest {
 
     @Test
     void prepareCertificateRequestEntityFromCsr_leavesCommonNameNullWhenSubjectHasNone() throws Exception {
-        CertificateRequestEntity entity = new CertificateRequestEntity();
+        X509CertificateRequestEntity entity = aCertificateRequest().build();
 
         CertificateUtil.prepareCertificateRequestEntityFromCsr(entity, generatePkcs10("O=Acme", null));
 
@@ -379,7 +379,7 @@ class CertificateUtilTest {
 
     @Test
     void prepareCertificateRequestEntityFromCsr_subjectlessCrmf_leavesSubjectColumnsNull() throws Exception {
-        CertificateRequestEntity entity = new CertificateRequestEntity();
+        X509CertificateRequestEntity entity = aCertificateRequest().build();
 
         CertificateUtil.prepareCertificateRequestEntityFromCsr(entity, generateSubjectlessCrmf());
 
@@ -392,7 +392,7 @@ class CertificateUtilTest {
     void prepareCertificateRequestEntityFromCsr_rejectsRequestWithoutPublicKey() throws Exception {
         CertificateRequest requestWithoutKey = mock(CertificateRequest.class);
         when(requestWithoutKey.getPublicKey()).thenReturn(null);
-        CertificateRequestEntity entity = new CertificateRequestEntity();
+        X509CertificateRequestEntity entity = aCertificateRequest().build();
 
         assertThrows(ValidationException.class,
                 () -> CertificateUtil.prepareCertificateRequestEntityFromCsr(entity, requestWithoutKey));
@@ -478,7 +478,7 @@ class CertificateUtilTest {
 
     @Test
     void applyRegistrationSubjectPopulatesTheNormalizedSubject() {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = aCertificate().build();
         CertificateUtil.applyRegistrationSubject(certificate, "CN=device-7, O=Acme");
         assertEquals(CertificateUtil.normalizeStoredSubjectDn(certificate.getSubjectDn()),
                 certificate.getSubjectDnNormalized());
@@ -486,7 +486,7 @@ class CertificateUtilTest {
 
     @Test
     void applyRegistrationSubjectOfABlankDnStoresTheEmptyNormalizedSubject() {
-        Certificate certificate = new Certificate();
+        X509CertificateEntity certificate = aCertificate().build();
         CertificateUtil.applyRegistrationSubject(certificate, " ");
         assertNull(certificate.getSubjectDn());
         assertEquals("", certificate.getSubjectDnNormalized());

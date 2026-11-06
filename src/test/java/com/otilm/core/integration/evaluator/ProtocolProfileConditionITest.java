@@ -61,6 +61,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+
 /**
  * Conditions on the profile of a protocol, evaluated on a certificate read from the database. A certificate has one
  * protocol association whose profile column serves every protocol, so a certificate issued through one protocol holds
@@ -212,7 +214,7 @@ class ProtocolProfileConditionITest extends BaseSpringBootTest {
     }
 
     private UUID certificateIssuedThrough(CertificateProtocol protocol, UUID profileUuid) {
-        Certificate certificate = certificateRepository.save(new Certificate());
+        Certificate certificate = certificateRepository.save(aCertificate().build());
         CertificateProtocolAssociation association = new CertificateProtocolAssociation();
         association.setCertificateUuid(certificate.getUuid());
         association.setProtocol(protocol);

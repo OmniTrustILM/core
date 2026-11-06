@@ -19,13 +19,15 @@ import com.otilm.api.model.core.certificate.GeneralNameType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Builds a {@link DataAttributeV3} carrying an X.509 {@link FieldMapping}. Defaults produce a minimal valid optional
- * STRING attribute named "attr" with no mapped fields. Call {@code mappingRdn/mappingSan} to add targets.
+ * STRING attribute named "attr" with no UUID and no mapped fields. Call {@code mappingRdn/mappingSan} to add targets.
  */
 public final class MappedDataAttributeV3Builder {
 
+    private UUID uuid;
     private String name = "attr";
     private boolean required = false;
     private boolean list = false;
@@ -37,6 +39,11 @@ public final class MappedDataAttributeV3Builder {
 
     public static MappedDataAttributeV3Builder aMappedDataAttribute() {
         return new MappedDataAttributeV3Builder();
+    }
+
+    public MappedDataAttributeV3Builder withUuid(UUID uuid) {
+        this.uuid = uuid;
+        return this;
     }
 
     public MappedDataAttributeV3Builder withName(String name) {
@@ -119,6 +126,9 @@ public final class MappedDataAttributeV3Builder {
 
     public DataAttributeV3 build() {
         DataAttributeV3 attribute = new DataAttributeV3();
+        if (uuid != null) {
+            attribute.setUuid(uuid.toString());
+        }
         attribute.setName(name);
         attribute.setContentType(AttributeContentType.STRING);
         DataAttributeProperties properties = new DataAttributeProperties();

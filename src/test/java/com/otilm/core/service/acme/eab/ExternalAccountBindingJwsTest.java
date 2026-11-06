@@ -12,6 +12,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -155,5 +156,19 @@ class ExternalAccountBindingJwsTest {
         ExternalAccountBinding payloadNotJwk = EabTestUtil.build(KID, URL, accountKey, macKey);
         payloadNotJwk.setPayload(Base64URL.encode("{\"hello\":\"world\"}").toString());
         assertNull(ExternalAccountBindingJws.parse(payloadNotJwk));
+    }
+
+    @Test
+    void returnsNull_whenPayloadKeyListsAnotherPrimeWithoutItsMembers() throws Exception {
+        // given
+        var keyListingAPrimeWithoutItsMembers = "{\"kty\":\"RSA\",\"n\":\"AQAB\",\"e\":\"AQAB\",\"oth\":[{}]}";
+        ExternalAccountBinding binding = EabTestUtil.build(KID, URL, accountKey, macKey);
+        binding.setPayload(Base64URL.encode(keyListingAPrimeWithoutItsMembers).toString());
+
+        // when
+        ExternalAccountBindingJws parsed = ExternalAccountBindingJws.parse(binding);
+
+        // then
+        assertThat(parsed).isNull();
     }
 }

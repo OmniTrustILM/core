@@ -13,6 +13,7 @@ import org.bouncycastle.asn1.DEROctetString;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.any;
@@ -307,11 +308,6 @@ class PollFeatureTest {
     }
 
     private static Certificate certificateInState(UUID uuid, CertificateState state) {
-        Certificate cert = new Certificate();
-        cert.setUuid(uuid);
-        cert.setState(state);
-        cert.setSerialNumber("01");
-        cert.setSubjectDn("CN=test");
-        return cert;
+        return aCertificate().withUuid(uuid).withState(state).withSerialNumber("01").withSubjectDn("CN=test").build();
     }
 }
