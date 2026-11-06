@@ -41,6 +41,16 @@ public class DiscoveryTickBudget {
     }
 
     /**
+     * Refreshes the budget like {@link #refresh}, but makes the row due at the ladder's slowest rung: for an answer
+     * that says nothing is ready yet, where asking again sooner only repeats it.
+     */
+    public void refreshAtSlowestRung(DiscoveryWorkTick tick) {
+        PollSchedule ladder = workProperties.scheduleFor(tick.workType());
+        int nextAttempt = Math.min(tick.attempt() + 1, ladder.ceilingAttempt());
+        tick.reschedule(nextAttempt, OffsetDateTime.now(ZoneOffset.UTC).plus(ladder.delayFor(ladder.ceilingAttempt())));
+    }
+
+    /**
      * Charges one unanswered tick.
      *
      * @param terminalReason Core-authored text for the run's ending, used only once the budget is spent

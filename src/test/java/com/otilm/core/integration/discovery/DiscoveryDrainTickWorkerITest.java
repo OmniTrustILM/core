@@ -20,6 +20,8 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
+import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
+import com.otilm.core.messaging.jms.configuration.StatusPollProperties.PollSchedule;
 import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
@@ -33,6 +35,7 @@ import com.otilm.core.util.DiscoveryCheckpointFixture;
 import com.otilm.core.util.DiscoveryInterfaceFixture;
 import com.otilm.core.util.seeders.DiscoveryWorkTickSeeder;
 import java.net.URI;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -84,6 +87,8 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     private DiscoveryWorkTickSeeder tickSeeder;
     @Autowired
     private DiscoveryWorkLease lease;
+    @Autowired
+    private DiscoveryWorkProperties workProperties;
     @Autowired
     private DiscoveryWorkWriter workWriter;
 
@@ -165,6 +170,26 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(drainRow(run).getAttempt())
                 .as("a valid empty answer refreshes the budget; only consecutive failures spend it")
                 .isLessThan(40);
+    }
+
+    @Test
+    void waitsTheSlowestRung_whenAQuietPageFollowsAContinuation() throws Exception {
+        // given
+        Discovery run = runStillScanning();
+        var afterAContinuation = 0;
+        armDrainRow(run, afterAContinuation);
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(0L, false));
+        PollSchedule ladder = workProperties.scheduleFor(DiscoveryWorkType.DRAIN);
+        Duration slowestRung = ladder.delayFor(ladder.ceilingAttempt());
+        var beforeTick = OffsetDateTime.now(ZoneOffset.UTC);
+
+        // when
+        worker.tick(admitTick(run, afterAContinuation));
+
+        // then
+        assertThat(drainRow(run).getNextDueAt())
+                .as("a connector with nothing ready is asked again at the ladder's slowest cadence, not its fastest")
+                .isAfterOrEqualTo(beforeTick.plus(slowestRung));
     }
 
     @Test

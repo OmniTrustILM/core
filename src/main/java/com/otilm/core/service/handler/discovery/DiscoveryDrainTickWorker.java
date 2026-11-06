@@ -183,9 +183,8 @@ public class DiscoveryDrainTickWorker {
             return;
         }
         if (!DiscoveryRunState.COMPLETED.getCode().equals(run.getConnectorState())) {
-            // The connector is still producing. Nothing more is ready this moment, so climb the ladder towards
-            // its slowest rung, with the budget refreshed by this successful page.
-            idleUntilNextDue(tick);
+            // The connector is still producing and has nothing ready this moment.
+            budget.refreshAtSlowestRung(tick);
             return;
         }
         // The swap is the only catch-up check there is, and deliberately so: it re-asserts the cursor against
@@ -293,14 +292,6 @@ public class DiscoveryDrainTickWorker {
     private void drainAgain(DiscoveryWorkTick tick, String why) {
         logger.debug("Draining discovery {} again immediately: {}", tick.discoveryUuid(), why);
         tick.handOver().ifPresent(workProducer::produceMessage);
-    }
-
-    /**
-     * Refreshes the budget a successful page earned without speeding the cadence up, exactly as a clear status answer
-     * does: see {@link DiscoveryTickBudget#refresh}.
-     */
-    private void idleUntilNextDue(DiscoveryWorkTick tick) {
-        budget.refresh(tick);
     }
 
     /**
