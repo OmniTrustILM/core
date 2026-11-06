@@ -58,6 +58,7 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -74,11 +75,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -444,6 +450,56 @@ class LocationServiceITest extends BaseSpringBootTest {
                         () -> locationService
                                 .editLocation(entityInstanceReference.getSecuredParentUuid(),
                                         SecuredUUID.fromString("abfbc322-29e1-11ed-a261-0242ac120002"), request));
+    }
+
+    @Test
+    void testEditLocation_movesTheLocationToTheEntityInThePath()
+            throws ConnectorException, LocationException, AttributeException, NotFoundException {
+        stubLocationDetail();
+        EntityInstanceReference otherEntity = anotherEntity();
+
+        locationService.editLocation(otherEntity.getSecuredParentUuid(), location.getSecuredUuid(), editRequest());
+
+        Assertions.assertEquals(otherEntity.getUuid(), reloadedLocation().getEntityInstanceReferenceUuid());
+    }
+
+    @Test
+    void testEditLocation_refusesTheMoveWithoutDetailOnTheEntityItLeaves() {
+        stubLocationDetail();
+        SecuredParentUUID otherEntityUuid = anotherEntity().getSecuredParentUuid();
+        SecuredUUID locationUuid = location.getSecuredUuid();
+        EditLocationRequestDto request = editRequest();
+        denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL, entityInstanceReference.getUuid());
+
+        Assertions
+                .assertThrows(AccessDeniedException.class,
+                        () -> locationService.editLocation(otherEntityUuid, locationUuid, request));
+
+        Assertions.assertEquals(entityInstanceReference.getUuid(), reloadedLocation().getEntityInstanceReferenceUuid());
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void testUpdateLocationContent_syncsALocationUnderItsOwnEntity() throws NotFoundException, LocationException {
+        stubLocationDetail();
+
+        LocationDto dto = locationService
+                .updateLocationContent(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid());
+
+        Assertions.assertEquals(location.getUuid().toString(), dto.getUuid());
+    }
+
+    @Test
+    void testEditLocation_placesALocationWithoutEntityUnderTheEntityInThePath()
+            throws ConnectorException, LocationException, AttributeException, NotFoundException {
+        stubLocationDetail();
+        location.setEntityInstanceReference(null);
+        location = locationRepository.save(location);
+
+        locationService
+                .editLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(), editRequest());
+
+        Assertions.assertEquals(entityInstanceReference.getUuid(), reloadedLocation().getEntityInstanceReferenceUuid());
     }
 
     @Test
@@ -1285,6 +1341,113 @@ class LocationServiceITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(1, associations,
                         "expected the PENDING_ISSUE certificate to be pre-associated with the location");
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("entityScopedCalls")
+    void testEntityScopedCall_refusesALocationUnderAnotherEntity(String endpoint, EntityScopedCall call) {
+        SecuredParentUUID otherEntityUuid = anotherEntity().getSecuredParentUuid();
+        SecuredUUID locationUuid = location.getSecuredUuid();
+
+        NotFoundException refusal = Assertions
+                .assertThrows(NotFoundException.class, () -> call.call(locationService, otherEntityUuid, locationUuid));
+
+        Assertions
+                .assertTrue(refusal.getMessage().contains(location.getUuid().toString()),
+                        endpoint + ": " + refusal.getMessage());
+        Location unchanged = reloadedLocation();
+        Assertions.assertTrue(unchanged.getEnabled());
+        Assertions.assertEquals(entityInstanceReference.getUuid(), unchanged.getEntityInstanceReferenceUuid());
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("callsWithoutConnector")
+    void testEntityScopedCall_acceptsALocationUnderItsOwnEntity(String endpoint, EntityScopedCall call) {
+        SecuredParentUUID entityUuid = entityInstanceReference.getSecuredParentUuid();
+        SecuredUUID locationUuid = location.getSecuredUuid();
+
+        Assertions.assertDoesNotThrow(() -> call.call(locationService, entityUuid, locationUuid), endpoint);
+    }
+
+    @FunctionalInterface
+    private interface EntityScopedCall {
+        void call(LocationExternalService service, SecuredParentUUID entityUuid, SecuredUUID locationUuid)
+                throws Exception;
+    }
+
+    private static Stream<Arguments> entityScopedCalls() {
+        String certificateUuid = UUID.randomUUID().toString();
+        String raProfileUuid = UUID.randomUUID().toString();
+        return Stream
+                .concat(callsWithoutConnector(), Stream
+                        .of(call("list push attributes", LocationExternalService::listPushAttributes),
+                                call("list CSR attributes", LocationExternalService::listCsrAttributes),
+                                call("push certificate",
+                                        (service, entity, locationUuid) -> service
+                                                .pushCertificateToLocation(entity, locationUuid, certificateUuid,
+                                                        new PushToLocationRequestDto())),
+                                call("remove certificate",
+                                        (service, entity, locationUuid) -> service
+                                                .removeCertificateFromLocation(entity, locationUuid, certificateUuid)),
+                                call("issue certificate",
+                                        (service, entity, locationUuid) -> service
+                                                .issueCertificateToLocation(entity, locationUuid, raProfileUuid,
+                                                        new IssueToLocationRequestDto())),
+                                call("sync", LocationExternalService::updateLocationContent),
+                                call("renew certificate", (service, entity, locationUuid) -> service
+                                        .renewCertificateInLocation(entity, locationUuid, certificateUuid))));
+    }
+
+    private static Stream<Arguments> callsWithoutConnector() {
+        return Stream
+                .of(call("get", LocationExternalService::getLocation),
+                        call("enable", LocationExternalService::enableLocation),
+                        call("disable", LocationExternalService::disableLocation),
+                        call("delete", LocationExternalService::deleteLocation));
+    }
+
+    private static Arguments call(String endpoint, EntityScopedCall call) {
+        return Arguments.of(endpoint, call);
+    }
+
+    private EntityInstanceReference anotherEntity() {
+        EntityInstanceReference otherEntity = new EntityInstanceReference();
+        otherEntity.setEntityInstanceUuid("5b0f3d2c-8a51-4c8e-9a43-0c4f6b1e2d77");
+        otherEntity.setConnector(entityInstanceReference.getConnector());
+        return entityInstanceReferenceRepository.save(otherEntity);
+    }
+
+    private Location reloadedLocation() {
+        return locationRepository.findByUuid(location.getUuid()).orElseThrow();
+    }
+
+    private static EditLocationRequestDto editRequest() {
+        EditLocationRequestDto request = new EditLocationRequestDto();
+        request.setDescription("edited");
+        request.setAttributes(List.of());
+        return request;
+    }
+
+    private void stubLocationDetail() {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/location/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching("/v1/entityProvider/entities/[^/]+/location/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations"))
+                        .willReturn(WireMock.okJson("""
+                                {
+                                  "certificates": [],
+                                  "multipleEntries": true,
+                                  "supportKeyManagement": true
+                                }""")));
     }
 
 }

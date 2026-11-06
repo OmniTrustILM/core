@@ -112,6 +112,22 @@ public class BaseSpringBootTest {
                 .thenReturn(denied);
     }
 
+    /** Denies the resource vote for one object, which leaves the vote on every other object as stubbed. */
+    protected void denyResourceAccess(Resource resource, ResourceAction action, UUID objectUuid) {
+        OpaResourceAccessResult denied = new OpaResourceAccessResult();
+        denied.setAuthorized(false);
+        when(opaClient
+                .checkResourceAccess(Mockito.any(),
+                        Mockito
+                                .argThat(req -> req != null && req.getProperties() != null
+                                        && resource.getCode().equals(req.getProperties().get("name"))
+                                        && action.getCode().equals(req.getProperties().get("action"))
+                                        && req.getObjectUUIDs() != null
+                                        && req.getObjectUUIDs().contains(objectUuid.toString())),
+                        Mockito.any(), Mockito.any()))
+                .thenReturn(denied);
+    }
+
     /**
      * Denies the OBJECT-access vote for one resource+action -- the vote {@code ObjectFilterAspect} turns into a
      * security filter -- while {@link #denyResourceAccess} denies the method-security resource vote. A path that scopes
