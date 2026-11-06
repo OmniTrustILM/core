@@ -96,7 +96,8 @@ import org.hibernate.type.descriptor.java.Immutability;
 // A request may hold a copy read before a revocation or another state change committed; writing only what it changed
 // keeps the state the change gave the certificate. The JSON columns are marked immutable for the same reason:
 // Hibernate would otherwise compare them by value and write the copy's old value back. Replace them, never mutate them
-// in place.
+// in place. The exception is pendingRevokeAttributes: a changed value is left out of the UPDATE altogether, so
+// CertificatePendingRevokeWriter writes it.
 @DynamicUpdate
 @Inheritance
 @DiscriminatorColumn(name = "certificate_type")
