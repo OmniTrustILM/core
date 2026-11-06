@@ -26,7 +26,6 @@ import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
-import com.otilm.core.util.builders.DataAttributeV3Builder;
 import com.otilm.core.util.builders.RequestAttributeV3Builder;
 import java.util.List;
 import java.util.Set;
@@ -40,6 +39,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -72,8 +72,7 @@ class StaticKeyManagedContentSigningResolverTest {
             .withName("format-attribute")
             .withStringContent("value")
             .build();
-    private static final BaseAttribute A_FORMAT_ATTRIBUTE_DEFINITION = DataAttributeV3Builder
-            .aDataAttribute()
+    private static final BaseAttribute A_FORMAT_ATTRIBUTE_DEFINITION = aDataAttribute()
             .withUuid(UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
             .withName("format-attribute")
             .build();

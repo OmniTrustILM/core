@@ -7,9 +7,6 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.client.v2.AttributesSyncApiClient;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeDefinitionsDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -39,6 +36,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.CacheManager;
 
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Named.named;
@@ -222,8 +220,9 @@ class FormattingAttributeDefinitionsTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void stubPublishedRegistry() throws Exception {
+        BaseAttribute policyDefinition = aDataAttribute().withName("data_formattingPolicy").build();
         AttributeDefinitionsDto registry = new AttributeDefinitionsDto();
-        registry.setDefinitions(List.<BaseAttribute>of(policyDefinition()));
+        registry.setDefinitions(List.of(policyDefinition));
         when(connectorApiFactory.getAttributesApiClientV2(any())).thenReturn(attributesClient);
         when(attributesClient.listDefinitions(any(), any())).thenReturn(registry);
     }
@@ -231,17 +230,6 @@ class FormattingAttributeDefinitionsTest {
     private ApiClientConnectorInfo connectorAt(String url) {
         return new ImmutableConnectorInfo(connectorUuid.toString(), "formatter", url, ConnectorStatus.CONNECTED,
                 AuthType.NONE, List.of(), null);
-    }
-
-    private static DataAttributeV2 policyDefinition() {
-        DataAttributeV2 definition = new DataAttributeV2();
-        definition.setUuid(UUID.randomUUID().toString());
-        definition.setName("data_formattingPolicy");
-        definition.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setLabel("Formatting policy");
-        definition.setProperties(properties);
-        return definition;
     }
 
     private static void assertRefusedAsConnectorFault(ThrowingCallable read) {

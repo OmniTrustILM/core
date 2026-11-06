@@ -1,13 +1,8 @@
 package com.otilm.core.signing.formatting;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
-import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
-import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.GroupAttributeV2;
-import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.util.List;
@@ -15,6 +10,8 @@ import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,15 +52,8 @@ class FormattingAttributesCheckTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static DataAttributeV2 stringDefinition(String name) {
-        DataAttributeV2 definition = new DataAttributeV2();
-        definition.setUuid(UUID.randomUUID().toString());
-        definition.setName(name);
-        definition.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setLabel(name);
-        definition.setProperties(properties);
-        return definition;
+    private static BaseAttribute stringDefinition(String name) {
+        return aDataAttribute().withName(name).build();
     }
 
     private static GroupAttributeV2 group(String name) {
@@ -74,11 +64,6 @@ class FormattingAttributesCheckTest {
     }
 
     private static RequestAttribute stringAttribute(String name) {
-        RequestAttributeV2 attribute = new RequestAttributeV2();
-        attribute.setUuid(UUID.randomUUID());
-        attribute.setName(name);
-        attribute.setContentType(AttributeContentType.STRING);
-        attribute.setContent(List.of(new StringAttributeContentV2("value", "value")));
-        return attribute;
+        return aCustomAttribute().withName(name).withStringContent("value").build();
     }
 }
