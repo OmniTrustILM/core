@@ -2550,17 +2550,17 @@ public class CertificateServiceImpl
         certificateRequestRepository.save(certificateRequestEntity);
 
         List<ResponseAttribute> requestAttributes = attributeEngine
-                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                .createObjectDataAttributesContent(ObjectAttributeContentInfo
                         .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                         .build(), csrAttributes);
         List<ResponseAttribute> requestSignatureAttributes = attributeEngine
-                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                .createObjectDataAttributesContent(ObjectAttributeContentInfo
                         .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                         .connector(signatureAttributeOwner)
                         .operation(AttributeOperation.SIGN)
                         .build(), signatureAttributes);
         List<ResponseAttribute> requestAltSignatureAttributes = attributeEngine
-                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                .createObjectDataAttributesContent(ObjectAttributeContentInfo
                         .builder(Resource.CERTIFICATE_REQUEST, certificateRequestEntity.getUuid())
                         .connector(altSignatureAttributeOwner)
                         .operation(AttributeOperation.SIGN)
@@ -2605,7 +2605,7 @@ public class CertificateServiceImpl
         }
         dto
                 .setIssueAttributes(attributeEngine
-                        .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .createObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE, certificate.getUuid())
                                 .connector(raProfile.getAuthorityInstanceReference().getConnectorUuid())
                                 .operation(AttributeOperation.CERTIFICATE_ISSUE)
