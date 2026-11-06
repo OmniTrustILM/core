@@ -8,12 +8,12 @@ import com.otilm.api.model.client.approvalprofile.ApprovalStepRequestDto;
 import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserProfileDto;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.core.dao.entity.ApprovalProfile;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.ApprovalRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -33,6 +33,8 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.test.context.ActiveProfiles;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * Shared scaffolding for end-to-end approval-workflow integration tests that drive the full async path: ApprovalService
@@ -110,13 +112,13 @@ public abstract class AbstractApprovalWorkflowITest extends BaseMessagingIntTest
         content.setContent(contentText);
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
-        certificate.setSubjectDn(subjectDn);
-        certificate.setIssuerDn("CN=test-issuer");
-        certificate.setSerialNumber(serialNumber);
-        certificate.setState(CertificateState.PENDING_APPROVAL);
-        certificate.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
-        certificate.setCertificateType(CertificateType.X509);
+        X509CertificateEntity certificate = aCertificate()
+                .withSubjectDn(subjectDn)
+                .withIssuerDn("CN=test-issuer")
+                .withSerialNumber(serialNumber)
+                .withState(CertificateState.PENDING_APPROVAL)
+                .withValidationStatus(CertificateValidationStatus.NOT_CHECKED)
+                .build();
         certificate.setCertificateContent(content);
         certificate.setCertificateContentId(content.getId());
         certificate.setNotBefore(Date.from(Instant.now().minus(1, ChronoUnit.DAYS)));

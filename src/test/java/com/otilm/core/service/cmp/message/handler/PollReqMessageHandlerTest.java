@@ -4,6 +4,7 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
@@ -40,6 +41,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -158,11 +160,12 @@ class PollReqMessageHandlerTest {
     }
 
     private static Certificate certificateInState(CertificateState state) {
-        Certificate cert = new Certificate();
-        cert.setUuid(UUID.randomUUID());
-        cert.setState(state);
-        cert.setSerialNumber("01");
-        cert.setSubjectDn("CN=test");
+        X509CertificateEntity cert = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withState(state)
+                .withSerialNumber("01")
+                .withSubjectDn("CN=test")
+                .build();
         // Cert content not exercised in the rejection paths above; left null on purpose.
         cert.setCertificateContent((CertificateContent) null);
         return cert;
@@ -384,12 +387,7 @@ class PollReqMessageHandlerTest {
     }
 
     private static Certificate certificateInState(UUID uuid, CertificateState state) {
-        Certificate cert = new Certificate();
-        cert.setUuid(uuid);
-        cert.setState(state);
-        cert.setSerialNumber("01");
-        cert.setSubjectDn("CN=test");
-        return cert;
+        return aCertificate().withUuid(uuid).withState(state).withSerialNumber("01").withSubjectDn("CN=test").build();
     }
 
     private static CertificateContent certificateContentWithRealPem() {

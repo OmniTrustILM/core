@@ -1,6 +1,5 @@
 - | AcmeEabVerifier.verify(AcmeProfile, ExternalAccountBinding, JWK, URI) | checks [SecretExternalService.getSecretContent secrets:getSecretContent] | reads []
 - | AcmeServiceImpl.downloadCertificate(String, String, URI, boolean) | checks [CertificateInternalService.getCertificateChain certificates:detail] | reads [ACME_ORDER, CERTIFICATE]
-- | AcmeServiceImpl.finalizeOrder(AcmeOrder, AcmeJwsRequest, boolean) | checks [CertificateInternalService.getCertificateEntity certificates:detail, ClientOperationInternalService.issueCertificate raProfiles:detail under authorities:detail] | reads [ACME_PROFILE]
 - | AcmeServiceImpl.finalizeOrder(String, String, String, URI, boolean) | checks [CertificateInternalService.getCertificateEntity certificates:detail, ClientOperationInternalService.issueCertificate raProfiles:detail under authorities:detail] | reads [ACME_ACCOUNT, ACME_ORDER, ACME_PROFILE]
 - | AcmeServiceImpl.getCertificateResource(String) | checks [CertificateInternalService.getCertificateChain certificates:detail] | reads [ACME_ORDER, CERTIFICATE]
 - | AcmeServiceImpl.revokeCertificate(String, String, URI, boolean) | checks [ClientOperationInternalService.revokeCertificate raProfiles:detail under authorities:detail] | reads [ACME_PROFILE, CERTIFICATE]

@@ -42,6 +42,7 @@ import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.AcmeProfileInternalService;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.RaProfileInternalService;
+import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.acme.eab.AcmeEabKeys;
 import com.otilm.core.service.acme.identifier.AcmeIdentifierPolicy;
 import com.otilm.core.service.model.SecuredList;
@@ -187,8 +188,11 @@ public class AcmeProfileServiceImpl implements AcmeProfileExternalService, AcmeP
         acmeProfile.setDescription(request.getDescription());
         acmeProfile.setDnsResolverIp(request.getDnsResolverIp());
         acmeProfile.setDnsResolverPort(request.getDnsResolverPort());
-        acmeProfile.setRetryInterval(Optional.ofNullable(request.getRetryInterval()).orElse(36000));
-        acmeProfile.setValidity(Optional.ofNullable(request.getValidity()).orElse(30));
+        acmeProfile
+                .setRetryInterval(
+                        Optional.ofNullable(request.getRetryInterval()).orElse(AcmeConstants.DEFAULT_RETRY_INTERVAL));
+        acmeProfile
+                .setValidity(Optional.ofNullable(request.getValidity()).orElse(AcmeConstants.DEFAULT_ORDER_VALIDITY));
         acmeProfile.setWebsite(request.getWebsiteUrl());
         acmeProfile.setTermsOfServiceUrl(request.getTermsOfServiceUrl());
         acmeProfile.setRequireContact(request.isRequireContact());

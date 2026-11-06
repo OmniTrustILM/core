@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -50,6 +51,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -128,8 +130,7 @@ public class CertConfirmMessageHandlerTest {
         String certBase64 = Base64.getEncoder().encodeToString(x509certificate.getEncoded());
         CertificateContent content = new CertificateContent();
         content.setContent(certBase64);
-        Certificate cert = new Certificate();
-        cert.setCertificateContent(content);
+        X509CertificateEntity cert = aCertificate().withCertificateContent(content).build();
         CmpTransaction transaction = new CmpTransaction();
         transaction.setCertificate(cert);
         given(cmpTransactionService.findByTransactionId(any())).willReturn(List.of(transaction));
@@ -176,8 +177,7 @@ public class CertConfirmMessageHandlerTest {
                 .makeV3Certificate(BigInteger.valueOf(987654321), otherKp, "CN=Other", otherKp, "CN=Other");
         CertificateContent content = new CertificateContent();
         content.setContent(Base64.getEncoder().encodeToString(otherCert.getEncoded()));
-        Certificate cert = new Certificate();
-        cert.setCertificateContent(content);
+        X509CertificateEntity cert = aCertificate().withCertificateContent(content).build();
         CmpTransaction transaction = new CmpTransaction();
         transaction.setCertificate(cert);
         given(cmpTransactionService.findByTransactionId(any())).willReturn(List.of(transaction));
@@ -205,8 +205,7 @@ public class CertConfirmMessageHandlerTest {
 
         CertificateContent garbage = new CertificateContent();
         garbage.setContent("not-valid-base64-cert-content");
-        Certificate cert = new Certificate();
-        cert.setCertificateContent(garbage);
+        X509CertificateEntity cert = aCertificate().withCertificateContent(garbage).build();
         CmpTransaction transaction = new CmpTransaction();
         transaction.setCertificate(cert);
         given(cmpTransactionService.findByTransactionId(any())).willReturn(List.of(transaction));

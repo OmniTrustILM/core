@@ -21,10 +21,10 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeNonce;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
@@ -59,6 +59,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
@@ -139,11 +140,12 @@ class AcmeFinalizeRequestAttributeValidationITest extends BaseSpringBootTest {
         certificateContent.setContent(b64Certificate);
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        Certificate certificate = new Certificate();
-        certificate.setCertificateContent(certificateContent);
-        certificate.setState(CertificateState.ISSUED);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setRaProfile(raProfile);
+        X509CertificateEntity certificate = aCertificate()
+                .withCertificateContent(certificateContent)
+                .withState(CertificateState.ISSUED)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withRaProfile(raProfile)
+                .build();
         certificateRepository.save(certificate);
 
         AcmeProfile acmeProfile = new AcmeProfile();

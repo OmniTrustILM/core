@@ -18,6 +18,7 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -152,7 +153,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
     private Certificate persistSigningCertificate() throws Exception {
         KeyPair kp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(kp, "CN=SigningCacheTest");
-        Certificate cert = certificateService.createCertificateEntity(x509);
+        X509CertificateEntity cert = X509CertificateEntity.from(certificateService.createCertificateEntity(x509));
         cert.setKey(key);
         cert.setKeyUuid(key.getUuid());
         cert.setValidationStatus(CertificateValidationStatus.VALID);
@@ -164,7 +165,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
 
     @Test
     void mapsEntityFieldsAndPopulatesCache() throws Exception {
-        Certificate cert = persistSigningCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistSigningCertificate());
         UUID uuid = cert.getUuid();
 
         Assertions.assertNull(cache.get(uuid), "cache should be cold before first call");
@@ -189,7 +190,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
 
     @Test
     void secondCallReturnsCachedInstance() throws Exception {
-        Certificate cert = persistSigningCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistSigningCertificate());
         UUID uuid = cert.getUuid();
 
         clearInvocations(certificateRepository);
@@ -210,7 +211,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
 
     @Test
     void cacheIsEvictedAfterDeleteCertificate() throws Exception {
-        Certificate cert = persistSigningCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistSigningCertificate());
         UUID uuid = cert.getUuid();
 
         certificateService.getSigningCertificate(uuid);
@@ -223,7 +224,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
 
     @Test
     void multipleMutationsInOneTransactionClearAfterCommit() throws Exception {
-        Certificate cert = persistSigningCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistSigningCertificate());
         UUID uuid = cert.getUuid();
 
         certificateService.getSigningCertificate(uuid);
@@ -243,7 +244,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
 
     @Test
     void rollbackLeavesCacheIntact() throws Exception {
-        Certificate cert = persistSigningCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistSigningCertificate());
         UUID uuid = cert.getUuid();
 
         certificateService.getSigningCertificate(uuid);
@@ -260,7 +261,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
 
     @Test
     void cacheIsEvictedAfterCryptographicKeyMutation() throws Exception {
-        Certificate cert = persistSigningCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistSigningCertificate());
         UUID uuid = cert.getUuid();
 
         certificateService.getSigningCertificate(uuid);
@@ -276,7 +277,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
 
     @Test
     void cacheIsEvictedAfterCryptographicKeyItemMutation() throws Exception {
-        Certificate cert = persistSigningCertificate();
+        X509CertificateEntity cert = X509CertificateEntity.from(persistSigningCertificate());
         UUID uuid = cert.getUuid();
 
         certificateService.getSigningCertificate(uuid);
@@ -294,7 +295,7 @@ class SigningCertificateCacheITest extends BaseSpringBootTest {
     void keylessCertificateMapsNullKeyReferences() throws Exception {
         KeyPair kp = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         X509Certificate x509 = CertificateGeneratorHelper.generateCACertificate(kp, "CN=SigningCacheTest-Keyless");
-        Certificate cert = certificateService.createCertificateEntity(x509);
+        X509CertificateEntity cert = X509CertificateEntity.from(certificateService.createCertificateEntity(x509));
         // intentionally NO key association
         cert = certificateRepository.saveAndFlush(cert);
 

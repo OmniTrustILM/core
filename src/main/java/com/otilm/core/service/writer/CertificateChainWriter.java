@@ -1,7 +1,7 @@
 package com.otilm.core.service.writer;
 
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.service.CertificateChainService;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,20 +20,20 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class CertificateChainWriter {
 
-    private final CertificateRepository certificateRepository;
+    private final X509CertificateRepository x509CertificateRepository;
 
     @Autowired
-    public CertificateChainWriter(CertificateRepository certificateRepository) {
-        this.certificateRepository = certificateRepository;
+    public CertificateChainWriter(X509CertificateRepository x509CertificateRepository) {
+        this.x509CertificateRepository = x509CertificateRepository;
     }
 
     @Transactional
     public void applyIssuerReference(UUID uuid, String issuerSerialNumber, UUID issuerCertificateUuid) {
-        certificateRepository.updateIssuerReference(uuid, issuerSerialNumber, issuerCertificateUuid);
+        x509CertificateRepository.updateIssuerReference(uuid, issuerSerialNumber, issuerCertificateUuid);
     }
 
     @Transactional
     public void clearIssuerReference(UUID uuid) {
-        certificateRepository.clearIssuerReference(uuid);
+        x509CertificateRepository.clearIssuerReference(uuid);
     }
 }

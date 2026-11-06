@@ -45,7 +45,6 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -82,6 +81,7 @@ import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
@@ -117,6 +117,7 @@ import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
+import com.otilm.core.service.writer.CertificatePendingRevokeWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateTestUtil;
@@ -195,6 +196,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -283,6 +285,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     @MockitoSpyBean
     private CertificateRepository certificateRepository;
+    @Autowired
+    private CertificatePendingRevokeWriter pendingRevokeWriter;
     @MockitoSpyBean
     private ExtendedAttributeService extendedAttributeService;
     @Autowired
@@ -311,7 +315,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     private RaProfile raProfile;
     private AuthorityInstanceReference authorityInstanceReference;
     private Connector connector;
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
     private CertificateContent certificateContent;
 
     private WireMockServer mockServer;
@@ -364,7 +368,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificateContent = new CertificateContent();
         certificateContent = certificateContentRepository.save(certificateContent);
 
-        certificate = new Certificate();
+        certificate = aCertificate().build();
         certificate.setSubjectDn("testCertificate");
         certificate.setIssuerDn("testCertificate");
         certificate.setSerialNumber("123456789");
@@ -2227,7 +2231,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     void testHandleFailedOrRejectedEvent() throws NotFoundException {
         CertificateRelation relation = new CertificateRelation();
         relation.setSuccessorCertificate(certificate);
-        Certificate predCert = new Certificate();
+        X509CertificateEntity predCert = aCertificate().build();
         // Its own content: the schema allows only one certificate per content.
         predCert.setCertificateContent(certificateContentRepository.save(new CertificateContent()));
         certificateRepository.save(predCert);
@@ -2237,7 +2241,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         UUID certificateUuid = certificate.getUuid();
         clientOperationInternalService.issueCertificateRejectedAction(certificateUuid);
         Assertions.assertFalse(certificateRelationRepository.existsById(relation.getId()));
-        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        certificate = X509CertificateEntity.from(certificateRepository.findByUuid(certificateUuid).orElseThrow());
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
         Assertions
                 .assertTrue(
@@ -2262,7 +2266,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .assertThrows(CertificateOperationException.class,
                         () -> clientOperationInternalService.issueCertificateAction(certificateUuid, true));
         Assertions.assertFalse(certificateRelationRepository.existsById(relation.getId()));
-        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        certificate = X509CertificateEntity.from(certificateRepository.findByUuid(certificateUuid).orElseThrow());
         Assertions.assertEquals(CertificateState.FAILED, certificate.getState());
 
         stubAuthorityProviderAttributesEndpoints();
@@ -2322,7 +2326,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         .postRequestedFor(
                                 WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove")));
 
-        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        certificate = X509CertificateEntity.from(certificateRepository.findByUuid(certificateUuid).orElseThrow());
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
     }
 
@@ -2337,7 +2341,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertDoesNotThrow(() -> clientOperationInternalService.issueCertificateRejectedAction(rejectedUuid));
 
-        certificate = certificateRepository.findByUuid(rejectedUuid).orElseThrow();
+        certificate = X509CertificateEntity.from(certificateRepository.findByUuid(rejectedUuid).orElseThrow());
         Assertions.assertEquals(CertificateState.REJECTED, certificate.getState());
     }
 
@@ -2349,7 +2353,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         clientOperationInternalService.revokeCertificateRejectedAction(certificateUuid);
 
-        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        certificate = X509CertificateEntity.from(certificateRepository.findByUuid(certificateUuid).orElseThrow());
         Assertions.assertEquals(CertificateState.ISSUED, certificate.getState());
 
         var history = certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(certificate);
@@ -2370,7 +2374,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         clientOperationInternalService.revokeCertificateRejectedAction(certificateUuid);
 
-        certificate = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+        certificate = X509CertificateEntity.from(certificateRepository.findByUuid(certificateUuid).orElseThrow());
         Assertions.assertEquals(CertificateState.REVOKED, certificate.getState());
     }
 
@@ -2679,6 +2683,31 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void leavesNoPendingRevokeAttributes_whenTheTransitionToPendingRevokeFails() {
+        // given
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/revoke"))
+                        .willReturn(WireMock.aResponse().withStatus(202)));
+        RequestAttributeV2 revokeAttribute = new RequestAttributeV2(UUID.randomUUID(), "reasonDetail",
+                AttributeContentType.STRING, List.of(new StringAttributeContentV2("key compromise")));
+        ClientCertificateRevocationDto request = new ClientCertificateRevocationDto();
+        request.setAttributes(List.of(revokeAttribute));
+        request.setDestroyKey(true);
+        doThrow(new RuntimeException("save failed")).when(certificateRepository).save(any());
+
+        // when
+        ThrowingCallable revoke = () -> clientOperationInternalService
+                .revokeCertificateAction(certificate.getUuid(), request, true);
+
+        // then
+        assertThatThrownBy(revoke).isInstanceOf(CertificateOperationException.class);
+        Certificate fetched = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        assertThat(fetched.getState()).isEqualTo(CertificateState.ISSUED);
+        assertThat(fetched.getPendingRevokeAttributes()).isNull();
+    }
+
+    @Test
     void revokeCertificateAction_completesSynchronously_on200WithEmptyBodyAndNoContentType() {
         // Default WireMock 200 response: no Content-Length, no Content-Type, no body.
         // This is the typical synchronous-success response from a v2 connector
@@ -2939,10 +2968,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Certificate readBefore = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         RequestAttributeV2 revokeAttribute = new RequestAttributeV2(UUID.randomUUID(), "reasonDetail",
                 AttributeContentType.STRING, List.of(new StringAttributeContentV2("key compromise")));
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            Certificate pending = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
-            pending.setPendingRevokeAttributes(List.of(revokeAttribute));
-        });
+        pendingRevokeWriter.save(certificate.getUuid(), List.of(revokeAttribute));
 
         readBefore.setValidationStatus(CertificateValidationStatus.INVALID);
         certificateRepository.save(readBefore);
@@ -3198,14 +3224,15 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         predContent.setContent("predContent");
         predContent = certificateContentRepository.save(predContent);
 
-        Certificate predCert = new Certificate();
-        predCert.setSubjectDn("predecessor");
-        predCert.setIssuerDn("predecessor");
-        predCert.setSerialNumber("987654321");
-        predCert.setCertificateContent(predContent);
-        predCert.setCertificateContentId(predContent.getId());
-        predCert.setState(CertificateState.ISSUED);
-        predCert.setRaProfile(certificate.getRaProfile());
+        X509CertificateEntity predCert = aCertificate()
+                .withSubjectDn("predecessor")
+                .withIssuerDn("predecessor")
+                .withSerialNumber("987654321")
+                .withCertificateContent(predContent)
+                .withCertificateContentId(predContent.getId())
+                .withState(CertificateState.ISSUED)
+                .withRaProfile(certificate.getRaProfile())
+                .build();
         predCert = certificateRepository.save(predCert);
 
         CertificateRequestEntity csr = CertificateRequestEntityBuilder
@@ -3694,7 +3721,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .withPublicKeyAlgorithm("RSA")
                 .withSignatureAlgorithm("SHA256WithRSA")
                 .build();
-        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         certificate.setState(CertificateState.PENDING_ISSUE);
@@ -3776,8 +3802,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // The real row stays PENDING_ISSUE (so the outer read + identify pass), but the row observed under
         // the lock is ISSUED — as if a concurrent upload committed the finalize just before we locked.
-        Certificate alreadyIssued = new Certificate();
-        alreadyIssued.setState(CertificateState.ISSUED);
+        X509CertificateEntity alreadyIssued = aCertificate().withState(CertificateState.ISSUED).build();
         doReturn(Optional.of(alreadyIssued))
                 .when(certificateRepository)
                 .findAndLockWithAssociationsByUuid(certificate.getUuid());
@@ -3818,7 +3843,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void addCertificateRequestToExisting_reassertUnderLock_rejectsWhenRaProfileChangedDuringAuthorization()
             throws Exception {
-        Certificate switchedAway = new Certificate();
+        X509CertificateEntity switchedAway = aCertificate().build();
         switchedAway.setState(CertificateState.REGISTERED); // raProfileUuid left null: profile changed away
         doReturn(Optional.of(switchedAway))
                 .when(certificateRepository)
@@ -4162,7 +4187,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         // handleFailedOrRejectedEvent cleanup pattern).
         // Set up: predecessor (an existing ISSUED cert) -- PENDING --> successor (the
         // cert being cancelled, in PENDING_ISSUE).
-        Certificate predecessor = new Certificate();
+        X509CertificateEntity predecessor = aCertificate().build();
         predecessor.setSubjectDn("CN=predecessor");
         predecessor.setIssuerDn("CN=test-issuer");
         predecessor.setSerialNumber("PRED-" + System.currentTimeMillis());
@@ -4282,7 +4307,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .withPublicKeyAlgorithm("RSA")
                 .withSignatureAlgorithm("SHA256WithRSA")
                 .build();
-        csrEntity.setCertificateType(CertificateType.X509);
         certificateRequestRepository.save(csrEntity);
 
         certificate.setState(CertificateState.REQUESTED);

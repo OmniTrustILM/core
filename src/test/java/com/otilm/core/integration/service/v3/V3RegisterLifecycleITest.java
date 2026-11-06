@@ -9,6 +9,7 @@ import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CertificateStatusPollRepository;
@@ -144,7 +145,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
 
         ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=sync-device,O=Acme");
 
-        Certificate cert = reloadCert(response.getUuid());
+        X509CertificateEntity cert = X509CertificateEntity.from(reloadCert(response.getUuid()));
         Assertions
                 .assertEquals(CertificateState.REGISTERED, cert.getState(),
                         "Synchronous register must transition the certificate to REGISTERED");
@@ -172,7 +173,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=async-device,O=Acme");
 
         UUID certUuid = UUID.fromString(response.getUuid());
-        Certificate cert = reloadCert(response.getUuid());
+        X509CertificateEntity cert = X509CertificateEntity.from(reloadCert(response.getUuid()));
 
         Assertions
                 .assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState(),
@@ -204,7 +205,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         ClientCertificateDataResponseDto response = registerCertificate(fixture, "CN=nopoll-device,O=Acme");
 
         UUID certUuid = UUID.fromString(response.getUuid());
-        Certificate cert = reloadCert(response.getUuid());
+        X509CertificateEntity cert = X509CertificateEntity.from(reloadCert(response.getUuid()));
 
         Assertions
                 .assertEquals(CertificateState.PENDING_REGISTRATION, cert.getState(),
@@ -229,7 +230,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         V3ConnectorStubs.stubRegisterSync(wireMockServer, null);
         ClientCertificateDataResponseDto registerResponse = registerCertificate(fixture, "CN=round-trip,O=Acme");
 
-        Certificate certAfterRegister = reloadCert(registerResponse.getUuid());
+        X509CertificateEntity certAfterRegister = X509CertificateEntity.from(reloadCert(registerResponse.getUuid()));
         Assertions
                 .assertEquals(CertificateState.REGISTERED, certAfterRegister.getState(),
                         "Pre-condition: certificate must be REGISTERED before issue");
@@ -267,7 +268,7 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
                         fixture.raProfile().getSecuredUuid(), registerResponse.getUuid(), issueRequest);
 
         // Step 4: assert final state
-        Certificate certAfterIssue = reloadCert(registerResponse.getUuid());
+        X509CertificateEntity certAfterIssue = X509CertificateEntity.from(reloadCert(registerResponse.getUuid()));
         Assertions
                 .assertEquals(CertificateState.ISSUED, certAfterIssue.getState(),
                         "issueExistingCertificate → ISSUE action → register-bound v3 issue 200 must transition cert to ISSUED");
