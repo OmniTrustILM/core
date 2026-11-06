@@ -311,6 +311,24 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
         assertThat(assetRepository.count()).isEqualTo(2);
     }
 
+    /**
+     * A signature scheme spelled before its digest lands on the row its producer-declared twin keys, as the DSA the arc
+     * names and with the arc standing: the reading that keyed it as its digest and refuted the arc is gone.
+     */
+    @Test
+    void aSignatureNamedBeforeItsDigestIsOneRowWithItsDeclaredTwin() {
+        assertThat(ingestService.ingest(leanCbom.getUuid(), dsaWithSha1DeclaredAndUndeclared(), NOW, POLICY))
+                .isEqualTo(CbomAssetIngestService.IngestOutcome.INGESTED);
+
+        assertThat(assetRepository.findAll()).singleElement().satisfies(asset -> {
+            assertThat(asset.getAlgorithmFamily()).isEqualTo("dsa");
+            assertThat(asset.getOid()).isEqualTo("1.2.840.10040.4.3");
+            assertThat(asset.getIdentityGuard()).isNull();
+            assertThat(storedRefs(asset.getUuid(), leanCbom.getUuid())).containsExactly("dsa-declared", "dsa-by-name");
+        });
+        assertThat(String.valueOf(findings(leanCbom.getUuid()))).doesNotContain("refuted");
+    }
+
     @Test
     void everyUpsertStampsTheRulesetVersionThatKeyedTheRow() {
         UUID assetUuid = upsert(rsa2048(), null);
@@ -1683,6 +1701,17 @@ class CryptoAssetInventoryITest extends BaseSpringBootTest {
                         + "\"cryptoProperties\":{\"assetType\":\"related-crypto-material\","
                         + "\"relatedCryptoMaterialProperties\":{\"type\":\"private-key\",\"value\":\"" + SECRET_MARKER
                         + "\"}}}]}");
+    }
+
+    /** The dsa-with-sha1 arc twice: once with the family the producer declared, once left to the name. */
+    private static JsonNode dsaWithSha1DeclaredAndUndeclared() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":[" + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dsa-declared\","
+                        + "\"name\":\"dsa-1024 with sha-1\",\"cryptoProperties\":{\"oid\":\"1.2.840.10040.4.3\","
+                        + "\"assetType\":\"algorithm\",\"algorithmProperties\":{\"algorithmFamily\":\"DSA\"}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"bom-ref\":\"dsa-by-name\","
+                        + "\"name\":\"dsa-1024 with sha-1\",\"cryptoProperties\":{\"oid\":\"1.2.840.10040.4.3\","
+                        + "\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
     }
 
     private static JsonNode twoAlgorithms() {

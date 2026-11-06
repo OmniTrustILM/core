@@ -5,6 +5,7 @@ import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.cbom.CbomAssetSyncState;
 import com.otilm.api.model.core.cryptoasset.CryptographicAssetType;
+import com.otilm.core.cbom.asset.CryptoAssetIdentityFields;
 import com.otilm.core.cbom.asset.identity.AssetNormalizer;
 import com.otilm.core.cbom.asset.identity.CbomAssetExtractor;
 import com.otilm.core.cbom.asset.identity.CryptoAssetIdentity;
@@ -19,6 +20,7 @@ import com.otilm.core.dao.repository.cbom.CryptoAssetReferenceRepository;
 import com.otilm.core.dao.repository.cbom.CryptoAssetRepository;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.cbom.CbomHeaderCounts;
+import com.otilm.core.model.cbom.CryptoAssetIdentityGuard;
 import com.otilm.core.model.cbom.CryptoAssetReferenceKind;
 import com.otilm.core.model.cbom.PqcStaleVerdictRow;
 import com.otilm.core.model.cbom.ResolvedAssetReference;
@@ -573,6 +575,25 @@ class CbomAssetIngestServiceTest {
         assertThat(evidence.getValue()).hasSize(2);
     }
 
+    /**
+     * A component spelling its signature scheme before its digest keys with the component whose producer declared the
+     * family, under the family the arc names: one row, no refuted arc.
+     */
+    @Test
+    void aSignatureNamedBeforeItsDigestJoinsTheRowItsProducerDeclared() {
+        when(synchronizer.tryLock(anyString())).thenReturn(true);
+        whenUpsertReturnsAFreshUuid();
+
+        ingest(dsaWithSha1DeclaredAndUndeclared(), 100);
+
+        ArgumentCaptor<CryptoAssetIdentityFields> fields = ArgumentCaptor.forClass(CryptoAssetIdentityFields.class);
+        ArgumentCaptor<CryptoAssetIdentityGuard> guard = ArgumentCaptor.forClass(CryptoAssetIdentityGuard.class);
+        verify(assetWriter, times(1)).upsertIdentity(anyString(), fields.capture(), guard.capture());
+        assertThat(fields.getValue().algorithmFamily()).isEqualTo("DSA");
+        assertThat(fields.getValue().oid()).isEqualTo("1.2.840.10040.4.3");
+        assertThat(guard.getValue()).isNull();
+    }
+
     /** The refs travel with the asset to its source row, folded per asset: they are what the CBOM page links by. */
     @Test
     @SuppressWarnings("unchecked")
@@ -1025,6 +1046,17 @@ class CbomAssetIngestServiceTest {
     }
 
     /** Two components reporting the same algorithm, each with its own occurrence evidence. */
+    /** The dsa-with-sha1 arc twice: once with the family the producer declared, once left to the name. */
+    private static JsonNode dsaWithSha1DeclaredAndUndeclared() {
+        return CbomIngestTestFixtures
+                .read("{\"components\":["
+                        + "{\"type\":\"cryptographic-asset\",\"name\":\"dsa-1024 with sha-1\",\"cryptoProperties\":"
+                        + "{\"oid\":\"1.2.840.10040.4.3\",\"assetType\":\"algorithm\","
+                        + "\"algorithmProperties\":{\"algorithmFamily\":\"DSA\"}}},"
+                        + "{\"type\":\"cryptographic-asset\",\"name\":\"dsa-1024 with sha-1\",\"cryptoProperties\":"
+                        + "{\"oid\":\"1.2.840.10040.4.3\",\"assetType\":\"algorithm\",\"algorithmProperties\":{}}}]}");
+    }
+
     private static JsonNode theSameAlgorithmTwice() {
         return CbomIngestTestFixtures
                 .read("{\"components\":["
