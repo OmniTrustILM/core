@@ -1,6 +1,7 @@
 package com.otilm.core.integration.migration;
 
 import com.otilm.core.util.BaseSpringBootTest;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -57,6 +58,32 @@ class ProfileAssociationLookupIndexesMigrationITest extends BaseSpringBootTest {
     @Autowired
     private DataSource dataSource;
 
+    /**
+     * Sequential scans are disabled for the check: on tables this size the planner would pick one on cost alone, and
+     * the question is whether the index answers the lookup at all.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("lookups")
+    void usesIndex_whenPlanningTheLookupItIsThereFor(String index, String lookup) throws Exception {
+        try (Connection connection = dataSource.getConnection()) {
+            try {
+                // given
+                createMigratedScratchTables(connection);
+                String query = lookup.formatted(SOME_UUID);
+
+                // when
+                String plan = planFor(connection, query);
+
+                // then
+                assertThat(plan).contains(index);
+            } finally {
+                dropScratchSchema(connection);
+            }
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
     static Stream<Arguments> lookups() {
         return Stream
                 .of(Arguments
@@ -68,31 +95,16 @@ class ProfileAssociationLookupIndexesMigrationITest extends BaseSpringBootTest {
                                                 + " AND group_uuid <> ALL (CAST('{%s}' AS uuid[]))"));
     }
 
-    /**
-     * Sequential scans are disabled for the check: on tables this size the planner would pick one on cost alone, and
-     * the question is whether the index answers the lookup at all.
-     */
-    @ParameterizedTest(name = "{0}")
-    @MethodSource("lookups")
-    void eachIndexAnswersTheLookupItIsThereFor(String index, String lookup) throws Exception {
-        try (Connection connection = dataSource.getConnection()) {
-            try {
-                execute(connection, "DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
-                execute(connection, "CREATE SCHEMA " + SCRATCH_SCHEMA);
-                execute(connection, "SET search_path TO " + SCRATCH_SCHEMA);
-                execute(connection, TABLES);
-                execute(connection,
-                        new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8));
-                execute(connection, ROWS);
-
-                assertThat(planFor(connection, lookup.formatted(SOME_UUID))).contains(index);
-            } finally {
-                dropScratchSchema(connection);
-            }
-        }
+    private static void createMigratedScratchTables(Connection connection) throws IOException, SQLException {
+        execute(connection, "DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
+        execute(connection, "CREATE SCHEMA " + SCRATCH_SCHEMA);
+        execute(connection, "SET search_path TO " + SCRATCH_SCHEMA);
+        execute(connection, TABLES);
+        execute(connection, new ClassPathResource(MIGRATION_RESOURCE).getContentAsString(StandardCharsets.UTF_8));
+        execute(connection, ROWS);
     }
 
-    private String planFor(Connection connection, String query) throws SQLException {
+    private static String planFor(Connection connection, String query) throws SQLException {
         StringBuilder plan = new StringBuilder();
         try (Statement statement = connection.createStatement()) {
             statement.execute("SET enable_seqscan = off");
@@ -105,13 +117,13 @@ class ProfileAssociationLookupIndexesMigrationITest extends BaseSpringBootTest {
         return plan.toString();
     }
 
-    private void execute(Connection connection, String sql) throws SQLException {
+    private static void execute(Connection connection, String sql) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
         }
     }
 
-    private void dropScratchSchema(Connection connection) throws SQLException {
+    private static void dropScratchSchema(Connection connection) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.execute("DROP SCHEMA IF EXISTS " + SCRATCH_SCHEMA + " CASCADE");
         } finally {

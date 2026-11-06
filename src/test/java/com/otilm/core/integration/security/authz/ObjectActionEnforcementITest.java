@@ -10,7 +10,6 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
@@ -59,6 +58,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
+import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
@@ -150,12 +152,9 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
     private UUID groupUuid;
 
     @BeforeEach
-    void setUpObjects() {
-        Connector connector = new Connector();
-        connector.setName("connector");
-        connector.setUrl("http://localhost");
-        connector.setVersion(ConnectorVersion.V1);
-        connector = connectorRepository.save(connector);
+    void createCertificateKeyAndGroup() {
+        Connector connector = connectorRepository
+                .save(aConnector().withGeneratedUuid().withName("connector").withVersion(ConnectorVersion.V1).build());
 
         AuthorityInstanceReference authority = new AuthorityInstanceReference();
         authority.setName("authority");
@@ -169,14 +168,15 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         raProfile = raProfileRepository.save(raProfile);
 
         CertificateContent content = certificateContentRepository.save(new CertificateContent());
-        Certificate certificate = new Certificate();
-        certificate.setSerialNumber(UUID.randomUUID().toString());
-        certificate.setCertificateContent(content);
-        certificate.setCertificateContentId(content.getId());
-        certificate.setState(CertificateState.REQUESTED);
-        certificate.setRaProfile(raProfile);
-        certificate.setRaProfileUuid(raProfile.getUuid());
-        certificateUuid = certificateRepository.save(certificate).getUuid();
+        certificateUuid = certificateRepository
+                .save(aCertificate()
+                        .withSerialNumber(UUID.randomUUID().toString())
+                        .withCertificateContent(content)
+                        .withCertificateContentId(content.getId())
+                        .withState(CertificateState.REQUESTED)
+                        .withRaProfile(raProfile)
+                        .build())
+                .getUuid();
 
         TokenInstanceReference token = new TokenInstanceReference();
         token.setName("token");
@@ -190,12 +190,9 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
         tokenProfile.setEnabled(true);
         tokenProfile = tokenProfileRepository.save(tokenProfile);
-        key = new CryptographicKey();
-        key.setName("key");
+        key = aCryptographicKey().withName("key").build();
         key.setTokenInstanceReference(token);
-        key.setTokenInstanceReferenceUuid(token.getUuid());
         key.setTokenProfile(tokenProfile);
-        key.setTokenProfileUuid(tokenProfile.getUuid());
         key = keyRepository.save(key);
 
         Group group = new Group();
@@ -205,8 +202,35 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @EnumSource(User.class)
-    void reportsACertificateActionExactlyWhenItsEndpointsAcceptIt(User user) {
+    void reportsCertificateActionExactly_whenItsEndpointsAcceptIt(User user) {
+        // given
         actAs(user, Resource.CERTIFICATE, certificateUuid);
+        Map<ResourceAction, List<Call>> endpoints = certificateEndpoints();
+
+        // when
+        List<ResourceAction> reported = reportedActions(Resource.CERTIFICATE, certificateUuid);
+
+        // then
+        assertReportedExactlyWhenAccepted(user, reported, endpoints);
+    }
+
+    @ParameterizedTest
+    @EnumSource(User.class)
+    void reportsKeyActionExactly_whenItsEndpointsAcceptIt(User user) {
+        // given
+        actAs(user, Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
+        Map<ResourceAction, List<Call>> endpoints = keyEndpoints();
+
+        // when
+        List<ResourceAction> reported = reportedActions(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
+
+        // then
+        assertReportedExactlyWhenAccepted(user, reported, endpoints);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private Map<ResourceAction, List<Call>> certificateEndpoints() {
         SecuredParentUUID authority = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
         SecuredUUID raProfileUuid = SecuredUUID.fromUUID(raProfile.getUuid());
         Map<ResourceAction, List<Call>> endpoints = new LinkedHashMap<>();
@@ -233,14 +257,10 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                                         () -> clientOperationService
                                                 .revokeCertificateAction(UUID.randomUUID(),
                                                         new ClientCertificateRevocationDto(), false)));
-
-        assertReportedExactlyWhenAccepted(user, Resource.CERTIFICATE, certificateUuid, endpoints);
+        return endpoints;
     }
 
-    @ParameterizedTest
-    @EnumSource(User.class)
-    void reportsAKeyActionExactlyWhenItsEndpointsAcceptIt(User user) {
-        actAs(user, Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
+    private Map<ResourceAction, List<Call>> keyEndpoints() {
         Map<ResourceAction, List<Call>> endpoints = new LinkedHashMap<>();
         endpoints
                 .put(ResourceAction.DETAIL,
@@ -254,19 +274,21 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                                         .signData(SecuredParentUUID.fromUUID(key.getTokenInstanceReferenceUuid()),
                                                 SecuredUUID.fromUUID(key.getTokenProfileUuid()), key.getUuid(),
                                                 UUID.randomUUID(), new SignDataRequestDto())));
-
-        assertReportedExactlyWhenAccepted(user, Resource.CRYPTOGRAPHIC_KEY, key.getUuid(), endpoints);
+        return endpoints;
     }
 
-    private void assertReportedExactlyWhenAccepted(User user, Resource resource, UUID objectUuid,
-            Map<ResourceAction, List<Call>> endpoints) {
-        List<ResourceAction> reported = resourceService
+    private List<ResourceAction> reportedActions(Resource resource, UUID objectUuid) {
+        return resourceService
                 .listObjectAllowedActions(resource, new ObjectAllowedActionsRequestDto(List.of(objectUuid)))
                 .getItems()
                 .stream()
                 .findFirst()
                 .map(ObjectAllowedActionsDto::getAllowedActions)
                 .orElse(List.of());
+    }
+
+    private static void assertReportedExactlyWhenAccepted(User user, List<ResourceAction> reported,
+            Map<ResourceAction, List<Call>> endpoints) {
         List<String> mismatches = new ArrayList<>();
         endpoints.forEach((action, calls) -> {
             boolean accepted = calls.stream().allMatch(ObjectActionEnforcementITest::accepts);

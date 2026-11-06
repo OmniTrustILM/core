@@ -68,42 +68,80 @@ class ObjectActionRequirementsGuardTest {
     }
 
     @Test
-    void tablesOrExcludesEveryActionDeclaredOnATabledResource() {
+    void tablesOrExcludesEveryAction_whenItIsDeclaredOnATabledResource() {
+        // given
         Map<Resource, Set<ResourceAction>> declared = declaredActions();
-        tabled().forEach((resource, objects) -> {
-            Set<ResourceAction> missing = new TreeSet<>(declared.getOrDefault(resource, Set.of()));
-            missing.removeAll(NOT_ON_AN_OBJECT);
-            missing.removeAll(EXCLUDED.getOrDefault(resource, Set.of()));
-            missing.removeAll(objects.actions().keySet());
-            assertThat(missing)
-                    .as("actions declared on %s but neither tabled nor excluded", resource.getCode())
-                    .isEmpty();
-        });
+
+        // when
+        Map<Resource, Set<ResourceAction>> untabled = untabledActions(declared);
+
+        // then
+        assertThat(untabled).as("actions declared on a tabled resource but neither tabled nor excluded").isEmpty();
     }
 
     @Test
-    void tablesOnlyActionsTheAnnotationsDeclare() {
+    void tablesOnlyDeclaredActions_whenAResourceIsTabled() {
+        // given
         Map<Resource, Set<ResourceAction>> declared = declaredActions();
-        tabled()
-                .forEach((resource, objects) -> assertThat(declared.getOrDefault(resource, Set.of()))
-                        .as("actions tabled on %s", resource.getCode())
-                        .containsAll(objects.actions().keySet()));
+
+        // when
+        Map<Resource, Set<ResourceAction>> undeclared = undeclaredTabledActions(declared);
+
+        // then
+        assertThat(undeclared).as("actions tabled on a resource but declared by no annotation").isEmpty();
     }
 
     @Test
-    void authorizationOfTabledResourcesMatchesTheSnapshot() throws IOException {
+    void matchesTheSnapshot_whenAuthorizingMethodsThatTouchATabledResource() throws Exception {
+        // given — the snapshot recorded at SNAPSHOT, rewritten first when -DobjectActionSnapshot.update=true
+
+        // when
         String current = snapshot();
-        if (Boolean.getBoolean(UPDATE_PROPERTY)) {
-            Files.createDirectories(SNAPSHOT.getParent());
-            Files.writeString(SNAPSHOT, current);
-        }
-        String recorded = Files.exists(SNAPSHOT) ? Files.readString(SNAPSHOT) : "";
+
+        // then
         assertThat(current)
                 .as("""
                         The authorization of a method touching a tabled resource changed. Review the \
                         ObjectActionRequirements entry for it, then regenerate %s with -D%s=true.""", SNAPSHOT,
                         UPDATE_PROPERTY)
-                .isEqualTo(recorded);
+                .isEqualTo(recordedSnapshot(current));
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private static Map<Resource, Set<ResourceAction>> untabledActions(Map<Resource, Set<ResourceAction>> declared) {
+        Map<Resource, Set<ResourceAction>> untabled = new EnumMap<>(Resource.class);
+        tabled().forEach((resource, objects) -> {
+            Set<ResourceAction> missing = new TreeSet<>(declared.getOrDefault(resource, Set.of()));
+            missing.removeAll(NOT_ON_AN_OBJECT);
+            missing.removeAll(EXCLUDED.getOrDefault(resource, Set.of()));
+            missing.removeAll(objects.actions().keySet());
+            if (!missing.isEmpty()) {
+                untabled.put(resource, missing);
+            }
+        });
+        return untabled;
+    }
+
+    private static Map<Resource, Set<ResourceAction>> undeclaredTabledActions(
+            Map<Resource, Set<ResourceAction>> declared) {
+        Map<Resource, Set<ResourceAction>> undeclared = new EnumMap<>(Resource.class);
+        tabled().forEach((resource, objects) -> {
+            Set<ResourceAction> extra = new TreeSet<>(objects.actions().keySet());
+            extra.removeAll(declared.getOrDefault(resource, Set.of()));
+            if (!extra.isEmpty()) {
+                undeclared.put(resource, extra);
+            }
+        });
+        return undeclared;
+    }
+
+    private static String recordedSnapshot(String current) throws IOException {
+        if (Boolean.getBoolean(UPDATE_PROPERTY)) {
+            Files.createDirectories(SNAPSHOT.getParent());
+            Files.writeString(SNAPSHOT, current);
+        }
+        return Files.exists(SNAPSHOT) ? Files.readString(SNAPSHOT) : "";
     }
 
     private static Map<Resource, ResourceObjects> tabled() {

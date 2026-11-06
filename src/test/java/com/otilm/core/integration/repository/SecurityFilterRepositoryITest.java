@@ -41,16 +41,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.apache.commons.lang3.function.TriFunction;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Named.named;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 @SpringBootTest
 class SecurityFilterRepositoryITest extends BaseSpringBootTest {
@@ -223,126 +229,82 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void membersOnEveryGroupListsObjectsAssignedToAnyGroupWithoutAListGrant() {
-        SecurityFilter filter = SecurityFilter.create();
-        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
-        resourceFilter.setResource(Resource.CERTIFICATE);
-        resourceFilter.setResourceAction(ResourceAction.LIST);
-        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
-        filter.setResourceFilter(resourceFilter);
-        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
-        groupMembersFilter.setResource(Resource.GROUP);
-        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
-        filter.setGroupMembersFilter(groupMembersFilter);
+    void listsObjectsInAnyGroup_whenMembersAreGrantedOnEveryGroupWithoutAListGrant() {
+        // given
+        SecurityFilter filter = certificatesThroughGroupMembers(List.of(), List.of());
 
-        assertThat(certificateRepository.findUsingSecurityFilter(filter))
+        // when
+        List<Certificate> listed = certificateRepository.findUsingSecurityFilter(filter);
+
+        // then
+        assertThat(listed)
                 .extracting(UniquelyIdentifiedAndAudited::getUuid)
                 .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
-        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
-                .describedAs("an object in several groups is paged once")
-                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+    }
 
-        groupMembersFilter.addDeniedObjects(List.of(group.getUuid().toString(), secondGroup.getUuid().toString()));
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("grantsAdmittingAnObjectInSeveralGroups")
+    void pagesObjectInSeveralGroupsOnce_whenMembersAreGrantedOnItsGroups(GroupMembersGrant grant) {
+        // given
+        SecurityFilter filter = certificatesThroughGroupMembers(groups(grant.allowed()), groups(grant.denied()));
 
-        assertThat(certificateRepository.findUsingSecurityFilter(filter))
-                .describedAs("an object assigned only to denied groups drops out")
-                .extracting(UniquelyIdentifiedAndAudited::getUuid)
-                .containsExactly(certificateOwner.getUuid());
+        // when
+        List<UUID> paged = certificateRepository
+                .findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null);
+
+        // then
+        assertThat(paged).containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
     }
 
     @Test
-    void restrictedMembersGrantPagesAnObjectInSeveralGroupsOnce() {
-        SecurityFilter filter = SecurityFilter.create();
-        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
-        resourceFilter.setResource(Resource.CERTIFICATE);
-        resourceFilter.setResourceAction(ResourceAction.LIST);
-        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
-        filter.setResourceFilter(resourceFilter);
-        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
-        groupMembersFilter.setResource(Resource.GROUP);
-        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
-        filter.setGroupMembersFilter(groupMembersFilter);
+    void leavesObjectInSeveralGroupsOffThePage_whenOneOfItsGroupsIsDenied() {
+        // given
+        SecurityFilter filter = certificatesThroughGroupMembers(List.of(), List.of(secondGroup));
 
-        groupMembersFilter.addDeniedObjects(List.of(thirdGroup.getUuid().toString()));
-        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
-                .describedAs("members on every group but a denied one")
-                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+        // when
+        List<UUID> paged = certificateRepository
+                .findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null);
 
-        groupMembersFilter.setAreOnlySpecificObjectsAllowed(true);
-        groupMembersFilter.addAllowedObjects(List.of(group.getUuid().toString(), secondGroup.getUuid().toString()));
-        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
-                .describedAs("members on specific groups")
-                .containsExactlyInAnyOrder(certificateGroup.getUuid(), certificateOwner.getUuid());
+        // then
+        assertThat(paged).containsExactly(certificateOwner.getUuid());
     }
 
-    @Test
-    void anObjectAlsoAssignedToADeniedGroupIsNotListedThroughGroupMembers() {
-        SecurityFilter filter = SecurityFilter.create();
-        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
-        resourceFilter.setResource(Resource.CERTIFICATE);
-        resourceFilter.setResourceAction(ResourceAction.LIST);
-        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
-        filter.setResourceFilter(resourceFilter);
-        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
-        groupMembersFilter.setResource(Resource.GROUP);
-        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
-        filter.setGroupMembersFilter(groupMembersFilter);
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("grantsExcludingTheObjectInSeveralGroups")
+    void leavesOutObjectInSeveralGroups_whenOneOfItsGroupsIsDenied(GroupMembersGrant grant) {
+        // given
+        SecurityFilter filter = certificatesThroughGroupMembers(groups(grant.allowed()), groups(grant.denied()));
 
-        groupMembersFilter.addDeniedObjects(List.of(secondGroup.getUuid().toString()));
-        assertThat(certificateRepository.findUuidsUsingSecurityFilter(filter, null, PageRequest.of(0, 10), null))
-                .describedAs("members on every group but a second group of the same object")
-                .containsExactly(certificateOwner.getUuid());
+        // when
+        List<Certificate> listed = certificateRepository.findUsingSecurityFilter(filter);
 
-        groupMembersFilter.setAreOnlySpecificObjectsAllowed(true);
-        groupMembersFilter.addAllowedObjects(List.of(group.getUuid().toString()));
-        assertThat(certificateRepository.findUsingSecurityFilter(filter))
-                .describedAs("members on a specific group, denied on a second group of the same object")
-                .extracting(UniquelyIdentifiedAndAudited::getUuid)
-                .containsExactly(certificateOwner.getUuid());
-
-        groupMembersFilter.getForbiddenObjects().clear();
-        groupMembersFilter.addDeniedObjects(List.of(group.getUuid().toString()));
-        assertThat(certificateRepository.findUsingSecurityFilter(filter))
-                .describedAs("a group both granted and denied admits nothing")
+        // then
+        assertThat(listed)
                 .extracting(UniquelyIdentifiedAndAudited::getUuid)
                 .containsExactly(certificateOwner.getUuid());
     }
 
-    @Test
-    void countsAndStatisticsAgreeWithTheListForEachGroupMembersCase() {
-        SecurityFilter filter = SecurityFilter.create();
-        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
-        resourceFilter.setResource(Resource.CERTIFICATE);
-        resourceFilter.setResourceAction(ResourceAction.LIST);
-        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
-        filter.setResourceFilter(resourceFilter);
-        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
-        groupMembersFilter.setResource(Resource.GROUP);
-        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
-        filter.setGroupMembersFilter(groupMembersFilter);
-
-        assertCountsMatchTheList(filter, "members on every group");
-
-        groupMembersFilter.addDeniedObjects(List.of(secondGroup.getUuid().toString()));
-        assertCountsMatchTheList(filter, "members on every group but a denied one");
-
-        groupMembersFilter.setAreOnlySpecificObjectsAllowed(true);
-        groupMembersFilter.addAllowedObjects(List.of(group.getUuid().toString()));
-        assertCountsMatchTheList(filter, "members on a specific group");
-    }
-
-    private void assertCountsMatchTheList(SecurityFilter filter, String groupMembersCase) {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("grantsCountedAgainstTheList")
+    void countsAsManyAsTheListHolds_whenMembersAreGranted(GroupMembersGrant grant) {
+        // given
+        SecurityFilter filter = certificatesThroughGroupMembers(groups(grant.allowed()), groups(grant.denied()));
         long listed = certificateRepository.findUsingSecurityFilter(filter).size();
-        assertThat(certificateRepository.countUsingSecurityFilter(filter)).as(groupMembersCase).isEqualTo(listed);
-        assertThat(certificateRepository.countRowsUsingSecurityFilter(filter, null))
-                .as(groupMembersCase)
-                .isEqualTo(listed);
-        assertThat(certificateRepository
+
+        // when
+        Long count = certificateRepository.countUsingSecurityFilter(filter);
+        Long rowCount = certificateRepository.countRowsUsingSecurityFilter(filter, null);
+        long groupedTotal = certificateRepository
                 .countGroupedUsingSecurityFilter(filter, null, Certificate_.certificateType, null, null)
                 .values()
                 .stream()
                 .mapToLong(Long::longValue)
-                .sum()).as(groupMembersCase).isEqualTo(listed);
+                .sum();
+
+        // then
+        assertThat(count).isEqualTo(listed);
+        assertThat(rowCount).isEqualTo(listed);
+        assertThat(groupedTotal).isEqualTo(listed);
     }
 
     @Test
@@ -705,5 +667,73 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
         Assertions
                 .assertThrows(ValidationException.class,
                         () -> certificateRepository.findUsingSecurityFilter(filter, List.of(), null, null, null, sort));
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    static Stream<Arguments> grantsAdmittingAnObjectInSeveralGroups() {
+        return Stream
+                .of(arguments(named("members on every group", new GroupMembersGrant(List.of(), List.of()))),
+                        arguments(named("members on every group but a denied one",
+                                new GroupMembersGrant(List.of(), List.of(GroupSlot.THIRD)))),
+                        arguments(named("members on specific groups", new GroupMembersGrant(
+                                List.of(GroupSlot.FIRST, GroupSlot.SECOND), List.of(GroupSlot.THIRD)))));
+    }
+
+    static Stream<Arguments> grantsExcludingTheObjectInSeveralGroups() {
+        return Stream
+                .of(arguments(named("every group of the object denied",
+                        new GroupMembersGrant(List.of(), List.of(GroupSlot.FIRST, GroupSlot.SECOND)))),
+                        arguments(named("members on a specific group, denied on a second group of the same object",
+                                new GroupMembersGrant(List.of(GroupSlot.FIRST), List.of(GroupSlot.SECOND)))),
+                        arguments(named("a group both granted and denied admits nothing",
+                                new GroupMembersGrant(List.of(GroupSlot.FIRST), List.of(GroupSlot.FIRST)))));
+    }
+
+    static Stream<Arguments> grantsCountedAgainstTheList() {
+        return Stream
+                .of(arguments(named("members on every group", new GroupMembersGrant(List.of(), List.of()))),
+                        arguments(named("members on every group but a denied one",
+                                new GroupMembersGrant(List.of(), List.of(GroupSlot.SECOND)))),
+                        arguments(named("members on a specific group",
+                                new GroupMembersGrant(List.of(GroupSlot.FIRST), List.of(GroupSlot.SECOND)))));
+    }
+
+    private List<Group> groups(List<GroupSlot> slots) {
+        return slots.stream().map(slot -> switch (slot) {
+            case FIRST -> group;
+            case SECOND -> secondGroup;
+            case THIRD -> thirdGroup;
+        }).toList();
+    }
+
+    /** Certificates are listable only through groups, with members granted on every group when none are allowed. */
+    private static SecurityFilter certificatesThroughGroupMembers(List<Group> allowedGroups, List<Group> deniedGroups) {
+        SecurityFilter filter = SecurityFilter.create();
+        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
+        resourceFilter.setResource(Resource.CERTIFICATE);
+        resourceFilter.setResourceAction(ResourceAction.LIST);
+        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
+        filter.setResourceFilter(resourceFilter);
+        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
+        groupMembersFilter.setResource(Resource.GROUP);
+        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
+        groupMembersFilter.setAreOnlySpecificObjectsAllowed(!allowedGroups.isEmpty());
+        groupMembersFilter.addAllowedObjects(allowedGroups.stream().map(g -> g.getUuid().toString()).toList());
+        groupMembersFilter.addDeniedObjects(deniedGroups.stream().map(g -> g.getUuid().toString()).toList());
+        filter.setGroupMembersFilter(groupMembersFilter);
+        return filter;
+    }
+
+    /**
+     * The groups set up in {@link #setUp()}: the grouped certificate is in the first two, the owned one in the third.
+     */
+    private enum GroupSlot {
+        FIRST,
+        SECOND,
+        THIRD
+    }
+
+    private record GroupMembersGrant(List<GroupSlot> allowed, List<GroupSlot> denied) {
     }
 }
