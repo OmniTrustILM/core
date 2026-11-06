@@ -173,6 +173,27 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void stagesNothing_whenAnotherTickTookTheRowDuringTheConnectorCall() throws Exception {
+        // given
+        Discovery run = runStillScanning();
+        armDrainRow(run, 0);
+        DiscoveryWorkTick tick = admitTick(run, 0);
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            workWriter
+                    .scheduleLeased(run.getUuid(), DiscoveryWorkType.DRAIN, UUID.randomUUID(),
+                            OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2));
+            return page(1L, true, keyItem(1, "key-a"));
+        });
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(stagedRefs(run)).isEmpty();
+        assertThat(reload(run).getLastAppliedSequence()).isZero();
+    }
+
+    @Test
     void waitsTheSlowestRung_whenAQuietPageFollowsAContinuation() throws Exception {
         // given
         Discovery run = runStillScanning();

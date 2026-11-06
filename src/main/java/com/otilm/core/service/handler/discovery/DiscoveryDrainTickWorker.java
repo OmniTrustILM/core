@@ -124,7 +124,10 @@ public class DiscoveryDrainTickWorker {
         }
 
         // The connector call may have taken most of the lease; staging must not run past it.
-        tick.renew();
+        if (!tick.renew()) {
+            logger.debug("Dropping a drained page for discovery {}: another tick holds its row now", discoveryUuid);
+            return;
+        }
         boolean advanced;
         try {
             advanced = ingestor.applyDrainPage(discoveryUuid, page);

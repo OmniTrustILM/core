@@ -7,8 +7,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -19,8 +17,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class DiscoveryWorkLease {
-
-    private static final Logger logger = LoggerFactory.getLogger(DiscoveryWorkLease.class);
 
     private final DiscoveryWorkWriter workWriter;
     private final Duration leaseDuration;
@@ -73,12 +69,8 @@ public class DiscoveryWorkLease {
         return new DiscoveryWorkMessage(discoveryUuid, workType, 0, token);
     }
 
-    void renew(DiscoveryWorkTick tick) {
-        if (!workWriter.renewLease(tick.discoveryUuid(), tick.workType(), tick.token(), now().plus(leaseDuration))) {
-            logger
-                    .debug("Discovery {} tick for run {} no longer holds its row; its writes will change nothing",
-                            tick.workType(), tick.discoveryUuid());
-        }
+    boolean renew(DiscoveryWorkTick tick) {
+        return workWriter.renewLease(tick.discoveryUuid(), tick.workType(), tick.token(), now().plus(leaseDuration));
     }
 
     void reschedule(DiscoveryWorkTick tick, int attempt, OffsetDateTime nextDueAt) {

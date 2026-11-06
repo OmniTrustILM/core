@@ -191,6 +191,28 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void leavesTheKeysAndTheEndingToTheNewHolder_whenAnotherTickTookTheRowDuringTheBatch() throws Exception {
+        // given
+        Discovery run = processingRun();
+        stageCertificates(run, 1);
+        stageKeys(run, 1);
+        DiscoveryWorkTick tick = admitTick(run, 0);
+        doAnswer(invocation -> {
+            List<DiscoveryCertificate> batch = invocation.getArgument(1);
+            discoveryWriter.markProcessed(batch.stream().map(DiscoveryCertificate::getUuid).toList(), null);
+            leaseToAnotherTick(run);
+            return new DiscoveryRunCounts(0, 0, 0, 0, false);
+        }).when(importHandler).processBatch(any(), anyList());
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(importedKeyItems(run)).isZero();
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+    }
+
+    @Test
     void mixedRun_waitsForItsKeysEvenOnceEveryCertificateIsIn() throws Exception {
         Discovery run = processingRun();
         stageCertificates(run, 1);
@@ -761,6 +783,13 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
 
     private DiscoveryWorkTick admitTick(Discovery run, int attempt) {
         return tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.PROCESS, attempt);
+    }
+
+    /** What a reclaim or a lifecycle change does to a running tick: its row is now leased to another token. */
+    private void leaseToAnotherTick(Discovery run) {
+        workWriter
+                .scheduleLeased(run.getUuid(), DiscoveryWorkType.PROCESS, UUID.randomUUID(),
+                        OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2));
     }
 
     private DiscoveryWork processRow(Discovery run) {

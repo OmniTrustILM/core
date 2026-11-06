@@ -126,7 +126,12 @@ public class DiscoveryProcessTickWorker {
         if (!batch.isEmpty()) {
             importBatch(run, attempt, batch);
             // A batch can run long; the keys and the decision after it must not run past the lease.
-            tick.renew();
+            if (!tick.renew()) {
+                logger
+                        .debug("Stopping process tick for discovery {} after its batch: another tick holds its row now",
+                                discoveryUuid);
+                return;
+            }
         }
         importStagedKeys(run);
 

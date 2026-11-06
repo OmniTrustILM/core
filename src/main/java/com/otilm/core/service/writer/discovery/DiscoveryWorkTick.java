@@ -53,9 +53,14 @@ public final class DiscoveryWorkTick {
         return token;
     }
 
-    /** Extends the lease, so the sweep does not reclaim the row while this tick is still working it. */
-    public void renew() {
-        lease.renew(this);
+    /**
+     * Extends the lease, so the sweep does not reclaim the row while this tick is still working it.
+     *
+     * @return false once another tick, a lifecycle change or a deletion took the row: nothing this tick does to it
+     * lands any more, so the caller stops
+     */
+    public boolean renew() {
+        return lease.renew(this);
     }
 
     /** Schedules the row's next tick and frees the row. */
