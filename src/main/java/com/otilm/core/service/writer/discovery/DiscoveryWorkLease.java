@@ -91,7 +91,7 @@ public class DiscoveryWorkLease {
     }
 
     void release(DiscoveryWorkTick tick) {
-        workWriter.releaseLease(tick.discoveryUuid(), tick.workType(), tick.token());
+        workWriter.releaseLease(tick.discoveryUuid(), tick.workType(), tick.token(), now());
     }
 
     Optional<DiscoveryWorkMessage> handOver(DiscoveryWorkTick tick) {

@@ -91,13 +91,16 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
             @Param("nextDueAt") OffsetDateTime nextDueAt);
 
     /**
-     * Frees the row without touching its schedule, if the tick holding {@code leaseToken} still holds it.
+     * Frees the row, if the tick holding {@code leaseToken} still holds it, so it is claimable at once. The attempt is
+     * left alone, and a due time is only brought forward to {@code now}: while the tick held the row nothing else
+     * scheduled it, so its due time is the claim's fallback for the lease, not a schedule.
      */
     @Modifying
-    @Query("UPDATE DiscoveryWork w SET w.leaseToken = NULL, w.leaseExpiresAt = NULL "
+    @Query("UPDATE DiscoveryWork w SET w.leaseToken = NULL, w.leaseExpiresAt = NULL, "
+            + "w.nextDueAt = CASE WHEN w.nextDueAt > :now THEN :now ELSE w.nextDueAt END "
             + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.leaseToken = :leaseToken")
     int releaseLease(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
-            @Param("leaseToken") UUID leaseToken);
+            @Param("leaseToken") UUID leaseToken, @Param("now") OffsetDateTime now);
 
     /**
      * Passes the row from the tick holding {@code leaseToken} straight to its continuation under {@code nextToken}: a

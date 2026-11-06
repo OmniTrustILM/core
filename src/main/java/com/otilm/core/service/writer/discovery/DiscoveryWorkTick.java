@@ -64,7 +64,7 @@ public final class DiscoveryWorkTick {
         resolveOnCommit();
     }
 
-    /** Frees the row and leaves its schedule as it is. */
+    /** Frees the row so the sweep can claim it at once, without charging an attempt or rescheduling it. */
     public void releaseOnly() {
         lease.release(this);
         resolveOnCommit();

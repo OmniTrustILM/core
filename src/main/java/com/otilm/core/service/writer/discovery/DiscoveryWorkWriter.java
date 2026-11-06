@@ -121,11 +121,11 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Frees the row without touching its schedule, if the tick holding {@code leaseToken} still holds it.
+     * Frees the row, due no later than {@code now}, if the tick holding {@code leaseToken} still holds it.
      */
     @Transactional
-    public void releaseLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken) {
-        workRepository.releaseLease(discoveryUuid, workType, leaseToken);
+    public void releaseLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, OffsetDateTime now) {
+        workRepository.releaseLease(discoveryUuid, workType, leaseToken, now);
     }
 
     /**

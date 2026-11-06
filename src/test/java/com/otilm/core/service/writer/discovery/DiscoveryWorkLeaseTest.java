@@ -211,7 +211,9 @@ class DiscoveryWorkLeaseTest {
 
             // then
             assertThat(tick.resolved()).isTrue();
-            verify(workWriter).releaseLease(tick.discoveryUuid(), DiscoveryWorkType.DRAIN, tick.token());
+            verify(workWriter)
+                    .releaseLease(eq(tick.discoveryUuid()), eq(DiscoveryWorkType.DRAIN), eq(tick.token()),
+                            any(OffsetDateTime.class));
         }
     }
 

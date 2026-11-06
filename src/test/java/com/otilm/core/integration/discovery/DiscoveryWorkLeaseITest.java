@@ -141,6 +141,37 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
     }
 
     @Test
+    void makesTheRowClaimableAtOnce_whenATickReleasesItsLease() {
+        // given
+        seedDueDrainRow();
+        DiscoveryWorkTick tick = lease.admit(claimOne()).orElseThrow();
+
+        // when
+        tick.releaseOnly();
+
+        // then
+        assertThat(claimer.claimDueBatch(10, OffsetDateTime.now(ZoneOffset.UTC))).hasSize(1);
+    }
+
+    @Test
+    void changesNothing_whenATickWhoseTokenWasReplacedReleases() {
+        // given
+        UUID runUuid = seedDueDrainRow();
+        DiscoveryWorkTick outlivedTick = lease.admit(claimOne()).orElseThrow();
+        expireLease(runUuid, DiscoveryWorkType.DRAIN);
+        DiscoveryWorkMessage reclaim = claimOne();
+        DiscoveryWork afterReclaim = readDrainRow(runUuid);
+
+        // when
+        outlivedTick.releaseOnly();
+
+        // then
+        DiscoveryWork row = readDrainRow(runUuid);
+        assertThat(row.getLeaseToken()).isEqualTo(reclaim.leaseToken());
+        assertThat(row.getNextDueAt().toInstant()).isEqualTo(afterReclaim.getNextDueAt().toInstant());
+    }
+
+    @Test
     void extendsTheLease_whenATickRenews() {
         // given
         UUID runUuid = seedDueDrainRow();
