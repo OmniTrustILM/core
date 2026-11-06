@@ -5,7 +5,6 @@ import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -107,11 +106,7 @@ class CertificateKeyPairTest {
         CryptographicKey key = new CryptographicKey();
         key.setUuid(UUID.randomUUID());
         key.setItems(Set.copyOf(Stream.of(items).toList()));
-        X509CertificateEntity certificate = aCertificate()
-                .withKey(key)
-                .withPublicKeyFingerprint(publicKeyFingerprint)
-                .build();
-        return certificate;
+        return aCertificate().withKey(key).withPublicKeyFingerprint(publicKeyFingerprint).build();
     }
 
     private static CryptographicKeyItem privateItem(boolean exportable, KeyState state, boolean enabled) {

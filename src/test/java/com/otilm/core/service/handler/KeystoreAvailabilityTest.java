@@ -8,7 +8,6 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import java.util.Map;
@@ -140,12 +139,11 @@ class KeystoreAvailabilityTest {
         key.setTokenProfileUuid(PROFILE_UUID);
         key.setTokenInstanceReferenceUuid(TOKEN_UUID);
         key.setItems(Set.of(privateItem, publicItem));
-        X509CertificateEntity certificate = aCertificate()
+        return aCertificate()
                 .withKey(key)
                 .withPublicKeyFingerprint(publicKeyFingerprint)
                 .withCertificateContent(new CertificateContent())
                 .build();
-        return certificate;
     }
 
     private static CryptographicKeyItem privateItem(boolean exportable, KeyState state, boolean enabled) {

@@ -387,13 +387,7 @@ class PollReqMessageHandlerTest {
     }
 
     private static Certificate certificateInState(UUID uuid, CertificateState state) {
-        X509CertificateEntity cert = aCertificate()
-                .withUuid(uuid)
-                .withState(state)
-                .withSerialNumber("01")
-                .withSubjectDn("CN=test")
-                .build();
-        return cert;
+        return aCertificate().withUuid(uuid).withState(state).withSerialNumber("01").withSubjectDn("CN=test").build();
     }
 
     private static CertificateContent certificateContentWithRealPem() {

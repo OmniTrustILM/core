@@ -373,13 +373,12 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         CertificateContent plainContent = new CertificateContent();
         plainContent.setContent(content);
         plainContent.setFingerprint(certificateContent.getFingerprint());
-        X509CertificateEntity pollResult = aCertificate()
+        return aCertificate()
                 .withUuid(persisted.getUuid())
                 .withSerialNumber(persisted.getSerialNumber())
                 .withState(CertificateState.ISSUED)
                 .withCertificateContent(plainContent)
                 .build();
-        return pollResult;
     }
 
     @Test

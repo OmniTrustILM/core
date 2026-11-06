@@ -471,11 +471,7 @@ class CryptographicKeyDtoMapperTest {
     }
 
     private static Certificate certificate(String commonName) {
-        X509CertificateEntity certificate = aCertificate()
-                .withUuid(UUID.randomUUID())
-                .withCommonName(commonName)
-                .build();
-        return certificate;
+        return aCertificate().withUuid(UUID.randomUUID()).withCommonName(commonName).build();
     }
 
     private static CryptographicKey keyWithOwnerAndToken() {

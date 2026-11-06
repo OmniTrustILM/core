@@ -5,7 +5,6 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import java.util.UUID;
@@ -110,11 +109,10 @@ class CertificateValidationStatusPollerTest {
     }
 
     private static Certificate entity(CertificateValidationStatus status) {
-        X509CertificateEntity cert = aCertificate()
+        return aCertificate()
                 .withUuid(UUID.randomUUID())
                 .withState(CertificateState.ISSUED)
                 .withValidationStatus(status)
                 .build();
-        return cert;
     }
 }

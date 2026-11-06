@@ -312,12 +312,11 @@ class ScepServiceImplRegistrationModeTest {
     }
 
     private X509CertificateEntity registeredCertificate(String subjectDn, String serializedSans) {
-        X509CertificateEntity certificate = aCertificate()
+        return aCertificate()
                 .withUuid(CANDIDATE_UUID)
                 .withSubjectDn(subjectDn)
                 .withSubjectAlternativeNames(serializedSans)
                 .build();
-        return certificate;
     }
 
     /**

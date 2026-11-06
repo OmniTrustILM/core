@@ -333,8 +333,7 @@ class RenewContentSeederTest {
     private static Certificate certificateEntity(X509Certificate certificate) throws Exception {
         CertificateContent content = new CertificateContent();
         content.setContent(Base64.getEncoder().encodeToString(certificate.getEncoded()));
-        X509CertificateEntity entity = aCertificate().withCertificateContent(content).build();
-        return entity;
+        return aCertificate().withCertificateContent(content).build();
     }
 
     private static CertificateRequestEntity csrEntity(String base64Csr) throws NoSuchAlgorithmException {

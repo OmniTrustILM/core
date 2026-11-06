@@ -3,7 +3,6 @@ package com.otilm.core.service.scep.impl;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.scep.PkiStatus;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
@@ -206,13 +205,12 @@ class ScepServiceImplPollUnitTest {
     // ==================== helpers ====================
 
     private static Certificate certificateInState(CertificateState state) {
-        X509CertificateEntity cert = aCertificate()
+        return aCertificate()
                 .withUuid(UUID.randomUUID())
                 .withState(state)
                 .withSerialNumber("01")
                 .withSubjectDn("CN=test")
                 .build();
-        return cert;
     }
 
     private static ScepTransaction transactionWithCert(Certificate cert) {

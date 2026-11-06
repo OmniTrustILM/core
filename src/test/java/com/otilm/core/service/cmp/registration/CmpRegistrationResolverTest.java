@@ -7,7 +7,6 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRelationId;
 import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -114,12 +113,11 @@ class CmpRegistrationResolverTest {
     }
 
     private Certificate registeredCertificate() {
-        X509CertificateEntity certificate = aCertificate()
+        return aCertificate()
                 .withUuid(CERT_UUID)
                 .withState(CertificateState.REGISTERED)
                 .withRaProfileUuid(RA_PROFILE_UUID)
                 .build();
-        return certificate;
     }
 
     private Answer<Boolean> gateRunsPredicateWith(String plaintext) {
