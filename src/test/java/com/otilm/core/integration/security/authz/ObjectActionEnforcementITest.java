@@ -92,6 +92,12 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         void run() throws Exception;
     }
 
+    /** An endpoint call and the checks it must have asked before any failure that is not a refusal. */
+    private record Endpoint(Call call, Set<String> reaches) {
+    }
+
+    private final List<String> asked = new ArrayList<>();
+
     @Autowired
     private ResourceExternalService resourceService;
 
@@ -205,7 +211,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
     void reportsCertificateActionExactly_whenItsEndpointsAcceptIt(User user) {
         // given
         actAs(user, Resource.CERTIFICATE, certificateUuid);
-        Map<ResourceAction, List<Call>> endpoints = certificateEndpoints();
+        Map<ResourceAction, List<Endpoint>> endpoints = certificateEndpoints();
 
         // when
         List<ResourceAction> reported = reportedActions(Resource.CERTIFICATE, certificateUuid);
@@ -219,7 +225,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
     void reportsKeyActionExactly_whenItsEndpointsAcceptIt(User user) {
         // given
         actAs(user, Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
-        Map<ResourceAction, List<Call>> endpoints = keyEndpoints();
+        Map<ResourceAction, List<Endpoint>> endpoints = keyEndpoints();
 
         // when
         List<ResourceAction> reported = reportedActions(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
@@ -230,50 +236,70 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private Map<ResourceAction, List<Call>> certificateEndpoints() {
+    private Map<ResourceAction, List<Endpoint>> certificateEndpoints() {
         SecuredParentUUID authority = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
         SecuredUUID raProfileUuid = SecuredUUID.fromUUID(raProfile.getUuid());
-        Map<ResourceAction, List<Call>> endpoints = new LinkedHashMap<>();
+        Map<ResourceAction, List<Endpoint>> endpoints = new LinkedHashMap<>();
         endpoints
-                .put(ResourceAction.DETAIL,
-                        List.of(() -> certificateService.getCertificate(SecuredUUID.fromUUID(certificateUuid))));
-        // Renew submits the successor through the create check and approves it through the renew check.
+                .put(ResourceAction.DETAIL, List
+                        .of(endpoint(() -> certificateService.getCertificate(SecuredUUID.fromUUID(certificateUuid)),
+                                check(Resource.CERTIFICATE, ResourceAction.DETAIL),
+                                check(Resource.RA_PROFILE, ResourceAction.MEMBERS))));
+        // Renewal reaches its create check only past CSR validation, which this fixture cannot pass, so the create
+        // check is called directly; the guard snapshot pins that renewCertificate calls it.
         endpoints
                 .put(ResourceAction.RENEW,
                         List
-                                .of(() -> clientOperationService
-                                        .renewCertificate(authority, raProfileUuid, certificateUuid.toString(),
-                                                new ClientCertificateRenewRequestDto()),
-                                        certificateInternalService::checkCreatePermissions,
+                                .of(endpoint(
                                         () -> clientOperationService
-                                                .renewCertificateAction(UUID.randomUUID(),
-                                                        new ClientCertificateRenewRequestDto(), false)));
+                                                .renewCertificate(authority, raProfileUuid, certificateUuid.toString(),
+                                                        new ClientCertificateRenewRequestDto()),
+                                        check(Resource.RA_PROFILE, ResourceAction.DETAIL),
+                                        check(Resource.AUTHORITY, ResourceAction.DETAIL)),
+                                        endpoint(certificateInternalService::checkCreatePermissions,
+                                                check(Resource.CERTIFICATE, ResourceAction.CREATE)),
+                                        endpoint(
+                                                () -> clientOperationService
+                                                        .renewCertificateAction(UUID.randomUUID(),
+                                                                new ClientCertificateRenewRequestDto(), false),
+                                                check(Resource.CERTIFICATE, ResourceAction.RENEW))));
         endpoints
                 .put(ResourceAction.REVOKE,
                         List
-                                .of(() -> clientOperationService
-                                        .revokeCertificate(authority, raProfileUuid, certificateUuid.toString(),
-                                                new ClientCertificateRevocationDto()),
+                                .of(endpoint(
                                         () -> clientOperationService
-                                                .revokeCertificateAction(UUID.randomUUID(),
-                                                        new ClientCertificateRevocationDto(), false)));
+                                                .revokeCertificate(authority, raProfileUuid, certificateUuid.toString(),
+                                                        new ClientCertificateRevocationDto()),
+                                        check(Resource.RA_PROFILE, ResourceAction.DETAIL),
+                                        check(Resource.AUTHORITY, ResourceAction.DETAIL)),
+                                        endpoint(
+                                                () -> clientOperationService
+                                                        .revokeCertificateAction(UUID.randomUUID(),
+                                                                new ClientCertificateRevocationDto(), false),
+                                                check(Resource.CERTIFICATE, ResourceAction.REVOKE))));
         return endpoints;
     }
 
-    private Map<ResourceAction, List<Call>> keyEndpoints() {
-        Map<ResourceAction, List<Call>> endpoints = new LinkedHashMap<>();
+    private Map<ResourceAction, List<Endpoint>> keyEndpoints() {
+        Map<ResourceAction, List<Endpoint>> endpoints = new LinkedHashMap<>();
         endpoints
                 .put(ResourceAction.DETAIL,
                         List
-                                .of(() -> keyService.getKey(SecuredUUID.fromUUID(key.getUuid())),
-                                        () -> keyService.getEventHistory(key.getUuid(), UUID.randomUUID())));
+                                .of(endpoint(() -> keyService.getKey(SecuredUUID.fromUUID(key.getUuid())),
+                                        check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL),
+                                        check(Resource.TOKEN, ResourceAction.MEMBERS)),
+                                        endpoint(() -> keyService.getEventHistory(key.getUuid(), UUID.randomUUID()),
+                                                check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL))));
         endpoints
-                .put(ResourceAction.SIGN,
-                        List
-                                .of(() -> cryptographicOperationService
+                .put(ResourceAction.SIGN, List
+                        .of(endpoint(
+                                () -> cryptographicOperationService
                                         .signData(SecuredParentUUID.fromUUID(key.getTokenInstanceReferenceUuid()),
                                                 SecuredUUID.fromUUID(key.getTokenProfileUuid()), key.getUuid(),
-                                                UUID.randomUUID(), new SignDataRequestDto())));
+                                                UUID.randomUUID(), new SignDataRequestDto()),
+                                check(Resource.TOKEN, ResourceAction.DETAIL),
+                                check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.SIGN),
+                                check(Resource.TOKEN_PROFILE, ResourceAction.DETAIL))));
         return endpoints;
     }
 
@@ -287,11 +313,11 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                 .orElse(List.of());
     }
 
-    private static void assertReportedExactlyWhenAccepted(User user, List<ResourceAction> reported,
-            Map<ResourceAction, List<Call>> endpoints) {
+    private void assertReportedExactlyWhenAccepted(User user, List<ResourceAction> reported,
+            Map<ResourceAction, List<Endpoint>> endpoints) {
         List<String> mismatches = new ArrayList<>();
         endpoints.forEach((action, calls) -> {
-            boolean accepted = calls.stream().allMatch(ObjectActionEnforcementITest::accepts);
+            boolean accepted = calls.stream().allMatch(this::accepts);
             if (accepted != reported.contains(action)) {
                 mismatches
                         .add("%s %s, endpoints %s"
@@ -302,15 +328,25 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         assertThat(mismatches).as(user.name()).isEmpty();
     }
 
-    private static boolean accepts(Call call) {
+    private boolean accepts(Endpoint endpoint) {
+        asked.clear();
         try {
-            call.run();
+            endpoint.call().run();
             return true;
         } catch (AccessDeniedException e) {
             return false;
         } catch (Exception e) {
+            assertThat(asked).as("checks asked before the endpoint failed with %s", e).containsAll(endpoint.reaches());
             return true;
         }
+    }
+
+    private static Endpoint endpoint(Call call, String... reaches) {
+        return new Endpoint(call, Set.of(reaches));
+    }
+
+    private static String check(Resource resource, ResourceAction action) {
+        return resource.getCode() + ":" + action.getCode();
     }
 
     private void actAs(User user, Resource resource, UUID objectUuid) {
@@ -327,8 +363,10 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         };
         when(opaClient.checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenAnswer(invocation -> {
+                    OpaRequestedResource request = invocation.getArgument(1);
+                    asked.add(name(request) + ":" + action(request));
                     OpaResourceAccessResult result = new OpaResourceAccessResult();
-                    result.setAuthorized(grants.test(invocation.getArgument(1)));
+                    result.setAuthorized(grants.test(request));
                     result.setAllow(List.of());
                     return result;
                 });

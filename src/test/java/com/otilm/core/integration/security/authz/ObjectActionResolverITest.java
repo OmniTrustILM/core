@@ -532,6 +532,21 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 .containsExactly(ResourceAction.DETAIL);
     }
 
+    @Test
+    void leavesOutSecretContentAndUpdate_whenTheConnectorOfItsVaultCannotBeViewed() {
+        // given
+        Secret secret = saveSecret();
+        denyResourceAccess(Resource.CONNECTOR, ResourceAction.DETAIL, connector.getUuid());
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.SECRET, secret.getUuid());
+
+        // then
+        assertThat(allowed)
+                .contains(ResourceAction.DETAIL)
+                .doesNotContain(ResourceAction.GET_SECRET_CONTENT, ResourceAction.UPDATE);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private List<ObjectAllowedActionsDto> report(Resource resource, UUID... uuids) {

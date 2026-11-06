@@ -204,7 +204,7 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testAuthProfileAllowedActionsExcludeObjectScopedGrants() {
+    void excludesObjectScopedGrants_whenReportingResourceActions() {
         // given
         injectLocalhostUserProfileChangedToContext();
 

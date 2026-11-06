@@ -208,6 +208,10 @@ public final class ObjectActionRequirements {
         underParent(Resource.VAULT_PROFILE, VaultProfile.class, Resource.VAULT, "vaultInstanceUuid",
                 ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
         alsoOnObject(Resource.VAULT_PROFILE, ResourceAction.MEMBERS);
+        // Listing a vault profile's secret attributes loads the connector of its vault.
+        OnLinkedThrough vaultConnectorDetail = new OnLinkedThrough(Resource.VAULT, "vaultInstanceUuid",
+                OnLinked.required(Resource.CONNECTOR, CONNECTOR_UUID, ResourceAction.DETAIL));
+        also(Resource.VAULT_PROFILE, ResourceAction.DETAIL, vaultConnectorDetail);
         // Signing profile detail includes its signing records, and deleting one first lists the TSP profiles using it
         // as their default, checking TSP profile list against the signing profile's UUID.
         onObject(Resource.SIGNING_PROFILE, SigningProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
@@ -243,6 +247,14 @@ public final class ObjectActionRequirements {
         for (ResourceAction action : List
                 .of(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.GET_SECRET_CONTENT)) {
             secret.put(action, List.of(new OnResource(action), new OnObject(action), sourceVaultProfileMembers));
+        }
+        // Reading the content and updating a secret go through the connector of its source vault profile's vault.
+        OnLinkedThrough sourceVaultConnectorDetail = new OnLinkedThrough(Resource.VAULT_PROFILE,
+                SOURCE_VAULT_PROFILE_UUID, vaultConnectorDetail);
+        for (ResourceAction action : List.of(ResourceAction.UPDATE, ResourceAction.GET_SECRET_CONTENT)) {
+            List<Requirement> combined = new ArrayList<>(secret.get(action));
+            combined.add(sourceVaultConnectorDetail);
+            secret.put(action, List.copyOf(combined));
         }
         secret
                 .put(ResourceAction.COMMENT,

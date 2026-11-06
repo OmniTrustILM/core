@@ -140,7 +140,7 @@ class ObjectActionRequirementsTest {
     }
 
     @Test
-    void viewsObject_throughNoMoreThanItsDetailAction() {
+    void requiresASubsetOfDetail_whenViewingAnObject() {
         // given — the table as declared
 
         // when
@@ -174,7 +174,8 @@ class ObjectActionRequirementsTest {
         return switch (requirement) {
             case OnObject onObject -> Optional.of(onObject.action());
             case OnObjectUnder under -> Optional.of(under.action());
-            case OnResource onResource when onResource.resource() == null -> Optional.of(onResource.action());
+            case OnResource onResource ->
+                Optional.ofNullable(onResource.resource() == null ? onResource.action() : null);
             default -> Optional.empty();
         };
     }
