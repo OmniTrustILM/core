@@ -309,6 +309,43 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
+    void countsAndStatisticsAgreeWithTheListForEachGroupMembersCase() {
+        SecurityFilter filter = SecurityFilter.create();
+        SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
+        resourceFilter.setResource(Resource.CERTIFICATE);
+        resourceFilter.setResourceAction(ResourceAction.LIST);
+        resourceFilter.setAreOnlySpecificObjectsAllowed(true);
+        filter.setResourceFilter(resourceFilter);
+        SecurityResourceFilter groupMembersFilter = SecurityResourceFilter.create();
+        groupMembersFilter.setResource(Resource.GROUP);
+        groupMembersFilter.setResourceAction(ResourceAction.MEMBERS);
+        filter.setGroupMembersFilter(groupMembersFilter);
+
+        assertCountsMatchTheList(filter, "members on every group");
+
+        groupMembersFilter.addDeniedObjects(List.of(secondGroup.getUuid().toString()));
+        assertCountsMatchTheList(filter, "members on every group but a denied one");
+
+        groupMembersFilter.setAreOnlySpecificObjectsAllowed(true);
+        groupMembersFilter.addAllowedObjects(List.of(group.getUuid().toString()));
+        assertCountsMatchTheList(filter, "members on a specific group");
+    }
+
+    private void assertCountsMatchTheList(SecurityFilter filter, String groupMembersCase) {
+        long listed = certificateRepository.findUsingSecurityFilter(filter).size();
+        assertThat(certificateRepository.countUsingSecurityFilter(filter)).as(groupMembersCase).isEqualTo(listed);
+        assertThat(certificateRepository.countRowsUsingSecurityFilter(filter, null))
+                .as(groupMembersCase)
+                .isEqualTo(listed);
+        assertThat(certificateRepository
+                .countGroupedUsingSecurityFilter(filter, null, Certificate_.certificateType, null, null)
+                .values()
+                .stream()
+                .mapToLong(Long::longValue)
+                .sum()).as(groupMembersCase).isEqualTo(listed);
+    }
+
+    @Test
     void testSecurityFilterWithGroups() {
         SecurityFilter filter = SecurityFilter.create();
         SecurityResourceFilter resourceFilter = SecurityResourceFilter.create();
