@@ -406,6 +406,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listIssueCertificateAttributes(raProfile);
     }
 
@@ -417,6 +418,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listRegisterCertificateAttributes(raProfile);
     }
 
@@ -428,6 +430,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listRenewCertificateAttributes(raProfile);
     }
 
@@ -439,6 +442,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listIdentifyCertificateAttributes(raProfile);
     }
 
@@ -450,6 +454,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         extendedAttributeService.validateIssueCertificateAttributes(raProfile, attributes);
     }
 
@@ -573,7 +578,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo) throws NotFoundException, CertificateException,
             NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
-        return submitAndQueueIssue(raProfileUuid, request, protocolInfo, null);
+        return submitAndQueueIssue(authorityUuid, raProfileUuid, request, protocolInfo, null);
     }
 
     @Override
@@ -584,16 +589,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch) throws NotFoundException,
             CertificateException, NoSuchAlgorithmException, CertificateOperationException, CertificateRequestException {
-        return submitAndQueueIssue(raProfileUuid, request, protocolInfo, beforeDispatch);
+        return submitAndQueueIssue(authorityUuid, raProfileUuid, request, protocolInfo, beforeDispatch);
     }
 
-    private ClientCertificateDataResponseDto submitAndQueueIssue(final SecuredUUID raProfileUuid,
-            final ClientCertificateIssueRequestDto request, final CertificateProtocolInfo protocolInfo,
-            final Consumer<UUID> beforeDispatch) throws NotFoundException, CertificateOperationException {
+    private ClientCertificateDataResponseDto submitAndQueueIssue(final SecuredParentUUID authorityUuid,
+            final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
+            final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch)
+            throws NotFoundException, CertificateOperationException {
         // validate RA profile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
 
         if (Boolean.FALSE.equals(raProfile.getEnabled())) {
             throw new ValidationException(String
@@ -1785,7 +1792,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * authorityInstanceReferenceUuid is an eager column, so this is safe to call with no transaction held.
      */
     private static void assertRaProfileUnderAuthority(RaProfile raProfile, SecuredParentUUID authorityUuid) {
-        if (!authorityUuid.getValue().equals(raProfile.getAuthorityInstanceReferenceUuid())) {
+        if (!Objects.equals(authorityUuid.getValue(), raProfile.getAuthorityInstanceReferenceUuid())) {
             throw new ValidationException(
                     String.format("RA profile %s does not belong to the requested authority.", raProfile.getName()));
         }
@@ -2086,7 +2093,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             String certificateUuid, ClientCertificateRenewRequestDto request) throws NotFoundException,
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
-                ResourceAction.RENEW);
+                ResourceAction.RENEW, authorityUuid);
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
         // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
@@ -2288,7 +2295,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throws NotFoundException, CertificateException, CertificateOperationException, CertificateRequestException,
             ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
-                ResourceAction.REKEY);
+                ResourceAction.REKEY, authorityUuid);
 
         // Self-service gate, symmetric with renew: a certificate with a live registration authorization rekeys
         // only against its challenge, and a verified challenge lets the authorization follow the successor.
@@ -2539,7 +2546,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     public void revokeCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, String certificateUuid,
             ClientCertificateRevocationDto request) throws ConnectorException, AttributeException, NotFoundException {
         Certificate certificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
-                ResourceAction.REVOKE);
+                ResourceAction.REVOKE, authorityUuid);
 
         // validate revoke attributes
         extendedAttributeService.mergeAndValidateRevokeAttributes(certificate.getRaProfile(), request.getAttributes());
@@ -2834,10 +2841,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     private Certificate validateOldCertificateForOperation(String certificateUuid, String raProfileUuid,
-            ResourceAction action) throws NotFoundException {
+            ResourceAction action, SecuredParentUUID authorityUuid) throws NotFoundException {
         Certificate oldCertificate = certificateRepository
                 .findByUuid(UUID.fromString(certificateUuid))
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        if (oldCertificate.getRaProfileUuid() == null
+                || !oldCertificate.getRaProfileUuid().toString().equals(raProfileUuid)) {
+            throw new ValidationException(String
+                    .format("Cannot perform operation %s on certificate. Existing Certificate RA profile is different than RA profile of request. Certificate: %s",
+                            action.getCode(), certificateUuid));
+        }
+        assertRaProfileUnderAuthority(oldCertificate.getRaProfile(), authorityUuid);
         if (oldCertificate.isArchived()) {
             throw new ValidationException("Cannot perform operation %s on archived certificate. Certificate: %s"
                     .formatted(action.getCode(), oldCertificate.toStringShort()));
@@ -2855,12 +2869,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(String
                     .format("Cannot perform operation %s on certificate in state %s. Certificate: %s", action.getCode(),
                             oldCertificate.getState().getLabel(), oldCertificate));
-        }
-        if (oldCertificate.getRaProfileUuid() == null
-                || !oldCertificate.getRaProfileUuid().toString().equals(raProfileUuid)) {
-            throw new ValidationException(String
-                    .format("Cannot perform operation %s on certificate. Existing Certificate RA profile is different than RA profile of request. Certificate: %s",
-                            action.getCode(), oldCertificate));
         }
         if (Boolean.FALSE.equals(oldCertificate.getRaProfile().getEnabled())) {
             throw new ValidationException(String
@@ -2914,6 +2922,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         return extendedAttributeService.listRevokeCertificateAttributes(raProfile);
     }
 
@@ -2925,6 +2934,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         RaProfile raProfile = raProfileRepository
                 .findByUuidAndEnabledIsTrue(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        assertRaProfileUnderAuthority(raProfile, authorityUuid);
         extendedAttributeService.validateRevokeCertificateAttributes(raProfile, attributes);
     }
 
