@@ -22,6 +22,7 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
 import com.otilm.core.messaging.jms.configuration.StatusPollProperties.PollSchedule;
+import com.otilm.core.messaging.jms.listeners.discovery.DiscoveryWorkListener;
 import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
@@ -91,6 +92,8 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     private DiscoveryWorkProperties workProperties;
     @Autowired
     private DiscoveryWorkWriter workWriter;
+    @Autowired
+    private DiscoveryWorkListener listener;
 
     @Test
     void stagesThePageAndPublishesTheNextTickItself_whenThePageSaysThereIsMore() throws Exception {
@@ -191,6 +194,28 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         // then
         assertThat(stagedRefs(run)).isEmpty();
         assertThat(reload(run).getLastAppliedSequence()).isZero();
+    }
+
+    @Test
+    void keepsTheSlowestRung_whenTheListenerRetriesATickThatRescheduledItself() throws Exception {
+        // given
+        Discovery run = runStillScanning();
+        armDrainRow(run, 0);
+        var claimToken = UUID.randomUUID();
+        var now = OffsetDateTime.now(ZoneOffset.UTC);
+        workWriter
+                .claim(run.getUuid(), DiscoveryWorkType.DRAIN, claimToken, 1, now.plusDays(1), now, now.plusMinutes(2));
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(0L, false));
+        PollSchedule ladder = workProperties.scheduleFor(DiscoveryWorkType.DRAIN);
+        Duration slowestRung = ladder.delayFor(ladder.ceilingAttempt());
+
+        // when
+        listener.processMessage(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.DRAIN, 0, claimToken));
+
+        // then
+        assertThat(drainRow(run).getNextDueAt())
+                .as("the listener's retry at the next rung must not overwrite the schedule the worker wrote")
+                .isAfterOrEqualTo(now.plus(slowestRung));
     }
 
     @Test

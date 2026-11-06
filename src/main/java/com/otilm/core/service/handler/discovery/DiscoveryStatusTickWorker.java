@@ -120,8 +120,9 @@ public class DiscoveryStatusTickWorker {
             return;
         }
 
-        // An answer that already scheduled the row, a stopped run backing off, keeps that schedule.
-        if (apply(tick, status, run.getStatus()) && !tick.resolved()) {
+        // An answer that already rescheduled the row, a stopped run backing off, gave up the token, so this refresh
+        // changes nothing and that schedule stands.
+        if (apply(tick, status, run.getStatus())) {
             budget.refresh(tick);
         }
     }

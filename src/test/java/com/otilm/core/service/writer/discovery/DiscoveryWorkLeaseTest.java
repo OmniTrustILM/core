@@ -7,7 +7,6 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -17,8 +16,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,13 +37,6 @@ class DiscoveryWorkLeaseTest {
     @BeforeEach
     void createLease() {
         lease = new DiscoveryWorkLease(workWriter, LEASE_DURATION);
-    }
-
-    @AfterEach
-    void clearTransactionSynchronization() {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
     }
 
     // ── Configuration ─────────────────────────────────────────────────────────
@@ -99,7 +89,6 @@ class DiscoveryWorkLeaseTest {
             assertThat(admitted).hasValueSatisfying(tick -> {
                 assertThat(tick.token()).isEqualTo(swappedTo.getValue());
                 assertThat(tick.attempt()).isEqualTo(claimedAttempt);
-                assertThat(tick.resolved()).isFalse();
             });
         }
 
@@ -149,13 +138,13 @@ class DiscoveryWorkLeaseTest {
         }
     }
 
-    // ── Resolve ───────────────────────────────────────────────────────────────
+    // ── Writes ────────────────────────────────────────────────────────────────
 
     @Nested
-    class Resolve {
+    class Writes {
 
         @Test
-        void resolvesTheTick_whenItReschedulesOutsideATransaction() {
+        void reschedulesUnderTheTicksToken_whenTheTickReschedules() {
             // given
             DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.STATUS, 1);
             var nextAttempt = 2;
@@ -164,45 +153,13 @@ class DiscoveryWorkLeaseTest {
             tick.reschedule(nextAttempt, OffsetDateTime.now().plusSeconds(5));
 
             // then
-            assertThat(tick.resolved()).isTrue();
             verify(workWriter)
                     .rescheduleLeased(eq(tick.discoveryUuid()), eq(DiscoveryWorkType.STATUS), eq(tick.token()),
                             eq(nextAttempt), any(OffsetDateTime.class));
         }
 
         @Test
-        void resolvesTheTick_whenTheTransactionItReschedulesInCommits() {
-            // given
-            DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.STATUS, 1);
-            TransactionSynchronizationManager.initSynchronization();
-            tick.reschedule(0, OffsetDateTime.now().plusMinutes(5));
-            assertThat(tick.resolved()).as("nothing is settled before the surrounding transaction commits").isFalse();
-
-            // when
-            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
-
-            // then
-            assertThat(tick.resolved()).isTrue();
-        }
-
-        @Test
-        void leavesTheTickUnresolved_whenTheTransactionItReschedulesInRollsBack() {
-            // given
-            DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.STATUS, 1);
-            TransactionSynchronizationManager.initSynchronization();
-            tick.reschedule(0, OffsetDateTime.now().plusMinutes(5));
-
-            // when
-            TransactionSynchronizationManager
-                    .getSynchronizations()
-                    .forEach(sync -> sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK));
-
-            // then
-            assertThat(tick.resolved()).isFalse();
-        }
-
-        @Test
-        void resolvesTheTick_whenItReleasesItsLeaseOnly() {
+        void releasesUnderTheTicksToken_whenTheTickReleasesItsLease() {
             // given
             DiscoveryWorkTick tick = admitTick(DiscoveryWorkType.DRAIN, 4);
 
@@ -210,7 +167,6 @@ class DiscoveryWorkLeaseTest {
             tick.releaseOnly();
 
             // then
-            assertThat(tick.resolved()).isTrue();
             verify(workWriter)
                     .releaseLease(eq(tick.discoveryUuid()), eq(DiscoveryWorkType.DRAIN), eq(tick.token()),
                             any(OffsetDateTime.class));
@@ -240,7 +196,6 @@ class DiscoveryWorkLeaseTest {
             assertThat(next)
                     .contains(new DiscoveryWorkMessage(tick.discoveryUuid(), DiscoveryWorkType.DRAIN, 0,
                             newToken.getValue()));
-            assertThat(tick.resolved()).isTrue();
         }
 
         @Test

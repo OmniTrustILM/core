@@ -26,9 +26,10 @@ import org.springframework.stereotype.Component;
  * <b>Admission.</b> Only a tick {@link DiscoveryWorkLease#admit} accepts reaches its worker.
  *
  * <p>
- * <b>A tick that does not say what happens next is retried at its next rung</b>, including one whose worker threw. A
- * thrown failure is logged and acknowledged rather than handed to the broker, whose redelivery would add a second,
- * uncoordinated retry loop on top of the agenda's.
+ * <b>Every tick ends with a retry at its next rung</b>, written through the tick's token: it lands only when the worker
+ * left the row as admitted, including when it threw, and changes nothing once the worker rescheduled, released or
+ * handed over the row. A thrown failure is logged and acknowledged rather than handed to the broker, whose redelivery
+ * would add a second, uncoordinated retry loop on top of the agenda's.
  */
 @Component
 public class DiscoveryWorkListener implements MessageProcessor<DiscoveryWorkMessage> {
@@ -80,14 +81,11 @@ public class DiscoveryWorkListener implements MessageProcessor<DiscoveryWorkMess
                     .error("Discovery {} tick failed for run {} (attempt {}); the agenda row retries when next due",
                             tick.workType(), tick.discoveryUuid(), tick.attempt(), e);
         } finally {
-            retryUnresolved(tick);
+            retryAtNextRung(tick);
         }
     }
 
-    private void retryUnresolved(DiscoveryWorkTick tick) {
-        if (tick.resolved()) {
-            return;
-        }
+    private void retryAtNextRung(DiscoveryWorkTick tick) {
         int nextAttempt = tick.attempt() + 1;
         OffsetDateTime nextDueAt = OffsetDateTime
                 .now(ZoneOffset.UTC)

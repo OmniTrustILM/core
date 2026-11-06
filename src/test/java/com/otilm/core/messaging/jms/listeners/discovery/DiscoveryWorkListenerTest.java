@@ -25,12 +25,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -116,10 +114,10 @@ class DiscoveryWorkListenerTest {
     }
 
     @Test
-    void reschedulesTheTickToItsNextRung_whenTheWorkerLeftItUnresolved() {
+    void retriesTheTickAtItsNextRung_whenTheWorkerReturns() {
         // given
-        var unresolvedAttempt = 1;
-        var message = buildMessage(DiscoveryWorkType.DRAIN, unresolvedAttempt);
+        var admittedAttempt = 1;
+        var message = buildMessage(DiscoveryWorkType.DRAIN, admittedAttempt);
         DiscoveryWorkTick tick = admit(message);
         var beforeTick = OffsetDateTime.now();
 
@@ -128,25 +126,11 @@ class DiscoveryWorkListenerTest {
 
         // then
         ArgumentCaptor<OffsetDateTime> nextDueAt = ArgumentCaptor.forClass(OffsetDateTime.class);
-        verify(tick).reschedule(eq(unresolvedAttempt + 1), nextDueAt.capture());
-        Duration nextRung = LADDER.delayFor(unresolvedAttempt + 1);
+        verify(tick).reschedule(eq(admittedAttempt + 1), nextDueAt.capture());
+        Duration nextRung = LADDER.delayFor(admittedAttempt + 1);
         assertThat(nextDueAt.getValue())
                 .isAfterOrEqualTo(beforeTick.plus(nextRung))
                 .isBeforeOrEqualTo(OffsetDateTime.now().plus(nextRung));
-    }
-
-    @Test
-    void leavesTheTickAlone_whenTheWorkerResolvedIt() {
-        // given
-        var message = buildMessage(DiscoveryWorkType.STATUS, 0);
-        DiscoveryWorkTick tick = admit(message);
-        when(tick.resolved()).thenReturn(true);
-
-        // when
-        listener.processMessage(message);
-
-        // then
-        verify(tick, never()).reschedule(anyInt(), any());
     }
 
     @Test
