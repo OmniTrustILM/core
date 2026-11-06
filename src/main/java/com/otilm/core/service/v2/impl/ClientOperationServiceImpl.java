@@ -779,7 +779,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             extendedAttributeService.mergeAndValidateRegisterAttributes(raProfile, request.getAttributes());
             if (request.getAttributes() != null && !request.getAttributes().isEmpty()) {
                 attributeEngine
-                        .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .createObjectDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE, certificate.getUuid())
                                 .connector(authority.getConnectorUuid())
                                 .operation(AttributeOperation.CERTIFICATE_REGISTER)
@@ -1024,7 +1024,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         List<RequestAttribute> csrAttributes = request.getCsrAttributes().stream().filter(Objects::nonNull).toList();
         attributeEngine
-                .updateObjectDataAttributesContent(
+                .createObjectDataAttributesContent(
                         ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build(),
                         csrAttributes);
     }
@@ -3043,7 +3043,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             return;
         }
         attributeEngine
-                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                .createObjectDataAttributesContent(ObjectAttributeContentInfo
                         .builder(Resource.CERTIFICATE, successorUuid)
                         .connector(raProfile.getAuthorityInstanceReference().getConnectorUuid())
                         .operation(AttributeOperation.CERTIFICATE_RENEW)
