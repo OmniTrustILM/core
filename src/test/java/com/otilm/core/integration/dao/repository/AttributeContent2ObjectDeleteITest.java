@@ -1,10 +1,12 @@
 package com.otilm.core.integration.dao.repository;
 
 import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AttributeContentItem;
 import com.otilm.core.dao.entity.AttributeDefinition;
@@ -20,12 +22,14 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,11 +40,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
+import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
 
-    private static final String OPERATION = "SIGN";
+    private static final String OPERATION = AttributeOperation.SIGN;
     private static final Pattern JDBC_PARAMETER = Pattern.compile("\\?");
 
     @Autowired
@@ -65,7 +70,7 @@ class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @EnumSource(MappingDelete.class)
-    void sendsOnePlainDelete_withoutJoinEmulation(MappingDelete delete) throws Exception {
+    void sendsOneDeleteWithoutJoinEmulation_whenAnOperationDeleteRuns(MappingDelete delete) throws Exception {
         // given — no mapping rows
 
         // when
@@ -81,7 +86,7 @@ class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @EnumSource(MappingDelete.class)
-    void reachesTheRowsThroughTheObjectIndex(MappingDelete delete) throws Exception {
+    void reachesTheRowsThroughTheObjectIndex_whenAnOperationDeleteRuns(MappingDelete delete) throws Exception {
         // given
         String deleteSql = captureStatements(delete).getFirst();
 
@@ -95,7 +100,8 @@ class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
     @Test
     void deletesOnlyTheRowWithNullColumns_whenUnversionedDeleteGetsNullArguments() {
         // given
-        SeededMappings seeded = seedMappingsVaryingOneColumnEach();
+        SeededMappings unversioned = seedMappingsVaryingOneColumnEach(null);
+        SeededMappings versioned = seedMappingsVaryingOneColumnEach(1);
 
         // when
         inTransaction(() -> mappingRepository
@@ -103,15 +109,15 @@ class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
                         objectUuid, null, null));
 
         // then
-        assertThat(remainingMappings())
-                .containsExactlyInAnyOrder(seeded.withOperation(), seeded.withPurpose(), seeded.withConnector(),
-                        seeded.withSource(), seeded.versioned());
+        assertThat(findRemainingMappings())
+                .containsExactlyInAnyOrderElementsOf(allExcept(unversioned.allNull(), unversioned, versioned));
     }
 
     @Test
     void deletesOnlyTheRowWithNullColumns_whenVersionedDeleteGetsNullArguments() {
         // given
-        SeededMappings seeded = seedMappingsVaryingOneColumnEach();
+        SeededMappings unversioned = seedMappingsVaryingOneColumnEach(null);
+        SeededMappings versioned = seedMappingsVaryingOneColumnEach(1);
 
         // when
         inTransaction(() -> mappingRepository
@@ -119,15 +125,15 @@ class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
                         objectUuid, 1, null, null));
 
         // then
-        assertThat(remainingMappings())
-                .containsExactlyInAnyOrder(seeded.allNull(), seeded.withOperation(), seeded.withPurpose(),
-                        seeded.withConnector(), seeded.withSource());
+        assertThat(findRemainingMappings())
+                .containsExactlyInAnyOrderElementsOf(allExcept(versioned.allNull(), unversioned, versioned));
     }
 
     @Test
     void deletesNothing_whenWideVersionedDeleteGetsNullOperation() {
         // given
-        SeededMappings seeded = seedMappingsVaryingOneColumnEach();
+        SeededMappings unversioned = seedMappingsVaryingOneColumnEach(null);
+        SeededMappings versioned = seedMappingsVaryingOneColumnEach(1);
 
         // when
         inTransaction(() -> mappingRepository
@@ -135,7 +141,8 @@ class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
                         1));
 
         // then
-        assertThat(remainingMappings()).containsExactlyInAnyOrderElementsOf(seeded.all());
+        assertThat(findRemainingMappings())
+                .containsExactlyInAnyOrderElementsOf(allExcept(null, unversioned, versioned));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -191,49 +198,66 @@ class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
         }
     }
 
-    private SeededMappings seedMappingsVaryingOneColumnEach() {
-        AttributeDefinition definitionWithoutOperation = saveDataDefinition(null);
-        AttributeDefinition definitionWithOperation = saveDataDefinition(OPERATION);
-        UUID connectorUuid = connectorRepository.save(aConnector().withGeneratedUuid().build()).getUuid();
+    /**
+     * One row whose nullable filter columns are all {@code NULL}, one for each such column set to a value, and one that
+     * differs only in being a custom attribute, all at the given object version.
+     */
+    private SeededMappings seedMappingsVaryingOneColumnEach(Integer version) {
+        AttributeDefinition dataWithoutOperation = saveDataDefinition(null);
+        AttributeDefinition dataWithOperation = saveDataDefinition(OPERATION);
+        AttributeDefinition custom = saveCustomDefinition();
+        UUID connectorUuid = connectorRepository
+                .save(aConnector().withGeneratedUuid().withUrl("http://" + UUID.randomUUID() + ".test").build())
+                .getUuid();
 
-        UUID allNull = saveMapping(definitionWithoutOperation);
-        UUID withOperation = saveMapping(definitionWithOperation);
-        UUID withPurpose = saveMapping(definitionWithoutOperation, mapping -> mapping.setPurpose("purpose"));
-        UUID withConnector = saveMapping(definitionWithoutOperation,
+        UUID allNull = saveMapping(dataWithoutOperation, version);
+        UUID withOperation = saveMapping(dataWithOperation, version);
+        UUID withPurpose = saveMapping(dataWithoutOperation, version, mapping -> mapping.setPurpose("purpose"));
+        UUID withConnector = saveMapping(dataWithoutOperation, version,
                 mapping -> mapping.setConnectorUuid(connectorUuid));
-        UUID withSource = saveMapping(definitionWithoutOperation, mapping -> {
+        UUID withSource = saveMapping(dataWithoutOperation, version, mapping -> {
             mapping.setSourceObjectType(Resource.DISCOVERY);
             mapping.setSourceObjectUuid(UUID.randomUUID());
         });
-        UUID versioned = saveMapping(definitionWithoutOperation, mapping -> mapping.setObjectVersion(1));
-        return new SeededMappings(allNull, withOperation, withPurpose, withConnector, withSource, versioned);
+        UUID ofCustomAttribute = saveMapping(custom, version);
+        return new SeededMappings(allNull, withOperation, withPurpose, withConnector, withSource, ofCustomAttribute);
     }
 
     private AttributeDefinition saveDataDefinition(String operation) {
         UUID attributeUuid = UUID.randomUUID();
-        String name = "mappingDelete-" + attributeUuid;
-        DataAttributeV3 attribute = new DataAttributeV3();
-        attribute.setUuid(attributeUuid.toString());
-        attribute.setName(name);
-        attribute.setContentType(AttributeContentType.STRING);
+        BaseAttribute attribute = aDataAttribute().withUuid(attributeUuid).withName("data-" + attributeUuid).build();
+        return saveDefinition(AttributeType.DATA, attribute, operation);
+    }
 
+    private AttributeDefinition saveCustomDefinition() {
+        UUID attributeUuid = UUID.randomUUID();
+        CustomAttributeV3 attribute = new CustomAttributeV3();
+        attribute.setUuid(attributeUuid.toString());
+        attribute.setName("custom-" + attributeUuid);
+        attribute.setType(AttributeType.CUSTOM);
+        attribute.setContentType(AttributeContentType.STRING);
+        return saveDefinition(AttributeType.CUSTOM, attribute, null);
+    }
+
+    private AttributeDefinition saveDefinition(AttributeType type, BaseAttribute attribute, String operation) {
         AttributeDefinition definition = new AttributeDefinition();
-        definition.setName(name);
-        definition.setAttributeUuid(attributeUuid);
-        definition.setLabel(name);
-        definition.setType(AttributeType.DATA);
+        definition.setName(attribute.getName());
+        definition.setAttributeUuid(UUID.fromString(attribute.getUuid()));
+        definition.setLabel(attribute.getName());
+        definition.setType(type);
         definition.setContentType(AttributeContentType.STRING);
         definition.setDefinition(attribute);
         definition.setOperation(operation);
         return definitionRepository.save(definition);
     }
 
-    private UUID saveMapping(AttributeDefinition definition) {
-        return saveMapping(definition, mapping -> {
+    private UUID saveMapping(AttributeDefinition definition, Integer version) {
+        return saveMapping(definition, version, mapping -> {
         });
     }
 
-    private UUID saveMapping(AttributeDefinition definition, Consumer<AttributeContent2Object> variation) {
+    private UUID saveMapping(AttributeDefinition definition, Integer version,
+            Consumer<AttributeContent2Object> variation) {
         AttributeContentItem item = new AttributeContentItem();
         item.setAttributeDefinitionUuid(definition.getUuid());
         item.setJson(new StringAttributeContentV3(UUID.randomUUID().toString()));
@@ -243,23 +267,29 @@ class AttributeContent2ObjectDeleteITest extends BaseSpringBootTest {
         mapping.setAttributeContentItemUuid(item.getUuid());
         mapping.setObjectType(Resource.CERTIFICATE);
         mapping.setObjectUuid(objectUuid);
+        mapping.setObjectVersion(version);
         variation.accept(mapping);
         return mappingRepository.save(mapping).getUuid();
     }
 
-    private List<UUID> remainingMappings() {
-        return mappingRepository
-                .findByObjectTypeAndObjectUuid(Resource.CERTIFICATE, objectUuid)
-                .stream()
-                .map(AttributeContent2Object::getUuid)
+    /** Every test starts from an empty database, so the rows left in the table are the object's. */
+    private List<UUID> findRemainingMappings() {
+        return mappingRepository.findAll().stream().map(AttributeContent2Object::getUuid).toList();
+    }
+
+    private static List<UUID> allExcept(UUID deleted, SeededMappings... seeded) {
+        return Stream
+                .of(seeded)
+                .flatMap(mappings -> mappings.all().stream())
+                .filter(uuid -> !Objects.equals(uuid, deleted))
                 .toList();
     }
 
     private record SeededMappings(UUID allNull, UUID withOperation, UUID withPurpose, UUID withConnector,
-            UUID withSource, UUID versioned) {
+            UUID withSource, UUID ofCustomAttribute) {
 
         List<UUID> all() {
-            return List.of(allNull, withOperation, withPurpose, withConnector, withSource, versioned);
+            return List.of(allNull, withOperation, withPurpose, withConnector, withSource, ofCustomAttribute);
         }
     }
 

@@ -3057,19 +3057,13 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     private RequestAttributeV3 registerDataAttributeWithValue(String name) throws AttributeException {
-        DataAttributeV3 attribute = new DataAttributeV3();
-        attribute.setUuid(UUID.randomUUID().toString());
-        attribute.setName(name);
-        attribute.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties properties = new DataAttributeProperties();
-        properties.setLabel(name);
-        attribute.setProperties(properties);
+        DataAttributeV3 attribute = DataAttributeV3Builder.aDataAttribute().withName(name).build();
         attributeEngine.updateDataAttributeDefinitions(null, null, List.of(attribute));
-
-        RequestAttributeV3 requestAttribute = new RequestAttributeV3();
-        requestAttribute.setUuid(UUID.fromString(attribute.getUuid()));
-        requestAttribute.setName(name);
-        requestAttribute.setContent(List.of(new StringAttributeContentV3(name + "-value")));
-        return requestAttribute;
+        return RequestAttributeV3Builder
+                .aCustomAttribute()
+                .withUuid(attribute.getUuid())
+                .withName(name)
+                .withStringContent(name + "-value")
+                .build();
     }
 }

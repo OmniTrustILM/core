@@ -341,9 +341,10 @@ public interface AttributeContent2ObjectRepository extends SecurityFilterReposit
      * {@code object_version IS NULL} slice.
      * <p>
      * The definition is matched in a subquery correlated through the plain {@code attributeContentItemUuid} column, as
-     * in the other two operation deletes. A path through {@code aco.attributeContentItem} makes Hibernate emulate the
-     * join in a subquery that also holds the object conditions, so PostgreSQL cannot use
-     * {@code idx_aco_type_uuid_version} and scans the whole table on every call.
+     * {@link #deleteAllOperationAttributesByVersion} and {@link #deleteOperationObjectAttributesUnversioned} do. A path
+     * through {@code aco.attributeContentItem} makes Hibernate emulate the join in a subquery that also holds the
+     * object conditions, so PostgreSQL cannot use {@code idx_aco_type_uuid_version} and scans the whole table on every
+     * call.
      */
     @Modifying
     @Query("""
