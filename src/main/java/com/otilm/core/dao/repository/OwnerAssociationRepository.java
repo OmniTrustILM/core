@@ -29,8 +29,8 @@ public interface OwnerAssociationRepository extends JpaRepository<OwnerAssociati
      * Returns those of {@code resources} with at least one object owned by {@code ownerUuid}, or assigned to one of
      * {@code groupUuids} (to any group when {@code allGroups}) and to none of {@code deniedGroupUuids}, since
      * authorization denies an object when any of its groups is denied. The lists are Postgres array literals, so an
-     * empty one stays valid SQL where an empty {@code IN ()} would not. The owner and group legs are separate queries
-     * so each can use its own index.
+     * empty one stays valid SQL where an empty {@code IN ()} would not. The owner and group legs are the two branches
+     * of a {@code UNION}, so each can use its own index.
      */
     @Query(value = """
             SELECT r.resource FROM unnest(CAST(:resources AS text[])) AS r(resource)

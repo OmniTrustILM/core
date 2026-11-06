@@ -115,6 +115,7 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
 
     @Override
     @AnyPrincipalEndpoint
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
     public ObjectAllowedActionsResponseDto listObjectAllowedActions(Resource resource,
             ObjectAllowedActionsRequestDto request) {
         return new ObjectAllowedActionsResponseDto(objectActionResolver.resolve(resource, request.getUuids()));

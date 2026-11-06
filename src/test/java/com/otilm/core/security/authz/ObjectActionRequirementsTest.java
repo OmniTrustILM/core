@@ -4,13 +4,18 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnAncestor;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnLinked;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnObjectUnder;
+import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,16 +80,34 @@ class ObjectActionRequirementsTest {
     @Test
     void namesALinkedAttributeTheEntityHas() {
         TABLE
-                .forEach((resource, objects) -> objects
-                        .actions()
-                        .values()
-                        .stream()
-                        .flatMap(List::stream)
-                        .filter(OnLinked.class::isInstance)
-                        .map(OnLinked.class::cast)
-                        .forEach(requirement -> assertThat(hasField(objects.entity(), requirement.attribute()))
-                                .as(resource.getCode() + "." + requirement.attribute())
+                .forEach((resource, objects) -> Stream
+                        .concat(Stream.of(objects.listing()), objects.actions().values().stream().flatMap(List::stream))
+                        .map(ObjectActionRequirementsTest::linkedAttribute)
+                        .flatMap(Optional::stream)
+                        .forEach(attribute -> assertThat(hasField(objects.entity(), attribute))
+                                .as(resource.getCode() + "." + attribute)
                                 .isTrue()));
+    }
+
+    @Test
+    void decidesVisibilityByListingOrDetail() {
+        TABLE.forEach((resource, objects) -> {
+            assertThat(objects.actions()).as(resource.getCode()).containsKey(ResourceAction.DETAIL);
+            assertThat(objects.listing())
+                    .as(resource.getCode())
+                    .satisfiesAnyOf(listing -> assertThat(listing).isEqualTo(new OnObject(ResourceAction.LIST)),
+                            listing -> assertThat(listing)
+                                    .isInstanceOfSatisfying(OnObjectUnder.class,
+                                            under -> assertThat(under.action()).isEqualTo(ResourceAction.LIST)));
+        });
+    }
+
+    private static Optional<String> linkedAttribute(Requirement requirement) {
+        return switch (requirement) {
+            case OnLinked onLinked -> Optional.of(onLinked.attribute());
+            case OnObjectUnder under -> Optional.of(under.parentAttribute());
+            default -> Optional.empty();
+        };
     }
 
     private static Set<Resource> chainOf(Resource resource) {

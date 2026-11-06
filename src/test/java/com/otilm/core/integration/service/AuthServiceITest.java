@@ -201,6 +201,9 @@ class AuthServiceITest extends BaseSpringBootTest {
                 .assertTrue(userProfileDto.getPermissions().getAllowedListings().contains(Resource.USER),
                         "USER is listed through the group members grant");
         Assertions
+                .assertFalse(allowedActionsFor(userProfileDto, Resource.USER).contains(ResourceAction.LIST),
+                        "the group members grant does not add LIST to USER's actions");
+        Assertions
                 .assertEquals(List.of(ResourceAction.CREATE, ResourceAction.DETAIL),
                         allowedActionsFor(userProfileDto, Resource.CERTIFICATE));
     }

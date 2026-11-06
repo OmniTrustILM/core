@@ -43,6 +43,13 @@ public interface AuthorizationEnforcer {
     boolean isAuthorized(Resource resource, ResourceAction action);
 
     /**
+     * Whether the current principal may perform {@code action} on the object under its parent, decided exactly as an
+     * {@code @ExternalAuthorization} naming {@code parentResource} and {@code parentAction} decides it.
+     */
+    boolean isAuthorized(Resource resource, ResourceAction action, SecuredUUID objectUuid, Resource parentResource,
+            ResourceAction parentAction, SecuredParentUUID parentUuid);
+
+    /**
      * Whether {@code userUuid} may perform {@code action} on the object. For the current principal the decision is made
      * against its own authentication; for anybody else, against a principal resolved for them, and a user the auth
      * service can no longer resolve is denied.

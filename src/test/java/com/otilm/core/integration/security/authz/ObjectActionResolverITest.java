@@ -17,6 +17,7 @@ import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -28,6 +29,7 @@ import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
+import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.service.ResourceExternalService;
@@ -79,6 +81,9 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
     @Autowired
     private CryptographicKeyRepository keyRepository;
+
+    @Autowired
+    private TokenProfileRepository tokenProfileRepository;
 
     private Connector connector;
 
@@ -169,7 +174,8 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         UUID group = saveGroup();
 
         assertThat(actionsOn(Resource.GROUP, group))
-                .containsExactly(ResourceAction.DELETE, ResourceAction.DETAIL, ResourceAction.UPDATE);
+                .containsExactly(ResourceAction.DELETE, ResourceAction.DETAIL, ResourceAction.MEMBERS,
+                        ResourceAction.UPDATE);
     }
 
     @Test
@@ -177,7 +183,8 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         UUID group = saveGroup();
         denyResourceAccess(Resource.GROUP, ResourceAction.UPDATE, group);
 
-        assertThat(actionsOn(Resource.GROUP, group)).containsExactly(ResourceAction.DELETE, ResourceAction.DETAIL);
+        assertThat(actionsOn(Resource.GROUP, group))
+                .containsExactly(ResourceAction.DELETE, ResourceAction.DETAIL, ResourceAction.MEMBERS);
     }
 
     @Test
@@ -209,7 +216,9 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         Location location = saveLocation();
         denyResourceAccess(Resource.ENTITY, ResourceAction.DETAIL, location.getEntityInstanceReferenceUuid());
 
-        assertThat(actionsOn(Resource.LOCATION, location.getUuid())).isEmpty();
+        assertThat(actionsOn(Resource.LOCATION, location.getUuid()))
+                .as("commenting loads the location through a detail check that does not ask for the entity")
+                .containsExactly(ResourceAction.COMMENT);
     }
 
     @Test
@@ -257,37 +266,38 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         UUID certificate = saveCertificate(saveRaProfile());
         for (ResourceAction action : List
                 .of(ResourceAction.LIST, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
-                        ResourceAction.ARCHIVE, ResourceAction.RENEW, ResourceAction.REVOKE)) {
+                        ResourceAction.ARCHIVE, ResourceAction.RENEW, ResourceAction.REVOKE, ResourceAction.ISSUE,
+                        ResourceAction.CHECK_COMPLIANCE, ResourceAction.COMMENT)) {
             denyResourceAccess(Resource.CERTIFICATE, action);
         }
-        OwnerAssociation owner = new OwnerAssociation();
-        owner.setResource(Resource.CERTIFICATE);
-        owner.setObjectUuid(certificate);
-        owner
-                .setOwnerUuid(UUID
-                        .fromString(
-                                ((PlatformAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
-                                        .getPrincipal()
-                                        .getUserUuid()));
-        owner.setOwnerUsername("tst-user");
-        ownerAssociationRepository.save(owner);
+        own(Resource.CERTIFICATE, certificate);
 
         assertThat(actionsOn(Resource.CERTIFICATE, certificate))
                 .as("ownership admits the actions checked on the certificate, not those checked only on the resource")
-                .containsExactly(ResourceAction.ARCHIVE, ResourceAction.DELETE, ResourceAction.DETAIL,
-                        ResourceAction.UPDATE);
+                .containsExactly(ResourceAction.ARCHIVE, ResourceAction.CHECK_COMPLIANCE, ResourceAction.COMMENT,
+                        ResourceAction.DELETE, ResourceAction.DETAIL, ResourceAction.UPDATE);
+    }
+
+    @Test
+    void leavesOutAKeyUnderATokenWhoseMembersAreDenied() {
+        CryptographicKey key = saveKey(true);
+        denyResourceAccess(Resource.TOKEN, ResourceAction.MEMBERS, key.getTokenInstanceReferenceUuid());
+
+        assertThat(report(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()))
+                .as("the key list and detail both check members on the token")
+                .isEmpty();
     }
 
     @Test
     void leavesOutKeyActionsWhoseEndpointsCheckTheKeysToken() {
         CryptographicKey key = saveKey(true);
-        denyResourceAccess(Resource.TOKEN, ResourceAction.MEMBERS, key.getTokenInstanceReferenceUuid());
+        denyResourceAccess(Resource.TOKEN, ResourceAction.DETAIL, key.getTokenInstanceReferenceUuid());
 
         assertThat(actionsOn(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()))
-                .as("detail, update, delete and export also need members on the token; enable needs only its detail")
-                .contains(ResourceAction.ENABLE)
-                .doesNotContain(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
-                        ResourceAction.EXPORT_KEY);
+                .as("detail needs only members on the token; the others also its detail")
+                .contains(ResourceAction.DETAIL)
+                .doesNotContain(ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE,
+                        ResourceAction.EXPORT_KEY, ResourceAction.SIGN);
     }
 
     @Test
@@ -298,5 +308,106 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         assertThat(actionsOn(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()))
                 .contains(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE)
                 .doesNotContain(ResourceAction.SIGN);
+    }
+
+    @Test
+    void leavesOutKeyOperationsWhenTheTokenProfileCannotBeViewed() {
+        CryptographicKey key = saveKey(true);
+        key.setTokenProfileUuid(saveTokenProfile(key.getTokenInstanceReference()).getUuid());
+        keyRepository.save(key);
+        denyResourceAccess(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, key.getTokenProfileUuid());
+
+        assertThat(actionsOn(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()))
+                .contains(ResourceAction.DETAIL)
+                .doesNotContain(ResourceAction.ENCRYPT, ResourceAction.DECRYPT, ResourceAction.SIGN,
+                        ResourceAction.VERIFY, ResourceAction.EXPORT_KEY);
+    }
+
+    @Test
+    void reportsKeyOperationsUnderAViewableTokenProfile() {
+        CryptographicKey key = saveKey(true);
+        key.setTokenProfileUuid(saveTokenProfile(key.getTokenInstanceReference()).getUuid());
+        keyRepository.save(key);
+
+        assertThat(actionsOn(Resource.CRYPTOGRAPHIC_KEY, key.getUuid()))
+                .contains(ResourceAction.ENCRYPT, ResourceAction.DECRYPT, ResourceAction.SIGN, ResourceAction.VERIFY);
+    }
+
+    @Test
+    void leavesOutACertificateWhoseRaProfileMembersAreDenied() {
+        RaProfile raProfile = saveRaProfile();
+        UUID certificate = saveCertificate(raProfile);
+        denyResourceAccess(Resource.RA_PROFILE, ResourceAction.MEMBERS, raProfile.getUuid());
+
+        assertThat(report(Resource.CERTIFICATE, certificate))
+                .as("certificate list and detail both check members on the RA profile")
+                .isEmpty();
+    }
+
+    @Test
+    void reportsAnOwnedCertificateWhoseRaProfileMembersAreDenied() {
+        RaProfile raProfile = saveRaProfile();
+        UUID certificate = saveCertificate(raProfile);
+        denyResourceAccess(Resource.RA_PROFILE, ResourceAction.MEMBERS, raProfile.getUuid());
+        for (ResourceAction action : List
+                .of(ResourceAction.LIST, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE)) {
+            denyResourceAccess(Resource.CERTIFICATE, action);
+        }
+        own(Resource.CERTIFICATE, certificate);
+
+        assertThat(actionsOn(Resource.CERTIFICATE, certificate))
+                .as("ownership admits the certificate past the RA profile check, as enforcement does")
+                .contains(ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE);
+    }
+
+    @Test
+    void leavesOutRenewWithoutTheCreateAction() {
+        UUID certificate = saveCertificate(saveRaProfile());
+        denyResourceAccess(Resource.CERTIFICATE, ResourceAction.CREATE);
+
+        assertThat(actionsOn(Resource.CERTIFICATE, certificate))
+                .contains(ResourceAction.REVOKE)
+                .doesNotContain(ResourceAction.RENEW, ResourceAction.ISSUE);
+    }
+
+    @Test
+    void leavesOutRenewWithTheCreateActionAlone() {
+        UUID certificate = saveCertificate(saveRaProfile());
+        denyResourceAccess(Resource.CERTIFICATE, ResourceAction.RENEW);
+
+        assertThat(actionsOn(Resource.CERTIFICATE, certificate))
+                .contains(ResourceAction.ISSUE)
+                .doesNotContain(ResourceAction.RENEW);
+    }
+
+    @Test
+    void reportsComplianceCheckAndCommentOnACertificate() {
+        UUID certificate = saveCertificate(saveRaProfile());
+
+        assertThat(actionsOn(Resource.CERTIFICATE, certificate))
+                .contains(ResourceAction.CHECK_COMPLIANCE, ResourceAction.COMMENT);
+    }
+
+    private TokenProfile saveTokenProfile(TokenInstanceReference token) {
+        TokenProfile tokenProfile = new TokenProfile();
+        tokenProfile.setName("token-profile-" + UUID.randomUUID());
+        tokenProfile.setTokenInstanceReference(token);
+        tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
+        tokenProfile.setEnabled(true);
+        return tokenProfileRepository.save(tokenProfile);
+    }
+
+    private void own(Resource resource, UUID objectUuid) {
+        OwnerAssociation owner = new OwnerAssociation();
+        owner.setResource(resource);
+        owner.setObjectUuid(objectUuid);
+        owner
+                .setOwnerUuid(UUID
+                        .fromString(
+                                ((PlatformAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
+                                        .getPrincipal()
+                                        .getUserUuid()));
+        owner.setOwnerUsername("tst-user");
+        ownerAssociationRepository.save(owner);
     }
 }

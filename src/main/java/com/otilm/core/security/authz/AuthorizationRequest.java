@@ -34,4 +34,19 @@ public record AuthorizationRequest(Map<String, String> properties, List<SecuredU
         return new AuthorizationRequest(properties, objectUuids, List.of(), false, Optional.empty(),
                 "%s:%s".formatted(resource.getCode(), action.getCode()));
     }
+
+    /**
+     * Builds the request an {@code @ExternalAuthorization} with a parent resource makes for one object and its parent.
+     */
+    public static AuthorizationRequest forParentCheck(Resource resource, ResourceAction action, SecuredUUID objectUuid,
+            Resource parentResource, ResourceAction parentAction, SecuredParentUUID parentUuid) {
+        Map<String, String> properties = Map
+                .of(AuthorizationProperties.ACTION, action.getCode(), AuthorizationProperties.NAME, resource.getCode(),
+                        AuthorizationProperties.PARENT_ACTION, parentAction.getCode(),
+                        AuthorizationProperties.PARENT_NAME, parentResource.getCode());
+        return new AuthorizationRequest(properties, List.of(objectUuid), List.of(parentUuid), false, Optional.empty(),
+                "%s:%s under %s:%s"
+                        .formatted(resource.getCode(), action.getCode(), parentResource.getCode(),
+                                parentAction.getCode()));
+    }
 }
