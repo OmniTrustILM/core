@@ -88,11 +88,9 @@ discovery:
     # How long a non-terminal run may hold no pending work row before the reaper fails it. Covers the initiate
     # window, where the run row exists before its first agenda rows.
     reap-grace: ${DISCOVERY_WORK_REAP_GRACE:PT5M}
-    # How long a claimed row stays leased to the tick it was published for. The tick renews the lease while it works
-    # and releases it when it reschedules, so this bounds how long a row whose tick died or was lost waits before the
-    # sweep claims it again. Must outlast the slowest connector call -- the connection-acquisition, connect and
-    # response timeouts under connector.api-client, taken together -- plus staging what it returned, or the sweep
-    # publishes a second tick while the first is still running.
+    # How long a claimed row stays leased to its tick, which renews it while working; a row whose tick died waits
+    # this long before the sweep claims it again. Must outlast the slowest connector call (connection-acquisition,
+    # connect and response timeouts under connector.api-client) plus staging, or a second tick runs beside the first.
     lease-duration: ${DISCOVERY_WORK_LEASE_DURATION:PT2M}
     # How long a stopped run waits between status polls. It reports nothing new while paused, but it is still
     # watched: its connector can still fail or cancel it.

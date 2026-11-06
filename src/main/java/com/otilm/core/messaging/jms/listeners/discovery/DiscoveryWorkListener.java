@@ -23,15 +23,12 @@ import org.springframework.stereotype.Component;
  * lock. Each worker opens its own short transactions around the writes its answer justifies.
  *
  * <p>
- * <b>Admission.</b> A tick runs only while its agenda row is still leased to the token its message carries, and takes
- * the row under a token of its own as it starts. A second copy of the message, or one a newer claim outlived, ends here
- * without calling the worker.
+ * <b>Admission.</b> Only a tick {@link DiscoveryWorkLease#admit} accepts reaches its worker.
  *
  * <p>
- * <b>A tick that does not say what happens next is retried at its next rung.</b> That covers a worker that failed,
- * whether it caught the failure and charged the budget or let it escape: the row moves one attempt up its ladder and
- * the lease is freed. An escaping failure is logged and acknowledged rather than handed to the broker, whose redelivery
- * would add a second, uncoordinated retry loop on top of the agenda's.
+ * <b>A tick that does not say what happens next is retried at its next rung</b>, including one whose worker threw. A
+ * thrown failure is logged and acknowledged rather than handed to the broker, whose redelivery would add a second,
+ * uncoordinated retry loop on top of the agenda's.
  */
 @Component
 public class DiscoveryWorkListener implements MessageProcessor<DiscoveryWorkMessage> {

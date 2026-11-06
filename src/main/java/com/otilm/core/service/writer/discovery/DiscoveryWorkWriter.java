@@ -111,8 +111,7 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Schedules the row's next tick and frees it, if the tick holding {@code leaseToken} still holds it. Joins the
-     * caller's transaction, so the schedule commits with the run state that decided it.
+     * Schedules the row's next tick and frees it, if the tick holding {@code leaseToken} still holds it.
      */
     @Transactional
     public void rescheduleLeased(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, int attempt,

@@ -276,8 +276,7 @@ public class DiscoveryDrainTickWorker {
             // Delete then schedule inside one transaction: a live run's agenda must never be observably
             // empty, or the reaper would read it as lost work.
             workWriter.deleteForRun(discoveryUuid);
-            // Leased to the tick published once this commits, so the sweep leaves the row alone while that tick
-            // runs, and claims it if the publish never lands.
+            // Leased to the tick published once this commits.
             DiscoveryWorkMessage processTick = lease.scheduleLeased(discoveryUuid, DiscoveryWorkType.PROCESS);
             logger.info("Discovery {} drained {} items in full; processing them now", discoveryUuid, acknowledged);
             return Optional.of(new Handover(handle, processTick));
@@ -285,9 +284,8 @@ public class DiscoveryDrainTickWorker {
     }
 
     /**
-     * Hands the row to the next page's tick under a fresh lease, which also clears the attempt counter this successful
-     * page earned back, and publishes that tick directly. The handover commits first, so a publish that never lands
-     * leaves a leased row the sweep claims once the lease runs out.
+     * Hands the row to the next page's tick with the attempt counter this page earned back, and publishes that tick
+     * directly.
      */
     private void drainAgain(DiscoveryWorkTick tick, String why) {
         logger.debug("Draining discovery {} again immediately: {}", tick.discoveryUuid(), why);

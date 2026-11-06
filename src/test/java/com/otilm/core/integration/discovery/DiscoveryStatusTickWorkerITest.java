@@ -210,7 +210,7 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
 
     /**
      * A paused run reports nothing new, and the reaper lets one stay stopped for days. Left on the live cadence it
-     * would ask a paused connector the same question every thirty seconds for that whole window.
+     * would ask a paused connector the same question on every live poll for that whole window.
      */
     @Test
     void stoppedAnswer_backsTheStatusPollOff() throws Exception {

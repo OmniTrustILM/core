@@ -319,7 +319,7 @@ public class DiscoveryStatusTickWorker {
                 run.setStatus(DiscoveryStatus.STOPPED);
                 // Back off rather than keep the live cadence: a stopped run reports nothing new, and the reaper lets
                 // one stay stopped for days. Polled at the live rung it would ask a paused connector the same question
-                // every thirty seconds for that whole window.
+                // on every live poll for that whole window.
                 tick.reschedule(0, OffsetDateTime.now(ZoneOffset.UTC).plus(stoppedPollInterval));
                 // Starts the resume window the reaper bounds. Stamped only when the run is not already
                 // inside one, so repeated STOPPED answers cannot keep pushing the deadline out.

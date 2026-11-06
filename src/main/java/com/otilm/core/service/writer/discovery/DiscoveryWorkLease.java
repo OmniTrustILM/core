@@ -13,13 +13,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * The lease a discovery tick holds on its {@code discovery_work} row, from admission to release. Every write is
- * conditional on the tick's token, so a tick whose row was reclaimed, rescheduled by a lifecycle change or deleted
- * changes nothing. The writes themselves are {@link DiscoveryWorkWriter}'s, each in its own transaction or the
- * caller's.
- *
- * <p>
- * Workers reach these writes through {@link DiscoveryWorkTick}, never directly.
+ * The lease a discovery tick holds on its {@code discovery_work} row, from admission to release. A tick's writes to its
+ * own row go through {@link DiscoveryWorkTick} and are conditional on its token, so a tick whose row was reclaimed,
+ * rescheduled by a lifecycle change or deleted changes nothing.
  */
 @Component
 public class DiscoveryWorkLease {
@@ -41,10 +37,9 @@ public class DiscoveryWorkLease {
     }
 
     /**
-     * Lets a tick message run only while its row is still leased to the message's token, and moves the lease to a fresh
-     * token held by the tick alone, renewed for the tick's work. A second copy of the same message then finds its token
-     * gone. A message without a token was published by a Core version without the lease; it runs only on a row no tick
-     * holds, and takes the row under a new token.
+     * Admits a tick message only while its row is still leased to the message's token, and moves the lease to a fresh
+     * token the tick alone holds, so a second copy of the message finds its token gone. A message without a token comes
+     * from a Core version without the lease and is admitted only on a row no tick holds.
      *
      * @return the tick to run, or empty when another copy of the message was already admitted, a newer claim outlived
      * it, or its row is gone

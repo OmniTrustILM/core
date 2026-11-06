@@ -26,8 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * One claim runs entirely against the database — no external call — so the advisory lock and the transaction are held
- * only for the duration of the read and the claims. The claim commits with the same transaction that holds the lock, so
- * a row is either read-and-claimed or neither.
+ * only for the duration of the read and the claims.
  * </p>
  */
 @Component
@@ -57,10 +56,9 @@ public class DiscoveryWorkClaimer {
      * <b>Locking:</b> returns empty when another node already holds the sweep lock.
      *
      * <p>
-     * <b>Claiming:</b> each row gets a fresh lease token, valid for {@code discovery.work.lease-duration}, and one more
-     * attempt charged against its budget. The message carries the token; the tick runs only while the row still holds
-     * it, and renews it while it works. A row whose tick never runs — a lost message, a node that died holding it —
-     * becomes claimable again when its lease runs out.
+     * <b>Claiming:</b> each row gets a fresh lease token for {@code discovery.work.lease-duration}, carried by its
+     * message, and one more attempt against its budget. A row whose tick never runs becomes claimable again when its
+     * lease runs out.
      *
      * <p>
      * <b>Publishing:</b> the caller sends the returned messages after this method returns, outside the lock and

@@ -17,7 +17,7 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
 
     /**
      * Rows due for a tick that no tick holds, soonest first: never leased, or leased by a tick whose lease has run out.
-     * No row locking: the sweep's cluster-wide advisory lock already serializes access.
+     * No row locking: the advisory lock serializes sweeps, and {@link #claim} checks each row again.
      */
     @Query("SELECT w FROM DiscoveryWork w WHERE w.nextDueAt <= :dueCutoff "
             + "AND (w.leaseToken IS NULL OR w.leaseExpiresAt <= :now) ORDER BY w.nextDueAt")
@@ -91,9 +91,8 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
             @Param("nextDueAt") OffsetDateTime nextDueAt);
 
     /**
-     * Frees the row, if the tick holding {@code leaseToken} still holds it, so it is claimable at once. The attempt is
-     * left alone, and a due time is only brought forward to {@code now}: while the tick held the row nothing else
-     * scheduled it, so its due time is the claim's fallback for the lease, not a schedule.
+     * Frees the row, if the tick holding {@code leaseToken} still holds it, and makes it due no later than {@code now}:
+     * while a tick holds the row, its due time is only the claim's fallback for the lease.
      */
     @Modifying
     @Query("UPDATE DiscoveryWork w SET w.leaseToken = NULL, w.leaseExpiresAt = NULL, "

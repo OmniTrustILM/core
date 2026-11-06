@@ -329,8 +329,7 @@ public class DiscoveryProcessTickWorker {
     }
 
     /**
-     * Hands the row to the next batch's tick under a fresh lease, then publishes that tick directly. The handover
-     * commits first, so a publish that never lands leaves a leased row the sweep claims once the lease runs out.
+     * Hands the row to the next batch's tick and publishes that tick directly.
      */
     private void continueProcessing(DiscoveryWorkTick tick, long remaining) {
         UUID discoveryUuid = tick.discoveryUuid();
