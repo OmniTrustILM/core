@@ -205,14 +205,15 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
     protected WireMockServer mockServer;
 
     @BeforeEach
-    void setUp() throws CertificateException, IOException, NoSuchAlgorithmException, OperatorCreationException,
+    void seedSigningInfrastructure()
+            throws CertificateException, IOException, NoSuchAlgorithmException, OperatorCreationException,
             AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
         mockServer = LoopbackWireMock.start();
         WireMock.configureFor(LoopbackWireMock.HOST, mockServer.port());
         mockServer
                 .stubFor(WireMock
-                        .get(WireMock.urlPathMatching(".*/v1/signatureProvider/formatting/attributes"))
-                        .willReturn(WireMock.okJson("[]")));
+                        .get(WireMock.urlPathMatching(".*/v2/attributes"))
+                        .willReturn(WireMock.okJson("{\"definitions\":[]}")));
 
         // Shared token instance infrastructure required by the static-key managed scheme
         Connector connector = new Connector();
