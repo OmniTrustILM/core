@@ -7,6 +7,7 @@ import com.otilm.core.model.auth.ResourceSyncRequestDto;
 import com.otilm.core.security.authn.client.ResourceApiClient;
 import com.otilm.core.security.authn.client.RoleManagementApiClient;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
+import com.otilm.core.util.DatabaseAuthMigration;
 import com.otilm.core.util.DatabaseMigration;
 import org.flywaydb.core.api.migration.BaseJavaMigration;
 import org.flywaydb.core.api.migration.Context;
@@ -145,7 +146,7 @@ public class V202303211718__Scep_Roles extends BaseJavaMigration {
         requestDto.setDescription("System role with all SCEP permissions");
         requestDto.setSystemRole(true);
         requestDto.setPermissions(getPermissionPayload());
-        RoleDetailDto response = roleManagementApiClient.createRole(requestDto);
+        RoleDetailDto response = DatabaseAuthMigration.getOrCreateRole(roleManagementApiClient, requestDto);
         String scepUser = createScepUser();
         assignRoles(scepUser, response.getUuid());
     }
@@ -157,6 +158,6 @@ public class V202303211718__Scep_Roles extends BaseJavaMigration {
         requestDto.setEnabled(true);
         requestDto.setSystemUser(true);
         requestDto.setCertificateFingerprint("");
-        return userManagementApiClient.createUser(requestDto).getUuid();
+        return DatabaseAuthMigration.getOrCreateUser(userManagementApiClient, requestDto).getUuid();
     }
 }

@@ -11,6 +11,7 @@ import com.otilm.api.model.core.auth.RolePermissionsRequestDto;
 import com.otilm.api.model.core.auth.RoleRequestDto;
 import com.otilm.api.model.core.auth.SubjectPermissionsDto;
 import com.otilm.api.model.core.auth.UserDetailDto;
+import com.otilm.api.model.core.auth.UserDto;
 import com.otilm.api.model.core.auth.UserRequestDto;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.auth.ResourceSyncRequestDto;
@@ -101,7 +102,7 @@ public class DatabaseAuthMigration {
 
     public static UserDetailDto createUser(UserRequestDto request, List<String> roleUuids)
             throws IOException, URISyntaxException {
-        UserDetailDto user = getUserManagementApiClient().createUser(request);
+        UserDetailDto user = getOrCreateUser(getUserManagementApiClient(), request);
         return getUserManagementApiClient().updateRoles(user.getUuid(), roleUuids);
     }
 
@@ -125,7 +126,35 @@ public class DatabaseAuthMigration {
         }
 
         request.setPermissions(permissionsRequest);
-        return getRoleManagementApiClient().createRole(request);
+        return getOrCreateRole(getRoleManagementApiClient(), request);
+    }
+
+    /**
+     * Idempotently creates a role: if a role with the requested name already exists — e.g. a prior, interrupted
+     * migration run already created it in the Auth Service — the existing role is returned instead of failing with
+     * ENTITY_NOT_UNIQUE. Schema migrations that call the Auth Service must be safe to re-run (Flyway can re-execute a
+     * migration that was interrupted after the cross-service POST but before its history row was committed).
+     */
+    public static RoleDetailDto getOrCreateRole(RoleManagementApiClient roleClient, RoleRequestDto request) {
+        for (RoleDto existing : roleClient.getRoles().getData()) {
+            if (existing.getName().equals(request.getName())) {
+                return roleClient.getRoleDetail(existing.getUuid());
+            }
+        }
+        return roleClient.createRole(request);
+    }
+
+    /**
+     * Idempotently creates a user: if a user with the requested username already exists, the existing user is returned
+     * instead of failing with ENTITY_NOT_UNIQUE. See {@link #getOrCreateRole}.
+     */
+    public static UserDetailDto getOrCreateUser(UserManagementApiClient userClient, UserRequestDto request) {
+        for (UserDto existing : userClient.getUsers().getData()) {
+            if (existing.getUsername().equals(request.getUsername())) {
+                return userClient.getUserDetail(existing.getUuid());
+            }
+        }
+        return userClient.createUser(request);
     }
 
     public static void updateRolePermissions(String roleUuid, Map<Resource, List<ResourceAction>> resourcesActions)
