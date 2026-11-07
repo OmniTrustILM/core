@@ -663,8 +663,8 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         CryptographicKey key = cryptographicKeySeeder
                 .seedKey("cmpSigningKey", null, token, signingPrivateKey(KeyAlgorithm.ECDSA),
                         verifyingPublicKey(KeyAlgorithm.ECDSA));
-        CryptographicKeyItem privateKey = itemOf(key, KeyType.PRIVATE_KEY);
-        CryptographicKeyItem publicKey = itemOf(key, KeyType.PUBLIC_KEY);
+        CryptographicKeyItem privateKey = findItem(key, KeyType.PRIVATE_KEY);
+        CryptographicKeyItem publicKey = findItem(key, KeyType.PUBLIC_KEY);
         publicKey.setKeyMeta(keyIdMeta("cmp-signer-public-key-id"));
         cryptographicKeyItemRepository.save(publicKey);
         cryptographyProvider
@@ -698,7 +698,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         cmpProfile = cmpProfileRepository.saveAndFlush(cmpProfile);
     }
 
-    private static CryptographicKeyItem itemOf(CryptographicKey key, KeyType type) {
+    private static CryptographicKeyItem findItem(CryptographicKey key, KeyType type) {
         return key.getItems().stream().filter(item -> item.getType() == type).findFirst().orElseThrow();
     }
 }

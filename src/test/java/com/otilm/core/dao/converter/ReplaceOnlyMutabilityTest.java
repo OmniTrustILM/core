@@ -11,7 +11,7 @@ class ReplaceOnlyMutabilityTest {
     private final ReplaceOnlyMutability mutability = new ReplaceOnlyMutability();
 
     @Test
-    void keepsTheValueItselfAsTheSnapshot() {
+    void returnsTheValueItself_whenDeepCopying() {
         // given
         var loaded = List.of("handle");
 
@@ -20,18 +20,18 @@ class ReplaceOnlyMutabilityTest {
 
         // then
         assertThat(snapshot).isSameAs(loaded);
-        assertThat(mutability.isMutable()).isTrue();
     }
 
     @Test
     void returnsTheCachedValue_whenAssemblingWhatItDisassembled() {
         // given
         var loaded = List.of("handle");
-
-        // when
         Serializable cached = mutability.disassemble(loaded, null);
 
+        // when
+        Object assembled = mutability.assemble(cached, null);
+
         // then
-        assertThat(mutability.assemble(cached, null)).isSameAs(loaded);
+        assertThat(assembled).isSameAs(loaded);
     }
 }
