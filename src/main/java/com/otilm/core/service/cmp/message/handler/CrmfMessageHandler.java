@@ -44,6 +44,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -54,10 +55,10 @@ import org.springframework.transaction.annotation.Transactional;
  * @see CrmfKurMessageHandler
  */
 @Component
-// noRollbackFor keeps Spring's default (no rollback on checked exceptions): CMP surfaces
-// CmpBaseException as a protocol error response, and this handler shares the caller's
-// transaction, so rolling back on it would mark that transaction rollback-only.
-@Transactional(noRollbackFor = CmpBaseException.class)
+// The certificate is polled for up to the poll budget. A transaction around the handler would
+// keep its connection idle in transaction for all of it; the submission, the poll's final load
+// and the CMP transaction record each commit in a short transaction of their own.
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(CrmfMessageHandler.class.getName());

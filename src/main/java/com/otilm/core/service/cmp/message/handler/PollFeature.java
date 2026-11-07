@@ -4,6 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
@@ -13,9 +14,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIHeader;
+import org.hibernate.Hibernate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.DefaultTransactionDefinition;
 
 @Slf4j
 @Component
@@ -29,6 +34,10 @@ public class PollFeature {
     private Integer pollFeatureTimeout;
 
     private CertificateInternalService certificateService;
+
+    private CertificateRepository certificateRepository;
+
+    private PlatformTransactionManager transactionManager;
 
     @PersistenceContext
     public void setEntityManager(EntityManager entityManager) {
@@ -45,13 +54,23 @@ public class PollFeature {
         this.certificateService = certificateService;
     }
 
+    @Autowired
+    public void setCertificateRepository(CertificateRepository certificateRepository) {
+        this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        this.transactionManager = transactionManager;
+    }
+
     /**
      * Convert asynchronous certificate-state transitions (issue / renew / rekey / revoke) into a synchronous
      * {@link PollResult} the CMP / SCEP layers can act on.
      *
      * <p>
      * Loops on the configured budget ({@code cmp.protocol.poll.feature.timeout}, default
-     * {@value #DEFAULT_POLL_TIMEOUT_SECONDS} s) re-reading the certificate from the database each iteration and
+     * {@value #DEFAULT_POLL_TIMEOUT_SECONDS} s) re-reading the certificate's state from the database each iteration and
      * returns:
      *
      * <ul>
@@ -76,9 +95,15 @@ public class PollFeature {
      * other transitional states).
      * </p>
      *
+     * <p>
+     * The loop holds no transaction, so its sleeps keep no connection {@code idle in transaction}. Each iteration reads
+     * the state alone, a value that always comes from the database and attaches nothing to the request's EntityManager.
+     * Only the certificate that reached the expected state is loaded, in one short transaction.
+     * </p>
+     *
      * @param tid processing transaction id, see {@link PKIHeader#getTransactionID()}
-     * @param serialNumber serial number of the polled certificate (for log context; filled in from the entity if
-     * {@code null})
+     * @param serialNumber serial number of the polled certificate (for log context; filled in from the certificate once
+     * it reaches the expected state if {@code null})
      * @param uuid internal UUID of the certificate
      * @param expectedState the terminal state the caller is waiting for ({@code ISSUED} for issue / renew / rekey,
      * {@code REVOKED} for revoke)
@@ -93,26 +118,26 @@ public class PollFeature {
         long timeoutMs = 1_000L * (pollFeatureTimeout == null ? DEFAULT_POLL_TIMEOUT_SECONDS : pollFeatureTimeout);
         long startRequest = System.currentTimeMillis();
         int counter = 0;
-        Certificate polledCert = null;
 
         try {
             while (true) {
                 counter++;
-                polledCert = certificateService.getCertificateEntity(certUUID);
-                entityManager.refresh(polledCert);
-                CertificateState current = polledCert.getState();
-                if (serialNumber == null) {
-                    serialNumber = polledCert.getSerialNumber();
-                }
+                CertificateState current = certificateRepository
+                        .findStateByUuid(certUUID.getValue())
+                        .orElseThrow(() -> new NotFoundException(Certificate.class, certUUID));
                 log
                         .trace("TID={}, POLL=[{}], SN={} | observed state={}, uuid={}", tid, counter, serialNumber,
                                 current, certUUID);
 
                 if (expectedState.equals(current)) {
+                    Certificate reached = loadFresh(certUUID);
+                    if (serialNumber == null) {
+                        serialNumber = reached.getSerialNumber();
+                    }
                     log
                             .trace("TID={}, SN={} | certificate uuid={} reached expected state {}", tid, serialNumber,
                                     certUUID, expectedState);
-                    return new PollResult.Reached(polledCert);
+                    return new PollResult.Reached(reached);
                 }
                 if (isDivergentTerminal(current, expectedState)) {
                     log
@@ -154,6 +179,31 @@ public class PollFeature {
         } finally {
             log.trace("<<<<< CERT polling (  end) <<<<< ");
         }
+    }
+
+    /**
+     * Loads and refreshes the certificate in one short transaction. The request's EntityManager may still hold the copy
+     * cached at submission, without content and in its old state, and {@code refresh} needs a transaction.
+     *
+     * <p>
+     * The content is loaded before the transaction ends: once the request has read outside a transaction, a transaction
+     * started under {@code NOT_SUPPORTED} runs on an EntityManager of its own, closed at commit, and the caller parses
+     * the content after that.
+     * </p>
+     */
+    private Certificate loadFresh(SecuredUUID certUUID) throws NotFoundException {
+        TransactionStatus transaction = transactionManager.getTransaction(new DefaultTransactionDefinition());
+        Certificate certificate;
+        try {
+            certificate = certificateService.getCertificateEntity(certUUID);
+            entityManager.refresh(certificate);
+            Hibernate.initialize(certificate.getCertificateContent());
+        } catch (NotFoundException | RuntimeException e) {
+            transactionManager.rollback(transaction);
+            throw e;
+        }
+        transactionManager.commit(transaction);
+        return certificate;
     }
 
     private static boolean isTerminal(CertificateState state) {

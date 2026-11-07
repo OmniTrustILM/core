@@ -409,6 +409,8 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         // budget is short and the enrolment is expected to be accepted as pending, over the protocol.
         PollFeature realPoll = new PollFeature();
         realPoll.setCertificateService(certificateService);
+        realPoll.setCertificateRepository(certificateRepository);
+        realPoll.setTransactionManager(transactionManager);
         realPoll.setEntityManager(entityManager);
         realPoll.setPollFeatureTimeout(1);
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
