@@ -3,6 +3,7 @@ package com.otilm.core.dao.entity;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -16,6 +17,7 @@ import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 
@@ -74,6 +76,7 @@ public class KeyImport extends UniquelyIdentified {
     /** The connector's handle for an import it runs asynchronously. */
     @Column(name = "operation_meta", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(ReplaceOnlyMutability.class)
     @ToString.Exclude
     private List<MetadataAttribute> operationMeta;
 

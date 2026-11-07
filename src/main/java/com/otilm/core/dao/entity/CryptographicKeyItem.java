@@ -89,9 +89,9 @@ public class CryptographicKeyItem extends UniquelyIdentified
     private UUID keyReferenceUuid;
 
     /**
-     * Opaque provider handle returned unchanged in subsequent v2 key operations. Replaced only through the setter,
-     * never changed in place: a copy of the attributes never equals what was loaded, so a copied snapshot would write
-     * the column on every flush and hold the row lock until the request commits.
+     * Opaque provider handle returned unchanged in subsequent v2 key operations. Replace it through the setter and
+     * never change the list in place: {@link ReplaceOnlyMutability} compares the value against itself, so an in-place
+     * change is never written.
      */
     @Column(name = "key_meta", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
