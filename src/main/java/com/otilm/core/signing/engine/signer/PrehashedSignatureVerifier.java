@@ -13,7 +13,6 @@ import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERNull;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.DigestInfo;
-import org.bouncycastle.crypto.DataLengthException;
 import org.bouncycastle.crypto.Digest;
 import org.bouncycastle.crypto.engines.RSABlindedEngine;
 import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
@@ -51,7 +50,7 @@ final class PrehashedSignatureVerifier {
                     verifyEcdsa(publicKey, digest, signature);
                 default -> verifyPss(digestAlgorithm, publicKey, digest, signature);
             };
-        } catch (GeneralSecurityException | IOException | DataLengthException | IllegalArgumentException e) {
+        } catch (GeneralSecurityException | IOException | RuntimeException e) {
             return false;
         }
     }
@@ -64,8 +63,8 @@ final class PrehashedSignatureVerifier {
         return verifier.verify(signature);
     }
 
-    // SunEC computes only on the NIST P-curves, while providers also offer keys on other named curves such as
-    // brainpool. ECDSASigner truncates a digest longer than the curve order, as FIPS 186 requires.
+    // SunEC computes only on P-256, P-384 and P-521, while providers also offer keys on other named curves such as
+    // P-224 and brainpool. ECDSASigner truncates a digest longer than the curve order, as FIPS 186 requires.
     private static boolean verifyEcdsa(PublicKey publicKey, byte[] digest, byte[] signature) throws IOException {
         AsymmetricKeyParameter key = PublicKeyFactory.createKey(publicKey.getEncoded());
         if (!(key instanceof ECPublicKeyParameters ecKey)) {
