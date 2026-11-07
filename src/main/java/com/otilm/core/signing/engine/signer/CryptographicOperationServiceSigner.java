@@ -58,7 +58,10 @@ public class CryptographicOperationServiceSigner implements Signer {
 
     @Override
     public List<byte[]> signAll(List<byte[]> items, SignatureInputMode inputMode) throws SigningEngineException {
-        boolean prehashed = inputMode == SignatureInputMode.PREHASHED_DIGEST;
+        boolean prehashed = switch (inputMode == null ? SignatureInputMode.DATA : inputMode) {
+            case DATA -> false;
+            case PREHASHED_DIGEST -> true;
+        };
         List<SignatureRequestData> requestItems = buildRequestItems(items);
         if (prehashed) {
             checkDigests(items);

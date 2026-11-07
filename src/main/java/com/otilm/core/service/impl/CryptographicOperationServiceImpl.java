@@ -338,7 +338,11 @@ public class CryptographicOperationServiceImpl
         CryptographicKeyItemOperationModel keyItem = cryptographicKeyService.getKeyItemModel(keyItemUuid);
         requirePathAssociation(keyItem, tokenInstanceUuid.getValue(), tokenProfileUuid.getValue(), uuid);
         SignatureInputMode mode = inputMode == null ? SignatureInputMode.DATA : inputMode;
-        if (mode == SignatureInputMode.PREHASHED_DIGEST) {
+        boolean prehashed = switch (mode) {
+            case DATA -> false;
+            case PREHASHED_DIGEST -> true;
+        };
+        if (prehashed) {
             requirePrehashedSigning(keyItem);
         }
         KeyProviderAdapter adapter = adapterFor(keyItem);
