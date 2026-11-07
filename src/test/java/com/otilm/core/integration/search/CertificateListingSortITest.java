@@ -11,6 +11,7 @@ import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SortDirection;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.security.authz.SecurityFilter;
@@ -25,6 +26,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 
 /**
  * The certificate listing is the other two-phase fetch: a page of uuids in the requested order, then the DTOs by
@@ -60,14 +63,15 @@ class CertificateListingSortITest extends BaseSpringBootTest {
         content.setContent("1234567890-" + UUID.randomUUID());
         content = certificateContentRepository.save(content);
 
-        Certificate certificate = new Certificate();
-        certificate.setCommonName(commonName);
-        certificate.setSubjectDn("CN=" + commonName);
-        certificate.setIssuerDn("CN=" + commonName + "Issuer");
-        certificate.setSerialNumber(UUID.randomUUID().toString().replace("-", ""));
-        certificate.setState(state);
-        certificate.setValidationStatus(CertificateValidationStatus.VALID);
-        certificate.setCertificateContentId(content.getId());
+        X509CertificateEntity certificate = aCertificate()
+                .withCommonName(commonName)
+                .withSubjectDn("CN=" + commonName)
+                .withIssuerDn("CN=" + commonName + "Issuer")
+                .withSerialNumber(UUID.randomUUID().toString().replace("-", ""))
+                .withState(state)
+                .withValidationStatus(CertificateValidationStatus.VALID)
+                .withCertificateContentId(content.getId())
+                .build();
         certificateRepository.save(certificate);
     }
 

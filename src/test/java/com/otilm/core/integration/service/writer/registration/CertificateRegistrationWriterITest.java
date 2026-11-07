@@ -6,8 +6,8 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v2.MetadataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.certificate.CertificateState;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateRegistration;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
@@ -42,8 +43,7 @@ class CertificateRegistrationWriterITest extends BaseSpringBootTest {
 
     @BeforeEach
     void createCertificate() {
-        Certificate certificate = new Certificate();
-        certificate.setState(CertificateState.REGISTERED);
+        X509CertificateEntity certificate = aCertificate().withState(CertificateState.REGISTERED).build();
         certificateUuid = certificateRepository.save(certificate).getUuid();
     }
 

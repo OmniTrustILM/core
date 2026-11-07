@@ -14,8 +14,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -51,6 +51,8 @@ import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
@@ -120,11 +122,12 @@ class ClientOperationServiceImplIssueDispatchTest {
         raProfile.setUuid(UUID.randomUUID());
         raProfile.setAuthorityInstanceReference(authority);
 
-        CertificateRequestEntity request = new CertificateRequestEntity();
-        request.setContent(Base64.getEncoder().encodeToString("csr".getBytes()));
+        X509CertificateRequestEntity request = aCertificateRequest()
+                .withContent(Base64.getEncoder().encodeToString("csr".getBytes()))
+                .build();
 
         certUuid = UUID.randomUUID();
-        certificate = new Certificate();
+        certificate = aCertificate().build();
         certificate.setUuid(certUuid);
         certificate.setState(CertificateState.REQUESTED);
         certificate.setRaProfile(raProfile);

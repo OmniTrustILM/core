@@ -1,9 +1,9 @@
 package com.otilm.core.util.builders;
 
-import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.CertificateRequestEntity;
 
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import java.security.NoSuchAlgorithmException;
 
 /**
@@ -18,7 +18,6 @@ public class CertificateRequestEntityBuilder {
     private String subjectDn;
     private String publicKeyAlgorithm;
     private String signatureAlgorithm;
-    private final CertificateType certificateType = CertificateType.X509;
 
     public static CertificateRequestEntityBuilder aCertificateRequest() {
         return new CertificateRequestEntityBuilder();
@@ -44,8 +43,8 @@ public class CertificateRequestEntityBuilder {
         return this;
     }
 
-    public CertificateRequestEntity build() {
-        CertificateRequestEntity entity = new CertificateRequestEntity();
+    public X509CertificateRequestEntity build() {
+        X509CertificateRequestEntity entity = new X509CertificateRequestEntity();
         entity.setCertificateRequestFormat(format);
         if (subjectDn != null) {
             entity.setSubjectDn(subjectDn);
@@ -64,7 +63,6 @@ public class CertificateRequestEntityBuilder {
                 throw new IllegalStateException("Failed to set certificate request content", e);
             }
         }
-        entity.setCertificateType(certificateType);
         return entity;
     }
 }

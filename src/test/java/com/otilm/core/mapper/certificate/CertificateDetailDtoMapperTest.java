@@ -16,16 +16,16 @@ import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
 import com.otilm.core.dao.entity.CertificateRelation;
-import com.otilm.core.dao.entity.CertificateRequestEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import java.security.NoSuchAlgorithmException;
 import java.util.Date;
 import java.util.Set;
@@ -34,13 +34,15 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 class CertificateDetailDtoMapperTest {
 
-    private Certificate certificate;
+    private X509CertificateEntity certificate;
 
     @Test
     void toChainDto_omitsCertificateCollectionReadsForBothKeys() {
@@ -66,10 +68,9 @@ class CertificateDetailDtoMapperTest {
 
     @BeforeEach
     void setUp() {
-        certificate = new Certificate();
+        certificate = aCertificate().build();
         certificate.uuid = UUID.randomUUID();
         certificate.setCommonName("test.example.com");
-        certificate.setCertificateType(CertificateType.X509);
         certificate.setState(CertificateState.ISSUED);
         certificate.setSubjectDn("CN=test.example.com");
         certificate.setIssuerCommonName("Example CA");
@@ -106,7 +107,7 @@ class CertificateDetailDtoMapperTest {
         certificate.setIssuerCertificateUuid(issuerUuid);
 
         // predecessorRelations branch (sourceCertificateUuid)
-        Certificate predecessor = new Certificate();
+        X509CertificateEntity predecessor = aCertificate().build();
         predecessor.uuid = UUID.randomUUID();
         CertificateRelation relation = new CertificateRelation();
         relation.setPredecessorCertificate(predecessor);
@@ -132,10 +133,9 @@ class CertificateDetailDtoMapperTest {
         certificate.setGroups(Set.of(group));
 
         // certificateRequest branch (with keyUuid and altKeyUuid to cover their sub-branches)
-        CertificateRequestEntity request = new CertificateRequestEntity();
+        X509CertificateRequestEntity request = aCertificateRequest().build();
         request.uuid = UUID.randomUUID();
         request.setContent("csrContent");
-        request.setCertificateType(CertificateType.X509);
         request.setCommonName("test.example.com");
         request.setSubjectDn("CN=test.example.com");
         request.setSignatureAlgorithm("SHA256withRSA");
