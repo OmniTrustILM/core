@@ -652,9 +652,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
         body.setExecutionMode(OperationExecutionMode.SYNCHRONOUS);
         body.setSignatureAttributes(connectorAttributes);
         body.setData(batch.items());
-        if (inputMode != null && inputMode != SignatureInputMode.DATA) {
-            body.setSignatureInputMode(inputMode);
-        }
+        body.setSignatureInputMode(inputMode);
         ResponseEntity<SignDataResponseV2Dto> response = operationsApiClient.signData(connectorInfo, body);
         SignDataResponseV2Dto responseBody = response.getBody();
         if (response.getStatusCode().value() != 200 || responseBody == null || responseBody.getSignatures() == null

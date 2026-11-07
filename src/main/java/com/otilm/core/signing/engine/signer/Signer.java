@@ -8,7 +8,8 @@ import java.util.List;
 
 /**
  * Signs opaque data-to-be-signed with its configured key, one item or a batch, and returns the raw signature bytes. The
- * caller decides what the bytes are, for example a DTBS or a digest.
+ * input mode states whether each item is data to hash or a digest to sign as is; {@code sign} and {@code signAll}
+ * without a mode treat items as data.
  */
 public interface Signer {
 
