@@ -62,7 +62,7 @@ class DiscoveryWorkSweeperTest {
 
     @Test
     void due_sendsClaimedMessagesOutsideTheClaim() {
-        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.STATUS, 2);
+        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.STATUS, 2, null);
         // A partial batch (< batchSize) ends the loop after one round.
         when(workClaimer.claimDueBatch(eq(BATCH_SIZE), any(OffsetDateTime.class))).thenReturn(List.of(msg));
 
@@ -74,7 +74,7 @@ class DiscoveryWorkSweeperTest {
 
     @Test
     void sendFailure_doesNotAbortTheSweep() {
-        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.DRAIN, 1);
+        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.DRAIN, 1, null);
         when(workClaimer.claimDueBatch(eq(BATCH_SIZE), any(OffsetDateTime.class))).thenReturn(List.of(msg));
         doThrow(new RuntimeException("broker down")).when(workProducer).produceMessage(msg);
 
@@ -88,7 +88,7 @@ class DiscoveryWorkSweeperTest {
     @Test
     void persistentBacklog_stopsExactlyAtMaxBatchesPerRun() {
         DiscoveryWorkSweeper cappedSweeper = new DiscoveryWorkSweeper(workClaimer, workProducer, runReaper, 1, 3);
-        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0);
+        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0, null);
         // Every claim returns a full batch: without the cap this sweep would never yield the scheduler.
         when(workClaimer.claimDueBatch(eq(1), any(OffsetDateTime.class))).thenReturn(List.of(msg));
 
@@ -101,7 +101,7 @@ class DiscoveryWorkSweeperTest {
     @Test
     void everyBatchOfOneSweep_usesTheSameDueCutoff() {
         DiscoveryWorkSweeper singleRowBatches = new DiscoveryWorkSweeper(workClaimer, workProducer, runReaper, 1, 10);
-        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.DRAIN, 0);
+        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.DRAIN, 0, null);
         // A full first batch keeps the loop going; the second is empty and ends it.
         when(workClaimer.claimDueBatch(eq(1), any(OffsetDateTime.class)))
                 .thenReturn(List.of(msg))

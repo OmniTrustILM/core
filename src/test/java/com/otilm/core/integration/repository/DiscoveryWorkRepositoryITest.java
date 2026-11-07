@@ -56,15 +56,17 @@ class DiscoveryWorkRepositoryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void dueQueryOrdersSoonestFirstAndExcludesTheNotYetDue() {
+    void returnsDueRowsSoonestFirst_whenSomeAreNotYetDue() {
+        // given
         UUID runUuid = aRun();
         workRepository.schedule(UUID.randomUUID(), runUuid, DiscoveryWorkType.PROCESS.name(), NOW.plusHours(2));
         workRepository.schedule(UUID.randomUUID(), runUuid, DiscoveryWorkType.DRAIN.name(), NOW.minusMinutes(1));
         workRepository.schedule(UUID.randomUUID(), runUuid, DiscoveryWorkType.STATUS.name(), NOW.minusMinutes(10));
 
-        List<DiscoveryWork> due = workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(NOW, PageRequest.of(0, 10));
+        // when
+        List<DiscoveryWork> due = workRepository.findClaimable(NOW, NOW, PageRequest.of(0, 10));
 
+        // then
         assertThat(due)
                 .extracting(DiscoveryWork::getWorkType)
                 .containsExactly(DiscoveryWorkType.STATUS, DiscoveryWorkType.DRAIN);

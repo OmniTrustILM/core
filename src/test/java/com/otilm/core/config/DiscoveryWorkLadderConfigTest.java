@@ -1,10 +1,16 @@
 package com.otilm.core.config;
 
+import com.otilm.core.messaging.jms.configuration.StatusPollProperties.PollSchedule;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.core.io.FileSystemResource;
@@ -29,17 +35,6 @@ class DiscoveryWorkLadderConfigTest {
                 .isNotNull();
     }
 
-    @Test
-    void theSlowestStatusRungSitsAtOrBelowTheClaimFloor() {
-        Properties shipped = shipped();
-        Duration claimFloor = Duration.parse(withoutPlaceholder(shipped.getProperty("discovery.work.claim-floor")));
-
-        assertThat(slowestRung(shipped, STATUS_DELAYS))
-                .describedAs("a status rung above the claim floor is the run's progress staleness, and the drain "
-                        + "tick is already calling the same provider at the floor")
-                .isLessThanOrEqualTo(claimFloor);
-    }
-
     /**
      * Shorter rungs must not quietly shorten how long an unanswering provider is tolerated: the budget is counted in
      * attempts, so halving the interval halves the wall-clock allowance unless the count rises with it.
@@ -55,23 +50,63 @@ class DiscoveryWorkLadderConfigTest {
     }
 
     /**
-     * The floor must outlast a connector call's whole allowance: acquiring a connection, connecting, and waiting for
-     * the response. {@code DiscoveryWorkClaimer#parkFor} explains why a tick outliving its rung is published twice.
+     * An unanswered drain or processing tick waits its own rung after its call before the next try, so the rungs set
+     * the least time a connector that stopped answering, or a batch that keeps failing, is tolerated.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"DRAIN", "PROCESS"})
+    void toleratesEightyMinutesOfFailedTicks_onTheShippedDrainAndProcessLadders(String workType) {
+        // given
+        Properties shipped = shipped();
+        String prefix = "discovery.work.by-type." + workType;
+        int maxAttempts = Integer.parseInt(shipped.getProperty(prefix + ".max-attempts"));
+        PollSchedule ladder = new PollSchedule(readRungs(shipped, prefix + ".delays"), maxAttempts);
+
+        // when
+        Duration tolerated = IntStream
+                .rangeClosed(1, maxAttempts)
+                .mapToObj(ladder::delayFor)
+                .reduce(Duration.ZERO, Duration::plus);
+
+        // then
+        assertThat(tolerated).isGreaterThanOrEqualTo(Duration.ofMinutes(80));
+    }
+
+    /**
+     * A lease shorter than one tick's worst case lets the sweep reclaim a row whose tick is still at the connector, and
+     * publish it a second time. The worst case is a connector call's whole allowance (acquiring a connection,
+     * connecting, waiting for the response) plus staging what it returned, before the tick renews the lease.
      */
     @Test
-    void theClaimFloorOutlastsTheSlowestConnectorCall() {
+    void outlastsTheSlowestConnectorCallAndStaging_withTheShippedLease() {
+        // given
         Properties shipped = shipped();
         Duration slowestCall = Stream
                 .of("connector.api-client.pending-acquire-timeout", "connector.api-client.connect-timeout",
                         "connector.api-client.response-timeout")
                 .map(key -> DurationStyle.detectAndParse(withoutPlaceholder(shipped.getProperty(key))))
                 .reduce(Duration.ZERO, Duration::plus);
-        Duration claimFloor = Duration.parse(withoutPlaceholder(shipped.getProperty("discovery.work.claim-floor")));
+        Duration stagingMargin = Duration.ofSeconds(30);
 
-        assertThat(claimFloor)
-                .describedAs("a floor at or below the slowest connector call lets the sweep publish a tick whose "
-                        + "predecessor is still at the connector")
-                .isGreaterThan(slowestCall);
+        // when
+        Duration lease = Duration.parse(withoutPlaceholder(shipped.getProperty("discovery.work.lease-duration")));
+
+        // then
+        assertThat(lease)
+                .describedAs("a lease at or below the slowest tick lets the sweep publish a tick whose predecessor "
+                        + "is still at the connector")
+                .isGreaterThan(slowestCall.plus(stagingMargin));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static List<Duration> readRungs(Properties shipped, String delaysKey) {
+        List<Duration> rungs = new ArrayList<>();
+        for (int i = 0; shipped.getProperty(delaysKey + "[" + i + "]") != null; i++) {
+            rungs.add(Duration.parse(shipped.getProperty(delaysKey + "[" + i + "]")));
+        }
+        assertThat(rungs).describedAs("%s must list at least one rung", delaysKey).isNotEmpty();
+        return rungs;
     }
 
     private static Duration slowestRung(Properties shipped, String delaysKey) {

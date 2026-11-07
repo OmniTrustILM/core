@@ -52,6 +52,13 @@ public class DiscoveryWork extends UniquelyIdentified {
     @Column(name = "next_due_at", nullable = false)
     private OffsetDateTime nextDueAt;
 
+    // The claim the tick working this row holds; null while no tick holds it.
+    @Column(name = "lease_token")
+    private UUID leaseToken;
+
+    @Column(name = "lease_expires_at")
+    private OffsetDateTime leaseExpiresAt;
+
     // Set by the database on insert, never written by the application — hence a read-only mapping.
     // @Generated makes Hibernate re-read the DB-assigned value after a JPA insert, so the in-memory
     // entity never carries a null created while the row already has one.

@@ -1,25 +1,48 @@
 package com.otilm.core.messaging.jms.listeners.discovery;
 
+import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
+import com.otilm.core.messaging.jms.configuration.StatusPollProperties.PollSchedule;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryDrainTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryProcessTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryStatusTickWorker;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkLease;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class DiscoveryWorkListenerTest {
 
+    private static final PollSchedule LADDER = new PollSchedule(
+            List.of(Duration.ofSeconds(1), Duration.ofSeconds(5), Duration.ofSeconds(30)), 170);
+
+    @Mock
+    private DiscoveryWorkLease lease;
+    @Mock
+    private DiscoveryWorkProperties workProperties;
     @Mock
     private DiscoveryStatusTickWorker statusWorker;
     @Mock
@@ -30,47 +53,114 @@ class DiscoveryWorkListenerTest {
     private DiscoveryWorkListener listener;
 
     @BeforeEach
-    void setUp() {
-        listener = new DiscoveryWorkListener(statusWorker, drainWorker, processWorker);
+    void createListener() {
+        listener = new DiscoveryWorkListener(lease, workProperties, statusWorker, drainWorker, processWorker);
+        lenient().when(workProperties.scheduleFor(any())).thenReturn(LADDER);
     }
 
     @Test
-    void statusTick_reachesTheStatusWorkerWithItsAttemptCount() {
-        UUID runUuid = UUID.randomUUID();
+    void runsTheStatusWorker_whenAStatusTickIsAdmitted() {
+        // given
+        var message = buildMessage(DiscoveryWorkType.STATUS, 4);
+        DiscoveryWorkTick tick = admit(message);
 
-        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.STATUS, 4));
+        // when
+        listener.processMessage(message);
 
-        verify(statusWorker).tick(runUuid, 4);
+        // then
+        verify(statusWorker).tick(tick);
+        verifyNoInteractions(drainWorker, processWorker);
     }
 
     @Test
-    void drainTick_reachesTheDrainWorkerWithItsAttemptCount() {
-        UUID runUuid = UUID.randomUUID();
+    void runsTheDrainWorker_whenADrainTickIsAdmitted() {
+        // given
+        var message = buildMessage(DiscoveryWorkType.DRAIN, 2);
+        DiscoveryWorkTick tick = admit(message);
 
-        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.DRAIN, 2));
+        // when
+        listener.processMessage(message);
 
-        verify(drainWorker).tick(runUuid, 2);
-        verifyNoInteractions(statusWorker);
+        // then
+        verify(drainWorker).tick(tick);
+        verifyNoInteractions(statusWorker, processWorker);
     }
 
     @Test
-    void processTick_reachesTheProcessWorkerWithItsAttemptCount() {
-        UUID runUuid = UUID.randomUUID();
+    void runsTheProcessWorker_whenAProcessTickIsAdmitted() {
+        // given
+        var message = buildMessage(DiscoveryWorkType.PROCESS, 7);
+        DiscoveryWorkTick tick = admit(message);
 
-        listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.PROCESS, 7));
+        // when
+        listener.processMessage(message);
 
-        verify(processWorker).tick(runUuid, 7);
+        // then
+        verify(processWorker).tick(tick);
         verifyNoInteractions(statusWorker, drainWorker);
     }
 
     @Test
-    void failingTick_isSwallowedSoTheAgendaOwnsTheRetry() {
-        UUID runUuid = UUID.randomUUID();
-        doThrow(new IllegalStateException("connector blew up")).when(statusWorker).tick(runUuid, 0);
+    void neverRunsAWorker_whenTheTicksTokenIsNoLongerTheRows() {
+        // given
+        var staleMessage = buildMessage(DiscoveryWorkType.DRAIN, 0);
+        when(lease.admit(staleMessage)).thenReturn(Optional.empty());
 
-        // Letting this out would put the broker's redelivery loop on top of the agenda's backoff ladder,
-        // retrying at the broker's cadence instead of the run's.
-        assertThatCode(() -> listener.processMessage(new DiscoveryWorkMessage(runUuid, DiscoveryWorkType.STATUS, 0)))
-                .doesNotThrowAnyException();
+        // when
+        listener.processMessage(staleMessage);
+
+        // then
+        verifyNoInteractions(statusWorker, drainWorker, processWorker);
+    }
+
+    @Test
+    void retriesTheTickAtItsNextRung_whenTheWorkerReturns() {
+        // given
+        var admittedAttempt = 1;
+        var message = buildMessage(DiscoveryWorkType.DRAIN, admittedAttempt);
+        DiscoveryWorkTick tick = admit(message);
+        var beforeTick = OffsetDateTime.now();
+
+        // when
+        listener.processMessage(message);
+
+        // then
+        ArgumentCaptor<OffsetDateTime> nextDueAt = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(tick).reschedule(eq(admittedAttempt + 1), nextDueAt.capture());
+        Duration nextRung = LADDER.delayFor(admittedAttempt + 1);
+        assertThat(nextDueAt.getValue())
+                .isAfterOrEqualTo(beforeTick.plus(nextRung))
+                .isBeforeOrEqualTo(OffsetDateTime.now().plus(nextRung));
+    }
+
+    @Test
+    void swallowsAWorkerFailure_soTheAgendaOwnsTheRetry() {
+        // given
+        var failingAttempt = 0;
+        var message = buildMessage(DiscoveryWorkType.STATUS, failingAttempt);
+        DiscoveryWorkTick tick = admit(message);
+        doThrow(new IllegalStateException("connector blew up")).when(statusWorker).tick(tick);
+
+        // when
+        ThrowingCallable processMessage = () -> listener.processMessage(message);
+
+        // then
+        assertThatCode(processMessage).doesNotThrowAnyException();
+        verify(tick).reschedule(eq(failingAttempt + 1), any(OffsetDateTime.class));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static DiscoveryWorkMessage buildMessage(DiscoveryWorkType workType, int attempt) {
+        return new DiscoveryWorkMessage(UUID.randomUUID(), workType, attempt, UUID.randomUUID());
+    }
+
+    private DiscoveryWorkTick admit(DiscoveryWorkMessage message) {
+        DiscoveryWorkTick tick = mock(DiscoveryWorkTick.class);
+        lenient().when(tick.discoveryUuid()).thenReturn(message.discoveryUuid());
+        lenient().when(tick.workType()).thenReturn(message.workType());
+        lenient().when(tick.attempt()).thenReturn(message.attempt());
+        when(lease.admit(message)).thenReturn(Optional.of(tick));
+        return tick;
     }
 }
