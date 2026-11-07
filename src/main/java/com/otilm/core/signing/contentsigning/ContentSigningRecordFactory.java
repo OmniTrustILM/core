@@ -50,7 +50,7 @@ public class ContentSigningRecordFactory {
                 .protocol(protocol)
                 .signingTime(signingTime)
                 .requestedBy(AuthHelper.getActingUserOrNull())
-                .displayName("%s %s".formatted(signingProfile.name(), result.level().getFormatName(profile.family())))
+                .displayName("%s %s".formatted(signingProfile.name(), profile.family().getLevelName(result.level())))
                 .requestMetadataJson(buildRequestMetadataJson(signingProfile, profile, result))
                 .signedDocument(result.signedDocument())
                 .signature(signatureValue)
