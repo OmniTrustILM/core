@@ -284,7 +284,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void signData_putsPrehashedDigestOnTheWire() throws Exception {
+    void putsPrehashedDigestOnTheWire_whenModeIsPrehashedDigest() throws Exception {
         // given
         advertisePrehashedSigning();
         stubSignResponse();
@@ -300,7 +300,7 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void signData_omitsTheMode_forData() throws Exception {
+    void omitsTheMode_whenModeIsData() throws Exception {
         // given
         advertisePrehashedSigning();
         stubSignResponse();

@@ -47,6 +47,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
@@ -143,7 +144,7 @@ class CryptographicOperationServiceTransactionITest extends BaseSpringBootTest {
                         request);
 
         // then
-        assertFalse(transactionActive.get());
+        assertThat(transactionActive.get()).isFalse();
     }
 
     @Test

@@ -2407,7 +2407,7 @@ class KeyProviderV2AdapterTest {
             adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), prehashed);
 
             // then
-            assertThat(sentSignBody().getSignatureInputMode()).isEqualTo(prehashed);
+            assertThat(captureSentSignBody().getSignatureInputMode()).isEqualTo(prehashed);
         }
 
         @Test
@@ -2419,7 +2419,7 @@ class KeyProviderV2AdapterTest {
             adapter.signData(v2KeyItem(metadata("handle")), signRequest(List.of()), SignatureInputMode.DATA);
 
             // then
-            assertThat(sentSignBody().getSignatureInputMode()).isNull();
+            assertThat(captureSentSignBody().getSignatureInputMode()).isNull();
         }
 
         @Test
@@ -2871,7 +2871,7 @@ class KeyProviderV2AdapterTest {
             when(operationsClient.signData(any(), any())).thenReturn(ResponseEntity.ok(body));
         }
 
-        private SignDataRequestV2Dto sentSignBody() throws Exception {
+        private SignDataRequestV2Dto captureSentSignBody() throws Exception {
             ArgumentCaptor<SignDataRequestV2Dto> sent = ArgumentCaptor.forClass(SignDataRequestV2Dto.class);
             verify(operationsClient).signData(any(), sent.capture());
             return sent.getValue();

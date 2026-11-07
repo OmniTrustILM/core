@@ -52,29 +52,29 @@ class PrehashedSignatureVerifierTest {
                     "SHA256_WITH_ECDSA",
                     "SHA384_WITH_ECDSA",
                     "SHA512_WITH_ECDSA"})
-    void verifies_returnsTrue_forAJdkSignatureOverTheMessage(SignatureAlgorithm algorithm) throws Exception {
+    void returnsTrue_whenTheJdkSignedTheMessage(SignatureAlgorithm algorithm) throws Exception {
         // given
-        KeyPair keys = keysFor(algorithm);
+        KeyPair keys = pickKeysFor(algorithm);
         byte[] signature = signWithJdk(algorithm, keys.getPrivate(), MESSAGE);
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(algorithm, keys.getPublic(), digestOf(algorithm, MESSAGE), signature);
+                .verifies(algorithm, keys.getPublic(), computeDigest(algorithm, MESSAGE), signature);
 
         // then
         assertThat(verified).isTrue();
     }
 
     @Test
-    void verifies_returnsTrue_forP256WithSha512() throws Exception {
+    void returnsTrue_whenP256SignsASha512Digest() throws Exception {
         // given
         SignatureAlgorithm digestLongerThanTheCurve = SignatureAlgorithm.SHA512_WITH_ECDSA;
         byte[] signature = signWithJdk(digestLongerThanTheCurve, p256Keys.getPrivate(), MESSAGE);
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(digestLongerThanTheCurve, p256Keys.getPublic(), digestOf(digestLongerThanTheCurve, MESSAGE),
-                        signature);
+                .verifies(digestLongerThanTheCurve, p256Keys.getPublic(),
+                        computeDigest(digestLongerThanTheCurve, MESSAGE), signature);
 
         // then
         assertThat(verified).isTrue();
@@ -96,7 +96,7 @@ class PrehashedSignatureVerifierTest {
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(algorithm, keys.getPublic(), digestOf(algorithm, MESSAGE), signature);
+                .verifies(algorithm, keys.getPublic(), computeDigest(algorithm, MESSAGE), signature);
 
         // then
         assertThat(verified).isTrue();
@@ -111,7 +111,7 @@ class PrehashedSignatureVerifierTest {
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(algorithm, rsa1024Keys.getPublic(), digestOf(algorithm, MESSAGE),
+                .verifies(algorithm, rsa1024Keys.getPublic(), computeDigest(algorithm, MESSAGE),
                         signatureOfTheModulusLength);
 
         // then
@@ -130,10 +130,10 @@ class PrehashedSignatureVerifierTest {
                     "SHA256_WITH_ECDSA",
                     "SHA384_WITH_ECDSA",
                     "SHA512_WITH_ECDSA"})
-    void verifies_returnsFalse_whenTheDigestWasHashedAgain(SignatureAlgorithm algorithm) throws Exception {
+    void returnsFalse_whenTheDigestWasHashedAgain(SignatureAlgorithm algorithm) throws Exception {
         // given — a provider that ignored the mode signs the digest bytes as data
-        KeyPair keys = keysFor(algorithm);
-        byte[] digest = digestOf(algorithm, MESSAGE);
+        KeyPair keys = pickKeysFor(algorithm);
+        byte[] digest = computeDigest(algorithm, MESSAGE);
         byte[] signatureOverHashedDigest = signWithJdk(algorithm, keys.getPrivate(), digest);
 
         // when
@@ -145,14 +145,14 @@ class PrehashedSignatureVerifierTest {
     }
 
     @Test
-    void verifies_returnsFalse_forASignatureByAnotherKey() throws Exception {
+    void returnsFalse_whenAnotherKeySigned() throws Exception {
         // given
         SignatureAlgorithm algorithm = SignatureAlgorithm.SHA256_WITH_RSA;
         byte[] signatureByOtherKey = signWithJdk(algorithm, otherRsaKeys.getPrivate(), MESSAGE);
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(algorithm, rsaKeys.getPublic(), digestOf(algorithm, MESSAGE), signatureByOtherKey);
+                .verifies(algorithm, rsaKeys.getPublic(), computeDigest(algorithm, MESSAGE), signatureByOtherKey);
 
         // then
         assertThat(verified).isFalse();
@@ -161,20 +161,34 @@ class PrehashedSignatureVerifierTest {
     @ParameterizedTest
     @EnumSource(value = SignatureAlgorithm.class,
             names = {"SHA256_WITH_RSA", "SHA256_WITH_RSA_PSS", "SHA256_WITH_ECDSA"})
-    void verifies_returnsFalse_forMalformedSignatureBytes(SignatureAlgorithm algorithm) throws Exception {
+    void returnsFalse_whenTheSignatureBytesAreMalformed(SignatureAlgorithm algorithm) throws Exception {
         // given
         byte[] threeBytes = {1, 2, 3};
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(algorithm, keysFor(algorithm).getPublic(), digestOf(algorithm, MESSAGE), threeBytes);
+                .verifies(algorithm, pickKeysFor(algorithm).getPublic(), computeDigest(algorithm, MESSAGE), threeBytes);
 
         // then
         assertThat(verified).isFalse();
     }
 
     @Test
-    void verifies_returnsFalse_forPssWithAnotherSaltLength() throws Exception {
+    void returnsFalse_whenTheEcdsaSignatureHoldsANonIntegerElement() {
+        // given
+        SignatureAlgorithm algorithm = SignatureAlgorithm.SHA256_WITH_ECDSA;
+        byte[] sequenceHoldingAnOctetString = {0x30, 0x06, 0x02, 0x01, 0x01, 0x04, 0x01, 0x01};
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, p256Keys.getPublic(), new byte[32], sequenceHoldingAnOctetString);
+
+        // then
+        assertThat(verified).isFalse();
+    }
+
+    @Test
+    void returnsFalse_whenThePssSaltLengthDiffers() throws Exception {
         // given
         SignatureAlgorithm algorithm = SignatureAlgorithm.SHA256_WITH_RSA_PSS;
         int saltShorterThanTheDigest = 20;
@@ -188,7 +202,7 @@ class PrehashedSignatureVerifierTest {
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(algorithm, rsaKeys.getPublic(), digestOf(algorithm, MESSAGE), signature);
+                .verifies(algorithm, rsaKeys.getPublic(), computeDigest(algorithm, MESSAGE), signature);
 
         // then
         assertThat(verified).isFalse();
@@ -197,27 +211,28 @@ class PrehashedSignatureVerifierTest {
     @ParameterizedTest
     @EnumSource(value = SignatureAlgorithm.class,
             names = {"SHA256_WITH_RSA", "SHA256_WITH_RSA_PSS", "SHA256_WITH_ECDSA"})
-    void verifies_returnsFalse_whenTheKeyDoesNotFitTheCodesFamily(SignatureAlgorithm algorithm) throws Exception {
+    void returnsFalse_whenTheKeyDoesNotFitTheCodesFamily(SignatureAlgorithm algorithm) throws Exception {
         // given — an RSA code is checked with an EC key and the ECDSA code with an RSA key
         KeyPair keyOfAnotherFamily = algorithm == SignatureAlgorithm.SHA256_WITH_ECDSA ? rsaKeys : p256Keys;
-        byte[] signature = signWithJdk(algorithm, keysFor(algorithm).getPrivate(), MESSAGE);
+        byte[] signature = signWithJdk(algorithm, pickKeysFor(algorithm).getPrivate(), MESSAGE);
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(algorithm, keyOfAnotherFamily.getPublic(), digestOf(algorithm, MESSAGE), signature);
+                .verifies(algorithm, keyOfAnotherFamily.getPublic(), computeDigest(algorithm, MESSAGE), signature);
 
         // then
         assertThat(verified).isFalse();
     }
 
     @Test
-    void verifies_throwsIllegalArgument_whenTheCodeIsOutsideTheBound() {
+    void throwsIllegalArgument_whenTheCodeIsOutsideTheBound() {
         // given
+        SignatureAlgorithm outsideTheBound = SignatureAlgorithm.ED25519;
         byte[] anyBytes = {1};
 
         // when
         ThrowingCallable verify = () -> PrehashedSignatureVerifier
-                .verifies(SignatureAlgorithm.ED25519, rsaKeys.getPublic(), anyBytes, anyBytes);
+                .verifies(outsideTheBound, rsaKeys.getPublic(), anyBytes, anyBytes);
 
         // then
         assertThatThrownBy(verify).isInstanceOf(IllegalArgumentException.class);
@@ -237,7 +252,7 @@ class PrehashedSignatureVerifierTest {
         return generator.generateKeyPair();
     }
 
-    private static KeyPair keysFor(SignatureAlgorithm algorithm) {
+    private static KeyPair pickKeysFor(SignatureAlgorithm algorithm) {
         String code = algorithm.name();
         if (code.endsWith("ECDSA")) {
             return code.startsWith("SHA256") ? p256Keys : p384Keys;
@@ -245,7 +260,7 @@ class PrehashedSignatureVerifierTest {
         return rsaKeys;
     }
 
-    private static byte[] digestOf(SignatureAlgorithm algorithm, byte[] data) throws GeneralSecurityException {
+    private static byte[] computeDigest(SignatureAlgorithm algorithm, byte[] data) throws GeneralSecurityException {
         DigestAlgorithm digest = PrehashedSigning.digestAlgorithm(algorithm);
         return MessageDigest.getInstance(digest.getProviderName()).digest(data);
     }

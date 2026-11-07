@@ -439,7 +439,7 @@ class KeyProviderV1AdapterTest {
     }
 
     @Test
-    void signData_throwsValidationException_whenModeIsPrehashedDigest() {
+    void throwsValidationException_whenModeIsPrehashedDigest() {
         // given
         CryptographicKeyItemOperationModel context = keyItem(KeyAlgorithm.RSA,
                 new RemoteKeyReference.UuidReference(UUID.randomUUID()), UUID.randomUUID());

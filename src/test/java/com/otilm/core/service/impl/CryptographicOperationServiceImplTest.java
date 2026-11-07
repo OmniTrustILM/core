@@ -64,7 +64,6 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -111,12 +110,20 @@ class CryptographicOperationServiceImplTest {
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     @Mock
     private TokenProfileRepository tokenProfileRepository;
-    @InjectMocks
     private CryptographicOperationServiceImpl service;
 
     @BeforeEach
-    void wireCapabilityService() {
+    void createService() {
+        service = new CryptographicOperationServiceImpl();
         service.setConnectorCapabilityService(new ConnectorCapabilityService());
+        service.setKeyProviderAdapterFactory(keyProviderAdapterFactory);
+        service.setTokenProviderAdapterFactory(tokenProviderAdapterFactory);
+        service.setTokenInstanceReferenceRepository(tokenInstanceReferenceRepository);
+        service.setTokenProfileRepository(tokenProfileRepository);
+        service.setEventHistoryService(eventHistoryService);
+        service.setAuthorizationEnforcer(authorizationEnforcer);
+        service.setCryptographicKeyRepository(cryptographicKeyRepository);
+        service.setCryptographicKeyInternalService(keyService);
     }
 
     @Test
@@ -135,7 +142,7 @@ class CryptographicOperationServiceImplTest {
         RandomDataResponseDto response = service.randomData(SecuredUUID.fromUUID(tokenUuid), request);
 
         // then
-        assertSame(expected, response);
+        assertThat(response).isSameAs(expected);
     }
 
     @Test
@@ -263,7 +270,7 @@ class CryptographicOperationServiceImplTest {
                 .randomData(SecuredParentUUID.fromUUID(tokenUuid), SecuredUUID.fromUUID(profile.uuid()), request);
 
         // then
-        assertSame(expected, response);
+        assertThat(response).isSameAs(expected);
         verify(authorizationEnforcer)
                 .enforce(eq(Resource.TOKEN_PROFILE), eq(ResourceAction.DETAIL), any(SecuredUUID.class));
     }
@@ -318,11 +325,11 @@ class CryptographicOperationServiceImplTest {
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
-        assertSame(expected, response);
+        assertThat(response).isSameAs(expected);
         ArgumentCaptor<CryptographicKeyItemOperationModel> context = ArgumentCaptor
                 .forClass(CryptographicKeyItemOperationModel.class);
         verify(adapter).signData(context.capture(), any(), eq(SignatureInputMode.DATA));
-        assertSame(key, context.getValue());
+        assertThat(context.getValue()).isSameAs(key);
         verify(eventHistoryService)
                 .addEventHistory(KeyEvent.SIGN, KeyEventStatus.SUCCESS, "Signing data success ", null,
                         key.keyItemUuid());
@@ -344,7 +351,7 @@ class CryptographicOperationServiceImplTest {
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), request);
 
         // then
-        assertSame(expected, response);
+        assertThat(response).isSameAs(expected);
         verify(keyProviderAdapterFactory).forKeyItem(key);
     }
 
@@ -431,12 +438,12 @@ class CryptographicOperationServiceImplTest {
         when(adapter.signData(any(), any(), eq(SignatureInputMode.DATA))).thenThrow(failure);
 
         // when
-        Executable sign = () -> service
+        ThrowingCallable sign = () -> service
                 .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
-        assertSame(failure, assertThrows(ConnectorException.class, sign));
+        assertThatThrownBy(sign).isSameAs(failure);
         verify(eventHistoryService)
                 .addEventHistory(KeyEvent.SIGN, KeyEventStatus.FAILED, "Signing of data failed ",
                         Map.of("exception", "boom"), key.keyItemUuid());
@@ -456,18 +463,18 @@ class CryptographicOperationServiceImplTest {
                         eq((UUID) key.keyItemUuid()));
 
         // when
-        Executable sign = () -> service
+        ThrowingCallable sign = () -> service
                 .signData(SecuredParentUUID.fromUUID(key.tokenInstanceReferenceUuid()),
                         SecuredUUID.fromUUID(key.tokenProfileUuid()), key.keyUuid(), key.keyItemUuid(), signRequest());
 
         // then
-        assertSame(auditFailure, assertThrows(RuntimeException.class, sign));
+        assertThatThrownBy(sign).isSameAs(auditFailure);
         verify(eventHistoryService, never())
                 .addEventHistory(eq(KeyEvent.SIGN), eq(KeyEventStatus.FAILED), any(), any(), any(UUID.class));
     }
 
     @Test
-    void signDataWithoutEventHistory_recordsNothing() throws Exception {
+    void recordsNothing_whenSigningWithoutEventHistory() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -484,7 +491,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void signDataWithoutEventHistory_refusesPrehashed_whenTheKeyIsOnAV1Provider() throws Exception {
+    void refusesPrehashed_whenTheKeyIsOnAV1Provider() throws Exception {
         // given
         CryptographicKeyItemOperationModel v1Key = legacyKey();
         when(keyService.getKeyItemModel(v1Key.keyItemUuid())).thenReturn(v1Key);
@@ -501,8 +508,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void signDataWithoutEventHistory_refusesPrehashed_whenTheProviderDoesNotAdvertisePrehashedSigning()
-            throws Exception {
+    void refusesPrehashed_whenTheProviderDoesNotAdvertisePrehashedSigning() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -522,7 +528,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void signDataWithoutEventHistory_passesPrehashedDigestToTheAdapter_whenTheProviderAdvertisesIt() throws Exception {
+    void passesPrehashedDigestToTheAdapter_whenTheProviderAdvertisesIt() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -537,11 +543,11 @@ class CryptographicOperationServiceImplTest {
         SignDataResponseDto response = signPrehashed(key);
 
         // then
-        assertSame(expected, response);
+        assertThat(response).isSameAs(expected);
     }
 
     @Test
-    void signDataWithoutEventHistory_doesNotReadTheTokenInstance_forData() throws Exception {
+    void readsNoTokenInstance_whenModeIsData() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);

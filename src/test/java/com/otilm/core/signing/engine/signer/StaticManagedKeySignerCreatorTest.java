@@ -248,7 +248,7 @@ class StaticManagedKeySignerCreatorTest {
         }
 
         @Test
-        void acceptsASignatureByTheCertificatesKey() throws Exception {
+        void returnsTheSignature_whenTheCertificatesKeySigned() throws Exception {
             // given
             var keyPair = generateKeyPair();
             var signer = createRsaSigner(keyPair);

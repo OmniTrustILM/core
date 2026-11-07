@@ -31,7 +31,7 @@ class PrehashedSigningTest {
                         "SHA256_WITH_ECDSA",
                         "SHA384_WITH_ECDSA",
                         "SHA512_WITH_ECDSA"})
-        void returnsTrue_forEachRsaRsaPssAndEcdsaCode(SignatureAlgorithm algorithm) {
+        void returnsTrue_whenTheCodeIsInTheBound(SignatureAlgorithm algorithm) {
             // given — a code in the bound
 
             // when
@@ -53,7 +53,7 @@ class PrehashedSigningTest {
                         "SHA256_WITH_ECDSA",
                         "SHA384_WITH_ECDSA",
                         "SHA512_WITH_ECDSA"})
-        void returnsFalse_forEveryOtherCode(SignatureAlgorithm algorithm) {
+        void returnsFalse_whenTheCodeIsOutsideTheBound(SignatureAlgorithm algorithm) {
             // given — a code outside the bound
 
             // when
@@ -64,7 +64,7 @@ class PrehashedSigningTest {
         }
 
         @Test
-        void returnsFalse_forNull() {
+        void returnsFalse_whenTheAlgorithmIsNull() {
             // given — no algorithm
 
             // when

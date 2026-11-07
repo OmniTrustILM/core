@@ -78,7 +78,7 @@ class CryptographicOperationServiceSignerTest {
 
     @BeforeEach
     void createSigner() {
-        signer = signerFor(SignatureAlgorithm.SHA256_WITH_RSA, rsaKeyPair.getPublic());
+        signer = createSignerFor(SignatureAlgorithm.SHA256_WITH_RSA, rsaKeyPair.getPublic());
     }
 
     // ── Sign ──────────────────────────────────────────────────────────────────
@@ -435,7 +435,7 @@ class CryptographicOperationServiceSignerTest {
         void returnsTheSignature_whenAnEcdsaSignatureVerifiesAgainstItsDigest() throws Exception {
             // given
             var keyPair = generateKeyPair("EC", 256);
-            var ecSigner = signerFor(SignatureAlgorithm.SHA256_WITH_ECDSA, keyPair.getPublic());
+            var ecSigner = createSignerFor(SignatureAlgorithm.SHA256_WITH_ECDSA, keyPair.getPublic());
             var messages = List.of(buildMessage(4));
             var digests = hashWithSha256(messages);
             var signatures = signWithJdk("SHA256withECDSA", keyPair.getPrivate(), messages);
@@ -449,7 +449,7 @@ class CryptographicOperationServiceSignerTest {
         }
 
         @Test
-        void callsThePrehashedOverload() throws Exception {
+        void callsThePrehashedOverload_whenModeIsPrehashedDigest() throws Exception {
             // given
             var messages = List.of(buildMessage(1));
             var signatures = signWithJdk("SHA256withRSA", rsaKeyPair.getPrivate(), messages);
@@ -471,7 +471,7 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void throwsInvalidInput_whenTheAlgorithmIsOutsideTheBound() throws Exception {
             // given
-            var outsideTheBound = signerFor(SignatureAlgorithm.ML_DSA_65, null);
+            var outsideTheBound = createSignerFor(SignatureAlgorithm.ML_DSA_65, null);
             var digests = hashWithSha256(List.of(buildMessage(1)));
 
             // when
@@ -553,30 +553,34 @@ class CryptographicOperationServiceSignerTest {
             unsupported.setTitle("PARAMETER_UNSUPPORTED");
             unsupported.setDetail("PARAMETER_UNSUPPORTED");
             unsupported.setRetryable(false);
-            given(callPrehashedSign()).willThrow(new ConnectorProblemException(unsupported));
+            var refusal = new ConnectorProblemException(unsupported);
+            given(callPrehashedSign()).willThrow(refusal);
             var digests = hashWithSha256(List.of(buildMessage(1)));
 
             // when
             ThrowingCallable signDigests = () -> signer.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
 
             // then
-            assertThatThrownBy(signDigests)
-                    .isInstanceOfSatisfying(SigningEngineException.class,
-                            ex -> assertThat(ex.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT));
+            assertThatThrownBy(signDigests).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
+                assertThat(ex.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT);
+                assertThat(ex.operatorMessage()).startsWith("Connector error during signing");
+            }).hasCause(refusal);
             then(cryptographicOperationService)
                     .should(times(1))
                     .signDataWithoutEventHistory(any(), any(), any(), any(), any(), any());
+            then(cryptographicOperationService).shouldHaveNoMoreInteractions();
         }
 
         @Test
         void usesDataMode_whenNoModeIsGiven() throws Exception {
             // given
             var notAVerifiableSignature = SIG_A;
+            SignatureInputMode noMode = null;
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
                     .willReturn(createSignatureResponse(createSignatureResult("0", notAVerifiableSignature)));
 
             // when
-            List<byte[]> result = signer.signAll(List.of(DTBS_0), null);
+            List<byte[]> result = signer.signAll(List.of(DTBS_0), noMode);
 
             // then
             assertThat(result).containsExactly(notAVerifiableSignature);
@@ -638,7 +642,7 @@ class CryptographicOperationServiceSignerTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private CryptographicOperationServiceSigner signerFor(SignatureAlgorithm algorithm, PublicKey signingKey) {
+    private CryptographicOperationServiceSigner createSignerFor(SignatureAlgorithm algorithm, PublicKey signingKey) {
         return new CryptographicOperationServiceSigner(cryptographicOperationService,
                 SecuredParentUUID.fromUUID(UUID.randomUUID()), SecuredUUID.fromUUID(UUID.randomUUID()),
                 UUID.randomUUID(), UUID.randomUUID(), List.of(), algorithm, signingKey);
