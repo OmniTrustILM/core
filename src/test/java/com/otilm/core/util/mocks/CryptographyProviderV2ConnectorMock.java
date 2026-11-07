@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.extension.Parameters;
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.http.Request;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
@@ -11,18 +12,22 @@ import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import java.security.PrivateKey;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 
@@ -45,7 +50,15 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String LIST_KEYS = "/v2/cryptographyProvider/keys/list";
     private static final String RESOLVE_KEYS = "/v2/cryptographyProvider/keys/resolve";
 
+    private final RealSignerTransformer realSignerTransformer;
+
     CryptographyProviderV2ConnectorMock() {
+        this(new RealSignerTransformer());
+    }
+
+    private CryptographyProviderV2ConnectorMock(RealSignerTransformer realSignerTransformer) {
+        super(realSignerTransformer);
+        this.realSignerTransformer = realSignerTransformer;
         stubV2InfoDetails(List
                 .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
                         interfaceInfo(ConnectorInterface.HEALTH, List.of()),
@@ -59,6 +72,13 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                         .post(WireMock.urlPathEqualTo(OPERATIONS + operation + "/attributes"))
                         .willReturn(WireMock.okJson(responseJson)));
         return this;
+    }
+
+    /** Publishes a sign schema of one signature-algorithm attribute offering the given algorithm. */
+    public CryptographyProviderV2ConnectorMock stubSignatureAlgorithmAttribute(SignatureAlgorithm offered)
+            throws JsonProcessingException {
+        List<?> schema = List.of(SignatureAlgorithmAttribute.definition(List.of(offered)));
+        return stubOperationAttributes("sign", ObjectMapperFactory.wire().writeValueAsString(schema));
     }
 
     public void onOperationAttributesRequest(String operation, Runnable observation) {
@@ -82,6 +102,40 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo(OPERATIONS + operation))
                         .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    /**
+     * Answers {@code sign} with a real signature of every item under its own identifier, in reverse request order.
+     */
+    public CryptographyProviderV2ConnectorMock stubRealSigningInReverseOrder(PrivateKey privateKey,
+            SignatureAlgorithm signatureAlgorithm) {
+        return stubRealSigning(privateKey, signatureAlgorithm, RealSignerTransformer.REVERSED_ORDER);
+    }
+
+    /** Answers {@code sign} with a real signature of every item in request order, without identifiers. */
+    public CryptographyProviderV2ConnectorMock stubRealSigningWithoutIdentifiers(PrivateKey privateKey,
+            SignatureAlgorithm signatureAlgorithm) {
+        return stubRealSigning(privateKey, signatureAlgorithm, RealSignerTransformer.WITHOUT_IDENTIFIERS);
+    }
+
+    private CryptographyProviderV2ConnectorMock stubRealSigning(PrivateKey privateKey,
+            SignatureAlgorithm signatureAlgorithm, String answerShape) {
+        UUID keyReference = UUID.randomUUID();
+        realSignerTransformer.registerKey(keyReference, privateKey, signatureAlgorithm.getCode());
+        Parameters signerParameters = Parameters
+                .from(Map
+                        .<String, Object>of(RealSignerTransformer.KEY_REFERENCE, keyReference.toString(), answerShape,
+                                true));
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(OPERATIONS + "sign"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withTransformers(RealSignerTransformer.NAME)
+                                .withTransformerParameters(signerParameters)));
         return this;
     }
 
@@ -114,7 +168,11 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     }
 
     public void verifyNoOperationRequest(String operation) {
-        server.verify(0, postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation)));
+        verifyOperationRequests(operation, 0);
+    }
+
+    public void verifyOperationRequests(String operation, int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation)));
     }
 
     public CryptographyProviderV2ConnectorMock stubTokenAttributes(String responseJson) {
