@@ -53,6 +53,7 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.PollMocks;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -82,13 +83,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -148,6 +152,8 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     private PlatformTransactionManager transactionManager;
     @PersistenceContext
     private EntityManager entityManager;
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private WireMockServer mockServer;
     private RaProfile raProfile;
@@ -229,10 +235,19 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         return certificate;
     }
 
+    /** Posts as one HTTP request does: an EntityManager stays bound to the thread throughout, as open-in-view binds. */
     private ResponseEntity<byte[]> post(PKIMessage message) throws Exception {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/v1/protocols/cmp/" + PROFILE_NAME);
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
-        return cmpService.handlePost(PROFILE_NAME, message.getEncoded());
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+        try {
+            return cmpService.handlePost(PROFILE_NAME, message.getEncoded());
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+        }
     }
 
     private PKIMessage irMessage(String subjectDn, List<String> dnsSans, String challenge, UUID senderKid)
@@ -459,25 +474,27 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     @Test
-    void aDomainRejectionAfterACollaboratorDoomedTheTransactionIsStillAnsweredAsACmpError() throws Exception {
+    void answersARejection_whenACollaboratorRolledBackBeforeTheDomainFailure() throws Exception {
+        // given — a collaborator under rollbackFor = Exception rolls its transaction back on the request's
+        // EntityManager, which Spring then clears, and the handler turns the failure into a domain rejection
         Certificate registration = seedRegistration(SUBJECT_DN, null, CertificateState.REGISTERED);
-        // Stands in for a collaborator under rollbackFor = Exception failing with a checked exception that the
-        // handler then converts into a domain rejection.
+        String collaboratorFailure = "collaborator failed";
         given(pollFeature.pollCertificate(any(), any(), any(), any())).willAnswer(invocation -> {
-            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            new TransactionTemplate(transactionManager).executeWithoutResult(TransactionStatus::setRollbackOnly);
             throw new CmpProcessingException(invocation.getArgument(0), PKIFailureInfo.systemFailure,
-                    "collaborator failed");
+                    collaboratorFailure);
         });
 
+        // when
         ResponseEntity<byte[]> response = post(irMessage(SUBJECT_DN, null, CHALLENGE, registration.getUuid()));
 
-        // A CRMF rejection is answered as an ip whose single CertResponse carries the failure.
+        // then
         PKIMessage rejection = PKIMessage.getInstance(response.getBody());
-        assertEquals(PKIBody.TYPE_INIT_REP, rejection.getBody().getType());
+        assertThat(rejection.getBody().getType()).isEqualTo(PKIBody.TYPE_INIT_REP);
         PKIStatusInfo status = ((CertRepMessage) rejection.getBody().getContent()).getResponse()[0].getStatus();
-        assertEquals(PKIStatus.REJECTION, status.getStatus().intValue());
-        assertEquals(PKIFailureInfo.systemFailure, status.getFailInfo().intValue());
-        assertTrue(status.getStatusString().getStringAtUTF8(0).getString().contains("collaborator failed"));
+        assertThat(status.getStatus().intValue()).isEqualTo(PKIStatus.REJECTION);
+        assertThat(status.getFailInfo().intValue()).isEqualTo(PKIFailureInfo.systemFailure);
+        assertThat(status.getStatusString().getStringAtUTF8(0).getString()).contains(collaboratorFailure);
     }
 
     @Test

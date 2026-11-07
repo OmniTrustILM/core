@@ -38,9 +38,12 @@ import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.ProducerMocks;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.PersistenceContext;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -62,6 +65,7 @@ import org.bouncycastle.asn1.cmp.PKIStatus;
 import org.bouncycastle.asn1.cmp.PKIStatusInfo;
 import org.bouncycastle.asn1.cmp.RevRepContent;
 import org.bouncycastle.cert.X509CertificateHolder;
+import org.hibernate.Session;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -142,8 +146,12 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     @Value("${cmp.protocol.poll.feature.timeout}")
     private Integer configuredPollBudgetSeconds;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     private WireMockServer mockServer;
     private RaProfile raProfile;
+    private EntityManager requestEntityManager;
     private final List<CompletableFuture<Void>> completions = new ArrayList<>();
 
     @BeforeEach
@@ -249,6 +257,48 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         assertThat(status.getStatus().intValue()).isEqualTo(PKIStatus.REVOCATION_NOTIFICATION);
     }
 
+    /**
+     * The revoke request rolls back on the request's EntityManager, which Spring then clears; the response is still
+     * built from the profile the request read before.
+     */
+    @Test
+    void answersWithARejection_whenTheConnectorFailsTheRevocation() throws Exception {
+        // given
+        Certificate certificate = seedIssuedCertificate(ISSUED_SERIAL);
+        failRevokeAttributes(mockServer);
+
+        // when
+        PKIMessage response = post(rrMessage(certificate));
+
+        // then
+        assertThat(response.getBody().getType()).isEqualTo(PKIBody.TYPE_REVOCATION_REP);
+        PKIStatusInfo status = ((RevRepContent) response.getBody().getContent()).getStatus()[0];
+        assertThat(status.getStatus().intValue()).isEqualTo(PKIStatus.REJECTION);
+    }
+
+    /**
+     * The request's EntityManager keeps the connection its first read takes. A transaction that needs a second one
+     * waits for the pool while holding the first, and when every request does that the pool deadlocks.
+     */
+    @Test
+    void revokesOnTheConnectionTheRequestAlreadyHolds() throws Exception {
+        // given
+        Certificate certificate = seedIssuedCertificate(ISSUED_SERIAL);
+        AtomicLong revokingBackend = new AtomicLong();
+        AtomicLong requestBackend = new AtomicLong();
+        doAnswer(invocation -> {
+            revokingBackend.set(currentTransactionBackend());
+            requestBackend.set(requestEntityManagerBackend());
+            return null;
+        }).when(actionProducer).produceMessage(any());
+
+        // when
+        post(rrMessage(certificate));
+
+        // then
+        assertThat(revokingBackend.get()).isPositive().isEqualTo(requestBackend.get());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
@@ -258,7 +308,7 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     private PKIMessage post(PKIMessage request) throws Exception {
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/v1/protocols/cmp/" + PROFILE_NAME);
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
-        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        requestEntityManager = entityManagerFactory.createEntityManager();
         TransactionSynchronizationManager
                 .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
         try {
@@ -269,6 +319,20 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
             requestEntityManager.close();
             RequestContextHolder.resetRequestAttributes();
         }
+    }
+
+    private long currentTransactionBackend() {
+        return ((Number) entityManager.createNativeQuery("select pg_backend_pid()").getSingleResult()).longValue();
+    }
+
+    private long requestEntityManagerBackend() {
+        return requestEntityManager.unwrap(Session.class).doReturningWork(connection -> {
+            try (Statement statement = connection.createStatement();
+                    ResultSet backend = statement.executeQuery("select pg_backend_pid()")) {
+                backend.next();
+                return backend.getLong(1);
+            }
+        });
     }
 
     /** Lets the actions listener's work land a while after each queued action, as a backlog would. */
@@ -355,6 +419,15 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
                                 .urlPathMatching(
                                         "/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes/validate"))
                         .willReturn(WireMock.okJson("true")));
+    }
+
+    private static void failRevokeAttributes(WireMockServer connectorServer) {
+        connectorServer
+                .stubFor(WireMock
+                        .get(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes"))
+                        .willReturn(WireMock.serverError()));
     }
 
     private static PKIMessage irMessage() throws Exception {

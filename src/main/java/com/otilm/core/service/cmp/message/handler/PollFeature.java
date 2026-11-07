@@ -186,9 +186,9 @@ public class PollFeature {
      * cached at submission, without content and in its old state, and {@code refresh} needs a transaction.
      *
      * <p>
-     * The content is loaded before the transaction ends: once the request has read outside a transaction, a transaction
-     * started under {@code NOT_SUPPORTED} runs on an EntityManager of its own, closed at commit, and the caller parses
-     * the content after that.
+     * The content is loaded before the transaction ends because the caller parses it afterwards, and the transaction
+     * may have run on an EntityManager of its own that closes at commit: one with no request EntityManager bound, or
+     * under {@code NOT_SUPPORTED} once the request has read outside a transaction.
      * </p>
      */
     private Certificate loadFresh(SecuredUUID certUUID) throws NotFoundException {
