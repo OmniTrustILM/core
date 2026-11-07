@@ -62,7 +62,7 @@ public class ContentSigningWorkflowValidator {
     public static void requireConnectorServes(Connector connector, SignatureFamily family, SignatureLevel maxLevel) {
         requireFamily(family);
         requireMaxLevel(maxLevel);
-        ConnectorInterface familyInterface = SignatureFamilyInterfaces.of(family);
+        ConnectorInterface familyInterface = family.getConnectorInterface();
 
         requireFlag(connector, familyInterface, FeatureFlag.CONTENT_SIGNING, family.getLabel());
         rungFlagFor(maxLevel)

@@ -3,6 +3,7 @@ package com.otilm.core.signing.contentsigning.formatting;
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.client.v1.signing.contentsigning.ContentSigningFormattingSyncApiClient;
+import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.EmbedSignatureValueRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.EmbedTimestampRequestDto;
@@ -11,7 +12,6 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.ExtendToLe
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
-import com.otilm.api.model.connector.signatures.contentsigning.pades.PadesComputeDtbsRequestDto;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
@@ -58,7 +58,7 @@ class ContentSigningFormattingClientTest {
     @Test
     void computeDtbsRoutesThroughTheFactoryAndReturnsTheResponse() throws Exception {
         // given
-        PadesComputeDtbsRequestDto request = new PadesComputeDtbsRequestDto();
+        ComputeDtbsRequestDto request = new ComputeDtbsRequestDto();
         ComputeDtbsResponseDto response = new ComputeDtbsResponseDto();
         response.setDtbs(DTBS);
         given(connectorApiFactory.getContentSigningFormattingApiClient(connector)).willReturn(apiClient);
@@ -204,7 +204,7 @@ class ContentSigningFormattingClientTest {
                 .willThrow(new ConnectorException("formatting connector returned 503"));
 
         // when / then
-        assertThatThrownBy(() -> client.computeDtbs(connector, new PadesComputeDtbsRequestDto()))
+        assertThatThrownBy(() -> client.computeDtbs(connector, new ComputeDtbsRequestDto()))
                 .isInstanceOf(SigningEngineException.class)
                 .satisfies(e -> {
                     SigningEngineException engineException = (SigningEngineException) e;
@@ -222,7 +222,7 @@ class ContentSigningFormattingClientTest {
                 .willThrow(new IllegalStateException("Connector returned an empty body for computeDtbs"));
 
         // when / then
-        assertThatThrownBy(() -> client.computeDtbs(connector, new PadesComputeDtbsRequestDto()))
+        assertThatThrownBy(() -> client.computeDtbs(connector, new ComputeDtbsRequestDto()))
                 .isInstanceOf(SigningEngineException.class)
                 .satisfies(e -> {
                     SigningEngineException engineException = (SigningEngineException) e;
@@ -249,8 +249,7 @@ class ContentSigningFormattingClientTest {
     private static Stream<Arguments> formattingOperations() {
         return Stream
                 .of(arguments("computeDtbs", (ApiClientCall) api -> api.computeDtbs(any(), any()),
-                        (ClientCall) (client, connector) -> client
-                                .computeDtbs(connector, new PadesComputeDtbsRequestDto())),
+                        (ClientCall) (client, connector) -> client.computeDtbs(connector, new ComputeDtbsRequestDto())),
                         arguments("embedSignatureValue", (ApiClientCall) api -> api.embedSignatureValue(any(), any()),
                                 (ClientCall) (client, connector) -> client
                                         .embedSignatureValue(connector, new EmbedSignatureValueRequestDto())),
