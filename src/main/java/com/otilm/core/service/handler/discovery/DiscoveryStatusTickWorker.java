@@ -119,6 +119,10 @@ public class DiscoveryStatusTickWorker {
             handleNonConformant(discoveryUuid, attempt);
             return;
         }
+        if (!tick.renew()) {
+            logger.debug("Dropping a status answer for discovery {}: another tick holds its row now", discoveryUuid);
+            return;
+        }
 
         // A stopped run's answer already rescheduled the row and gave up the token, so this refresh changes nothing.
         if (apply(tick, status, run.getStatus())) {

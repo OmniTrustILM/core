@@ -418,6 +418,25 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void appliesNothing_whenAnotherTickTookTheRowDuringTheCall() throws Exception {
+        // given
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        armStatusRow(run, 0);
+        DiscoveryWorkTick tick = admitTick(run, 0);
+        when(client.status(any())).thenAnswer(invocation -> {
+            leaseToAnotherTick(run);
+            return statusResponse(DiscoveryRunState.FAILED);
+        });
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(agenda(run)).as("the new holder's row stays for it to poll").hasSize(1);
+    }
+
+    @Test
     void completedAnswer_leavesTheRunInProgressAndArmsTheDrain() throws Exception {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         armStatusRow(run, 0);
@@ -956,6 +975,13 @@ class DiscoveryStatusTickWorkerITest extends BaseSpringBootTest {
 
     private DiscoveryWorkTick admitTick(Discovery run, int attempt) {
         return tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, attempt);
+    }
+
+    /** What a reclaim or a lifecycle change does to a running tick: its row is now leased to another token. */
+    private void leaseToAnotherTick(Discovery run) {
+        workWriter
+                .scheduleLeased(run.getUuid(), DiscoveryWorkType.STATUS, UUID.randomUUID(),
+                        OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(2));
     }
 
     private DiscoveryWork statusRow(Discovery run) {
