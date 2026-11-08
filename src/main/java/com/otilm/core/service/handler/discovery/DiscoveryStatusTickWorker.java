@@ -100,7 +100,7 @@ public class DiscoveryStatusTickWorker {
             // Outside any transaction, by the platform's connector-call rule.
             status = client.status(run);
         } catch (ConnectorException | RuntimeException e) {
-            // RuntimeException too: see DiscoveryWorkListener for why an escape costs no budget.
+            // RuntimeException too: one that escapes to the listener moves the row up a rung but can never end the run.
             handleUnanswered(discoveryUuid, attempt, e);
             return;
         } catch (NotFoundException | AttributeException e) {
