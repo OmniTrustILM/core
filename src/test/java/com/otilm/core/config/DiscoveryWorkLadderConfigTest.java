@@ -51,11 +51,12 @@ class DiscoveryWorkLadderConfigTest {
 
     /**
      * An unanswered drain or processing tick waits its own rung after its call before the next try, so the rungs set
-     * the least time a connector that stopped answering, or a batch that keeps failing, is tolerated.
+     * the least time a connector that stopped answering, or a batch that keeps failing, is tolerated. The tick that
+     * spends the last attempt ends the run, so only the waits before it count.
      */
     @ParameterizedTest
     @ValueSource(strings = {"DRAIN", "PROCESS"})
-    void toleratesEightyMinutesOfFailedTicks_onTheShippedDrainAndProcessLadders(String workType) {
+    void toleratesEightyMinutesOfFailedTicks_whenUsingTheShippedLadder(String workType) {
         // given
         Properties shipped = shipped();
         String prefix = "discovery.work.by-type." + workType;
@@ -64,7 +65,7 @@ class DiscoveryWorkLadderConfigTest {
 
         // when
         Duration tolerated = IntStream
-                .rangeClosed(1, maxAttempts)
+                .range(1, maxAttempts)
                 .mapToObj(ladder::delayFor)
                 .reduce(Duration.ZERO, Duration::plus);
 
@@ -78,7 +79,7 @@ class DiscoveryWorkLadderConfigTest {
      * connecting, waiting for the response) plus staging what it returned, before the tick renews the lease.
      */
     @Test
-    void outlastsTheSlowestConnectorCallAndStaging_withTheShippedLease() {
+    void outlastsTheSlowestConnectorCallAndStaging_whenUsingTheShippedLease() {
         // given
         Properties shipped = shipped();
         Duration slowestCall = Stream
