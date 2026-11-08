@@ -134,7 +134,7 @@ class DiscoveryWorkListenerTest {
     }
 
     @Test
-    void swallowsAWorkerFailure_soTheAgendaOwnsTheRetry() {
+    void swallowsAWorkerFailure_whenTheWorkerThrows() {
         // given
         var failingAttempt = 0;
         var message = buildMessage(DiscoveryWorkType.STATUS, failingAttempt);
