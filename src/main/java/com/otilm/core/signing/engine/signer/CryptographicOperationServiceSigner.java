@@ -100,7 +100,7 @@ public class CryptographicOperationServiceSigner implements Signer {
                 throw e;
             }
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED, e.getMessage(), e,
-                    "The signing key cannot sign digests.");
+                    "The signing key cannot be used for this request.");
         }
     }
 

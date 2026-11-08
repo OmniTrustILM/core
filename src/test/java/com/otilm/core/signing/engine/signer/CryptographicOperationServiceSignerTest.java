@@ -519,7 +519,7 @@ class CryptographicOperationServiceSignerTest {
             assertThatThrownBy(signDigests).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
                 assertThat(ex.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
                 assertThat(ex.operatorMessage()).contains(refusal);
-                assertThat(ex.clientMessage()).isEqualTo("The signing key cannot sign digests.");
+                assertThat(ex.clientMessage()).isEqualTo("The signing key cannot be used for this request.");
             });
         }
 
