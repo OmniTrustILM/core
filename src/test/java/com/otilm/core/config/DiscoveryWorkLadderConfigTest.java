@@ -50,9 +50,9 @@ class DiscoveryWorkLadderConfigTest {
     }
 
     /**
-     * An unanswered drain or processing tick waits its own rung after its call before the next try, so the rungs set
-     * the least time a connector that stopped answering, or a batch that keeps failing, is tolerated. The tick that
-     * spends the last attempt ends the run, so only the waits before it count.
+     * An unanswered drain or processing tick waits its own rung before the next try, so the rungs set the least time a
+     * failing connector or batch is tolerated. The tick that spends the last attempt ends the run, so only the waits
+     * before it count.
      */
     @ParameterizedTest
     @ValueSource(strings = {"DRAIN", "PROCESS"})
@@ -74,9 +74,8 @@ class DiscoveryWorkLadderConfigTest {
     }
 
     /**
-     * A lease shorter than one tick's worst case lets the sweep reclaim a row whose tick is still at the connector, and
-     * publish it a second time. The worst case is a connector call's whole allowance (acquiring a connection,
-     * connecting, waiting for the response) plus staging what it returned, before the tick renews the lease.
+     * A tick's worst case is a connector call's whole allowance (acquiring a connection, connecting, waiting for the
+     * response) plus staging what it returned, before it renews the lease.
      */
     @Test
     void outlastsTheSlowestConnectorCallAndStaging_whenUsingTheShippedLease() {

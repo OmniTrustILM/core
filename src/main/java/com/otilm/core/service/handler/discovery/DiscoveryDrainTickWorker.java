@@ -296,8 +296,8 @@ public class DiscoveryDrainTickWorker {
     }
 
     /**
-     * A tick the connector did not answer. Below the budget the tick stays unresolved, and the listener moves the row
-     * one rung up its backoff ladder.
+     * A tick the connector did not answer. Below the budget, the listener's retry moves the row one rung up its backoff
+     * ladder.
      */
     private void handleUnanswered(UUID discoveryUuid, int attempt, Throwable e) {
         if (!budget

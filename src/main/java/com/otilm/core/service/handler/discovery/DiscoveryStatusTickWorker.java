@@ -120,16 +120,15 @@ public class DiscoveryStatusTickWorker {
             return;
         }
 
-        // An answer that already rescheduled the row, a stopped run backing off, gave up the token, so this refresh
-        // changes nothing and that schedule stands.
+        // A stopped run's answer already rescheduled the row and gave up the token, so this refresh changes nothing.
         if (apply(tick, status, run.getStatus())) {
             budget.refresh(tick);
         }
     }
 
     /**
-     * A tick the connector did not answer. Below the budget the tick stays unresolved, and the listener moves the row
-     * one rung up its backoff ladder.
+     * A tick the connector did not answer. Below the budget, the listener's retry moves the row one rung up its backoff
+     * ladder.
      */
     private void handleUnanswered(UUID discoveryUuid, int attempt, Throwable e) {
         if (!budget

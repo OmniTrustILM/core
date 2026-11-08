@@ -11,9 +11,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * The lease a discovery tick holds on its {@code discovery_work} row, from admission to release. A tick's writes to its
- * own row go through {@link DiscoveryWorkTick} and are conditional on its token, so a tick whose row was reclaimed,
- * rescheduled by a lifecycle change or deleted changes nothing.
+ * The lease a discovery tick holds on its {@code discovery_work} row, from admission to release. A tick writes to its
+ * row through {@link DiscoveryWorkTick}.
  */
 @Component
 public class DiscoveryWorkLease {

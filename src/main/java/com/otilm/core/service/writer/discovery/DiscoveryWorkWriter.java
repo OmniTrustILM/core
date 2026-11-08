@@ -22,8 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>
  * <b>A row whose tick is published outside the sweep is leased to that tick first.</b> A worker that publishes its own
  * continuation hands the row over ({@link #handOverLease}) or schedules it leased ({@link #scheduleLeased}) before it
- * publishes, so the sweep leaves the row alone while the tick runs and claims it if the publish never lands. An
- * unleased due row would be claimed and published by the sweep too, putting two workers onto the same work.
+ * publishes, so the sweep leaves the row alone while the tick runs and claims it if the publish never lands.
  * </p>
  */
 @Component
@@ -66,8 +65,7 @@ public class DiscoveryWorkWriter {
     /**
      * Leases an agenda row to the tick the sweep is about to publish, if it is still due at {@code dueCutoff} and no
      * live lease holds it at {@code now}. {@code REQUIRED} (not {@code REQUIRES_NEW}) so it joins the sweep claimer's
-     * lock-holding transaction. The sweep's lock does not hold off admission, so the row is checked again here rather
-     * than trusted from the read.
+     * lock-holding transaction.
      *
      * @return whether the row was claimed
      */
