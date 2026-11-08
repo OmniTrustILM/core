@@ -134,6 +134,13 @@ public class DiscoveryProcessTickWorker {
             }
         }
         importStagedKeys(run);
+        // The key page can run long too, and in a keys-only run it is the tick's whole batch.
+        if (!tick.renew()) {
+            logger
+                    .debug("Stopping process tick for discovery {} after its keys: another tick holds its row now",
+                            discoveryUuid);
+            return;
+        }
 
         long remaining = backlogOf(discoveryUuid);
         if (remaining == 0) {

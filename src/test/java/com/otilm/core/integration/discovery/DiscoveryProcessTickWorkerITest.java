@@ -213,6 +213,23 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void leavesTheEndingToTheNewHolder_whenAnotherTickTookTheRowOfAKeysOnlyRun() {
+        // given — a keys-only tick renews nothing before its key page ends, so a takeover at any point until then
+        // looks the same to it
+        Discovery run = processingRun();
+        stageKeys(run, 1);
+        DiscoveryWorkTick tick = admitTick(run, 0);
+        leaseToAnotherTick(run);
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.PROCESSING);
+        assertThat(agenda(run)).as("the new holder's row stays for it to end the run").hasSize(1);
+    }
+
+    @Test
     void mixedRun_waitsForItsKeysEvenOnceEveryCertificateIsIn() throws Exception {
         Discovery run = processingRun();
         stageCertificates(run, 1);
