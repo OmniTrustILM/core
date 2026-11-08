@@ -7,13 +7,20 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +49,8 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
     private EntityManagerFactory entityManagerFactory;
     @Autowired
     private PlatformTransactionManager transactionManager;
+    @Autowired
+    private DataSource dataSource;
 
     private EntityManager requestEntityManager;
 
@@ -77,6 +86,42 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
         assertThat(waited).isLessThan(Duration.ofSeconds(2));
     }
 
+    @Test
+    void returnsStatusCommittedMeanwhile_whenTheCallerHoldsATransaction() {
+        // given — SCEP waits from inside its own transaction
+        UUID certificateUuid = seedCertificateNotYetValidated();
+        CompletableFuture<Void> validationLands = markValidAfter(certificateUuid, VALIDATION_DELAY_MS);
+        TransactionTemplate callerTransaction = new TransactionTemplate(transactionManager);
+
+        // when
+        CertificateValidationStatus resolved = callerTransaction
+                .execute(status -> poller
+                        .resolveOrKeep(detailOf(requestEntityManager.find(Certificate.class, certificateUuid))));
+
+        // then
+        validationLands.join();
+        assertThat(resolved).isEqualTo(CertificateValidationStatus.VALID);
+    }
+
+    @Test
+    void holdsNoSecondConnectionBetweenSamples_whenTheCallerHoldsATransaction() throws Exception {
+        // given — validation never lands, so the wait runs its whole budget
+        UUID certificateUuid = seedCertificateNotYetValidated();
+        HikariPoolMXBean pool = dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean();
+        TransactionTemplate callerTransaction = new TransactionTemplate(transactionManager);
+
+        // when
+        long fewestActiveDuringTheWait = callerTransaction.execute(status -> {
+            CertificateDetailDto unchecked = detailOf(requestEntityManager.find(Certificate.class, certificateUuid));
+            ActiveConnectionWatch watch = ActiveConnectionWatch.startAfterFirstSample(pool);
+            poller.resolveOrKeep(unchecked);
+            return watch.stopAndGetFewest();
+        });
+
+        // then
+        assertThat(fewestActiveDuringTheWait).as("connections checked out between samples").isEqualTo(1L);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private UUID seedCertificateNotYetValidated() {
@@ -102,5 +147,33 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
         detail.setUuid(certificate.getUuid().toString());
         detail.setValidationStatus(certificate.getValidationStatus());
         return detail;
+    }
+
+    /**
+     * Samples the pool's checked-out connections every 50 ms, starting once the wait has taken its first sample, and
+     * keeps the fewest seen. The caller's transaction holds one connection throughout; a sample's own short read adds a
+     * second only for that read.
+     */
+    private static final class ActiveConnectionWatch {
+
+        private static final long FIRST_SAMPLE_TAKEN_MS = 500L;
+
+        private final ScheduledExecutorService sampler = Executors.newSingleThreadScheduledExecutor();
+        private final AtomicLong fewest = new AtomicLong(Long.MAX_VALUE);
+        private ScheduledFuture<?> sampling;
+
+        static ActiveConnectionWatch startAfterFirstSample(HikariPoolMXBean pool) {
+            ActiveConnectionWatch watch = new ActiveConnectionWatch();
+            watch.sampling = watch.sampler
+                    .scheduleAtFixedRate(() -> watch.fewest.accumulateAndGet(pool.getActiveConnections(), Math::min),
+                            FIRST_SAMPLE_TAKEN_MS, 50L, TimeUnit.MILLISECONDS);
+            return watch;
+        }
+
+        long stopAndGetFewest() {
+            sampling.cancel(false);
+            sampler.shutdownNow();
+            return fewest.get();
+        }
     }
 }

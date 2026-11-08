@@ -9,8 +9,10 @@ import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Resolves a freshly-issued certificate's {@link CertificateValidationStatus}, waiting briefly for the asynchronous
@@ -35,9 +37,18 @@ public class CertificateValidationStatusPoller {
 
     private CertificateRepository certificateRepository;
 
+    private TransactionTemplate sampleTransaction;
+
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        TransactionTemplate readOnlyTransaction = new TransactionTemplate(transactionManager);
+        readOnlyTransaction.setReadOnly(true);
+        this.sampleTransaction = readOnlyTransaction;
     }
 
     /**
@@ -53,11 +64,12 @@ public class CertificateValidationStatusPoller {
      * </p>
      *
      * <p>
-     * Runs with {@link Propagation#NOT_SUPPORTED} so a caller's transaction is suspended for the duration of the wait
-     * rather than held open across the sleeps (see core/CLAUDE.md "Transactions and external calls"). Each sample reads
-     * the status alone, through {@link CertificateRepository#findValidationStatusByUuid}: the request's EntityManager,
-     * bound by open-in-view, already holds the certificate as it was when the chain was loaded, and reading the entity
-     * would return that copy for the whole budget.
+     * Each sample reads the status alone, through {@link CertificateRepository#findValidationStatusByUuid}: under
+     * open-in-view the request's EntityManager may already hold the certificate as the caller loaded it with its CA
+     * chain, and reading the entity would return that copy for the whole budget. A caller's transaction is suspended
+     * ({@link Propagation#NOT_SUPPORTED}), and each sample runs in a short read-only transaction of its own: a read
+     * outside a transaction in this scope would bind an EntityManager, and the connection it takes, until the wait
+     * ends.
      * </p>
      *
      * @param certificate the certificate whose status to resolve (its DTO status is the starting point)
@@ -80,7 +92,7 @@ public class CertificateValidationStatusPoller {
         UUID certUuid = UUID.fromString(certificate.getUuid());
         long deadline = System.currentTimeMillis() + budgetMs;
         try {
-            Optional<CertificateValidationStatus> status = certificateRepository.findValidationStatusByUuid(certUuid);
+            Optional<CertificateValidationStatus> status = readStatus(certUuid);
             while (status.isPresent() && status.get() == CertificateValidationStatus.NOT_CHECKED) {
                 long remaining = deadline - System.currentTimeMillis();
                 if (remaining <= 0) {
@@ -89,7 +101,7 @@ public class CertificateValidationStatusPoller {
                 // Clamp to the remaining budget so total wait never exceeds budgetMs, even
                 // when budgetMs is smaller than one sampling interval.
                 TimeUnit.MILLISECONDS.sleep(Math.min(POLL_INTERVAL_MS, remaining));
-                status = certificateRepository.findValidationStatusByUuid(certUuid);
+                status = readStatus(certUuid);
             }
             if (status.isEmpty()) {
                 log.warn("UUID={} | certificate not found while waiting for validation status", certificate.getUuid());
@@ -101,5 +113,9 @@ public class CertificateValidationStatusPoller {
             log.debug("UUID={} | validation-status wait interrupted; keeping current status", certificate.getUuid());
             return certificate.getValidationStatus();
         }
+    }
+
+    private Optional<CertificateValidationStatus> readStatus(UUID certUuid) {
+        return sampleTransaction.execute(status -> certificateRepository.findValidationStatusByUuid(certUuid));
     }
 }

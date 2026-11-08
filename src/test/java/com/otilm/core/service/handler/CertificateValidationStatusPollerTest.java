@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,6 +28,8 @@ class CertificateValidationStatusPollerTest {
 
     @Mock
     private CertificateRepository certificateRepository;
+    @Mock
+    private PlatformTransactionManager transactionManager;
 
     private CertificateValidationStatusPoller poller;
 
@@ -34,6 +37,7 @@ class CertificateValidationStatusPollerTest {
     void wirePoller() {
         poller = new CertificateValidationStatusPoller();
         poller.setCertificateRepository(certificateRepository);
+        poller.setTransactionManager(transactionManager);
     }
 
     @Test
