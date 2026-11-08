@@ -52,10 +52,8 @@ import org.springframework.stereotype.Component;
  * @see CrmfIrCrMessageHandler
  * @see CrmfKurMessageHandler
  */
-// No @Transactional: the certificate is polled for up to the poll budget, and a transaction
-// around the handler would keep its connection idle in transaction for all of it. Not
-// NOT_SUPPORTED either, which would move the short transactions it calls onto a second
-// connection; see CmpServiceImpl#handlePost.
+// Neither @Transactional nor NOT_SUPPORTED, because the certificate is polled for up to the poll budget;
+// see CmpServiceImpl#handlePost.
 @Component
 public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 

@@ -11,9 +11,9 @@ import com.otilm.core.dao.entity.Certificate;
  * Caller proceeds with the normal success path.</li>
  * <li>{@link StillPending} — the certificate is still queued for the actions listener ({@code REQUESTED} or
  * {@code REGISTERED}), or in {@code PENDING_ISSUE} / {@code PENDING_REVOKE} because the authority provider connector
- * accepted the operation asynchronously (HTTP 202); either way completion is out-of-band. CMP callers translate this
- * into a {@code pollRep} for issue/renew/rekey, or a per-certificate {@code rejection} for revocation (RFC 4210 §5.2.6
- * limits polling to ip/cp/kup). SCEP callers translate to {@code pkiPending}.</li>
+ * accepted the operation asynchronously (HTTP 202); either way completion is out-of-band. CMP answers issue, renew and
+ * rekey with an ip/cp/kup whose status is {@code waiting}, which opens the pollReq exchange, and a revocation with a
+ * per-certificate {@code rejection} (RFC 4210 §5.2.6 limits polling to ip/cp/kup).</li>
  * <li>{@link Diverted} — the certificate reached a terminal state that is <em>not</em> the expected one. Most likely
  * cause: another thread (e.g. an operator-driven {@code cancelPendingCertificateOperation}, a scheduled task)
  * transitioned the certificate while this poll was running. Callers reject the operation cleanly; the upstream

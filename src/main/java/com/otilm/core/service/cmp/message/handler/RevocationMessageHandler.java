@@ -80,10 +80,8 @@ import org.springframework.stereotype.Component;
  *      }
  * </pre>
  */
-// No @Transactional: each revocation is polled for up to the poll budget, and a transaction
-// around the handler would keep its connection idle in transaction for all of it. Not
-// NOT_SUPPORTED either, which would move the short transactions it calls onto a second
-// connection; see CmpServiceImpl#handlePost.
+// Neither @Transactional nor NOT_SUPPORTED, because each revocation is polled for up to the poll budget;
+// see CmpServiceImpl#handlePost.
 @Component
 public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
 

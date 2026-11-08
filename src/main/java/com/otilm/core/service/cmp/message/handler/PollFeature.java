@@ -90,9 +90,8 @@ public class PollFeature {
      * <p>
      * Transitional states ({@code REGISTERED}, {@code REQUESTED}, {@code PENDING_APPROVAL}, {@code PENDING_*}) are not
      * reported back to the caller mid-budget — the loop sleeps and re-reads until one of the outcomes above is observed
-     * or the budget is exhausted (which yields {@link PollResult.StillPending} for {@code PENDING_ISSUE},
-     * {@code PENDING_REVOKE}, {@code REQUESTED} or a {@code REGISTERED} placeholder, or a timeout exception for the
-     * other transitional states).
+     * or the budget is exhausted (which yields {@link PollResult.StillPending} for the asynchronous states listed
+     * above, or a timeout exception for the other transitional states).
      * </p>
      *
      * <p>
@@ -146,12 +145,6 @@ public class PollFeature {
                     return new PollResult.Diverted(current);
                 }
                 if (System.currentTimeMillis() - startRequest >= timeoutMs) {
-                    // PENDING_* is ridden out for the whole budget: even a synchronously-
-                    // completing connector transits PENDING_ISSUE on the actions-listener
-                    // thread, so only budget exhaustion makes "still pending" a verdict. A
-                    // submitted request stays REQUESTED, and a registration placeholder
-                    // REGISTERED, until that same listener claims it from the queue, so under a
-                    // backlog both are asynchronous too — signal the client to retry.
                     if (current == CertificateState.PENDING_ISSUE || current == CertificateState.PENDING_REVOKE
                             || current == CertificateState.REGISTERED || current == CertificateState.REQUESTED) {
                         log

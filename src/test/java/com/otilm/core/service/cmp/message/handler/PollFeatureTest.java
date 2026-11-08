@@ -126,7 +126,7 @@ class PollFeatureTest {
     }
 
     @Test
-    void loadsNoCertificate_whileItIsPending() throws Exception {
+    void loadsNoCertificate_whenItStaysPending() throws Exception {
         // given
         stubStates(CertificateState.REQUESTED);
 
@@ -214,7 +214,7 @@ class PollFeatureTest {
     }
 
     @Test
-    void throwsAndKeepsTheInterruptFlag_whenInterruptedWhileWaiting() {
+    void restoresTheInterruptFlagWhenThrowing_whenInterruptedWhileWaiting() {
         // given
         pollFeature.setPollFeatureTimeout(1);
         stubStates(CertificateState.REQUESTED);
@@ -231,7 +231,7 @@ class PollFeatureTest {
                     .hasCauseInstanceOf(InterruptedException.class);
             assertThat(Thread.currentThread().isInterrupted()).as("interrupted flag restored").isTrue();
         } finally {
-            Thread.interrupted();
+            Thread.interrupted(); // clears the flag so later tests on this thread start uninterrupted
         }
     }
 

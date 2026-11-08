@@ -52,7 +52,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
@@ -103,6 +105,8 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     private static final int POLL_BUDGET_SECONDS = 2;
     private static final Duration COMPLETION_DELAY = Duration.ofMillis(1_200);
     private static final BigInteger ISSUED_SERIAL = BigInteger.valueOf(0x2720L);
+    /** The poll budget sampled every 100 ms gives about 20 samples; fewer than this means the watch did not run. */
+    private static final int MIN_SAMPLES = 10;
 
     /**
      * Connections that have been {@code idle in transaction} for longer than a short statement gap. The poll loop
@@ -181,15 +185,18 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     }
 
     @Test
-    void leavesNoConnectionIdleInTransaction_whilePollingAnIssue() throws Exception {
+    void leavesNoConnectionIdleInTransaction_whenPollingAnIssue() throws Exception {
         // given — nothing claims the queued request, so the poll runs its whole budget
         IdleTransactionWatch watch = IdleTransactionWatch.start(new JdbcTemplate(dataSource));
 
         // when
-        post(irMessage());
+        PKIMessage response = post(irMessage());
 
         // then
-        assertThat(watch.stop()).as("connections held idle in transaction while polling").isZero();
+        IdleTransactionSamples samples = watch.stop();
+        assertThat(samples.taken()).as("samples taken while polling").isGreaterThanOrEqualTo(MIN_SAMPLES);
+        assertThat(samples.highestHeld()).as("connections held idle in transaction while polling").isZero();
+        assertThat(singleCertResponse(response).getStatus().getStatus().intValue()).isEqualTo(PKIStatus.WAITING);
     }
 
     @Test
@@ -230,16 +237,21 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     }
 
     @Test
-    void leavesNoConnectionIdleInTransaction_whilePollingARevocation() throws Exception {
+    void leavesNoConnectionIdleInTransaction_whenPollingARevocation() throws Exception {
         // given — nothing claims the queued revocation, so the poll runs its whole budget
         Certificate certificate = seedIssuedCertificate(ISSUED_SERIAL);
         IdleTransactionWatch watch = IdleTransactionWatch.start(new JdbcTemplate(dataSource));
 
         // when
-        post(rrMessage(certificate));
+        PKIMessage response = post(rrMessage(certificate));
 
         // then
-        assertThat(watch.stop()).as("connections held idle in transaction while polling").isZero();
+        IdleTransactionSamples samples = watch.stop();
+        assertThat(samples.taken()).as("samples taken while polling").isGreaterThanOrEqualTo(MIN_SAMPLES);
+        assertThat(samples.highestHeld()).as("connections held idle in transaction while polling").isZero();
+        PKIStatusInfo status = ((RevRepContent) response.getBody().getContent()).getStatus()[0];
+        assertThat(status.getStatus().intValue()).isEqualTo(PKIStatus.REJECTION);
+        assertThat(status.getStatusString().getStringAtUTF8(0).getString()).contains("polling timed out");
     }
 
     @Test
@@ -281,7 +293,7 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
      * waits for the pool while holding the first, and when every request does that the pool deadlocks.
      */
     @Test
-    void revokesOnTheConnectionTheRequestAlreadyHolds() throws Exception {
+    void revokesOnTheRequestsOwnConnection_whenTheRequestAlreadyHoldsOne() throws Exception {
         // given
         Certificate certificate = seedIssuedCertificate(ISSUED_SERIAL);
         AtomicLong revokingBackend = new AtomicLong();
@@ -467,28 +479,38 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         return ((CertRepMessage) response.getBody().getContent()).getResponse()[0];
     }
 
+    /** How many samples the watch took, and the most connections any of them saw held idle in transaction. */
+    private record IdleTransactionSamples(int taken, long highestHeld) {
+    }
+
     /**
      * Samples {@code pg_stat_activity} every 100 ms on its own connection and keeps the highest count of connections
-     * held idle in transaction.
+     * held idle in transaction. A sample that fails ends the sampling, so {@link #stop()} rethrows its failure.
      */
     private static final class IdleTransactionWatch {
 
         private final ScheduledExecutorService sampler = Executors.newSingleThreadScheduledExecutor();
         private final AtomicLong highest = new AtomicLong();
+        private final AtomicInteger taken = new AtomicInteger();
+        private ScheduledFuture<?> sampling;
 
         static IdleTransactionWatch start(JdbcTemplate jdbcTemplate) {
             IdleTransactionWatch watch = new IdleTransactionWatch();
-            watch.sampler.scheduleAtFixedRate(() -> {
+            watch.sampling = watch.sampler.scheduleAtFixedRate(() -> {
                 Long held = jdbcTemplate.queryForObject(HELD_IDLE_TRANSACTIONS, Long.class);
                 watch.highest.accumulateAndGet(held == null ? 0L : held, Math::max);
+                watch.taken.incrementAndGet();
             }, 0L, 100L, TimeUnit.MILLISECONDS);
             return watch;
         }
 
-        long stop() throws InterruptedException {
+        IdleTransactionSamples stop() throws Exception {
+            if (sampling.isDone()) {
+                sampling.get();
+            }
             sampler.shutdownNow();
             sampler.awaitTermination(5, TimeUnit.SECONDS);
-            return highest.get();
+            return new IdleTransactionSamples(taken.get(), highest.get());
         }
     }
 }

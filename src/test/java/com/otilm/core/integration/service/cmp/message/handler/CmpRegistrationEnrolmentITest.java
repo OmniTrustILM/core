@@ -420,8 +420,8 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     void matchingEnrolmentAnswersOverTheProtocolWhenThePollReadsTheDatabase() throws Exception {
         Certificate registration = seedRegistration(SUBJECT_DN, Map.of("dNSName", List.of("device-1.example")),
                 CertificateState.REGISTERED);
-        // A real poll re-reads the certificate inside the request transaction. Nothing issues it here, so the
-        // budget is short and the enrolment is expected to be accepted as pending, over the protocol.
+        // A real poll reads the certificate's state from the database. Nothing issues it here, so the short
+        // budget ends with the enrolment accepted as pending, over the protocol.
         PollFeature realPoll = new PollFeature();
         realPoll.setCertificateService(certificateService);
         realPoll.setCertificateRepository(certificateRepository);
@@ -449,7 +449,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     @Test
     void anUnexpectedHandlerFailureIsStillAnsweredAsACmpError() throws Exception {
         Certificate registration = seedRegistration(SUBJECT_DN, null, CertificateState.REGISTERED);
-        // Thrown inside the handler's transaction, so the request transaction can only roll back.
+        // An unexpected runtime failure from the handler.
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
                 .willThrow(new IllegalStateException("poll broke"));
 
@@ -498,16 +498,18 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     @Test
-    void aHandlerFailureThatAbortedTheDatabaseTransactionIsStillAnsweredAsACmpError() throws Exception {
+    void answersTheGenericCmpError_whenAStatementTheHandlerRunsFails() throws Exception {
+        // given — a statement the database rejects fails the handler
         Certificate registration = seedRegistration(SUBJECT_DN, null, CertificateState.REGISTERED);
-        // A statement the database rejects aborts the request transaction; every later statement in it fails too.
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
                 .willAnswer(invocation -> entityManager.createNativeQuery("select 1/0").getSingleResult());
 
+        // when
         ResponseEntity<byte[]> response = post(irMessage(SUBJECT_DN, null, CHALLENGE, registration.getUuid()));
 
-        assertEquals(PKIFailureInfo.systemFailure, failInfo(response.getBody()));
-        assertEquals("CMP request handling failed", failText(response.getBody()));
+        // then
+        assertThat(failInfo(response.getBody())).isEqualTo(PKIFailureInfo.systemFailure);
+        assertThat(failText(response.getBody())).isEqualTo("CMP request handling failed");
     }
 
     @Test
