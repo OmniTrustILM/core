@@ -505,11 +505,14 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         }
 
         IdleTransactionSamples stop() throws Exception {
-            if (sampling.isDone()) {
-                sampling.get();
+            try {
+                if (sampling.isDone()) {
+                    sampling.get();
+                }
+            } finally {
+                sampler.shutdownNow();
+                sampler.awaitTermination(5, TimeUnit.SECONDS);
             }
-            sampler.shutdownNow();
-            sampler.awaitTermination(5, TimeUnit.SECONDS);
             return new IdleTransactionSamples(taken.get(), highest.get());
         }
     }

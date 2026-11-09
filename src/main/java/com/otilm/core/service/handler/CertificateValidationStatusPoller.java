@@ -67,9 +67,10 @@ public class CertificateValidationStatusPoller {
      * Each sample reads the status alone, through {@link CertificateRepository#findValidationStatusByUuid}: under
      * open-in-view the request's EntityManager may already hold the certificate as the caller loaded it with its CA
      * chain, and reading the entity would return that copy for the whole budget. A caller's transaction is suspended
-     * ({@link Propagation#NOT_SUPPORTED}), and each sample runs in a short read-only transaction of its own: a read
-     * outside a transaction in this scope would bind an EntityManager, and the connection it takes, until the wait
-     * ends.
+     * ({@link Propagation#NOT_SUPPORTED}), so a sample never runs inside it, where the read could flush the caller's
+     * changed certificates and hold their row locks across the sleeps. Each sample runs in a short read-only
+     * transaction of its own: a read outside a transaction in this scope would bind an EntityManager, and the
+     * connection it takes, until the wait ends.
      * </p>
      *
      * @param certificate the certificate whose status to resolve (its DTO status is the starting point)

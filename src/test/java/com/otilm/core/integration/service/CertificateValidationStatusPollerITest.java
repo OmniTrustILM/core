@@ -34,8 +34,9 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The CMP and SCEP handlers wait for a fresh certificate's validation with no transaction of their own, while the
- * request's EntityManager, bound by open-in-view, already holds the certificate as it was when the chain was loaded.
+ * The CMP handler waits for a fresh certificate's validation with no transaction, while the request's EntityManager,
+ * bound by open-in-view, already holds the certificate as it was when the chain was loaded. The SCEP handler waits from
+ * inside its own transaction.
  */
 class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
 
@@ -111,15 +112,22 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
         TransactionTemplate callerTransaction = new TransactionTemplate(transactionManager);
 
         // when
-        long fewestActiveDuringTheWait = callerTransaction.execute(status -> {
+        ConnectionCounts counts = callerTransaction.execute(status -> {
             CertificateDetailDto unchecked = detailOf(requestEntityManager.find(Certificate.class, certificateUuid));
+            long heldByTheCaller = pool.getActiveConnections();
             ActiveConnectionWatch watch = ActiveConnectionWatch.startAfterFirstSample(pool);
-            poller.resolveOrKeep(unchecked);
-            return watch.stopAndGetFewest();
+            try {
+                poller.resolveOrKeep(unchecked);
+            } finally {
+                watch.stop();
+            }
+            return new ConnectionCounts(heldByTheCaller, watch.fewest());
         });
 
         // then
-        assertThat(fewestActiveDuringTheWait).as("connections checked out between samples").isEqualTo(1L);
+        assertThat(counts.fewestDuringTheWait())
+                .as("connections checked out between samples")
+                .isEqualTo(counts.heldByTheCaller());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -149,6 +157,10 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
         return detail;
     }
 
+    /** Checked-out connections when the wait began, and the fewest seen between its samples. */
+    private record ConnectionCounts(long heldByTheCaller, long fewestDuringTheWait) {
+    }
+
     /**
      * Samples the pool's checked-out connections every 50 ms, starting once the wait has taken its first sample, and
      * keeps the fewest seen. The caller's transaction holds one connection throughout; a sample's own short read adds a
@@ -159,21 +171,25 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
         private static final long FIRST_SAMPLE_TAKEN_MS = 500L;
 
         private final ScheduledExecutorService sampler = Executors.newSingleThreadScheduledExecutor();
-        private final AtomicLong fewest = new AtomicLong(Long.MAX_VALUE);
+        private final AtomicLong fewestSeen = new AtomicLong(Long.MAX_VALUE);
         private ScheduledFuture<?> sampling;
 
         static ActiveConnectionWatch startAfterFirstSample(HikariPoolMXBean pool) {
             ActiveConnectionWatch watch = new ActiveConnectionWatch();
             watch.sampling = watch.sampler
-                    .scheduleAtFixedRate(() -> watch.fewest.accumulateAndGet(pool.getActiveConnections(), Math::min),
+                    .scheduleAtFixedRate(
+                            () -> watch.fewestSeen.accumulateAndGet(pool.getActiveConnections(), Math::min),
                             FIRST_SAMPLE_TAKEN_MS, 50L, TimeUnit.MILLISECONDS);
             return watch;
         }
 
-        long stopAndGetFewest() {
+        void stop() {
             sampling.cancel(false);
             sampler.shutdownNow();
-            return fewest.get();
+        }
+
+        long fewest() {
+            return fewestSeen.get();
         }
     }
 }
