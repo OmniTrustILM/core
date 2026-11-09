@@ -149,7 +149,7 @@ class FormattingAttributeDefinitionsTest {
         }
 
         @Test
-        void readsTheOperationsTheProfilesMaximumLevelReaches() throws Exception {
+        void readsTheOperationsUpToTheMaximumLevel_whenTheProfileSignsContent() throws Exception {
             // given
             var maxLevel = SignatureLevel.TIMESTAMPED;
             when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(List.of());
