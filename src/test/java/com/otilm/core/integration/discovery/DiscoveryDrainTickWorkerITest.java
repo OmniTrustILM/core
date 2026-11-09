@@ -211,11 +211,14 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
 
         // when
         listener.processMessage(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.DRAIN, 0, claimToken));
+        var afterTick = OffsetDateTime.now(ZoneOffset.UTC);
 
         // then
-        assertThat(drainRow(run).getNextDueAt())
+        DiscoveryWork row = drainRow(run);
+        assertThat(row.getNextDueAt().toInstant())
                 .as("the listener's retry at the next rung must not overwrite the schedule the worker wrote")
-                .isAfterOrEqualTo(now.plus(slowestRung));
+                .isBetween(now.plus(slowestRung).toInstant(), afterTick.plus(slowestRung).toInstant());
+        assertThat(row.getLeaseToken()).as("the tick's reschedule frees the row").isNull();
     }
 
     @Test
@@ -231,11 +234,14 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
 
         // when
         worker.tick(admitTick(run, afterAContinuation));
+        var afterTick = OffsetDateTime.now(ZoneOffset.UTC);
 
         // then
-        assertThat(drainRow(run).getNextDueAt())
+        DiscoveryWork row = drainRow(run);
+        assertThat(row.getNextDueAt().toInstant())
                 .as("a connector with nothing ready is asked again at the ladder's slowest cadence, not its fastest")
-                .isAfterOrEqualTo(beforeTick.plus(slowestRung));
+                .isBetween(beforeTick.plus(slowestRung).toInstant(), afterTick.plus(slowestRung).toInstant());
+        assertThat(row.getLeaseToken()).as("the tick's reschedule frees the row").isNull();
     }
 
     @Test

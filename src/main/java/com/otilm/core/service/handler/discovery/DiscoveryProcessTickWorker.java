@@ -317,8 +317,8 @@ public class DiscoveryProcessTickWorker {
 
     /**
      * Records a message that must not take the tick down with it. The same outage that tripped the caller's catch will
-     * often trip the write too, and an exception escaping there skips the stall path — so the attempt counter never
-     * climbs and the budget never ends a failing run.
+     * often trip the write too, and an exception escaping there skips the stall path, the only place the budget can end
+     * a failing run.
      */
     private void recordQuietly(UUID discoveryUuid, String what, Runnable write) {
         try {

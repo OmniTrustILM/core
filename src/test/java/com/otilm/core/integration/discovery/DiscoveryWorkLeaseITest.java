@@ -172,6 +172,26 @@ class DiscoveryWorkLeaseITest extends BaseSpringBootTest {
     }
 
     @Test
+    void handsNothingOver_whenATickWhoseTokenWasReplacedContinues() {
+        // given
+        UUID runUuid = seedDueDrainRow();
+        DiscoveryWorkTick outlivedTick = lease.admit(claimOne()).orElseThrow();
+        expireLease(runUuid, DiscoveryWorkType.DRAIN);
+        DiscoveryWorkMessage reclaim = claimOne();
+        DiscoveryWork afterReclaim = readDrainRow(runUuid);
+
+        // when
+        Optional<DiscoveryWorkMessage> continuation = outlivedTick.handOver();
+
+        // then
+        assertThat(continuation).isEmpty();
+        DiscoveryWork row = readDrainRow(runUuid);
+        assertThat(row.getLeaseToken()).isEqualTo(reclaim.leaseToken());
+        assertThat(row.getAttempt()).isEqualTo(afterReclaim.getAttempt());
+        assertThat(row.getNextDueAt().toInstant()).isEqualTo(afterReclaim.getNextDueAt().toInstant());
+    }
+
+    @Test
     void extendsTheLease_whenATickRenews() {
         // given
         UUID runUuid = seedDueDrainRow();

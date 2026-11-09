@@ -200,6 +200,29 @@ class DiscoveryWorkSweepITest extends BaseSpringBootTest {
     }
 
     @Test
+    void claimsNothing_whenTheRowWasRescheduledPastTheCutoffAfterTheSweepReadIt() {
+        // given
+        UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
+        var sweepCutoff = OffsetDateTime.now(ZoneOffset.UTC);
+        workWriter.schedule(runUuid, DiscoveryWorkType.DRAIN, sweepCutoff.minusMinutes(1));
+        var pastTheCutoff = sweepCutoff.plusMinutes(10);
+        workWriter.reschedule(runUuid, DiscoveryWorkType.DRAIN, 3, pastTheCutoff);
+        DiscoveryWork rescheduled = workRepository.findAll().get(0);
+
+        // when
+        boolean claimed = workWriter
+                .claim(runUuid, DiscoveryWorkType.DRAIN, UUID.randomUUID(), 4, sweepCutoff, sweepCutoff,
+                        sweepCutoff.plus(leaseDuration));
+
+        // then
+        DiscoveryWork row = workRepository.findAll().get(0);
+        assertThat(claimed).isFalse();
+        assertThat(row.getAttempt()).isEqualTo(rescheduled.getAttempt());
+        assertThat(row.getNextDueAt().toInstant()).isEqualTo(rescheduled.getNextDueAt().toInstant());
+        assertThat(row.getLeaseToken()).isNull();
+    }
+
+    @Test
     void carriesTheTokenTheRowHolds_whenClaimingIt() {
         // given
         UUID runUuid = v2Run(DiscoveryStatus.IN_PROGRESS).getUuid();
