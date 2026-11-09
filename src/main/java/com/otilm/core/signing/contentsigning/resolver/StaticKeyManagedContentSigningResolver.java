@@ -52,7 +52,7 @@ public class StaticKeyManagedContentSigningResolver implements SigningProfileRes
         ResolvedManagedScheme resolvedScheme = schemeResolver.resolve(model.name(), model.signingScheme());
         ApiClientConnectorInfo connector = resolveFormattingConnector(workflow.signatureFormattingConnectorUuid());
         List<BaseAttribute> formattingDefinitions = formattingAttributeDefinitions
-                .forContentSigning(connector, workflow.maxLevel());
+                .forContentSigning(connector, workflow);
         FormattingAttributesCheck
                 .requireValid(model.name(), formattingDefinitions, workflow.signatureFormattingConnectorAttributes());
         String timestampSourceProfileName = workflow.maxLevel() == SignatureLevel.SIGNED

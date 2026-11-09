@@ -16,6 +16,8 @@ import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.events.ConnectorChangedEvent;
 import com.otilm.core.model.connector.ImmutableConnectorInfo;
+import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
+import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingAttributes;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
@@ -36,13 +38,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.CacheManager;
 
+import static com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflowBuilder.aManagedTimestampingWorkflow;
 import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -67,6 +69,7 @@ class FormattingAttributeDefinitionsTest {
     private FormattingAttributeDefinitions definitions;
     private final UUID connectorUuid = UUID.randomUUID();
     private final ApiClientConnectorInfo formatter = connectorAt("http://formatter.test");
+    private final ManagedTimestampingWorkflow timestampingWorkflow = aManagedTimestampingWorkflow().build();
 
     @BeforeEach
     void wireDefinitionsCache() {
@@ -88,10 +91,10 @@ class FormattingAttributeDefinitionsTest {
         void asksTheTimestampFormatterAgain_whenTheConnectorIsReloadedAfterAnEdit() throws Exception {
             // given — a timestamp that captured the connector before an edit loads after the edit cleared the cache
             stubPublishedRegistry();
-            definitions.forTimestamping(connectorAt("http://before-edit.test"));
+            definitions.forTimestamping(connectorAt("http://before-edit.test"), timestampingWorkflow);
 
             // when
-            definitions.forTimestamping(connectorAt("http://after-edit.test"));
+            definitions.forTimestamping(connectorAt("http://after-edit.test"), timestampingWorkflow);
 
             // then
             verify(attributesClient, times(2)).listDefinitions(any(), any());
@@ -100,12 +103,12 @@ class FormattingAttributeDefinitionsTest {
         @Test
         void asksTheContentSigningFormatterAgain_whenTheConnectorIsReloadedAfterAnEdit() throws Exception {
             // given — a signature that captured the connector before an edit loads after the edit cleared the cache
-            var level = SignatureLevel.SIGNED;
+            var workflow = contentSigningWorkflowAt(SignatureLevel.SIGNED);
             when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(List.of());
-            definitions.forContentSigning(connectorAt("http://before-edit.test"), level);
+            definitions.forContentSigning(connectorAt("http://before-edit.test"), workflow);
 
             // when
-            definitions.forContentSigning(connectorAt("http://after-edit.test"), level);
+            definitions.forContentSigning(connectorAt("http://after-edit.test"), workflow);
 
             // then
             verify(contentSigningFormattingAttributes, times(2)).aggregate(any(), any());
@@ -115,48 +118,88 @@ class FormattingAttributeDefinitionsTest {
         void asksTheFormatterAgain_whenTheConnectorChanges() throws Exception {
             // given — a cached answer, then a change to the same connector
             stubPublishedRegistry();
-            definitions.forTimestamping(formatter);
+            definitions.forTimestamping(formatter, timestampingWorkflow);
             definitions.forgetConnector(new ConnectorChangedEvent(connectorUuid));
 
             // when
-            definitions.forTimestamping(formatter);
+            definitions.forTimestamping(formatter, timestampingWorkflow);
 
             // then
             verify(attributesClient, times(2)).listDefinitions(any(), any());
         }
     }
 
-    // ── ContentSigningOperations ──────────────────────────────────────────────
+    // ── ProfileLoad ───────────────────────────────────────────────────────────
 
     @Nested
-    class ContentSigningOperations {
+    class ProfileLoad {
 
         @Test
-        void asksTheFormatterAgain_whenTheLevelReachesMoreOperations() throws Exception {
-            // given
-            var reachingMoreOperations = SignatureLevel.TIMESTAMPED;
-            when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(List.of());
-            definitions.forContentSigning(formatter, SignatureLevel.SIGNED);
+        void asksTheFormatterAgain_whenTheProfileIsReloaded() throws Exception {
+            // given — each load of a profile builds its workflow afresh
+            stubPublishedRegistry();
+            definitions.forTimestamping(formatter, aManagedTimestampingWorkflow().build());
+            var reloadedWorkflow = aManagedTimestampingWorkflow().build();
 
             // when
-            definitions.forContentSigning(formatter, reachingMoreOperations);
+            definitions.forTimestamping(formatter, reloadedWorkflow);
 
             // then
-            verify(contentSigningFormattingAttributes).aggregate(formatter, reachingMoreOperations);
+            verify(attributesClient, times(2)).listDefinitions(any(), any());
         }
 
         @Test
-        void reusesTheDefinitions_whenTheLevelReachesTheSameOperations() throws Exception {
+        void readsTheOperationsTheProfilesMaximumLevelReaches() throws Exception {
             // given
-            var reachingTheSameOperations = SignatureLevel.ARCHIVAL;
+            var maxLevel = SignatureLevel.TIMESTAMPED;
             when(contentSigningFormattingAttributes.aggregate(any(), any())).thenReturn(List.of());
-            definitions.forContentSigning(formatter, SignatureLevel.TIMESTAMPED);
 
             // when
-            definitions.forContentSigning(formatter, reachingTheSameOperations);
+            definitions.forContentSigning(formatter, contentSigningWorkflowAt(maxLevel));
 
             // then
-            verify(contentSigningFormattingAttributes, never()).aggregate(formatter, reachingTheSameOperations);
+            verify(contentSigningFormattingAttributes).aggregate(formatter, maxLevel);
+        }
+    }
+
+    // ── StoreRefusal ──────────────────────────────────────────────────────────
+
+    @Nested
+    class StoreRefusal {
+
+        @Test
+        void returnsThePublishedDefinitions_whenTheStoreRefusesThem() throws Exception {
+            // given — the formatter changed an attribute's content type since Core stored it
+            List<BaseAttribute> published = stubPublishedRegistry();
+            refuseToStore();
+
+            // when
+            List<BaseAttribute> read = definitions.forTimestamping(formatter, timestampingWorkflow);
+
+            // then
+            assertThat(read).containsExactlyElementsOf(published);
+        }
+
+        @Test
+        void cachesThePublishedDefinitions_whenTheStoreRefusesThem() throws Exception {
+            // given
+            stubPublishedRegistry();
+            refuseToStore();
+            definitions.forTimestamping(formatter, timestampingWorkflow);
+
+            // when
+            definitions.forTimestamping(formatter, timestampingWorkflow);
+
+            // then
+            verify(attributesClient).listDefinitions(any(), any());
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void refuseToStore() throws Exception {
+            doThrow(new AttributeException("content type changed"))
+                    .when(attributeEngine)
+                    .updateDataAttributeDefinitions(any(), any(), any());
         }
     }
 
@@ -172,7 +215,7 @@ class FormattingAttributeDefinitionsTest {
             when(attributesClient.listDefinitions(any(), any())).thenThrow(new ConnectorException("unreachable"));
 
             // when
-            ThrowingCallable read = () -> definitions.forTimestamping(formatter);
+            ThrowingCallable read = () -> definitions.forTimestamping(formatter, timestampingWorkflow);
 
             // then
             assertRefusedAsConnectorFault(read);
@@ -187,22 +230,7 @@ class FormattingAttributeDefinitionsTest {
             when(attributesClient.listDefinitions(any(), any())).thenReturn(answer);
 
             // when
-            ThrowingCallable read = () -> definitions.forTimestamping(formatter);
-
-            // then
-            assertRefusedAsConnectorFault(read);
-        }
-
-        @Test
-        void throwsConnectorFault_whenTheStoreRefusesTheDefinitions() throws Exception {
-            // given — the formatter changed an attribute's content type since Core stored it
-            stubPublishedRegistry();
-            doThrow(new AttributeException("content type changed"))
-                    .when(attributeEngine)
-                    .updateDataAttributeDefinitions(any(), any(), any());
-
-            // when
-            ThrowingCallable read = () -> definitions.forTimestamping(formatter);
+            ThrowingCallable read = () -> definitions.forTimestamping(formatter, timestampingWorkflow);
 
             // then
             assertRefusedAsConnectorFault(read);
@@ -215,16 +243,24 @@ class FormattingAttributeDefinitionsTest {
                     .of(named("an empty body", null),
                             named("a registry missing its definitions", new AttributeDefinitionsDto()));
         }
+
+        private static void assertRefusedAsConnectorFault(ThrowingCallable read) {
+            assertThatThrownBy(read).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+                assertThat(refusal.clientMessage()).isEqualTo("Internal error during signature formatting");
+            });
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private void stubPublishedRegistry() throws Exception {
+    private List<BaseAttribute> stubPublishedRegistry() throws Exception {
         BaseAttribute policyDefinition = aDataAttribute().withName("data_formattingPolicy").build();
         AttributeDefinitionsDto registry = new AttributeDefinitionsDto();
         registry.setDefinitions(List.of(policyDefinition));
         when(connectorApiFactory.getAttributesApiClientV2(any())).thenReturn(attributesClient);
         when(attributesClient.listDefinitions(any(), any())).thenReturn(registry);
+        return registry.getDefinitions();
     }
 
     private ApiClientConnectorInfo connectorAt(String url) {
@@ -232,10 +268,7 @@ class FormattingAttributeDefinitionsTest {
                 AuthType.NONE, List.of(), null);
     }
 
-    private static void assertRefusedAsConnectorFault(ThrowingCallable read) {
-        assertThatThrownBy(read).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
-            assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
-            assertThat(refusal.clientMessage()).isEqualTo("Internal error during signature formatting");
-        });
+    private ManagedContentSigningWorkflow contentSigningWorkflowAt(SignatureLevel maxLevel) {
+        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, maxLevel, null, null, null, null);
     }
 }

@@ -3607,7 +3607,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void rejectsTheProfile_whenItCarriesAnAttributeItsFormatterNoLongerDefines() throws Exception {
+        void rejectsTheTimestampingProfile_whenItCarriesAnAttributeItsFormatterNoLongerDefines() throws Exception {
             // given — a profile stored the attribute's definition before the formatter stopped publishing it
             UUID retiredUuid = UUID.fromString("0000cccc-1111-2222-3333-444444444444");
             var retiredName = "data_retiredPolicy";
@@ -3617,6 +3617,26 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             aStringAttribute(retiredUuid, retiredName, "policy-a")));
             timestampingFormattingMock.stubFormattingAttributes();
             var request = aTimestampingProfileRequest("timestamping-profile-after-retirement",
+                    aStringAttribute(retiredUuid, retiredName, "policy-b"));
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class).hasMessageContaining(retiredName);
+        }
+
+        @Test
+        void rejectsTheContentSigningProfile_whenItCarriesAnAttributeItsFormatterNoLongerDefines() throws Exception {
+            // given — a profile stored the attribute's definition before the formatter stopped publishing it
+            UUID retiredUuid = UUID.fromString("0000dddd-1111-2222-3333-444444444444");
+            var retiredName = "data_retiredContentPolicy";
+            contentSigningFormattingMock.stubPerOperationFormattingAttributeDefinition(retiredUuid, retiredName);
+            signingProfileService
+                    .createSigningProfile(aContentSigningProfileRequest("content-signing-profile-before-retirement",
+                            aStringAttribute(retiredUuid, retiredName, "policy-a")));
+            contentSigningFormattingMock.stubPerOperationFormattingAttributes();
+            var request = aContentSigningProfileRequest("content-signing-profile-after-retirement",
                     aStringAttribute(retiredUuid, retiredName, "policy-b"));
 
             // when
@@ -3636,6 +3656,21 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                     .withTimestamping(aTimestampingWorkflow()
                             .withSignatureFormattingConnector(
                                     UUID.fromString(timestampingFormattingConnector.getUuid()))
+                            .withSignatureFormattingConnectorAttributes(List.of(formattingAttribute))
+                            .build())
+                    .build();
+        }
+
+        private SigningProfileRequestDto aContentSigningProfileRequest(String name,
+                RequestAttribute formattingAttribute) {
+            return aSigningProfileRequest()
+                    .withName(name)
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withContentSigning(aContentSigningWorkflow()
+                            .withSignatureFormattingConnector(
+                                    UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .withFamily(SignatureFamily.PADES)
+                            .withMaxLevel(SignatureLevel.SIGNED)
                             .withSignatureFormattingConnectorAttributes(List.of(formattingAttribute))
                             .build())
                     .build();

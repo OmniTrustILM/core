@@ -63,7 +63,7 @@ public class StaticKeyManagedTimestampingResolver implements SigningProfileResol
         ApiClientConnectorInfo signatureFormattingConnector = resolveSignatureFormattingConnector(
                 workflow.signatureFormattingConnectorUuid());
         List<BaseAttribute> formattingDefinitions = formattingAttributeDefinitions
-                .forTimestamping(signatureFormattingConnector);
+                .forTimestamping(signatureFormattingConnector, workflow);
         FormattingAttributesCheck
                 .requireValid(model.name(), formattingDefinitions, workflow.signatureFormattingConnectorAttributes());
 

@@ -1373,22 +1373,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     private List<BaseAttribute> fetchFormattingAttributeDefinitions(WorkflowRequestDto workflow)
             throws ConnectorException, NotFoundException {
         return switch (workflow) {
-            case ContentSigningWorkflowRequestDto w -> {
-                UUID formatterUuid = w.getSignatureFormattingConnectorUuid();
-                if (formatterUuid == null) {
-                    yield List.of();
-                }
-                List<BaseAttribute> definitions = contentSigningFormattingAttributes
-                        .aggregate(connectorService.getConnectorForApiClient(formatterUuid), w.getMaxLevel());
-                formattingAttributeDefinitions.forgetFormatter(formatterUuid);
-                yield definitions;
-            }
-            case TimestampingWorkflowRequestDto w -> {
-                UUID formatterUuid = w.getSignatureFormattingConnectorUuid();
-                List<BaseAttribute> definitions = fetchTimestampingFormattingDefinitions(formatterUuid);
-                formattingAttributeDefinitions.forgetFormatter(formatterUuid);
-                yield definitions;
-            }
+            case ContentSigningWorkflowRequestDto w -> w.getSignatureFormattingConnectorUuid() == null
+                    ? List.of()
+                    : contentSigningFormattingAttributes
+                            .aggregate(
+                                    connectorService.getConnectorForApiClient(w.getSignatureFormattingConnectorUuid()),
+                                    w.getMaxLevel());
+            case TimestampingWorkflowRequestDto w ->
+                fetchTimestampingFormattingDefinitions(w.getSignatureFormattingConnectorUuid());
             default -> List.of();
         };
     }

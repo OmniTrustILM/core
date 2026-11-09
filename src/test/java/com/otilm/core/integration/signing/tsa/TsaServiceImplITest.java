@@ -626,6 +626,42 @@ class TsaServiceImplITest extends BaseSpringBootTest {
             assertThat(response).isInstanceOf(TspResponse.Granted.class);
         }
 
+        @Test
+        void grantsTheTimestamp_whenTheStoreRefusesTheFormattersCurrentDefinition() throws Exception {
+            // given — the formatter has changed an attribute's content type since Core stored it
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME,
+                            AttributeContentType.STRING);
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-store-refuses-definition");
+            timestampingFormattingMock
+                    .stubFormattingAttributeDefinition(POLICY_ATTRIBUTE_UUID, POLICY_ATTRIBUTE_NAME,
+                            AttributeContentType.INTEGER);
+
+            // when
+            TspResponse response = tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertThat(response).isInstanceOf(TspResponse.Granted.class);
+        }
+
+        @Test
+        void rejectsWithSystemFailure_whenTheFormatterAnswersWithoutABody() throws Exception {
+            // given
+            SigningProfileDto profile = createTimestampingSigningProfile("sp-formatter-answers-without-body");
+            timestampingFormattingMock.stubFormattingAttributesWithoutBody();
+
+            // when
+            ThrowingCallable timestamp = () -> tsaService
+                    .processTspRequestForSigningProfile(profile.getName(), aTspRequest().build());
+
+            // then
+            assertThatThrownBy(timestamp).isInstanceOfSatisfying(TspException.class, rejection -> {
+                assertThat(rejection.getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
+                assertThat(rejection.getClientMessage()).isEqualTo("Internal error during signature formatting");
+            });
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private static RequestAttribute policyAttribute(String value) {

@@ -51,15 +51,19 @@ public class TimestampingFormattingConnectorMock extends BaseConnectorMock {
      */
     public TimestampingFormattingConnectorMock stubFormattingAttributeDefinition(UUID attrUuid, String attrName,
             boolean required) {
-        DataAttributeV2 def = new DataAttributeV2();
-        def.setUuid(attrUuid.toString());
-        def.setName(attrName);
-        def.setContentType(AttributeContentType.STRING);
-        DataAttributeProperties props = new DataAttributeProperties();
-        props.setLabel(attrName);
-        props.setRequired(required);
-        def.setProperties(props);
-        return stubAttributeDefinitions(List.of(def));
+        return stubAttributeDefinitions(List.of(definition(attrUuid, attrName, AttributeContentType.STRING, required)));
+    }
+
+    /** Stubs the Attributes interface to publish a single optional attribute definition of the given content type. */
+    public TimestampingFormattingConnectorMock stubFormattingAttributeDefinition(UUID attrUuid, String attrName,
+            AttributeContentType contentType) {
+        return stubAttributeDefinitions(List.of(definition(attrUuid, attrName, contentType, false)));
+    }
+
+    /** Stubs the Attributes interface to answer 200 without a body. */
+    public TimestampingFormattingConnectorMock stubFormattingAttributesWithoutBody() {
+        server.stubFor(WireMock.get(WireMock.urlPathMatching(".*" + ATTRIBUTES_PATH)).willReturn(WireMock.ok()));
+        return this;
     }
 
     /**
@@ -84,6 +88,19 @@ public class TimestampingFormattingConnectorMock extends BaseConnectorMock {
     /** The number of requests Core made for this connector's attribute definitions. */
     public int attributeDefinitionListings() {
         return server.findAll(WireMock.getRequestedFor(WireMock.urlPathMatching(".*" + ATTRIBUTES_PATH))).size();
+    }
+
+    private static DataAttributeV2 definition(UUID attrUuid, String attrName, AttributeContentType contentType,
+            boolean required) {
+        DataAttributeV2 def = new DataAttributeV2();
+        def.setUuid(attrUuid.toString());
+        def.setName(attrName);
+        def.setContentType(contentType);
+        DataAttributeProperties props = new DataAttributeProperties();
+        props.setLabel(attrName);
+        props.setRequired(required);
+        def.setProperties(props);
+        return def;
     }
 
     private TimestampingFormattingConnectorMock stubAttributeDefinitions(List<DataAttributeV2> definitions) {
