@@ -322,7 +322,7 @@ public class CryptographicOperationServiceImpl
     public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid,
             SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request)
             throws ConnectorException, NotFoundException {
-        return signDataWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, uuid, keyItemUuid, request,
+        return signWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, uuid, keyItemUuid, request,
                 SignatureInputMode.DATA);
     }
 
@@ -331,6 +331,12 @@ public class CryptographicOperationServiceImpl
             parentResource = Resource.TOKEN, parentAction = ResourceAction.DETAIL)
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SignDataResponseDto signDataWithoutEventHistory(SecuredParentUUID tokenInstanceUuid,
+            SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request,
+            SignatureInputMode inputMode) throws ConnectorException, NotFoundException {
+        return signWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, uuid, keyItemUuid, request, inputMode);
+    }
+
+    private SignDataResponseDto signWithoutEventHistory(SecuredParentUUID tokenInstanceUuid,
             SecuredUUID tokenProfileUuid, UUID uuid, UUID keyItemUuid, SignDataRequestDto request,
             SignatureInputMode inputMode) throws ConnectorException, NotFoundException {
         authorizationEnforcer.enforce(Resource.TOKEN_PROFILE, ResourceAction.DETAIL, tokenProfileUuid);
