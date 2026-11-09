@@ -20,10 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
  * transaction.
  *
  * <p>
- * <b>A backstop row is due in the future, never due-now.</b> A worker that publishes its own continuation tick also
- * writes a row here as a backstop for a publish that never lands. Due-now, that row races the sweep, which would claim
- * and publish it too, putting two workers onto the same unclaimed work — so callers using {@link #schedule} or
- * {@link #reschedule} this way pass a due time comfortably in the future.
+ * <b>A row whose tick is published outside the sweep is leased to that tick first.</b> A worker that publishes its own
+ * continuation hands the row over ({@link #handOverLease}) or schedules it leased ({@link #scheduleLeased}) before it
+ * publishes, so the sweep leaves the row alone while the tick runs and claims it if the publish never lands.
  * </p>
  */
 @Component
@@ -37,7 +36,7 @@ public class DiscoveryWorkWriter {
 
     /**
      * Schedules the run's pending row for {@code workType}, due at {@code nextDueAt}, or re-arms an existing one — a
-     * fresh start, counter included.
+     * fresh start, counter and lease included.
      */
     @Transactional
     public void schedule(UUID discoveryUuid, DiscoveryWorkType workType, OffsetDateTime nextDueAt) {
@@ -45,7 +44,18 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Brings the run's {@code workType} work forward to {@code nextDueAt} without refreshing what it has already spent.
+     * Schedules the run's pending row for {@code workType}, or re-arms an existing one, already leased to
+     * {@code leaseToken} until {@code leasedUntil} — for a caller that publishes the row's tick itself.
+     */
+    @Transactional
+    public void scheduleLeased(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken,
+            OffsetDateTime leasedUntil) {
+        workRepository.scheduleLeased(UUID.randomUUID(), discoveryUuid, workType.name(), leaseToken, leasedUntil);
+    }
+
+    /**
+     * Brings the run's {@code workType} work forward to {@code nextDueAt} without refreshing what it has already spent,
+     * and frees the row from any tick that holds it.
      */
     @Transactional
     public void expedite(UUID discoveryUuid, DiscoveryWorkType workType, OffsetDateTime nextDueAt) {
@@ -53,8 +63,81 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Advances an agenda row's {@code attempt}/{@code next_due_at}. {@code REQUIRED} (not {@code REQUIRES_NEW}) so it
-     * joins the sweep claimer's lock-holding transaction — a row is claimed and rescheduled atomically, or neither.
+     * Leases an agenda row to the tick the sweep is about to publish, if it is still due at {@code dueCutoff} and no
+     * live lease holds it at {@code now}. {@code REQUIRED} (not {@code REQUIRES_NEW}) so it joins the sweep claimer's
+     * lock-holding transaction.
+     *
+     * @return whether the row was claimed
+     */
+    @Transactional
+    public boolean claim(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, int attempt,
+            OffsetDateTime dueCutoff, OffsetDateTime now, OffsetDateTime leasedUntil) {
+        return workRepository.claim(discoveryUuid, workType, leaseToken, attempt, dueCutoff, now, leasedUntil) > 0;
+    }
+
+    /**
+     * Moves the row's lease from {@code leaseToken} to {@code tickToken}, extended to {@code leasedUntil}.
+     *
+     * @return whether the row still held {@code leaseToken}
+     */
+    @Transactional
+    public boolean swapLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, UUID tickToken,
+            OffsetDateTime leasedUntil) {
+        return workRepository.swapLease(discoveryUuid, workType, leaseToken, tickToken, leasedUntil) > 0;
+    }
+
+    /**
+     * Extends the lease of the tick holding {@code leaseToken} to {@code leasedUntil}.
+     *
+     * @return whether the row still held the token
+     */
+    @Transactional
+    public boolean renewLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken,
+            OffsetDateTime leasedUntil) {
+        return workRepository.renewLease(discoveryUuid, workType, leaseToken, leasedUntil) > 0;
+    }
+
+    /**
+     * Leases the row to {@code leaseToken} until {@code leasedUntil}, if no live lease holds it at {@code now}.
+     *
+     * @return whether the row is now leased to the token
+     */
+    @Transactional
+    public boolean leaseIfFree(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken,
+            OffsetDateTime leasedUntil, OffsetDateTime now) {
+        return workRepository.leaseIfFree(discoveryUuid, workType, leaseToken, leasedUntil, now) > 0;
+    }
+
+    /**
+     * Schedules the row's next tick and frees it, if the tick holding {@code leaseToken} still holds it.
+     */
+    @Transactional
+    public void rescheduleLeased(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, int attempt,
+            OffsetDateTime nextDueAt) {
+        workRepository.rescheduleLeased(discoveryUuid, workType, leaseToken, attempt, nextDueAt);
+    }
+
+    /**
+     * Frees the row, due no later than {@code now}, if the tick holding {@code leaseToken} still holds it.
+     */
+    @Transactional
+    public void releaseLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, OffsetDateTime now) {
+        workRepository.releaseLease(discoveryUuid, workType, leaseToken, now);
+    }
+
+    /**
+     * Passes the row from the tick holding {@code leaseToken} to its continuation under {@code nextToken}.
+     *
+     * @return whether the tick still held the row, and so handed it over
+     */
+    @Transactional
+    public boolean handOverLease(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, UUID nextToken,
+            OffsetDateTime leasedUntil) {
+        return workRepository.handOverLease(discoveryUuid, workType, leaseToken, nextToken, leasedUntil) > 0;
+    }
+
+    /**
+     * Advances an agenda row's {@code attempt}/{@code next_due_at}.
      */
     @Transactional
     public void reschedule(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, OffsetDateTime nextDueAt) {
@@ -62,8 +145,8 @@ public class DiscoveryWorkWriter {
     }
 
     /**
-     * Lowers an agenda row's attempt counter to {@code attempt} if it is above {@code attempt} — how a clear connector
-     * answer refreshes the attempt budget without restarting the backoff ramp.
+     * Lowers an agenda row's attempt counter to {@code attempt} if it is above {@code attempt}, refreshing the budget
+     * without restarting the backoff ramp, and frees the row from any tick that holds it.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void resetAttempt(UUID discoveryUuid, DiscoveryWorkType workType, int attempt) {
