@@ -68,6 +68,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -789,7 +790,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     private UUID saveCertificate(RaProfile raProfile) {
-        CertificateContent content = certificateContentRepository.save(new CertificateContent());
+        CertificateContent content = certificateContentRepository.save(aCertificateContent().build());
         var certificate = aCertificate()
                 .withSerialNumber(UUID.randomUUID().toString())
                 .withCertificateContent(content)

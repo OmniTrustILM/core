@@ -87,19 +87,6 @@ public class ObjectActionResolver {
         return items;
     }
 
-    /**
-     * Reads through an EntityManager of its own, closed after the read, so no connection is held across the
-     * authorization calls between reads, as the request's EntityManager would hold one until the response is written.
-     */
-    private <T> T read(Function<EntityManager, T> query) {
-        EntityManager reader = entityManagerFactory.createEntityManager();
-        try {
-            return query.apply(reader);
-        } finally {
-            reader.close();
-        }
-    }
-
     private static Set<String> attributesRead(ResourceObjects objects) {
         Set<String> attributes = new LinkedHashSet<>();
         if (objects.parentAttribute() != null) {
@@ -188,10 +175,12 @@ public class ObjectActionResolver {
                             .orElse(false);
                 case WhenEmpty(String attribute, Requirement inner) ->
                     attribute(resource, attribute, objectUuid).isPresent() || isMet(inner, resource, objectUuid);
-                case OnEachChild(Resource child, String childAttribute, List<Requirement> inner) ->
-                    children(child, childAttribute, objectUuid)
-                            .stream()
-                            .allMatch(childUuid -> allMet(inner, child, childUuid));
+                case OnEachChild(Resource child, String childAttribute, List<Requirement> inner, List<Requirement> whenNone) -> {
+                    List<UUID> childUuids = children(child, childAttribute, objectUuid);
+                    yield childUuids.isEmpty()
+                            ? allMet(whenNone, resource, objectUuid)
+                            : childUuids.stream().allMatch(childUuid -> allMet(inner, child, childUuid));
+                }
             };
         }
 
@@ -262,6 +251,20 @@ public class ObjectActionResolver {
                     .stream()
                     .filter(Objects::nonNull)
                     .findFirst();
+        }
+
+        /**
+         * Reads through an EntityManager of its own, closed after the read, so no connection is held across the
+         * authorization calls between reads, as the request's EntityManager would hold one until the response is
+         * written.
+         */
+        private <T> T read(Function<EntityManager, T> query) {
+            EntityManager reader = entityManagerFactory.createEntityManager();
+            try {
+                return query.apply(reader);
+            } finally {
+                reader.close();
+            }
         }
 
         private static String key(Resource resource, String attribute, UUID objectUuid) {

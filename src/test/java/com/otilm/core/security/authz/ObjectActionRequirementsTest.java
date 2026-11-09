@@ -196,6 +196,7 @@ class ObjectActionRequirementsTest {
             collectMissingAttributes(resource, whenEmpty.requirement(), missing);
         } else if (requirement instanceof OnEachChild onEachChild) {
             collectMissingOnTabled(resource, onEachChild.child(), onEachChild.requirements(), missing);
+            onEachChild.whenNone().forEach(whenNone -> collectMissingAttributes(resource, whenNone, missing));
             if (TABLE.containsKey(onEachChild.child())) {
                 requireField(onEachChild.child(), TABLE.get(onEachChild.child()).entity(), onEachChild.childAttribute(),
                         missing);

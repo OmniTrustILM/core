@@ -469,6 +469,19 @@ class AuthServiceITest extends BaseSpringBootTest {
                 .isEmpty();
     }
 
+    @Test
+    void testUpdateAuthProfile() throws NotFoundException, CertificateException {
+        UpdateUserRequestDto updateUserRequest = new UpdateUserRequestDto();
+        updateUserRequest.setEmail("localhost@example.com");
+
+        UserDetailDto userDetailDto = authService.updateUserProfile(updateUserRequest);
+
+        injectLocalhostUserProfileToContext();
+        NameAndUuidDto userId = AuthHelper.getUserIdentification();
+
+        Assertions.assertEquals(userDetailDto.getUsername(), userId.getName());
+    }
+
     /** Each grant is a template taking the allowed group's uuid first and the denied group's second. */
     private static Stream<Arguments> groupGrantsDenyingASecondGroupOfTheObject() {
         return Stream.of(arguments(named("members on every group but one the object is also assigned to", """
@@ -581,19 +594,6 @@ class AuthServiceITest extends BaseSpringBootTest {
                         .stream()
                         .map(action -> entry.getResource().getCode() + ":" + action.getCode()))
                 .collect(Collectors.toSet());
-    }
-
-    @Test
-    void testUpdateAuthProfile() throws NotFoundException, CertificateException {
-        UpdateUserRequestDto updateUserRequest = new UpdateUserRequestDto();
-        updateUserRequest.setEmail("localhost@example.com");
-
-        UserDetailDto userDetailDto = authService.updateUserProfile(updateUserRequest);
-
-        injectLocalhostUserProfileToContext();
-        NameAndUuidDto userId = AuthHelper.getUserIdentification();
-
-        Assertions.assertEquals(userDetailDto.getUsername(), userId.getName());
     }
 
     private void injectLocalhostUserProfileToContext() {

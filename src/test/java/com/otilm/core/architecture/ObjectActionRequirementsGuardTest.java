@@ -8,6 +8,7 @@ import com.otilm.core.security.authz.ExternalAuthorizationDynamic;
 import com.otilm.core.security.authz.ExternalAuthorizationProgrammatic;
 import com.otilm.core.security.authz.ObjectActionRequirements;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaMethod;
@@ -27,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -96,7 +98,7 @@ class ObjectActionRequirementsGuardTest {
         // given — the snapshot recorded at SNAPSHOT, rewritten first when -DobjectActionSnapshot.update=true
 
         // when
-        String current = snapshot();
+        String current = snapshot(classes);
 
         // then
         assertThat(current)
@@ -107,7 +109,46 @@ class ObjectActionRequirementsGuardTest {
                 .isEqualTo(recordedSnapshot(current));
     }
 
+    @Test
+    void changesTheSnapshot_whenAnImperativeCheckChangesItsAction() {
+        // given
+        JavaClasses checkingMembers = new ClassFileImporter().importClasses(MembersGate.Gate.class);
+        JavaClasses checkingDetail = new ClassFileImporter().importClasses(DetailGate.Gate.class);
+
+        // when
+        String membersSnapshot = snapshot(checkingMembers);
+        String detailSnapshot = snapshot(checkingDetail);
+
+        // then
+        assertThat(membersSnapshot).contains("ResourceAction.MEMBERS").isNotEqualTo(detailSnapshot);
+        assertThat(detailSnapshot).contains("ResourceAction.DETAIL");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private static final class MembersGate {
+
+        static final class Gate {
+
+            private AuthorizationEnforcer enforcer;
+
+            void check(UUID uuid) {
+                enforcer.enforce(Resource.VAULT_PROFILE, ResourceAction.MEMBERS, SecuredUUID.fromUUID(uuid));
+            }
+        }
+    }
+
+    private static final class DetailGate {
+
+        static final class Gate {
+
+            private AuthorizationEnforcer enforcer;
+
+            void check(UUID uuid) {
+                enforcer.enforce(Resource.VAULT_PROFILE, ResourceAction.DETAIL, SecuredUUID.fromUUID(uuid));
+            }
+        }
+    }
 
     private static Map<Resource, Set<ResourceAction>> untabledActions(Map<Resource, Set<ResourceAction>> declared) {
         Map<Resource, Set<ResourceAction>> untabled = new EnumMap<>(Resource.class);
@@ -177,9 +218,13 @@ class ObjectActionRequirementsGuardTest {
         }
     }
 
-    private static String snapshot() {
+    private static String snapshot(JavaClasses classes) {
         Set<String> tabledCodes = tabled().keySet().stream().map(Resource::getCode).collect(Collectors.toSet());
-        Set<String> tabledConstants = tabled().keySet().stream().map(Resource::name).collect(Collectors.toSet());
+        Set<String> tabledConstants = tabled()
+                .keySet()
+                .stream()
+                .map(resource -> Resource.class.getSimpleName() + "." + resource.name())
+                .collect(Collectors.toSet());
         Set<String> lines = new TreeSet<>();
         for (JavaClass javaClass : classes) {
             if (javaClass.isInterface() || javaClass.getPackageName().startsWith("com.otilm.core.security.authz")
@@ -226,8 +271,10 @@ class ObjectActionRequirementsGuardTest {
             method
                     .getFieldAccesses()
                     .stream()
-                    .filter(access -> access.getTargetOwner().isEquivalentTo(Resource.class))
-                    .forEach(access -> resources.add(access.getTarget().getName()));
+                    .filter(access -> access.getTargetOwner().isEquivalentTo(Resource.class)
+                            || access.getTargetOwner().isEquivalentTo(ResourceAction.class))
+                    .forEach(access -> resources
+                            .add(access.getTargetOwner().getSimpleName() + "." + access.getTarget().getName()));
             for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
                 JavaClass owner = call.getTargetOwner();
                 String name = call.getTarget().getName();

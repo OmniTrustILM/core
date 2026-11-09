@@ -8,6 +8,7 @@ import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
 import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
+import com.otilm.api.model.common.BulkActionMessageDto;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsDto;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -24,6 +25,8 @@ import com.otilm.core.dao.entity.GroupAssociation;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.entity.acme.AcmeProfile;
+import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -40,6 +43,7 @@ import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
+import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.CommentExternalService;
@@ -63,12 +67,14 @@ import java.util.function.Predicate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -114,6 +120,9 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
     private CertificateExternalService certificateService;
 
     @Autowired
+    private AcmeProfileExternalService acmeProfileService;
+
+    @Autowired
     private CertificateInternalService certificateInternalService;
 
     @Autowired
@@ -151,6 +160,9 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
 
     @Autowired
     private RaProfileRepository raProfileRepository;
+
+    @Autowired
+    private AcmeProfileRepository acmeProfileRepository;
 
     @Autowired
     private CertificateRepository certificateRepository;
@@ -191,7 +203,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         raProfile.setEnabled(true);
         raProfile = raProfileRepository.save(raProfile);
 
-        CertificateContent content = certificateContentRepository.save(new CertificateContent());
+        CertificateContent content = certificateContentRepository.save(aCertificateContent().build());
         certificateUuid = certificateRepository
                 .save(aCertificate()
                         .withSerialNumber(UUID.randomUUID().toString())
@@ -238,6 +250,34 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         // then
         assertThat(endpoints.keySet()).containsExactlyInAnyOrderElementsOf(tabledActions(Resource.CRYPTOGRAPHIC_KEY));
         assertReportedExactlyWhenAccepted(user, reported, endpoints);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void reportsAcmeProfileDeleteExactly_whenItsEndpointsAcceptIt(boolean raProfileUpdateGranted) {
+        // given
+        AcmeProfile acmeProfile = new AcmeProfile();
+        acmeProfile.setName("acme-profile");
+        acmeProfile = acmeProfileRepository.save(acmeProfile);
+        raProfile.setAcmeProfile(acmeProfile);
+        raProfileRepository.save(raProfile);
+        grant(request -> raProfileUpdateGranted || !(Resource.RA_PROFILE.getCode().equals(name(request))
+                && ResourceAction.UPDATE.getCode().equals(action(request))));
+        SecuredUUID acmeProfileUuid = SecuredUUID.fromUUID(acmeProfile.getUuid());
+        Map<ResourceAction, List<Endpoint>> endpoints = Map
+                .of(ResourceAction.DELETE,
+                        List
+                                .of(endpoint(() -> acmeProfileService.deleteAcmeProfile(acmeProfileUuid),
+                                        check(Resource.ACME_PROFILE, ResourceAction.DELETE),
+                                        check(Resource.RA_PROFILE, ResourceAction.LIST)),
+                                        endpoint(() -> forceDeleteAcmeProfile(acmeProfileUuid))));
+
+        // when
+        List<ResourceAction> reported = reportedActions(Resource.ACME_PROFILE, acmeProfile.getUuid());
+
+        // then
+        assertThat(reported.contains(ResourceAction.DELETE)).isEqualTo(raProfileUpdateGranted);
+        assertReportedExactlyWhenAccepted(User.FULLY_PRIVILEGED, reported, endpoints);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -410,6 +450,14 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         return endpoints;
     }
 
+    /** Force deletion reports a refused RA profile update as a failed item, not as a thrown refusal. */
+    private void forceDeleteAcmeProfile(SecuredUUID acmeProfileUuid) {
+        List<BulkActionMessageDto> failures = acmeProfileService.bulkForceRemoveACMEProfiles(List.of(acmeProfileUuid));
+        if (!failures.isEmpty()) {
+            throw new AccessDeniedException(failures.getFirst().getMessage());
+        }
+    }
+
     private BulkKeyUsageRequestDto bulkUsage() {
         BulkKeyUsageRequestDto request = new BulkKeyUsageRequestDto();
         request.setUuids(List.of(key.getUuid()));
@@ -487,15 +535,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                 request -> SURROUNDINGS.contains(name(request)) || (Resource.GROUP.getCode().equals(name(request))
                         && ResourceAction.MEMBERS.getCode().equals(action(request)));
         };
-        when(opaClient.checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
-                .thenAnswer(invocation -> {
-                    OpaRequestedResource request = invocation.getArgument(1);
-                    asked.add(name(request) + ":" + action(request));
-                    OpaResourceAccessResult result = new OpaResourceAccessResult();
-                    result.setAuthorized(grants.test(request));
-                    result.setAllow(List.of());
-                    return result;
-                });
+        grant(grants);
         if (user == User.OWNER) {
             OwnerAssociation owner = new OwnerAssociation();
             owner.setResource(resource);
@@ -511,6 +551,18 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
             association.setGroupUuid(groupUuid);
             groupAssociationRepository.save(association);
         }
+    }
+
+    private void grant(Predicate<OpaRequestedResource> grants) {
+        when(opaClient.checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    OpaRequestedResource request = invocation.getArgument(1);
+                    asked.add(name(request) + ":" + action(request));
+                    OpaResourceAccessResult result = new OpaResourceAccessResult();
+                    result.setAuthorized(grants.test(request));
+                    result.setAllow(List.of());
+                    return result;
+                });
     }
 
     private static String name(OpaRequestedResource request) {

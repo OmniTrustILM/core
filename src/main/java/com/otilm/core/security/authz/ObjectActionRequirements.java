@@ -115,10 +115,15 @@ public final class ObjectActionRequirements {
 
     /**
      * The requirements evaluated against every object of the child resource whose entity attribute holds this object's
-     * UUID, such as the basic credentials of a TSP profile; met when there is none.
+     * UUID, such as the basic credentials of a TSP profile. When there is none, the requirements for no child are
+     * evaluated against this object instead, for endpoints that still check the resource with an empty batch.
      */
-    public record OnEachChild(Resource child, String childAttribute,
-            List<Requirement> requirements) implements Requirement {
+    public record OnEachChild(Resource child, String childAttribute, List<Requirement> requirements,
+            List<Requirement> whenNone) implements Requirement {
+
+        public OnEachChild(Resource child, String childAttribute, List<Requirement> requirements) {
+            this(child, childAttribute, requirements, List.of());
+        }
     }
 
     /**
@@ -173,10 +178,13 @@ public final class ObjectActionRequirements {
         admit(Resource.ATTRIBUTE, "type", AttributeType.CUSTOM, AttributeType.META);
         onObject(Resource.PROXY, Proxy.class, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
                 ResourceAction.GET_PROXY_INSTALLATION);
-        // Deleting an ACME or CMP profile first lists the RA profiles using it.
+        // Deleting an ACME or CMP profile first lists the RA profiles using it. Force deleting an ACME profile also
+        // detaches it from them in one update check of those RA profiles, asked on the resource when there are none.
         onObject(Resource.ACME_PROFILE, AcmeProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
-        also(Resource.ACME_PROFILE, ResourceAction.DELETE, new OnResource(Resource.RA_PROFILE, ResourceAction.LIST));
+        also(Resource.ACME_PROFILE, ResourceAction.DELETE, new OnResource(Resource.RA_PROFILE, ResourceAction.LIST),
+                new OnEachChild(Resource.RA_PROFILE, "acmeProfileUuid", List.of(new OnObject(ResourceAction.UPDATE)),
+                        List.of(new OnResource(Resource.RA_PROFILE, ResourceAction.UPDATE))));
         onObject(Resource.SCEP_PROFILE, ScepProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         onObject(Resource.CMP_PROFILE, CmpProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
