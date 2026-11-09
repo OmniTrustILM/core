@@ -104,6 +104,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.verifyingPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -636,6 +637,8 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         assertThat(answered.statements()).noneMatch(sql -> sql.startsWith("update core.cryptographic_key_item"));
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     /**
      * Switches the profile to signed responses, by a certificate whose EC key a cryptography provider holds and signs
      * with for real, so the response passes the outgoing protection check. The key's public item carries the metadata a
@@ -643,12 +646,13 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
      */
     private void signResponsesWithAPlatformKey() throws Exception {
         cryptographyProvider = connectorMockFactory.startCryptographyProvider().stubRealSigning();
-        Connector connector = new Connector();
-        connector.setName("cmpSigningConnector");
-        connector.setUrl(cryptographyProvider.getUrl());
-        connector.setVersion(ConnectorVersion.V1);
-        connector.setStatus(ConnectorStatus.CONNECTED);
-        connector = connectorRepository.save(connector);
+        Connector connector = connectorRepository
+                .save(aConnector()
+                        .withGeneratedUuid()
+                        .withName("cmpSigningConnector")
+                        .withUrl(cryptographyProvider.getUrl())
+                        .withVersion(ConnectorVersion.V1)
+                        .build());
 
         TokenInstanceReference token = new TokenInstanceReference();
         token.setStatus(TokenInstanceStatus.CONNECTED);
