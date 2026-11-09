@@ -1,12 +1,6 @@
 package com.otilm.core.integration.signing.signer;
 
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
-import com.otilm.api.model.common.attribute.common.AttributeType;
-import com.otilm.api.model.common.attribute.common.MetadataAttribute;
-import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
-import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
-import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -52,6 +46,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
 import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
 import static com.otilm.core.util.builders.TokenInstanceRequestDtoBuilder.aTokenInstanceRequest;
@@ -110,9 +105,7 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
             v2Token.connectorMock().stubSignatureAlgorithmAttribute(SIGNATURE_ALGORITHM);
             CryptographicKey key = keySeeder
                     .seedKey("v2-batch-key", v2Token.profile(), v2Token.token(),
-                            KeyItemSpec
-                                    .signingPrivateKey(KeyAlgorithm.RSA)
-                                    .withKeyMeta(List.of(createProviderHandle())));
+                            KeyItemSpec.signingPrivateKey(KeyAlgorithm.RSA).withKeyMeta(keyIdMeta("hsm-batch-key")));
             signer = createSigner(v2Token.token().getUuid(), v2Token.profile().getUuid(), key.getUuid(),
                     findPrivateKeyItemUuid(key));
         }
@@ -158,17 +151,6 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
                     .map(CryptographicKeyItem::getUuid)
                     .findFirst()
                     .orElseThrow();
-        }
-
-        private static MetadataAttribute createProviderHandle() {
-            MetadataAttributeV3 handle = new MetadataAttributeV3();
-            handle.setUuid(UUID.randomUUID().toString());
-            handle.setName("provider-handle");
-            handle.setType(AttributeType.META);
-            handle.setContentType(AttributeContentType.STRING);
-            handle.setProperties(new MetadataAttributeProperties());
-            handle.setContent(List.of(new StringAttributeContentV3("hsm-batch-key")));
-            return handle;
         }
     }
 
