@@ -46,7 +46,7 @@ class DiscoveryWorkProducerTest {
 
     @Test
     void produceMessage_invokesJmsTemplate() {
-        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.STATUS, 1);
+        DiscoveryWorkMessage msg = new DiscoveryWorkMessage(UUID.randomUUID(), DiscoveryWorkType.STATUS, 1, null);
 
         producer.produceMessage(msg);
 
