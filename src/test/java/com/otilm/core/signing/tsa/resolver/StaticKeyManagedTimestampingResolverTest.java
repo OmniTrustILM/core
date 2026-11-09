@@ -22,6 +22,7 @@ import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
+import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -52,6 +53,8 @@ class StaticKeyManagedTimestampingResolverTest {
     private TimeQualityConfigurationInternalService timeQualityConfigurationService;
     @Mock
     private ConnectorInternalService connectorService;
+    @Mock
+    private FormattingAttributeDefinitions formattingAttributeDefinitions;
 
     @InjectMocks
     private StaticKeyManagedTimestampingResolver resolver;
