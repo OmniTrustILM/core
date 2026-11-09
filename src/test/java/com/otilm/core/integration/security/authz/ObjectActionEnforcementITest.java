@@ -1,6 +1,5 @@
 package com.otilm.core.integration.security.authz;
 
-import com.otilm.api.model.client.certificate.CertificateUpdateObjectsDto;
 import com.otilm.api.model.client.comment.CommentCreateRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.cryptography.key.BulkKeyUsageRequestDto;
@@ -75,6 +74,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
+import static com.otilm.core.util.builders.CertificateUpdateObjectsDtoBuilder.aCertificateUpdateObjectsRequest;
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -298,9 +298,8 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                                                 check(Resource.CERTIFICATE, ResourceAction.DETAIL))));
         endpoints
                 .put(ResourceAction.UPDATE, List
-                        .of(endpoint(
-                                () -> certificateService
-                                        .updateCertificateObjects(certificate, new CertificateUpdateObjectsDto()),
+                        .of(endpoint(() -> certificateService
+                                .updateCertificateObjects(certificate, aCertificateUpdateObjectsRequest().build()),
                                 check(Resource.CERTIFICATE, ResourceAction.UPDATE))));
         // The compliance check endpoint logs a refused compliance profile check instead of failing, so that check is
         // called directly; the guard snapshot pins that checkCompliance calls it.

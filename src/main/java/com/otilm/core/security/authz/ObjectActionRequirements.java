@@ -134,8 +134,8 @@ public final class ObjectActionRequirements {
      * @param parent resource of the object's parent, or {@link Resource#NONE}
      * @param parentAttribute entity attribute holding the parent's UUID, or {@code null} without a parent
      * @param listing what the list endpoints require for the object to be listed
-     * @param viewing what the endpoint loading the object's detail requires, which can be less than every endpoint
-     * reporting detail asks for
+     * @param viewing the least an endpoint loading the object by its UUID alone requires, which can be less than every
+     * endpoint reporting detail asks for
      * @param admitted entity attribute values an object must have for the endpoints to act on it, such as the attribute
      * definition types they expose; empty when every object of the entity is acted on
      */
@@ -176,6 +176,7 @@ public final class ObjectActionRequirements {
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         also(Resource.ATTRIBUTE, ResourceAction.DETAIL, new OnObject(ResourceAction.DETAIL));
         admit(Resource.ATTRIBUTE, "type", AttributeType.CUSTOM, AttributeType.META);
+        viewedThroughObjectDetail(Resource.ATTRIBUTE);
         onObject(Resource.PROXY, Proxy.class, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
                 ResourceAction.GET_PROXY_INSTALLATION);
         // Deleting an ACME or CMP profile first lists the RA profiles using it. Force deleting an ACME profile also
@@ -201,6 +202,8 @@ public final class ObjectActionRequirements {
         underParent(Resource.RA_PROFILE, RaProfile.class, Resource.AUTHORITY, "authorityInstanceReferenceUuid",
                 ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
         parentWhenSet(Resource.RA_PROFILE, ResourceAction.DETAIL, ResourceAction.DELETE);
+        // The RA profile detail endpoint taking only its UUID does not check the authority.
+        viewedThroughObjectDetail(Resource.RA_PROFILE);
         alsoOnObject(Resource.RA_PROFILE, ResourceAction.CHECK_COMPLIANCE, ResourceAction.MEMBERS);
         also(Resource.RA_PROFILE, ResourceAction.CHECK_COMPLIANCE,
                 new OnResource(Resource.COMPLIANCE_PROFILE, ResourceAction.CHECK_COMPLIANCE));
@@ -244,6 +247,7 @@ public final class ObjectActionRequirements {
         also(Resource.VAULT, ResourceAction.DETAIL, new OnObject(ResourceAction.DETAIL));
         also(Resource.VAULT, ResourceAction.UPDATE, new OnObject(ResourceAction.UPDATE),
                 OnLinked.required(Resource.CONNECTOR, CONNECTOR_UUID, ResourceAction.DETAIL));
+        viewedThroughObjectDetail(Resource.VAULT);
         underParent(Resource.VAULT_PROFILE, VaultProfile.class, Resource.VAULT, "vaultInstanceUuid",
                 ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE, ResourceAction.ENABLE);
         alsoOnObject(Resource.VAULT_PROFILE, ResourceAction.MEMBERS);
@@ -314,7 +318,7 @@ public final class ObjectActionRequirements {
                         List
                                 .of(new OnObjectUnder(ResourceAction.LIST, Resource.VAULT_PROFILE,
                                         SOURCE_VAULT_PROFILE_UUID, ResourceAction.MEMBERS)),
-                        List.of(new OnResource(ResourceAction.DETAIL), sourceVaultProfileMembers), secret, Map.of()));
+                        List.of(new OnObject(ResourceAction.DETAIL), sourceVaultProfileMembers), secret, Map.of()));
 
         // A basic credential is listed and read with the name of the user it maps to, and keeps its password in a
         // secret, which update rotates and delete removes.
@@ -510,6 +514,16 @@ public final class ObjectActionRequirements {
                                     objects.listing(), objects.actions().get(ResourceAction.DETAIL), objects.actions(),
                                     objects.admitted()));
         }
+    }
+
+    /** The object is viewable through a lookup checking only detail on it, such as the resource object lookup. */
+    private static void viewedThroughObjectDetail(Resource resource) {
+        ResourceObjects objects = TABLE.get(resource);
+        TABLE
+                .put(resource,
+                        new ResourceObjects(objects.entity(), objects.parent(), objects.parentAttribute(),
+                                objects.listing(), List.of(new OnObject(ResourceAction.DETAIL)), objects.actions(),
+                                objects.admitted()));
     }
 
     private static void admit(Resource resource, String attribute, Object... values) {

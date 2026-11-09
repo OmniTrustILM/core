@@ -61,6 +61,8 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.engine.spi.SessionImplementor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.orm.jpa.EntityManagerHolder;
@@ -725,6 +727,25 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 .containsExactly(custom);
     }
 
+    @ParameterizedTest
+    @EnumSource(value = Resource.class, names = {"RA_PROFILE", "VAULT", "ATTRIBUTE", "SECRET"})
+    void reportsObject_whenOnlyDetailOnTheObjectItselfIsAllowed(Resource resource) {
+        // given
+        UUID objectUuid = saveViewedThroughObjectDetail(resource);
+        denyResourceAccess(resource, ResourceAction.LIST);
+        denyOnTheResourceAsAWhole(resource, ResourceAction.DETAIL);
+        denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL);
+
+        // when
+        List<ObjectAllowedActionsDto> items = report(resource, objectUuid);
+
+        // then
+        assertThat(items)
+                .as("the lookup by UUID checks only detail on the object")
+                .extracting(ObjectAllowedActionsDto::getUuid)
+                .containsExactly(objectUuid);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private List<ObjectAllowedActionsDto> report(Resource resource, UUID... uuids) {
@@ -847,11 +868,25 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         return attributeDefinitionRepository.save(definition).getUuid();
     }
 
-    private Secret saveSecret() {
+    private UUID saveViewedThroughObjectDetail(Resource resource) {
+        return switch (resource) {
+            case RA_PROFILE -> saveRaProfile().getUuid();
+            case VAULT -> saveVault().getUuid();
+            case ATTRIBUTE -> saveAttributeDefinition(AttributeType.CUSTOM);
+            case SECRET -> saveSecret().getUuid();
+            default -> throw new IllegalArgumentException(resource.getCode());
+        };
+    }
+
+    private VaultInstance saveVault() {
         VaultInstance vault = new VaultInstance();
         vault.setName("vault-" + UUID.randomUUID());
         vault.setConnector(connector);
-        vaultInstanceRepository.save(vault);
+        return vaultInstanceRepository.save(vault);
+    }
+
+    private Secret saveSecret() {
+        VaultInstance vault = saveVault();
         VaultProfile vaultProfile = new VaultProfile();
         vaultProfile.setName("vault-profile-" + UUID.randomUUID());
         vaultProfile.setVaultInstance(vault);
