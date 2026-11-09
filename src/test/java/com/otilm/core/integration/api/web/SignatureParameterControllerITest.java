@@ -7,15 +7,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
-import static org.hamcrest.Matchers.hasItem;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @AutoConfigureMockMvc
 class SignatureParameterControllerITest extends BaseSpringBootTest {
@@ -26,31 +23,36 @@ class SignatureParameterControllerITest extends BaseSpringBootTest {
             + ".groups[?(@.group == '" + SignatureParameterGroup.Codes.VISIBLE_SIGNATURE_PLACEMENT + "')].fields[*]";
 
     @Autowired
-    private MockMvc mockMvc;
+    private MockMvcTester mvc;
 
     @Test
-    void listsThePageFieldUnderThePadesPlacementGroup() throws Exception {
+    void listsThePageFieldUnderThePlacementGroup_whenFamilyIsPades() {
         // given
         var placementPage = "visibleSignature.placement.page";
 
         // when
-        ResultActions response = mockMvc.perform(get(GROUPS_ENDPOINT));
+        MvcTestResult response = mvc.get().uri(GROUPS_ENDPOINT).exchange();
 
         // then
-        response.andExpectAll(status().isOk(), jsonPath(PADES_PLACEMENT_FIELDS, hasItem(placementPage)));
+        assertThat(response)
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath(PADES_PLACEMENT_FIELDS)
+                .asArray()
+                .contains(placementPage);
     }
 
     @Test
-    void returnsTheGroups_whenOpaDeniesEveryCheck() throws Exception {
+    void returnsTheGroups_whenOpaDeniesEveryCheck() {
         // given
         var opaDenial = new AccessDeniedException("OPA denies every check");
         when(opaClient.checkResourceAccess(any(), any(), any(), any())).thenThrow(opaDenial);
         when(opaClient.checkObjectAccess(any(), any(), any(), any())).thenThrow(opaDenial);
 
         // when
-        ResultActions response = mockMvc.perform(get(GROUPS_ENDPOINT));
+        MvcTestResult response = mvc.get().uri(GROUPS_ENDPOINT).exchange();
 
         // then
-        response.andExpect(status().isOk());
+        assertThat(response).hasStatusOk();
     }
 }
