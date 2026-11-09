@@ -188,6 +188,19 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return this;
     }
 
+    /** The number of requests Core made for attribute definitions, across every content-signing operation. */
+    public int attributeDefinitionListings() {
+        int listings = 0;
+        for (ContentSigningFormattingOperation operation : ContentSigningFormattingOperation.values()) {
+            listings += server
+                    .findAll(WireMock
+                            .getRequestedFor(WireMock
+                                    .urlPathMatching(".*" + ContentSigningFormattingPaths.attributes(operation))))
+                    .size();
+        }
+        return listings;
+    }
+
     /**
      * The {@code signatureAlgorithm} each request to {@code operation} carried, in call order. An empty entry marks a
      * request that named none.
