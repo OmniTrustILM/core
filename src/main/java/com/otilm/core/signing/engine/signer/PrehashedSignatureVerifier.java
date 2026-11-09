@@ -81,6 +81,11 @@ final class PrehashedSignatureVerifier {
         if (!(publicKey instanceof RSAPublicKey rsaKey)) {
             return false;
         }
+        // The raw signer reads the signature as an integer and would accept one shorter than the modulus, which
+        // RFC 8017 verifiers reject.
+        if (signature.length != (rsaKey.getModulus().bitLength() + 7) / 8) {
+            return false;
+        }
         PSSSigner verifier = PSSSigner
                 .createRawSigner(new RSABlindedEngine(), newDigest(digestAlgorithm), newDigest(digestAlgorithm),
                         digestAlgorithm.getDigestSizeBytes(), PSSSigner.TRAILER_IMPLICIT);

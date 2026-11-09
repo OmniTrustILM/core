@@ -12,6 +12,7 @@ import java.security.Signature;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.PSSParameterSpec;
+import java.util.Arrays;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.BeforeAll;
@@ -208,6 +209,22 @@ class PrehashedSignatureVerifierTest {
         assertThat(verified).isFalse();
     }
 
+    @Test
+    void returnsFalse_whenThePssSignatureIsShorterThanTheModulus() throws Exception {
+        // given
+        SignatureAlgorithm algorithm = SignatureAlgorithm.SHA256_WITH_RSA_PSS;
+        byte[] signatureWithLeadingZero = signWithJdkUntilTheFirstByteIsZero(algorithm);
+        byte[] strippedOfItsLeadingZero = Arrays
+                .copyOfRange(signatureWithLeadingZero, 1, signatureWithLeadingZero.length);
+
+        // when
+        boolean verified = PrehashedSignatureVerifier
+                .verifies(algorithm, rsaKeys.getPublic(), computeDigest(algorithm, MESSAGE), strippedOfItsLeadingZero);
+
+        // then
+        assertThat(verified).isFalse();
+    }
+
     @ParameterizedTest
     @EnumSource(value = SignatureAlgorithm.class,
             names = {"SHA256_WITH_RSA", "SHA256_WITH_RSA_PSS", "SHA256_WITH_ECDSA"})
@@ -282,5 +299,17 @@ class PrehashedSignatureVerifierTest {
         signature.initSign(key);
         signature.update(data);
         return signature.sign();
+    }
+
+    // PSS salts are random, so about one signature in 256 starts with a zero byte.
+    private static byte[] signWithJdkUntilTheFirstByteIsZero(SignatureAlgorithm algorithm)
+            throws GeneralSecurityException {
+        for (int attempt = 0; attempt < 10_000; attempt++) {
+            byte[] signature = signWithJdk(algorithm, rsaKeys.getPrivate(), MESSAGE);
+            if (signature[0] == 0) {
+                return signature;
+            }
+        }
+        throw new IllegalStateException("No signature started with a zero byte in 10000 attempts");
     }
 }
