@@ -44,4 +44,8 @@ public interface SettingRepository extends SecurityFilterRepository<Setting, UUI
     // by name with last-wins, so one copy would silently win and the other would never be updated or deleted again.
     @Query(value = "SELECT pg_advisory_xact_lock(hashtext('platform-certificate-settings'))", nativeQuery = true)
     Object lockCertificateWrites();
+
+    // And for the signing rows, taken last when several sections are updated at once.
+    @Query(value = "SELECT pg_advisory_xact_lock(hashtext('platform-signing-settings'))", nativeQuery = true)
+    Object lockSigningWrites();
 }

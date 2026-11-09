@@ -5,6 +5,7 @@ import com.otilm.api.model.core.settings.CertificateRegistrationSettingsUpdateDt
 import com.otilm.api.model.core.settings.CertificateSettingsUpdateDto;
 import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.otilm.core.dao.repository.SettingRepository;
@@ -45,17 +46,18 @@ class SettingServiceMockedTest {
 
     /**
      * Integration tests are single-threaded, so they stay green if the locks are removed or swapped. This pins the
-     * fixed order that keeps two keys acyclic: utils first, then certificates, both before the rows are read.
+     * fixed order that keeps the keys acyclic: utils, certificates, signing, all before the rows are read.
      */
     @Test
-    void aPlatformUpdateTakesTheUtilsLockThenTheCertificatesLockBeforeReadingTheRows() {
+    void aPlatformUpdateTakesTheUtilsThenCertificatesThenSigningLockBeforeReadingTheRows() {
         when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
 
-        settingService.updatePlatformSettings(bothSections());
+        settingService.updatePlatformSettings(allSections());
 
         InOrder inOrder = inOrder(settingRepository);
         inOrder.verify(settingRepository).lockUtilsWrites();
         inOrder.verify(settingRepository).lockCertificateWrites();
+        inOrder.verify(settingRepository).lockSigningWrites();
         inOrder.verify(settingRepository).findBySection(SettingsSection.PLATFORM);
     }
 
@@ -69,13 +71,24 @@ class SettingServiceMockedTest {
         settingService.updatePlatformSettings(utilsOnly);
         verify(settingRepository).lockUtilsWrites();
         verify(settingRepository, never()).lockCertificateWrites();
+        verify(settingRepository, never()).lockSigningWrites();
 
         clearInvocations(settingRepository);
-        PlatformSettingsUpdateDto certificatesOnly = bothSections();
+        PlatformSettingsUpdateDto certificatesOnly = allSections();
         certificatesOnly.setUtils(null);
+        certificatesOnly.setSigning(null);
         settingService.updatePlatformSettings(certificatesOnly);
         verify(settingRepository).lockCertificateWrites();
         verify(settingRepository, never()).lockUtilsWrites();
+        verify(settingRepository, never()).lockSigningWrites();
+
+        clearInvocations(settingRepository);
+        PlatformSettingsUpdateDto signingOnly = new PlatformSettingsUpdateDto();
+        signingOnly.setSigning(new SigningSettingsDto());
+        settingService.updatePlatformSettings(signingOnly);
+        verify(settingRepository).lockSigningWrites();
+        verify(settingRepository, never()).lockUtilsWrites();
+        verify(settingRepository, never()).lockCertificateWrites();
     }
 
     @ParameterizedTest
@@ -93,12 +106,13 @@ class SettingServiceMockedTest {
                         exception.getMessage());
     }
 
-    private static PlatformSettingsUpdateDto bothSections() {
+    private static PlatformSettingsUpdateDto allSections() {
         CertificateSettingsUpdateDto certificates = new CertificateSettingsUpdateDto();
         certificates.setRegistration(new CertificateRegistrationSettingsUpdateDto());
         PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
         update.setUtils(new UtilsSettingsDto());
         update.setCertificates(certificates);
+        update.setSigning(new SigningSettingsDto());
         return update;
     }
 }
