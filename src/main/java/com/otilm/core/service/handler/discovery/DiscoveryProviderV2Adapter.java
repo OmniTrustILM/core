@@ -387,7 +387,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
                     .resetAttempt(discoveryUuid, DiscoveryWorkType.STATUS,
                             workProperties.scheduleFor(DiscoveryWorkType.STATUS).ceilingAttempt());
             // The drain row goes rather than parks: a stopped run produces nothing, so an idle drain would poll the
-            // connector once per claim floor for as long as the run stays stopped, which the reaper allows to be days.
+            // connector at its slowest rung for as long as the run stays stopped, which the reaper allows to be days.
             // Resume re-creates it through an upsert. The status row stays: a stopped run can still fail or be
             // cancelled at its connector, and the reaper reads an empty agenda as lost work.
             workWriter.deleteForRun(discoveryUuid, DiscoveryWorkType.DRAIN);
