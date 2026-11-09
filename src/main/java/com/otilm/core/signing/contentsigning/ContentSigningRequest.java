@@ -9,7 +9,7 @@ import java.util.Objects;
  * One content-signing run's input.
  *
  * @param targetLevel the level asked for, which the profile's ceiling has the final say over
- * @param document how the document travels to the connector — inline, or as a digest for detached packaging
+ * @param document how the document travels to the connector — inline, or as a digest
  * @param authorizedDigest the digest of the document the caller authorized, which the binding gate compares the
  * connector's echo against
  * @param signatureParameters the effective parameters {@code SignatureParameterResolver} produced

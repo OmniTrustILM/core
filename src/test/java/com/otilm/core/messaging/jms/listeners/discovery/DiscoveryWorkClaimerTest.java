@@ -3,8 +3,6 @@ package com.otilm.core.messaging.jms.listeners.discovery;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
-import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
-import com.otilm.core.messaging.jms.configuration.StatusPollProperties;
 import com.otilm.core.messaging.model.DiscoveryWorkMessage;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
@@ -24,7 +22,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,137 +35,137 @@ class DiscoveryWorkClaimerTest {
     private DiscoveryWorkRepository workRepository;
     @Mock
     private DiscoveryWorkWriter workWriter;
-    @Mock
-    private DiscoveryWorkProperties workProperties;
 
     private static final int BATCH_SIZE = 200;
     private static final OffsetDateTime CUTOFF = OffsetDateTime.now();
-    private static final Duration CLAIM_FLOOR = Duration.ofSeconds(35);
+    private static final Duration LEASE_DURATION = Duration.ofMinutes(2);
 
     private DiscoveryWorkClaimer claimer;
 
     @BeforeEach
-    void setUp() {
-        claimer = new DiscoveryWorkClaimer(clusterSynchronizer, workRepository, workWriter, workProperties,
-                CLAIM_FLOOR);
-
-        StatusPollProperties.PollSchedule schedule = new StatusPollProperties.PollSchedule(
-                List.of(Duration.ofSeconds(5), Duration.ofSeconds(30)), 100);
-        lenient().when(workProperties.scheduleFor(any())).thenReturn(schedule);
+    void createClaimer() {
+        claimer = new DiscoveryWorkClaimer(clusterSynchronizer, workRepository, workWriter, LEASE_DURATION);
     }
 
     @Test
-    void lockNotHeld_returnsEmptyAndReadsNothing() {
+    void returnsNothing_whenAnotherNodeHoldsTheSweepLock() {
+        // given
         when(clusterSynchronizer.tryLock(ClusterOperationSynchronizer.Operation.DISCOVERY_WORK_SWEEP))
                 .thenReturn(false);
 
-        assertThat(claimer.claimDueBatch(BATCH_SIZE, CUTOFF)).isEmpty();
-
-        verify(workRepository, never()).findByNextDueAtLessThanEqualOrderByNextDueAt(any(), any());
-        verify(workWriter, never()).reschedule(any(), any(), anyInt(), any());
-    }
-
-    @Test
-    void noDueRows_returnsEmptyAndDoesNotReschedule() {
-        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
-        when(workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(any(OffsetDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of());
-
-        assertThat(claimer.claimDueBatch(BATCH_SIZE, CUTOFF)).isEmpty();
-
-        verify(workWriter, never()).reschedule(any(), any(), anyInt(), any());
-    }
-
-    @Test
-    void dueRow_buildsMessageAndAdvancesSchedule() {
-        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
-        UUID runUuid = UUID.randomUUID();
-        when(workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(any(OffsetDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of(workRow(runUuid, DiscoveryWorkType.DRAIN, 2)));
-
+        // when
         List<DiscoveryWorkMessage> messages = claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
 
-        assertThat(messages).hasSize(1);
-        assertThat(messages.get(0).discoveryUuid()).isEqualTo(runUuid);
-        assertThat(messages.get(0).workType()).isEqualTo(DiscoveryWorkType.DRAIN);
-        assertThat(messages.get(0).attempt()).isEqualTo(2);
-
-        verify(workWriter).reschedule(eq(runUuid), eq(DiscoveryWorkType.DRAIN), eq(3), any(OffsetDateTime.class));
-        // The due query runs against the caller's cutoff, not a fresh now() — the sweep-wide claim window.
-        verify(workRepository).findByNextDueAtLessThanEqualOrderByNextDueAt(eq(CUTOFF), any(Pageable.class));
-    }
-
-    /**
-     * The early rungs are seconds against a connector call that may take its whole timeout; why a row parked at such a
-     * rung is republished is at {@code DiscoveryWorkClaimer#parkFor}.
-     */
-    @Test
-    void aRungShorterThanATick_parksTheRowPastTheTickInstead() {
-        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
-        UUID runUuid = UUID.randomUUID();
-        when(workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(any(OffsetDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of(workRow(runUuid, DiscoveryWorkType.DRAIN, 0)));
-
-        OffsetDateTime before = OffsetDateTime.now();
-        claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
-
-        ArgumentCaptor<OffsetDateTime> parkedAt = ArgumentCaptor.forClass(OffsetDateTime.class);
-        verify(workWriter).reschedule(eq(runUuid), eq(DiscoveryWorkType.DRAIN), eq(1), parkedAt.capture());
-        // The rung for attempt 1 is 5s; the floor is what has to win.
-        assertThat(parkedAt.getValue())
-                .as("a row parked at its 5s rung is republished by the next sweep while its tick is still running")
-                .isAfterOrEqualTo(before.plus(CLAIM_FLOOR));
+        // then
+        assertThat(messages).isEmpty();
+        verify(workRepository, never()).findClaimable(any(), any(), any());
+        verify(workWriter, never()).claim(any(), any(), any(), anyInt(), any(), any(), any());
     }
 
     @Test
-    void aRungLongerThanTheFloor_keepsItsOwnCadence() {
+    void claimsNothing_whenNoRowIsClaimable() {
+        // given
         when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
-        UUID runUuid = UUID.randomUUID();
-        // Attempt 2 takes the ladder's ceiling: five minutes here, well above the floor.
-        when(workProperties.scheduleFor(any()))
-                .thenReturn(new StatusPollProperties.PollSchedule(List.of(Duration.ofSeconds(5), Duration.ofMinutes(5)),
-                        100));
-        when(workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(any(OffsetDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of(workRow(runUuid, DiscoveryWorkType.STATUS, 1)));
+        when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of());
 
-        OffsetDateTime before = OffsetDateTime.now();
-        claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
+        // when
+        List<DiscoveryWorkMessage> messages = claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
 
-        ArgumentCaptor<OffsetDateTime> parkedAt = ArgumentCaptor.forClass(OffsetDateTime.class);
-        verify(workWriter).reschedule(eq(runUuid), eq(DiscoveryWorkType.STATUS), eq(2), parkedAt.capture());
-        assertThat(parkedAt.getValue())
-                .as("the floor must not shorten a ladder that already waits longer than it")
-                .isAfterOrEqualTo(before.plusMinutes(5).minusSeconds(1));
+        // then
+        assertThat(messages).isEmpty();
+        verify(workWriter, never()).claim(any(), any(), any(), anyInt(), any(), any(), any());
     }
 
-    /** Pinned because a reader of DRAIN's ladder would expect an idle drain to settle at its thirty-second ceiling. */
     @Test
-    void aCeilingShorterThanTheFloor_isOverriddenByIt() {
+    void claimsTheRowOneAttemptUp_whenItIsClaimable() {
+        // given
         when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
-        UUID runUuid = UUID.randomUUID();
-        // DRAIN's real ladder: its last rung is 30s, under the 35s floor.
-        when(workProperties.scheduleFor(any()))
-                .thenReturn(new StatusPollProperties.PollSchedule(
-                        List.of(Duration.ofSeconds(1), Duration.ofSeconds(5), Duration.ofSeconds(30)), 100));
-        when(workRepository
-                .findByNextDueAtLessThanEqualOrderByNextDueAt(any(OffsetDateTime.class), any(Pageable.class)))
-                .thenReturn(List.of(workRow(runUuid, DiscoveryWorkType.DRAIN, 3)));
+        var runUuid = UUID.randomUUID();
+        var attemptAtClaim = 2;
+        when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of(buildWorkRow(runUuid, DiscoveryWorkType.DRAIN, attemptAtClaim)));
+        stubClaimSucceeding();
 
-        OffsetDateTime before = OffsetDateTime.now();
-        claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
+        // when
+        List<DiscoveryWorkMessage> messages = claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
 
-        ArgumentCaptor<OffsetDateTime> parkedAt = ArgumentCaptor.forClass(OffsetDateTime.class);
-        verify(workWriter).reschedule(eq(runUuid), eq(DiscoveryWorkType.DRAIN), eq(4), parkedAt.capture());
-        assertThat(parkedAt.getValue())
-                .as("an idle drain settles at the floor, not at the ladder's own ceiling")
-                .isAfterOrEqualTo(before.plus(CLAIM_FLOOR));
+        // then
+        assertThat(messages).singleElement().satisfies(message -> {
+            assertThat(message.discoveryUuid()).isEqualTo(runUuid);
+            assertThat(message.workType()).isEqualTo(DiscoveryWorkType.DRAIN);
+            assertThat(message.attempt()).isEqualTo(attemptAtClaim);
+        });
+        verify(workWriter)
+                .claim(eq(runUuid), eq(DiscoveryWorkType.DRAIN), any(UUID.class), eq(attemptAtClaim + 1), eq(CUTOFF),
+                        any(OffsetDateTime.class), any(OffsetDateTime.class));
+        // The sweep-wide claim window: the due query runs against the caller's cutoff, not a fresh now().
+        verify(workRepository).findClaimable(eq(CUTOFF), any(OffsetDateTime.class), any(Pageable.class));
     }
 
-    private DiscoveryWork workRow(UUID runUuid, DiscoveryWorkType type, int attempt) {
+    @Test
+    void carriesTheTokenItWroteToTheRow_whenClaimingIt() {
+        // given
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
+        when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of(buildWorkRow(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0)));
+        stubClaimSucceeding();
+
+        // when
+        List<DiscoveryWorkMessage> messages = claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
+
+        // then
+        ArgumentCaptor<UUID> writtenToken = ArgumentCaptor.forClass(UUID.class);
+        verify(workWriter).claim(any(), any(), writtenToken.capture(), anyInt(), any(), any(), any());
+        assertThat(writtenToken.getValue()).isNotNull();
+        assertThat(messages)
+                .singleElement()
+                .extracting(DiscoveryWorkMessage::leaseToken)
+                .isEqualTo(writtenToken.getValue());
+    }
+
+    @Test
+    void leasesTheRowForTheLeaseDuration_whenClaimingIt() {
+        // given
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
+        when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of(buildWorkRow(UUID.randomUUID(), DiscoveryWorkType.STATUS, 0)));
+        stubClaimSucceeding();
+        var beforeClaim = OffsetDateTime.now();
+
+        // when
+        claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
+
+        // then
+        ArgumentCaptor<OffsetDateTime> leasedUntil = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(workWriter).claim(any(), any(), any(), anyInt(), any(), any(), leasedUntil.capture());
+        assertThat(leasedUntil.getValue())
+                .isAfterOrEqualTo(beforeClaim.plus(LEASE_DURATION))
+                .isBeforeOrEqualTo(OffsetDateTime.now().plus(LEASE_DURATION));
+    }
+
+    @Test
+    void publishesNothingForARow_whenATickLeasedItAfterTheSweepReadIt() {
+        // given
+        when(clusterSynchronizer.tryLock(any(ClusterOperationSynchronizer.Operation.class))).thenReturn(true);
+        when(workRepository.findClaimable(any(OffsetDateTime.class), any(OffsetDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of(buildWorkRow(UUID.randomUUID(), DiscoveryWorkType.DRAIN, 0)));
+        when(workWriter.claim(any(), any(), any(), anyInt(), any(), any(), any())).thenReturn(false);
+
+        // when
+        List<DiscoveryWorkMessage> messages = claimer.claimDueBatch(BATCH_SIZE, CUTOFF);
+
+        // then
+        assertThat(messages).isEmpty();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void stubClaimSucceeding() {
+        when(workWriter.claim(any(), any(), any(), anyInt(), any(), any(), any())).thenReturn(true);
+    }
+
+    private static DiscoveryWork buildWorkRow(UUID runUuid, DiscoveryWorkType type, int attempt) {
         DiscoveryWork work = new DiscoveryWork();
         work.setDiscoveryUuid(runUuid);
         work.setWorkType(type);
