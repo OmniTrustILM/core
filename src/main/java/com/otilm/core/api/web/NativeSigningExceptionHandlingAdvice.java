@@ -35,6 +35,7 @@ public class NativeSigningExceptionHandlingAdvice {
     private static final String INTERNAL_FALLBACK = "Internal signing error";
     private static final String CONNECTOR_UNAVAILABLE = "The connector is unavailable.";
     private static final String UNUSABLE_RESPONSE = "The connector returned a response that could not be used.";
+    private static final String ITEM_MESSAGE = "Item '%s': %s";
 
     private static final List<Class<? extends Throwable>> TRANSPORT_FAILURES = List
             .of(IOException.class, WebClientRequestException.class, TimeoutException.class,
@@ -51,18 +52,19 @@ public class NativeSigningExceptionHandlingAdvice {
                 || failure == SigningEngineFailure.MALFORMED_INPUT;
         // The signer and formatting clients wrap an unreachable connector in a fault of their own.
         if (!callerFault && isConnectorOutage(ex)) {
-            return serviceUnavailable(CONNECTOR_UNAVAILABLE);
+            return serviceUnavailable(namingTheItem(ex, CONNECTOR_UNAVAILABLE));
         }
-        String message = ex.getMessage();
-        String clientMessage = message != null ? message : REFUSED_FALLBACK;
-        String errorMessage = message != null ? message : INTERNAL_FALLBACK;
+        String clientMessage = clientMessageNamingTheItem(ex, callerFault ? REFUSED_FALLBACK : INTERNAL_FALLBACK);
         return switch (failure) {
             case INVALID_INPUT, MALFORMED_INPUT -> ResponseEntity.unprocessableContent().body(List.of(clientMessage));
             case CONNECTOR_FAULT, SIGNER_FAULT ->
-                ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(ErrorMessageDto.getInstance(errorMessage));
-            case TIME_UNAVAILABLE -> serviceUnavailable(errorMessage);
-            case MISCONFIGURED, BINDING_VIOLATION, STEP_FAILED ->
-                ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ErrorMessageDto.getInstance(errorMessage));
+                ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(ErrorMessageDto.getInstance(clientMessage));
+            case TIME_UNAVAILABLE -> serviceUnavailable(clientMessage);
+            case MISCONFIGURED, BINDING_VIOLATION,
+                    STEP_FAILED ->
+                ResponseEntity
+                        .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body(ErrorMessageDto.getInstance(clientMessage));
         };
     }
 
@@ -92,6 +94,16 @@ public class NativeSigningExceptionHandlingAdvice {
                 .filter(Objects::nonNull)
                 .anyMatch(cause -> TRANSPORT_FAILURES.stream().anyMatch(type -> type.isInstance(cause))
                         || POOL_ACQUIRE_EXHAUSTED.equals(cause.getClass().getSimpleName()));
+    }
+
+    private static String clientMessageNamingTheItem(SigningEngineException ex, String fallback) {
+        String clientMessage = ex.clientMessage();
+        return namingTheItem(ex, clientMessage != null ? clientMessage : fallback);
+    }
+
+    /** The item's identifier is the caller's own. Naming it tells the caller which item of its batch failed. */
+    private static String namingTheItem(SigningEngineException ex, String message) {
+        return ex.itemIdentifier() != null ? ITEM_MESSAGE.formatted(ex.itemIdentifier(), message) : message;
     }
 
     private static ResponseEntity<Object> serviceUnavailable(String message) {

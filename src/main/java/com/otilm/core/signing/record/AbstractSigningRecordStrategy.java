@@ -1,12 +1,15 @@
 package com.otilm.core.signing.record;
 
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.core.model.signing.SigningProfileModel;
+import java.util.List;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * Shared skeleton for the {@link SigningRecordStrategy} implementations: the recording-disabled guard and the
  * write-duration timing are identical across every persistence mode, so they live here once. Subclasses implement
- * {@link #doRecord(SigningRecordInput)} (the mode-specific persistence dispatch) and {@link #mode()} (the metric tag /
+ * {@link #doRecord(List)} (the mode-specific persistence dispatch) and {@link #mode()} (the metric tag /
  * persistence-mode identity).
  *
  * <p>
@@ -25,20 +28,41 @@ public abstract class AbstractSigningRecordStrategy implements SigningRecordStra
     }
 
     @Override
-    public final void recordSigning(SigningRecordInputSource source) {
-        metrics.intake(mode().name()).increment();
-        if (!source.signingProfile().recordPolicy().recordingEnabled()) {
-            log
-                    .debug("Signing Record creation is disabled for signing profile {}; skipping the {} record.",
-                            source.signingProfile().uuid(), mode().name());
-            metrics.intakeSkipped(mode().name()).increment();
-            return;
+    public final List<UUID> record(SigningProfileModel<?, ?> signingProfile, List<SigningRecordInputSource> sources) {
+        if (sources.isEmpty()) {
+            return List.of();
         }
-        SigningRecordInput input = source.build();
-        metrics.timed(mode().name(), () -> doRecord(input));
+        requireBatchProfile(signingProfile, sources);
+        if (!admitIntake(signingProfile, sources.size())) {
+            return List.of();
+        }
+        List<SigningRecordInput> inputs = sources.stream().map(SigningRecordInputSource::build).toList();
+        return metrics.timed(mode().name(), inputs.size(), () -> doRecord(inputs));
     }
 
-    protected abstract void doRecord(SigningRecordInput input);
+    /** The batch's profile gates every record of the batch. A source carrying another profile is refused. */
+    private static void requireBatchProfile(SigningProfileModel<?, ?> signingProfile,
+            List<SigningRecordInputSource> sources) {
+        if (sources.stream().anyMatch(source -> !signingProfile.equals(source.signingProfile()))) {
+            throw new IllegalArgumentException(
+                    "every source of a batch must carry the batch's signing profile " + signingProfile.uuid());
+        }
+    }
+
+    private boolean admitIntake(SigningProfileModel<?, ?> signingProfile, int operations) {
+        metrics.intake(mode().name()).increment(operations);
+        if (signingProfile.recordPolicy().recordingEnabled()) {
+            return true;
+        }
+        log
+                .debug("Signing Record creation is disabled for signing profile {}; skipping {} {} record(s).",
+                        signingProfile.uuid(), operations, mode().name());
+        metrics.intakeSkipped(mode().name()).increment(operations);
+        return false;
+    }
+
+    /** Hands the records of one batch to the mode's persistence. Returns their UUIDs in input order. */
+    protected abstract List<UUID> doRecord(List<SigningRecordInput> inputs);
 
     protected abstract SigningRecordPersistenceMode mode();
 }

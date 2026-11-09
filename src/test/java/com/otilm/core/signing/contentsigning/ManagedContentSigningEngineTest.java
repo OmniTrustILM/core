@@ -43,6 +43,7 @@ import com.otilm.core.signing.engine.certificate.StaticKeyManagedSigningCertific
 import com.otilm.core.signing.engine.certificate.ValidationResult;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
+import com.otilm.core.signing.record.SigningRecordInputSource;
 import com.otilm.core.signing.record.SigningRecordStrategy;
 import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import com.otilm.core.signing.tsa.messages.IssuedTimestamp;
@@ -1132,13 +1133,13 @@ class ManagedContentSigningEngineTest {
             stubComputeDtbs(digestOf(DOCUMENT));
             when(acquisitions.signatureValue(any(), any())).thenReturn("signature".getBytes());
             stubEmbedSignatureValue("signed document".getBytes());
+            var recordSource = stubRecordSource();
 
             // when
             engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            verify(recordFactory).source(any(), any(), any(), any(), any(), any(), any());
-            verify(signingRecordStrategy).recordSigning(any());
+            verify(signingRecordStrategy).record(any(), eq(List.of(recordSource)));
         }
 
         @Test
@@ -1165,7 +1166,8 @@ class ManagedContentSigningEngineTest {
             stubComputeDtbs(digestOf(DOCUMENT));
             when(acquisitions.signatureValue(any(), any())).thenReturn("signature".getBytes());
             stubEmbedSignatureValue("signed document".getBytes());
-            doThrow(new RuntimeException("outbox down")).when(signingRecordStrategy).recordSigning(any());
+            stubRecordSource();
+            doThrow(new RuntimeException("outbox down")).when(signingRecordStrategy).record(any(), any());
 
             // when
             SignedContent signed = engine
@@ -1173,6 +1175,12 @@ class ManagedContentSigningEngineTest {
 
             // then
             assertThat(signed.signedDocument()).isEqualTo("signed document".getBytes());
+        }
+
+        private SigningRecordInputSource stubRecordSource() {
+            var recordSource = mock(SigningRecordInputSource.class);
+            when(recordFactory.source(any(), any(), any(), any(), any(), any(), any())).thenReturn(recordSource);
+            return recordSource;
         }
     }
 

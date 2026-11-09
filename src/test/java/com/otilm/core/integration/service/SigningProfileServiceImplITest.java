@@ -578,7 +578,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     }
 
     private void createSigningRecordFor(SigningProfileDto profile) {
-        signingRecordWriter.insert(aSigningRecord().withSigningProfile(profile).build());
+        signingRecordWriter.insertBatch(List.of(aSigningRecord().withSigningProfile(profile).build()));
     }
 
     @Test

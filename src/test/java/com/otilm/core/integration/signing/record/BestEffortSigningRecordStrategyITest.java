@@ -13,7 +13,6 @@ import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.signing.record.BestEffortSigningRecordStrategy;
 import com.otilm.core.signing.record.SigningRecordBestEffortFlusher;
-import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.Duration;
 import java.time.Instant;
@@ -24,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
+import static com.otilm.core.signing.record.SigningRecordInputSources.recordOne;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Integration test for {@link BestEffortSigningRecordStrategy} over a real Postgres via {@link BaseSpringBootTest},
- * exercising the genuine async pipeline: {@link BestEffortSigningRecordStrategy#recordSigning} enqueues, and the real
+ * exercising the genuine async pipeline: {@link BestEffortSigningRecordStrategy#record} enqueues, and the real
  * background {@link SigningRecordBestEffortFlusher} thread drains the queue and persists a batch into
  * {@code signing_record} through the writer. The strategy's branch logic (policy gating, queue dispatch, metrics,
  * failure isolation, mapping field-fidelity over a captor) is pinned against mocks in
@@ -65,17 +65,16 @@ class BestEffortSigningRecordStrategyITest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy
-                .recordSigning(SigningRecordInputSources
-                        .of(aSigningRecordInput()
-                                .signingProfile(recordingProfile)
-                                .displayName("round-trip-record")
-                                .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
-                                .requestMetadataJson("{ \"alg\": \"ES256\" }")
-                                .signature("the-signature".getBytes(UTF_8))
-                                .signedDocument("the-signed-document".getBytes(UTF_8))
-                                .dtbs("the-data-to-be-signed".getBytes(UTF_8))
-                                .build()));
+        recordOne(strategy,
+                aSigningRecordInput()
+                        .signingProfile(recordingProfile)
+                        .displayName("round-trip-record")
+                        .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
+                        .requestMetadataJson("{ \"alg\": \"ES256\" }")
+                        .signature("the-signature".getBytes(UTF_8))
+                        .signedDocument("the-signed-document".getBytes(UTF_8))
+                        .dtbs("the-data-to-be-signed".getBytes(UTF_8))
+                        .build());
 
         // then
         SigningRecord signingRecord = awaitSinglePersistedRecord();
@@ -102,12 +101,8 @@ class BestEffortSigningRecordStrategyITest extends BaseSpringBootTest {
 
         // when
         for (int i = 0; i < recordedCount; i++) {
-            strategy
-                    .recordSigning(SigningRecordInputSources
-                            .of(aSigningRecordInput()
-                                    .signingProfile(recordingProfile)
-                                    .displayName("batched-record-" + i)
-                                    .build()));
+            recordOne(strategy,
+                    aSigningRecordInput().signingProfile(recordingProfile).displayName("batched-record-" + i).build());
         }
 
         // then

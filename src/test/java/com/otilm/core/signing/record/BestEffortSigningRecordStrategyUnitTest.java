@@ -7,15 +7,20 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
+import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.mockito.ArgumentCaptor;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
+import static com.otilm.core.signing.record.SigningRecordInputSources.recordOne;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,6 +29,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -64,7 +70,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(recordingDisabledInput));
+        recordOne(strategy, recordingDisabledInput);
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -81,7 +87,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(metadataOnlyInput));
+        recordOne(strategy, metadataOnlyInput);
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -95,7 +101,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
+        recordOne(strategy, recordableInput());
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -113,7 +119,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
+        recordOne(strategy, recordableInput());
 
         // then
         assertEquals(evictedByQueue, evictedCounter());
@@ -125,7 +131,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
+        recordOne(strategy, recordableInput());
 
         // then
         verify(queue).enqueueBlocking(any(SigningRecord.class));
@@ -139,7 +145,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         var strategy = createStrategy(BestEffortBackpressurePolicy.BLOCK);
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
+        recordOne(strategy, recordableInput());
 
         // then
         assertEquals(1, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_INTERRUPTED));
@@ -212,6 +218,28 @@ class BestEffortSigningRecordStrategyUnitTest {
         assertThrows(InterruptedException.class, drain);
     }
 
+    @Test
+    void queuesEveryItemReturningUuidsInSourceOrder_whenRecordingABatch() {
+        // given
+        var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
+        var recordingProfile = aSigningProfile().withRecordPolicy(recordingEverything().build()).build();
+        List<SigningRecordInputSource> batch = IntStream
+                .range(0, 3)
+                .mapToObj(i -> SigningRecordInputSources
+                        .of(aSigningRecordInput().signingProfile(recordingProfile).build()))
+                .toList();
+
+        // when
+        List<UUID> references = strategy.record(recordingProfile, batch);
+
+        // then
+        ArgumentCaptor<SigningRecord> queued = ArgumentCaptor.forClass(SigningRecord.class);
+        verify(queue, times(batch.size())).enqueueDropping(queued.capture());
+        List<UUID> queuedUuids = queued.getAllValues().stream().map(SigningRecord::getUuid).toList();
+        assertThat(references).hasSize(batch.size()).containsExactlyElementsOf(queuedUuids);
+        verifyNoInteractions(writer);
+    }
+
     private BestEffortSigningRecordStrategy createStrategy(BestEffortBackpressurePolicy policy) {
         var properties = new SigningRecordBestEffortProperties(1, policy, 1L, MAX_BATCH_SIZE);
         return new BestEffortSigningRecordStrategy(metrics, writer, new SigningRecordInputMapper(), queue, properties);
@@ -258,7 +286,7 @@ class BestEffortSigningRecordStrategyUnitTest {
     }
 
     private long durationSampleCount(String mode) {
-        Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).timer();
+        Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).tag("batch", "false").timer();
         return timer == null ? 0L : timer.count();
     }
 }

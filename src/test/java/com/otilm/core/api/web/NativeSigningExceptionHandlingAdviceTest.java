@@ -268,6 +268,57 @@ class NativeSigningExceptionHandlingAdviceTest {
         assertThat(response.getBody()).isNotNull();
     }
 
+    @Test
+    void answers422NamingTheItem_whenRefusalOccurredOnAnItem() {
+        // given
+        var failedItem = "doc-2";
+        SigningEngineException refusal = new SigningEngineException(SigningEngineFailure.INVALID_INPUT, OPERATOR,
+                CLIENT).withItem(failedItem);
+
+        // when
+        ResponseEntity<Object> response = advice.handleSigningEngineException(refusal);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(response.getBody()).isEqualTo(List.of("Item 'doc-2': " + CLIENT));
+    }
+
+    @Test
+    void answers502NamingTheItem_whenSignerFaultOccurredOnAnItem() {
+        // given
+        var failedItem = "doc-2";
+        SigningEngineException signerFault = new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, OPERATOR,
+                CLIENT).withItem(failedItem);
+
+        // when
+        ResponseEntity<Object> response = advice.handleSigningEngineException(signerFault);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.getBody())
+                .isInstanceOfSatisfying(ErrorMessageDto.class,
+                        body -> assertThat(body.getMessage()).isEqualTo("Item 'doc-2': " + CLIENT));
+    }
+
+    @Test
+    void answers503NamingTheItem_whenConnectorWasUnreachableForAnItem() {
+        // given
+        var failedItem = "doc-2";
+        ConnectorCommunicationException unreachableConnector = createCommunicationFailure(
+                new ConnectException("Connection refused"));
+        SigningEngineException signerFault = new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, OPERATOR,
+                unreachableConnector, CLIENT).withItem(failedItem);
+
+        // when
+        ResponseEntity<Object> response = advice.handleSigningEngineException(signerFault);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody())
+                .isInstanceOfSatisfying(ErrorMessageDto.class,
+                        body -> assertThat(body.getMessage()).isEqualTo("Item 'doc-2': The connector is unavailable."));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private ResponseEntity<Object> handle(SigningEngineFailure failure) {

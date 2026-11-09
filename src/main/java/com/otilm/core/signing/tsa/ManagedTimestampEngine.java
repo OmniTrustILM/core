@@ -25,6 +25,7 @@ import com.otilm.core.util.serialnumber.SerialNumberGenerator;
 import java.math.BigInteger;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.tsp.TSPValidationException;
@@ -253,7 +254,7 @@ public class ManagedTimestampEngine {
                     .source(signingProfile, request, serialNumber, genTime, encodedToken, protocol);
             signingRecordStrategyFactory
                     .strategyFor(signingProfile.recordPolicy().persistenceMode())
-                    .recordSigning(source);
+                    .record(signingProfile, List.of(source));
         } catch (Exception e) {
             logger
                     .error("Failed to record signing for signing profile '{}'; the timestamp was issued regardless",

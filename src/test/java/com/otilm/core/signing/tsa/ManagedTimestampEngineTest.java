@@ -18,7 +18,6 @@ import com.otilm.core.signing.engine.certificate.ValidationResult;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.record.SigningRecordInput;
-import com.otilm.core.signing.record.SigningRecordInputSource;
 import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.signing.record.SigningRecordStrategy;
 import com.otilm.core.signing.record.SigningRecordStrategyFactory;
@@ -38,7 +37,6 @@ import org.bouncycastle.tsp.TimeStampTokenInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -248,7 +246,7 @@ class ManagedTimestampEngineTest {
         SigningEngineException thrown = catchIssue();
         assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
         assertThat(thrown.operatorMessage()).contains("imprint other than the one requested");
-        verify(signingRecordStrategy, never()).recordSigning(any());
+        verify(signingRecordStrategy, never()).record(any(), any());
     }
 
     @Test
@@ -260,7 +258,7 @@ class ManagedTimestampEngineTest {
         SigningEngineException thrown = catchIssue();
         assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
         assertThat(thrown.operatorMessage()).contains("SHA-256 was requested");
-        verify(signingRecordStrategy, never()).recordSigning(any());
+        verify(signingRecordStrategy, never()).record(any(), any());
     }
 
     /** The serial keys the signing record, so a token carrying a different one would be recorded under the wrong id. */
@@ -273,7 +271,7 @@ class ManagedTimestampEngineTest {
         SigningEngineException thrown = catchIssue();
         assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
         assertThat(thrown.operatorMessage()).contains("serial number");
-        verify(signingRecordStrategy, never()).recordSigning(any());
+        verify(signingRecordStrategy, never()).record(any(), any());
     }
 
     @Test
@@ -330,10 +328,8 @@ class ManagedTimestampEngineTest {
         // when
         engine.process(aTspRequest().build(), signingProfile, aResolvedProfile(false, null));
 
-        // then — the deferred source built from the granted token is handed to the strategy, materializing the input
-        var sourceCaptor = ArgumentCaptor.forClass(SigningRecordInputSource.class);
-        verify(signingRecordStrategy).recordSigning(sourceCaptor.capture());
-        assertThat(sourceCaptor.getValue().build()).isSameAs(recordInput);
+        // then — the deferred source built from the granted token is handed to the strategy
+        verify(signingRecordStrategy).record(signingProfile, List.of(recordInputSource));
     }
 
     @Test

@@ -427,7 +427,7 @@ public class ManagedContentSigningEngine {
                     .source(signingProfile, profile, result, dtbs, signatureValue, signingTime, protocol);
             signingRecordStrategyFactory
                     .strategyFor(signingProfile.recordPolicy().persistenceMode())
-                    .recordSigning(source);
+                    .record(signingProfile, List.of(source));
         } catch (Exception e) {
             logger
                     .error("Failed to record signing for signing profile '{}'; the document was signed regardless",

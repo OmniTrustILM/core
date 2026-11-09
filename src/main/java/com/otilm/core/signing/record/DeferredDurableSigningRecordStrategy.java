@@ -1,8 +1,11 @@
 package com.otilm.core.signing.record;
 
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
+import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import com.otilm.core.mapper.signing.SigningRecordInputMapper;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
+import java.util.List;
+import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
@@ -24,13 +27,15 @@ public class DeferredDurableSigningRecordStrategy extends AbstractSigningRecordS
     }
 
     @Override
-    protected void doRecord(SigningRecordInput input) {
+    protected List<UUID> doRecord(List<SigningRecordInput> inputs) {
+        List<SigningRecordOutbox> rows = inputs.stream().map(mapper::toOutbox).toList();
         try {
-            writer.insertOutbox(mapper.toOutbox(input));
+            writer.insertOutboxBatch(rows);
         } catch (RuntimeException e) {
-            metrics.intakeFailed(mode().name(), SigningRecordMetrics.REASON_SAVE_ERROR).increment();
+            metrics.intakeFailed(mode().name(), SigningRecordMetrics.REASON_SAVE_ERROR).increment(rows.size());
             throw e;
         }
+        return rows.stream().map(SigningRecordOutbox::getUuid).toList();
     }
 
     @Override
