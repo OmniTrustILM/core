@@ -7,8 +7,9 @@ import org.hibernate.type.descriptor.java.MutabilityPlan;
 
 /**
  * Mutability of a value the code only replaces through the attribute's setter and never changes in place. The value
- * loaded or written last is its own snapshot, so the dirty check sees the attribute unchanged until it is replaced, and
- * a change made in place is never written.
+ * loaded or written last is its own snapshot, so the dirty check sees the attribute unchanged until it is replaced. A
+ * change made in place is not detected: it is written only when a full-row update for another column carries it, never
+ * on a {@code @DynamicUpdate} entity.
  *
  * <p>
  * Use it where a copy of the value never equals the original, such as JSON-mapped attributes whose nested types have no
