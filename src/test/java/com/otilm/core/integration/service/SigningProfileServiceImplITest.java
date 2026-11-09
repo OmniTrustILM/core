@@ -3363,6 +3363,35 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     class FormattingAttributes {
 
         @Test
+        void readsDefinitionsFromTheAttributesInterface_whenSavingATimestampingProfile() throws Exception {
+            // given
+            UUID attrUuid = UUID.fromString("0000aaaa-1111-2222-3333-444444444444");
+            String attrName = "data_timestampingPolicy";
+            String savedValue = "policy-from-the-attributes-interface";
+            timestampingFormattingMock.stubFormattingAttributeDefinition(attrUuid, attrName, true);
+            int listingsBeforeSave = timestampingFormattingMock.attributeDefinitionListings();
+
+            // when
+            SigningProfileDto dto = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("timestamping-profile-with-formatting-attrs")
+                            .withStaticKeyManagedSigning(defaultTimestampingCertificate.getUuid())
+                            .withTimestamping(aTimestampingWorkflow()
+                                    .withSignatureFormattingConnector(
+                                            UUID.fromString(timestampingFormattingConnector.getUuid()))
+                                    .withSignatureFormattingConnectorAttributes(
+                                            List.of(aStringAttribute(attrUuid, attrName, savedValue)))
+                                    .build())
+                            .build());
+
+            // then
+            TimestampingWorkflowDto workflow = (TimestampingWorkflowDto) dto.getWorkflow();
+            assertThat(extractStringAttrValue(workflow.getSignatureFormattingConnectorAttributes(), attrName))
+                    .isEqualTo(savedValue);
+            assertThat(timestampingFormattingMock.attributeDefinitionListings()).isEqualTo(listingsBeforeSave + 1);
+        }
+
+        @Test
         void create_contentSigning_attributesPersistedAndReturned()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
             // given: stub the content signing formatting to expose a single configurable attribute
@@ -3575,6 +3604,76 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertTrue(exception.getMessage().contains(attrName),
                     "ValidationException must identify the missing required formatting attribute, but was: "
                             + exception.getMessage());
+        }
+
+        @Test
+        void rejectsTheTimestampingProfile_whenItCarriesAnAttributeItsFormatterNoLongerDefines() throws Exception {
+            // given — a profile stored the attribute's definition before the formatter stopped publishing it
+            UUID retiredUuid = UUID.fromString("0000cccc-1111-2222-3333-444444444444");
+            var retiredName = "data_retiredPolicy";
+            timestampingFormattingMock.stubFormattingAttributeDefinition(retiredUuid, retiredName, false);
+            signingProfileService
+                    .createSigningProfile(aTimestampingProfileRequest("timestamping-profile-before-retirement",
+                            aStringAttribute(retiredUuid, retiredName, "policy-a")));
+            timestampingFormattingMock.stubFormattingAttributes();
+            var request = aTimestampingProfileRequest("timestamping-profile-after-retirement",
+                    aStringAttribute(retiredUuid, retiredName, "policy-b"));
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class).hasMessageContaining(retiredName);
+        }
+
+        @Test
+        void rejectsTheContentSigningProfile_whenItCarriesAnAttributeItsFormatterNoLongerDefines() throws Exception {
+            // given — a profile stored the attribute's definition before the formatter stopped publishing it
+            UUID retiredUuid = UUID.fromString("0000dddd-1111-2222-3333-444444444444");
+            var retiredName = "data_retiredContentPolicy";
+            contentSigningFormattingMock.stubPerOperationFormattingAttributeDefinition(retiredUuid, retiredName);
+            signingProfileService
+                    .createSigningProfile(aContentSigningProfileRequest("content-signing-profile-before-retirement",
+                            aStringAttribute(retiredUuid, retiredName, "policy-a")));
+            contentSigningFormattingMock.stubPerOperationFormattingAttributes();
+            var request = aContentSigningProfileRequest("content-signing-profile-after-retirement",
+                    aStringAttribute(retiredUuid, retiredName, "policy-b"));
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ValidationException.class).hasMessageContaining(retiredName);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private SigningProfileRequestDto aTimestampingProfileRequest(String name,
+                RequestAttribute formattingAttribute) {
+            return aSigningProfileRequest()
+                    .withName(name)
+                    .withStaticKeyManagedSigning(defaultTimestampingCertificate.getUuid())
+                    .withTimestamping(aTimestampingWorkflow()
+                            .withSignatureFormattingConnector(
+                                    UUID.fromString(timestampingFormattingConnector.getUuid()))
+                            .withSignatureFormattingConnectorAttributes(List.of(formattingAttribute))
+                            .build())
+                    .build();
+        }
+
+        private SigningProfileRequestDto aContentSigningProfileRequest(String name,
+                RequestAttribute formattingAttribute) {
+            return aSigningProfileRequest()
+                    .withName(name)
+                    .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                    .withContentSigning(aContentSigningWorkflow()
+                            .withSignatureFormattingConnector(
+                                    UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .withFamily(SignatureFamily.PADES)
+                            .withMaxLevel(SignatureLevel.SIGNED)
+                            .withSignatureFormattingConnectorAttributes(List.of(formattingAttribute))
+                            .build())
+                    .build();
         }
     }
 

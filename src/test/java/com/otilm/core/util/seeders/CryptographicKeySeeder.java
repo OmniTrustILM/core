@@ -1,5 +1,6 @@
 package com.otilm.core.util.seeders;
 
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -39,10 +40,15 @@ public class CryptographicKeySeeder {
     /**
      * In-memory description of one key item. The seeder fills in the persistence-only fields (length, state, enabled,
      * the self-referential {@code keyReferenceUuid}); the caller specifies only the type, algorithm, usage, and — when
-     * the test needs real key material — the format and key data.
+     * the test needs real key material — the format and key data, and the key metadata of a key on a v2 provider.
      */
     public record KeyItemSpec(KeyType type, KeyAlgorithm algorithm, List<KeyUsage> usage, KeyFormat format,
-            String keyData) {
+            String keyData, List<MetadataAttribute> keyMeta) {
+
+        public KeyItemSpec(KeyType type, KeyAlgorithm algorithm, List<KeyUsage> usage, KeyFormat format,
+                String keyData) {
+            this(type, algorithm, usage, format, keyData, null);
+        }
 
         public static KeyItemSpec signingPrivateKey(KeyAlgorithm algorithm) {
             return new KeyItemSpec(KeyType.PRIVATE_KEY, algorithm, List.of(KeyUsage.SIGN), null, null);
@@ -53,7 +59,11 @@ public class CryptographicKeySeeder {
         }
 
         public KeyItemSpec withMaterial(KeyFormat format, String keyData) {
-            return new KeyItemSpec(type, algorithm, usage, format, keyData);
+            return new KeyItemSpec(type, algorithm, usage, format, keyData, keyMeta);
+        }
+
+        public KeyItemSpec withKeyMeta(List<MetadataAttribute> keyMeta) {
+            return new KeyItemSpec(type, algorithm, usage, format, keyData, keyMeta);
         }
     }
 
@@ -92,6 +102,9 @@ public class CryptographicKeySeeder {
         }
         if (spec.keyData() != null) {
             item.setKeyData(spec.keyData());
+        }
+        if (spec.keyMeta() != null) {
+            item.setKeyMeta(spec.keyMeta());
         }
         item = cryptographicKeyItemRepository.saveAndFlush(item);
         item.setKeyReferenceUuid(item.getUuid());
