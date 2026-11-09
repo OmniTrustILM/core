@@ -123,7 +123,7 @@ class CryptographicOperationServiceTransactionITest extends BaseSpringBootTest {
     }
 
     @Test
-    void signData_callsAdapterWithoutActiveTransaction() throws Exception {
+    void callsTheAdapterOutsideATransaction_whenSigningData() throws Exception {
         // given
         AtomicBoolean transactionActive = new AtomicBoolean(true);
         KeyProviderAdapter adapter = mock(KeyProviderAdapter.class);

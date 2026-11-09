@@ -127,7 +127,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void randomData_routesThroughTokenAdapter_forV1Token() throws Exception {
+    void routesRandomDataThroughTheTokenAdapter_whenTheTokenIsV1() throws Exception {
         // given
         UUID tokenUuid = UUID.randomUUID();
         TokenInstanceBasicModel token = v1Token(tokenUuid);
@@ -252,7 +252,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void randomData_routesThroughTokenAdapter_forTokenProfile() throws Exception {
+    void routesRandomDataThroughTheTokenAdapter_whenAProfileIsGiven() throws Exception {
         // given
         UUID tokenUuid = UUID.randomUUID();
         TokenInstanceBasicModel token = v2Token(tokenUuid);
@@ -311,7 +311,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void signData_routesLegacyItemToAdapter_andRecordsSuccess() throws Exception {
+    void recordsSigningSuccess_whenALegacyItemSigns() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -336,7 +336,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void signData_routesV2ItemThroughDefaultAdapterValidation() throws Exception {
+    void routesSigningThroughTheItemsAdapter_whenTheItemIsV2() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = v2Key();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -429,7 +429,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void signData_recordsFailure_andRethrows_whenAdapterFails() throws Exception {
+    void recordsSigningFailure_whenTheAdapterFails() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -450,7 +450,7 @@ class CryptographicOperationServiceImplTest {
     }
 
     @Test
-    void signData_doesNotRecordFailure_whenSuccessHistoryWriteFails() throws Exception {
+    void recordsNoFailure_whenTheSuccessHistoryWriteFails() throws Exception {
         // given
         CryptographicKeyItemOperationModel key = legacyKey();
         when(keyService.getKeyItemModel(key.keyItemUuid())).thenReturn(key);
@@ -849,6 +849,8 @@ class CryptographicOperationServiceImplTest {
         // then
         assertSame(expectedFailure, assertThrows(ConnectorException.class, check));
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private SignDataResponseDto signPrehashed(CryptographicKeyItemOperationModel key) throws Exception {
         return service
