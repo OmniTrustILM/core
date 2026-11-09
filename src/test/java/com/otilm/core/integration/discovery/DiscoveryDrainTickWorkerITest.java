@@ -477,7 +477,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void leavesTheProcessingRunAlone_whenADrainAdmittedBeforeTheHandoverRunsAfterIt() throws Exception {
+    void leavesTheProcessingRunAlone_whenADrainAdmittedBeforeTheHandoverRunsAfterIt() {
         // given
         Discovery run = runTheConnectorFinished();
         armDrainRow(run, 0);
