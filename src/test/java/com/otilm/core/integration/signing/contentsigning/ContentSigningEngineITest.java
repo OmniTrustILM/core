@@ -2,11 +2,15 @@ package com.otilm.core.integration.signing.contentsigning;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
@@ -524,6 +528,131 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
     }
 
+    // ── FormattingAttributes ──────────────────────────────────────────────────
+
+    @Nested
+    class FormattingAttributes {
+
+        private static final UUID LOCATION_ATTRIBUTE_UUID = UUID.fromString("0000cccc-1111-2222-3333-444444444444");
+        private static final String LOCATION_ATTRIBUTE_NAME = "data_formattingLocation";
+
+        @Test
+        void rejectsAsMisconfigured_whenTheFormatterRequiresAnAttributeTheProfileLacks() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("lacks-required-attribute",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            contentSigningFormattingMock
+                    .stubPerOperationFormattingAttributeDefinition(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME,
+                            true);
+
+            // when
+            ThrowingCallable resolve = () -> resolvedContentSigningProfile(contentProfile);
+
+            // then
+            assertMisconfigured(resolve);
+        }
+
+        @Test
+        void rejectsAsMisconfigured_whenTheProfileCarriesAnAttributeTheFormatterDoesNotDefine() throws Exception {
+            // given
+            contentSigningFormattingMock
+                    .stubPerOperationFormattingAttributeDefinition(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME);
+            SigningProfileDto contentProfile = createEnabledSigningProfile(
+                    aContentSigningProfile("carries-undefined-attribute", SignatureFamily.PADES, SignatureLevel.SIGNED,
+                            null, List.of(locationAttribute("a location the formatter dropped")))
+                            .withStaticKeyManagedSigning(signingCertificate.getUuid()));
+            contentSigningFormattingMock.stubPerOperationFormattingAttributes();
+
+            // when
+            ThrowingCallable resolve = () -> resolvedContentSigningProfile(contentProfile);
+
+            // then
+            assertMisconfigured(resolve);
+        }
+
+        @Test
+        void asksTheFormatterForEachReachableOperationOnce_whenTheProfileIsResolvedTwice() throws Exception {
+            // given — a SIGNED profile reaches the two baseline operations
+            SigningProfileDto contentProfile = createContentSigningProfile("asks-once-per-operation",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            int baselineOperations = 2;
+            int listingsBeforeResolving = contentSigningFormattingMock.attributeDefinitionListings();
+
+            // when
+            resolvedContentSigningProfile(contentProfile);
+            resolvedContentSigningProfile(contentProfile);
+
+            // then
+            assertThat(contentSigningFormattingMock.attributeDefinitionListings())
+                    .isEqualTo(listingsBeforeResolving + baselineOperations);
+        }
+
+        @Test
+        void asksTheFormatterAgain_whenTheConnectorIsReconnected() throws Exception {
+            // given — the first resolution has cached the formatter's definitions
+            SigningProfileDto contentProfile = createContentSigningProfile("asks-after-reconnect",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            int baselineOperations = 2;
+            resolvedContentSigningProfile(contentProfile);
+            connectorService.reconnect(SecuredUUID.fromString(contentSigningFormattingConnector.getUuid()));
+            int listingsAfterReconnect = contentSigningFormattingMock.attributeDefinitionListings();
+
+            // when
+            resolvedContentSigningProfile(contentProfile);
+
+            // then
+            assertThat(contentSigningFormattingMock.attributeDefinitionListings())
+                    .isEqualTo(listingsAfterReconnect + baselineOperations);
+        }
+
+        @Test
+        void resolvesTheProfile_whenItIsUpdatedWithAnAttributeTheFormatterStartedPublishing() throws Exception {
+            // given — a resolution has cached the formatter's definitions from before it published the attribute
+            SigningProfileDto contentProfile = createContentSigningProfile("updated-with-new-attribute",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            resolvedContentSigningProfile(contentProfile);
+            contentSigningFormattingMock
+                    .stubPerOperationFormattingAttributeDefinition(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME);
+            updateFormattingAttributes(contentProfile, List.of(locationAttribute("a location just published")));
+
+            // when
+            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
+
+            // then
+            assertThat(resolved.signatureFormattingConnectorAttributes())
+                    .extracting(RequestAttribute::getName)
+                    .containsExactly(LOCATION_ATTRIBUTE_NAME);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void updateFormattingAttributes(SigningProfileDto contentProfile,
+                List<RequestAttribute> formattingAttributes) throws Exception {
+            signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(contentProfile.getUuid()),
+                            aContentSigningProfile(contentProfile.getName(), SignatureFamily.PADES,
+                                    SignatureLevel.SIGNED, null, formattingAttributes)
+                                    .withStaticKeyManagedSigning(signingCertificate.getUuid())
+                                    .withRecordPolicy(recordingEverything())
+                                    .build());
+        }
+
+        private static RequestAttribute locationAttribute(String value) {
+            RequestAttributeV2 attribute = new RequestAttributeV2();
+            attribute.setUuid(LOCATION_ATTRIBUTE_UUID);
+            attribute.setName(LOCATION_ATTRIBUTE_NAME);
+            attribute.setContentType(AttributeContentType.STRING);
+            attribute.setContent(List.of(new StringAttributeContentV2(value, value)));
+            return attribute;
+        }
+
+        private static void assertMisconfigured(ThrowingCallable resolve) {
+            assertThatThrownBy(resolve)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            refusal -> assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static String documentText(SignedContent signed) {
@@ -601,10 +730,16 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     /** The content-signing half of a profile request; the caller adds the signing scheme its key needs. */
     private SigningProfileRequestDtoBuilder aContentSigningProfile(String name, SignatureFamily family,
             SignatureLevel maxLevel, UUID timestampSourceProfileUuid) {
+        return aContentSigningProfile(name, family, maxLevel, timestampSourceProfileUuid, List.of());
+    }
+
+    private SigningProfileRequestDtoBuilder aContentSigningProfile(String name, SignatureFamily family,
+            SignatureLevel maxLevel, UUID timestampSourceProfileUuid, List<RequestAttribute> formattingAttributes) {
         var workflow = aContentSigningWorkflow()
                 .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                 .withFamily(family)
-                .withMaxLevel(maxLevel);
+                .withMaxLevel(maxLevel)
+                .withSignatureFormattingConnectorAttributes(formattingAttributes);
         if (timestampSourceProfileUuid != null) {
             workflow.withInternalTimestampSource(timestampSourceProfileUuid);
         }

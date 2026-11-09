@@ -53,7 +53,6 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
-import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.cluster.ClusterOperationSynchronizer;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
@@ -101,6 +100,8 @@ import com.otilm.core.service.writer.SigningProfileWriter;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingAttributes;
 import com.otilm.core.signing.contentsigning.profile.ContentSigningWorkflowValidator;
 import com.otilm.core.signing.contentsigning.profile.TimestampSourceRequests;
+import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
+import com.otilm.core.signing.formatting.FormattingAttributesCheck;
 import com.otilm.core.util.CertificateEligibilityUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -160,7 +161,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     private TimeQualityConfigurationRepository timeQualityConfigurationRepository;
     private TspProfileInternalService tspProfileService;
     private AttributeEngine attributeEngine;
-    private ConnectorApiFactory connectorApiFactory;
+    private FormattingAttributeDefinitions formattingAttributeDefinitions;
     private CacheEvictor cacheEvictor;
     private ClusterOperationSynchronizer clusterSynchronizer;
     private ContentSigningWorkflowValidator contentSigningWorkflowValidator;
@@ -284,7 +285,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<BaseAttribute> listSignatureFormattingConnectorAttributes(UUID connectorUuid,
             SecuredUUID signingProfileUuid) throws NotFoundException, ConnectorException, AttributeException {
-        return fetchFormattingAttributeDefinitions(connectorUuid);
+        return fetchTimestampingFormattingDefinitions(connectorUuid);
     }
 
     @Override
@@ -1300,6 +1301,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             throws AttributeException, NotFoundException {
         return switch (workflow) {
             case ContentSigningWorkflowRequestDto w -> {
+                requireDefinedFormattingAttributes(formattingDefinitions,
+                        w.getSignatureFormattingConnectorAttributes());
                 attributeEngine
                         .validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(),
                                 AttributeOperation.WORKFLOW_FORMATTING, formattingDefinitions,
@@ -1324,6 +1327,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 yield null;
             }
             case TimestampingWorkflowRequestDto w -> {
+                requireDefinedFormattingAttributes(formattingDefinitions,
+                        w.getSignatureFormattingConnectorAttributes());
                 attributeEngine
                         .validateUpdateDataAttributes(w.getSignatureFormattingConnectorUuid(),
                                 AttributeOperation.WORKFLOW_FORMATTING, formattingDefinitions,
@@ -1338,6 +1343,17 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             }
             default -> throw new IllegalStateException("Unexpected type for Signing Workflow: " + workflow);
         };
+    }
+
+    /** Refuses attributes the formatter no longer publishes. */
+    private static void requireDefinedFormattingAttributes(List<BaseAttribute> formattingDefinitions,
+            List<RequestAttribute> attributes) {
+        List<String> undefined = FormattingAttributesCheck
+                .undefinedNames(formattingDefinitions, attributes == null ? List.of() : attributes);
+        if (!undefined.isEmpty()) {
+            throw new ValidationException(
+                    ValidationError.create("Signature formatting connector does not define attributes {}", undefined));
+        }
     }
 
     /** Returns the UUID of the certificate's key, or null when that key has no private item. */
@@ -1364,17 +1380,15 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                                     connectorService.getConnectorForApiClient(w.getSignatureFormattingConnectorUuid()),
                                     w.getMaxLevel());
             case TimestampingWorkflowRequestDto w ->
-                fetchFormattingAttributeDefinitions(w.getSignatureFormattingConnectorUuid());
+                fetchTimestampingFormattingDefinitions(w.getSignatureFormattingConnectorUuid());
             default -> List.of();
         };
     }
 
-    private List<BaseAttribute> fetchFormattingAttributeDefinitions(UUID connectorUuid)
+    private List<BaseAttribute> fetchTimestampingFormattingDefinitions(UUID connectorUuid)
             throws ConnectorException, NotFoundException {
         ApiClientConnectorInfo apiClientInfo = connectorService.getConnectorForApiClient(connectorUuid);
-        return connectorApiFactory
-                .getSignatureFormattingApiClient(apiClientInfo)
-                .listFormattingAttributes(apiClientInfo);
+        return formattingAttributeDefinitions.liveForTimestamping(apiClientInfo);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1504,8 +1518,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     @Autowired
-    public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
-        this.connectorApiFactory = connectorApiFactory;
+    public void setFormattingAttributeDefinitions(FormattingAttributeDefinitions formattingAttributeDefinitions) {
+        this.formattingAttributeDefinitions = formattingAttributeDefinitions;
     }
 
     @Autowired
