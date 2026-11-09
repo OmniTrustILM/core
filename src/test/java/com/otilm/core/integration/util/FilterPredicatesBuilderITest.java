@@ -2241,6 +2241,21 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
                         () -> certificateService.listCertificates(securityFilter, searchRequestDto));
     }
 
+    @ParameterizedTest
+    @CsvSource({"COUNT_EQUAL,notanumber", "COUNT_EQUAL,1.5", "COUNT_NOT_EQUAL,notanumber", "COUNT_NOT_EQUAL,1.5"})
+    void testCountEquality_nonIntegerValue_throwsValidationException(FilterConditionOperator operator, String value) {
+        CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
+        searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, operator, value)));
+        SecurityFilter securityFilter = new SecurityFilter();
+
+        ValidationException exception = Assertions
+                .assertThrows(ValidationException.class,
+                        () -> certificateService.listCertificates(securityFilter, searchRequestDto));
+        Assertions
+                .assertEquals("Filter field value " + value + " cannot be parsed as an Integer.",
+                        exception.getMessage());
+    }
+
     @Test
     void testCountGreaterThan_nullValue_throwsValidationException() {
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
