@@ -56,8 +56,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
+import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.cmp.CertRepMessage;
 import org.bouncycastle.asn1.cmp.CertResponse;
 import org.bouncycastle.asn1.cmp.PKIBody;
@@ -65,6 +67,7 @@ import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIMessage;
 import org.bouncycastle.asn1.cmp.PKIStatus;
 import org.bouncycastle.asn1.cmp.PKIStatusInfo;
+import org.bouncycastle.asn1.cmp.PollReqContent;
 import org.bouncycastle.asn1.cmp.RevRepContent;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.hibernate.Session;
@@ -211,14 +214,29 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         // then
         CertResponse certResponse = singleCertResponse(response);
         assertThat(certResponse.getStatus().getStatus().intValue()).isEqualTo(PKIStatus.GRANTED);
-        BigInteger returnedSerial = certResponse
-                .getCertifiedKeyPair()
-                .getCertOrEncCert()
-                .getCertificate()
-                .getX509v3PKCert()
-                .getSerialNumber()
-                .getValue();
-        assertThat(returnedSerial).isEqualTo(ISSUED_SERIAL);
+        assertThat(serialOf(certResponse)).isEqualTo(ISSUED_SERIAL);
+    }
+
+    @Test
+    void returnsTheCertificateToAPollReq_whenAWaitingIssueCompletesLater() throws Exception {
+        // given — the ir is answered waiting while its request is still queued, and issues afterwards
+        AtomicReference<UUID> queuedCertificate = new AtomicReference<>();
+        doAnswer(invocation -> {
+            ActionMessage queued = invocation.getArgument(0);
+            queuedCertificate.set(queued.getResourceUuid());
+            return null;
+        }).when(actionProducer).produceMessage(any());
+        PKIMessage waiting = post(irMessage());
+        markIssued(queuedCertificate.get(), issuedCertificate(ISSUED_SERIAL));
+
+        // when
+        PKIMessage collected = post(pollReqMessage());
+
+        // then
+        assertThat(singleCertResponse(waiting).getStatus().getStatus().intValue()).isEqualTo(PKIStatus.WAITING);
+        CertResponse certResponse = singleCertResponse(collected);
+        assertThat(certResponse.getStatus().getStatus().intValue()).isEqualTo(PKIStatus.GRANTED);
+        assertThat(serialOf(certResponse)).isEqualTo(ISSUED_SERIAL);
     }
 
     @Test
@@ -472,6 +490,20 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         } catch (Exception e) {
             throw new IllegalStateException("cannot encode the issued certificate", e);
         }
+    }
+
+    private static PKIMessage pollReqMessage() throws Exception {
+        return macProtected(new PKIBody(PKIBody.TYPE_POLL_REQ, new PollReqContent(new ASN1Integer(0L))));
+    }
+
+    private static BigInteger serialOf(CertResponse certResponse) {
+        return certResponse
+                .getCertifiedKeyPair()
+                .getCertOrEncCert()
+                .getCertificate()
+                .getX509v3PKCert()
+                .getSerialNumber()
+                .getValue();
     }
 
     private static CertResponse singleCertResponse(PKIMessage response) {

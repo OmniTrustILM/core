@@ -9,6 +9,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.asn1.ASN1OctetString;
@@ -113,7 +114,8 @@ public class PollFeature {
     public PollResult pollCertificate(ASN1OctetString tid, String serialNumber, String uuid,
             CertificateState expectedState) throws CmpProcessingException {
         log.trace(">>>>> CERT POLL (begin) >>>>> ");
-        SecuredUUID certUUID = SecuredUUID.fromString(uuid);
+        UUID certificateUuid = UUID.fromString(uuid);
+        SecuredUUID certUUID = SecuredUUID.fromUUID(certificateUuid);
         long timeoutMs = 1_000L * (pollFeatureTimeout == null ? DEFAULT_POLL_TIMEOUT_SECONDS : pollFeatureTimeout);
         long startRequest = System.currentTimeMillis();
         int counter = 0;
@@ -122,8 +124,8 @@ public class PollFeature {
             while (true) {
                 counter++;
                 CertificateState current = certificateRepository
-                        .findStateByUuid(certUUID.getValue())
-                        .orElseThrow(() -> new NotFoundException(Certificate.class, certUUID));
+                        .findStateByUuid(certificateUuid)
+                        .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
                 log
                         .trace("TID={}, POLL=[{}], SN={} | observed state={}, uuid={}", tid, counter, serialNumber,
                                 current, certUUID);

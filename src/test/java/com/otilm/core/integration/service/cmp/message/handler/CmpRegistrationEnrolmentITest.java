@@ -247,6 +247,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         } finally {
             TransactionSynchronizationManager.unbindResource(entityManagerFactory);
             requestEntityManager.close();
+            RequestContextHolder.resetRequestAttributes();
         }
     }
 

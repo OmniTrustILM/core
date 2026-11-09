@@ -22,6 +22,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.stubbing.OngoingStubbing;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.SimpleTransactionStatus;
@@ -238,8 +239,11 @@ class PollFeatureTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void stubStates(CertificateState first, CertificateState... next) {
-        Optional<CertificateState>[] following = Stream.of(next).map(Optional::of).toArray(Optional[]::new);
-        when(certificateRepository.findStateByUuid(certUuid)).thenReturn(Optional.of(first), following);
+        OngoingStubbing<Optional<CertificateState>> states = when(certificateRepository.findStateByUuid(certUuid))
+                .thenReturn(Optional.of(first));
+        for (CertificateState following : next) {
+            states = states.thenReturn(Optional.of(following));
+        }
     }
 
     private TransactionStatus stubLoadOf(Certificate certificate) throws NotFoundException {
