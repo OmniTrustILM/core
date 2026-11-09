@@ -418,11 +418,11 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     @Test
-    void matchingEnrolmentAnswersOverTheProtocolWhenThePollReadsTheDatabase() throws Exception {
+    void answersWaiting_whenARealPollFindsTheEnrolmentNotYetIssued() throws Exception {
+        // given — a real poll reads the certificate's state from the database; nothing issues it, so the short
+        // budget ends with the enrolment accepted as pending, over the protocol
         Certificate registration = seedRegistration(SUBJECT_DN, Map.of("dNSName", List.of("device-1.example")),
                 CertificateState.REGISTERED);
-        // A real poll reads the certificate's state from the database. Nothing issues it here, so the short
-        // budget ends with the enrolment accepted as pending, over the protocol.
         PollFeature realPoll = new PollFeature();
         realPoll.setCertificateService(certificateService);
         realPoll.setCertificateRepository(certificateRepository);
@@ -434,30 +434,36 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
                         .pollCertificate(invocation.getArgument(0), invocation.getArgument(1),
                                 invocation.getArgument(2), invocation.getArgument(3)));
 
+        // when
         ResponseEntity<byte[]> response = post(
                 irMessage(SUBJECT_DN, List.of("device-1.example"), CHALLENGE, registration.getUuid()));
 
+        // then
         PKIMessage ip = PKIMessage.getInstance(response.getBody());
-        assertEquals(PKIBody.TYPE_INIT_REP, ip.getBody().getType());
+        assertThat(ip.getBody().getType()).isEqualTo(PKIBody.TYPE_INIT_REP);
         PKIStatusInfo certStatus = ((CertRepMessage) ip.getBody().getContent()).getResponse()[0].getStatus();
-        assertEquals(PKIStatus.WAITING, certStatus.getStatus().intValue(), "accepted as pending, not rejected");
+        assertThat(certStatus.getStatus().intValue())
+                .as("accepted as pending, not rejected")
+                .isEqualTo(PKIStatus.WAITING);
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             Certificate completed = certificateRepository.findByUuid(registration.getUuid()).orElseThrow();
-            assertNotNull(completed.getProtocolAssociation(), "the completion is attributed to CMP");
+            assertThat(completed.getProtocolAssociation()).as("the completion is attributed to CMP").isNotNull();
         });
     }
 
     @Test
-    void anUnexpectedHandlerFailureIsStillAnsweredAsACmpError() throws Exception {
+    void answersTheGenericCmpError_whenTheHandlerFailsUnexpectedly() throws Exception {
+        // given — an unexpected runtime failure from the handler
         Certificate registration = seedRegistration(SUBJECT_DN, null, CertificateState.REGISTERED);
-        // An unexpected runtime failure from the handler.
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
                 .willThrow(new IllegalStateException("poll broke"));
 
+        // when
         ResponseEntity<byte[]> response = post(irMessage(SUBJECT_DN, null, CHALLENGE, registration.getUuid()));
 
-        assertEquals(PKIFailureInfo.systemFailure, failInfo(response.getBody()));
-        assertEquals("CMP request handling failed", failText(response.getBody()));
+        // then
+        assertThat(failInfo(response.getBody())).isEqualTo(PKIFailureInfo.systemFailure);
+        assertThat(failText(response.getBody())).isEqualTo("CMP request handling failed");
     }
 
     @Test

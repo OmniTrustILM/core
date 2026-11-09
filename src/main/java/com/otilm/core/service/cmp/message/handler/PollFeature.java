@@ -132,13 +132,18 @@ public class PollFeature {
 
                 if (expectedState.equals(current)) {
                     Certificate reached = loadFresh(certUUID);
-                    if (serialNumber == null) {
-                        serialNumber = reached.getSerialNumber();
+                    // The load is a second read: classify the state it saw, in case the
+                    // certificate moved on after the state read.
+                    current = reached.getState();
+                    if (expectedState.equals(current)) {
+                        if (serialNumber == null) {
+                            serialNumber = reached.getSerialNumber();
+                        }
+                        log
+                                .trace("TID={}, SN={} | certificate uuid={} reached expected state {}", tid,
+                                        serialNumber, certUUID, expectedState);
+                        return new PollResult.Reached(reached);
                     }
-                    log
-                            .trace("TID={}, SN={} | certificate uuid={} reached expected state {}", tid, serialNumber,
-                                    certUUID, expectedState);
-                    return new PollResult.Reached(reached);
                 }
                 if (isDivergentTerminal(current, expectedState)) {
                     log

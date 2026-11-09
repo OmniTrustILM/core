@@ -83,6 +83,20 @@ class PollFeatureTest {
     }
 
     @Test
+    void returnsDiverted_whenTheCertificateIsRevokedWhileItLoads() throws Exception {
+        // given — the state read sees ISSUED, and a revocation lands before the certificate is loaded
+        Certificate revokedMeanwhile = certificateInState(CertificateState.REVOKED);
+        stubStates(CertificateState.ISSUED);
+        stubLoadOf(revokedMeanwhile);
+
+        // when
+        PollResult result = pollFeature.pollCertificate(TID, "01", certUuid.toString(), CertificateState.ISSUED);
+
+        // then
+        assertThat(result).isEqualTo(new PollResult.Diverted(CertificateState.REVOKED));
+    }
+
+    @Test
     void returnsReached_whenPendingIssueTurnsIssuedWithinTheBudget() throws Exception {
         // given
         pollFeature.setPollFeatureTimeout(1);
@@ -257,7 +271,7 @@ class PollFeatureTest {
         return aCertificate().withUuid(certUuid).withState(state).withSerialNumber("01").build();
     }
 
-    static Stream<Arguments> asynchronousStatesAndTheirTargets() {
+    private static Stream<Arguments> asynchronousStatesAndTheirTargets() {
         return Stream
                 .of(Arguments.of(CertificateState.REQUESTED, CertificateState.ISSUED),
                         Arguments.of(CertificateState.REGISTERED, CertificateState.ISSUED),
@@ -265,7 +279,7 @@ class PollFeatureTest {
                         Arguments.of(CertificateState.PENDING_REVOKE, CertificateState.REVOKED));
     }
 
-    static Stream<Arguments> terminalStatesOtherThanTheTarget() {
+    private static Stream<Arguments> terminalStatesOtherThanTheTarget() {
         return Stream
                 .of(Arguments.of(CertificateState.FAILED, CertificateState.ISSUED),
                         Arguments.of(CertificateState.REJECTED, CertificateState.ISSUED),

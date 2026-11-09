@@ -193,10 +193,15 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         IdleTransactionWatch watch = IdleTransactionWatch.start(new JdbcTemplate(dataSource));
 
         // when
-        PKIMessage response = post(irMessage());
+        PKIMessage response;
+        IdleTransactionSamples samples;
+        try {
+            response = post(irMessage());
+        } finally {
+            samples = watch.stop();
+        }
 
         // then
-        IdleTransactionSamples samples = watch.stop();
         assertThat(samples.taken()).as("samples taken while polling").isGreaterThanOrEqualTo(MIN_SAMPLES);
         assertThat(samples.highestHeld()).as("connections held idle in transaction while polling").isZero();
         assertThat(singleCertResponse(response).getStatus().getStatus().intValue()).isEqualTo(PKIStatus.WAITING);
@@ -261,10 +266,15 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         IdleTransactionWatch watch = IdleTransactionWatch.start(new JdbcTemplate(dataSource));
 
         // when
-        PKIMessage response = post(rrMessage(certificate));
+        PKIMessage response;
+        IdleTransactionSamples samples;
+        try {
+            response = post(rrMessage(certificate));
+        } finally {
+            samples = watch.stop();
+        }
 
         // then
-        IdleTransactionSamples samples = watch.stop();
         assertThat(samples.taken()).as("samples taken while polling").isGreaterThanOrEqualTo(MIN_SAMPLES);
         assertThat(samples.highestHeld()).as("connections held idle in transaction while polling").isZero();
         PKIStatusInfo status = ((RevRepContent) response.getBody().getContent()).getStatus()[0];
