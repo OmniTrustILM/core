@@ -107,6 +107,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.query.sqm.ComparisonOperator;
 import org.hibernate.query.sqm.function.SelfRenderingSqmFunction;
 import org.hibernate.query.sqm.tree.expression.SqmLiteral;
@@ -135,6 +136,7 @@ import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aProper
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEmptyFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyNotEqualsFilter;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aSearchFilter;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests for class {@link FilterPredicatesBuilder}
@@ -2243,17 +2245,20 @@ class FilterPredicatesBuilderITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @CsvSource({"COUNT_EQUAL,notanumber", "COUNT_EQUAL,1.5", "COUNT_NOT_EQUAL,notanumber", "COUNT_NOT_EQUAL,1.5"})
-    void testCountEquality_nonIntegerValue_throwsValidationException(FilterConditionOperator operator, String value) {
+    void throwsValidationException_whenCountEqualityValueIsNotAnInteger(FilterConditionOperator operator,
+            String value) {
+        // given
         CertificateSearchRequestDto searchRequestDto = new CertificateSearchRequestDto();
         searchRequestDto.setFilters(List.of(aPropertyFilter(FilterField.GROUP_NAME, operator, value)));
         SecurityFilter securityFilter = new SecurityFilter();
 
-        ValidationException exception = Assertions
-                .assertThrows(ValidationException.class,
-                        () -> certificateService.listCertificates(securityFilter, searchRequestDto));
-        Assertions
-                .assertEquals("Filter field value " + value + " cannot be parsed as an Integer.",
-                        exception.getMessage());
+        // when
+        ThrowingCallable listCertificates = () -> certificateService.listCertificates(securityFilter, searchRequestDto);
+
+        // then
+        assertThatThrownBy(listCertificates)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Filter field value " + value + " cannot be parsed as an Integer.");
     }
 
     @Test
