@@ -65,6 +65,7 @@ import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.notifications.NotificationInstanceReferenceRepository;
 import com.otilm.core.enums.FilterField;
+import com.otilm.core.events.ConnectorChangedEvent;
 import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.connector.ImmutableConnectorBasicModel;
@@ -78,7 +79,6 @@ import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.ConnectorAuthInternalService;
 import com.otilm.core.service.handler.ConnectorAdapter;
 import com.otilm.core.service.handler.discovery.DiscoveryRunTerminator;
-import com.otilm.core.service.handler.key.KeyOperationCache;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.service.writer.DiscoveryWriter;
@@ -106,6 +106,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -139,7 +140,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     private TransactionHandler transactionHandler;
 
     private CacheEvictor cacheEvictor;
-    private KeyOperationCache keyOperationCache;
+    private ApplicationEventPublisher applicationEventPublisher;
     private NotificationInstanceReferenceRepository notificationInstanceReferenceRepository;
 
     private CommentInternalService commentService;
@@ -175,8 +176,8 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Autowired
-    public void setKeyOperationCache(KeyOperationCache keyOperationCache) {
-        this.keyOperationCache = keyOperationCache;
+    public void setApplicationEventPublisher(ApplicationEventPublisher applicationEventPublisher) {
+        this.applicationEventPublisher = applicationEventPublisher;
     }
 
     @Autowired
@@ -986,7 +987,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     void evictConnectorCache(UUID uuid) {
         cacheEvictor.evict(CacheConfig.CONNECTOR_API_CLIENT_CACHE, uuid);
-        keyOperationCache.forgetConnector(uuid);
+        applicationEventPublisher.publishEvent(new ConnectorChangedEvent(uuid));
         // Drop any cached CERTIFICATE WebClient built for this connector so a deleted or reconfigured
         // connector does not retain its client (and parsed key material). Keyed by the UUID string,
         // matching mapToApiClientDtoV2().
