@@ -23,7 +23,6 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,11 +48,15 @@ class SettingServiceMockedTest {
      * fixed order that keeps the keys acyclic: utils, certificates, signing, all before the rows are read.
      */
     @Test
-    void aPlatformUpdateTakesTheUtilsThenCertificatesThenSigningLockBeforeReadingTheRows() {
+    void takesTheSectionLocksInOrderBeforeReadingTheRows_whenEverySectionIsUpdated() {
+        // given
         when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
+        PlatformSettingsUpdateDto everySection = createAllSectionsUpdate();
 
-        settingService.updatePlatformSettings(allSections());
+        // when
+        settingService.updatePlatformSettings(everySection);
 
+        // then
         InOrder inOrder = inOrder(settingRepository);
         inOrder.verify(settingRepository).lockUtilsWrites();
         inOrder.verify(settingRepository).lockCertificateWrites();
@@ -63,29 +66,49 @@ class SettingServiceMockedTest {
 
     /** Integration tests are single-threaded, so they do not detect an unnecessary lock for an omitted section. */
     @Test
-    void aSectionLeftOutOfTheUpdateTakesNoLock() {
+    void takesOnlyTheUtilsLock_whenTheUpdateCarriesOnlyUtils() {
+        // given
         when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
-
         PlatformSettingsUpdateDto utilsOnly = new PlatformSettingsUpdateDto();
         utilsOnly.setUtils(new UtilsSettingsDto());
+
+        // when
         settingService.updatePlatformSettings(utilsOnly);
+
+        // then
         verify(settingRepository).lockUtilsWrites();
         verify(settingRepository, never()).lockCertificateWrites();
         verify(settingRepository, never()).lockSigningWrites();
+    }
 
-        clearInvocations(settingRepository);
-        PlatformSettingsUpdateDto certificatesOnly = allSections();
+    @Test
+    void takesOnlyTheCertificatesLock_whenTheUpdateCarriesOnlyCertificates() {
+        // given
+        when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
+        PlatformSettingsUpdateDto certificatesOnly = createAllSectionsUpdate();
         certificatesOnly.setUtils(null);
         certificatesOnly.setSigning(null);
+
+        // when
         settingService.updatePlatformSettings(certificatesOnly);
+
+        // then
         verify(settingRepository).lockCertificateWrites();
         verify(settingRepository, never()).lockUtilsWrites();
         verify(settingRepository, never()).lockSigningWrites();
+    }
 
-        clearInvocations(settingRepository);
+    @Test
+    void takesOnlyTheSigningLock_whenTheUpdateCarriesOnlySigning() {
+        // given
+        when(settingRepository.findBySection(SettingsSection.PLATFORM)).thenReturn(List.of());
         PlatformSettingsUpdateDto signingOnly = new PlatformSettingsUpdateDto();
         signingOnly.setSigning(new SigningSettingsDto());
+
+        // when
         settingService.updatePlatformSettings(signingOnly);
+
+        // then
         verify(settingRepository).lockSigningWrites();
         verify(settingRepository, never()).lockUtilsWrites();
         verify(settingRepository, never()).lockCertificateWrites();
@@ -106,7 +129,7 @@ class SettingServiceMockedTest {
                         exception.getMessage());
     }
 
-    private static PlatformSettingsUpdateDto allSections() {
+    private static PlatformSettingsUpdateDto createAllSectionsUpdate() {
         CertificateSettingsUpdateDto certificates = new CertificateSettingsUpdateDto();
         certificates.setRegistration(new CertificateRegistrationSettingsUpdateDto());
         PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();

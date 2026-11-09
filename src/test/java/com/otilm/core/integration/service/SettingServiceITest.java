@@ -1274,7 +1274,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         var operatorLimit = 250;
 
         // when
-        settingService.updatePlatformSettings(signingUpdate(operatorLimit));
+        settingService.updatePlatformSettings(createSigningUpdate(operatorLimit));
 
         // then
         PlatformSettingsDto settings = settingService.getPlatformSettings();
@@ -1287,7 +1287,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         var operatorLimit = 250;
 
         // when
-        settingService.updatePlatformSettings(signingUpdate(operatorLimit));
+        settingService.updatePlatformSettings(createSigningUpdate(operatorLimit));
 
         // then
         PlatformSettingsDto cached = SettingsCache.getSettings(SettingsSection.PLATFORM);
@@ -1295,17 +1295,30 @@ class SettingServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void returnsTheDefaultAndLeavesNoRow_whenSigningIsSentWithoutALimit() {
+    void returnsTheDefaultSigningLimit_whenSigningIsSentWithoutALimit() {
         // given
-        settingService.updatePlatformSettings(signingUpdate(250));
+        var existingLimit = 250;
+        settingService.updatePlatformSettings(createSigningUpdate(existingLimit));
 
         // when
-        settingService.updatePlatformSettings(signingUpdate(null));
+        settingService.updatePlatformSettings(createSigningUpdate(null));
 
         // then
         PlatformSettingsDto settings = settingService.getPlatformSettings();
         assertThat(settings.getSigning().getMaxItemsPerRequest())
                 .isEqualTo(SigningSettingsDto.DEFAULT_MAX_ITEMS_PER_REQUEST);
+    }
+
+    @Test
+    void deletesTheSigningRow_whenSigningIsSentWithoutALimit() {
+        // given
+        var existingLimit = 250;
+        settingService.updatePlatformSettings(createSigningUpdate(existingLimit));
+
+        // when
+        settingService.updatePlatformSettings(createSigningUpdate(null));
+
+        // then
         assertThat(settingRepository.findBySection(SettingsSection.PLATFORM))
                 .noneMatch(setting -> SettingsSectionCategory.PLATFORM_SIGNING.getCode().equals(setting.getCategory()));
     }
@@ -1314,7 +1327,7 @@ class SettingServiceITest extends BaseSpringBootTest {
     void leavesTheSigningLimitUntouched_whenTheUpdateLeavesSigningOut() {
         // given
         var operatorLimit = 250;
-        settingService.updatePlatformSettings(signingUpdate(operatorLimit));
+        settingService.updatePlatformSettings(createSigningUpdate(operatorLimit));
         var utilsOnly = new PlatformSettingsUpdateDto();
         utilsOnly.setUtils(new UtilsSettingsDto());
 
@@ -1343,7 +1356,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static PlatformSettingsUpdateDto signingUpdate(Integer maxItemsPerRequest) {
+    private static PlatformSettingsUpdateDto createSigningUpdate(Integer maxItemsPerRequest) {
         SigningSettingsDto signing = new SigningSettingsDto();
         signing.setMaxItemsPerRequest(maxItemsPerRequest);
         PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
