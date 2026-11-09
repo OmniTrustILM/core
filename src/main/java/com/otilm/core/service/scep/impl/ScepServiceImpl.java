@@ -104,6 +104,8 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Scope;
+import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -111,9 +113,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.NoTransactionException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Service
+// init stores per-request state in fields, so each HTTP request gets an instance of its own.
+@Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
 // noRollbackFor keeps Spring's default (no rollback on checked exceptions): SCEP surfaces
 // these as protocol error responses rather than treating them as transaction failures.
 @Transactional(noRollbackFor = {ScepException.class, NotFoundException.class})
@@ -511,8 +516,7 @@ public class ScepServiceImpl implements ScepExternalService {
                 if (registrationMode()) {
                     // An authenticated renewal proved possession of the replaced certificate's key — the
                     // RFC-blessed equivalent of a challenge — so only initial enrolments must match a
-                    // pre-registration. The match travels as a parameter: it is per-request state and must
-                    // not live on this singleton.
+                    // pre-registration. The match travels as a parameter.
                     if (!authenticatedRenewal) {
                         matchedRegistration = matchRegistration(scepRequest);
                     }
