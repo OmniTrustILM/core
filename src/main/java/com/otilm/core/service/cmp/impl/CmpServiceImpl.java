@@ -60,6 +60,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Scope;
+import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -67,11 +69,14 @@ import org.springframework.transaction.NoTransactionException;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import static com.otilm.core.service.cmp.CmpConstants.HTTP_HEADER_CONTENT_TYPE;
 
 @Service
+// init stores per-request state in fields, so each HTTP request gets an instance of its own.
+@Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
 @Transactional
 public class CmpServiceImpl implements CmpExternalService {
 

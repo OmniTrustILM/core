@@ -61,6 +61,7 @@ import java.security.KeyPairGenerator;
 import java.security.Security;
 import java.security.Signature;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.Date;
@@ -68,6 +69,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.crypto.Cipher;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1Primitive;
@@ -92,9 +98,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -118,6 +130,7 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
     private static final String SCEP_PROFILE_NAME = "registrationEnrolmentProfile";
     private static final String CA_DN = "CN=Test SCEP Registration CA";
     private static final String CHALLENGE = "registration-challenge-1";
+    private static final String DECRYPT_PATH = "/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/decrypt";
     private static final String SUBJECT_DN = "CN=device-1";
     private static final String UNREGISTERED_SUBJECT_DN = "CN=unregistered-device";
     /** Pinned copy of the wire contract: changing the production message must consciously change this test. */
@@ -628,6 +641,38 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
                 "an authenticated renewal must get past the registration gate to the envelope preflight");
     }
 
+    /**
+     * A request is answered for the profile it was sent to, even when another profile's request is served meanwhile.
+     */
+    @Test
+    void completesTheRegistration_whenAnotherProfileIsServedDuringTheEnrolment() throws Exception {
+        // given
+        Certificate placeholder = registeredPlaceholder(SUBJECT_DN, Map.of("dNSName", List.of("device-1.example")),
+                CHALLENGE);
+        ScepProfile anotherProfile = storeAnotherProfile("anotherProfile");
+        byte[] enrolment = enrolment(SUBJECT_DN, List.of("device-1.example"), CHALLENGE);
+        var decryptDelay = Duration.ofSeconds(3);
+        stubConnectorDecrypt(enrolment, decryptDelay);
+
+        // when
+        ResponseEntity<Object> response;
+        try (ExecutorService enrolmentThread = Executors.newSingleThreadExecutor()) {
+            Future<ResponseEntity<Object>> enrolling = enrolmentThread
+                    .submit(wrapInARequestOfItsOwn(() -> scepService
+                            .handlePost(SCEP_PROFILE_NAME, ScepServiceImpl.SCEP_OPERATION_PKI_OPERATION, enrolment)));
+            awaitTheDecryptRequest(enrolling);
+            scepService.handleGet(anotherProfile.getName(), ScepServiceImpl.SCEP_OPERATION_GET_CA_CERT, null);
+            response = enrolling.get(30, TimeUnit.SECONDS);
+        }
+
+        // then
+        assertScepFormatted(response);
+        assertThat(attribute(response, ScepConstants.id_pkiStatus))
+                .isEqualTo(String.valueOf(PkiStatus.PENDING.getValue()));
+        assertThat(certificateRepository.findByUuid(placeholder.getUuid()).orElseThrow().getCertificateRequestUuid())
+                .isNotNull();
+    }
+
     private byte[] enrolment(String subjectDn, List<String> dnsSans, String challengePassword) throws Exception {
         return ScepMessageTestData
                 .keyTransportEnvelopedPkcsReq(caCertificateX509(), subjectDn, dnsSans, challengePassword);
@@ -642,12 +687,17 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
         return scepService.handlePost(SCEP_PROFILE_NAME, ScepServiceImpl.SCEP_OPERATION_PKI_OPERATION, message);
     }
 
+    private void stubConnectorDecrypt(byte[] scepMessage) throws Exception {
+        stubConnectorDecrypt(scepMessage, Duration.ZERO);
+    }
+
     /**
      * The connector decrypt must return the real content-encryption key or the CSR can never be read: the key is
      * extracted from the message's KeyTransRecipientInfo and decrypted locally with the test-held CA private key, and
-     * the stub returns exactly that value. Later stubs override earlier ones, so each message gets its own.
+     * the stub returns exactly that value. Later stubs override earlier ones, so each message gets its own. The stub
+     * answers after {@code delay}.
      */
-    private void stubConnectorDecrypt(byte[] scepMessage) throws Exception {
+    private void stubConnectorDecrypt(byte[] scepMessage, Duration delay) throws Exception {
         byte[] encryptedKey = extractEncryptedContentEncryptionKey(scepMessage);
         Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
         cipher.init(Cipher.DECRYPT_MODE, caKeyPair.getPrivate());
@@ -655,10 +705,53 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
 
         mockServer
                 .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+/decrypt"))
-                        .willReturn(WireMock.okJson("""
-                                {"decryptedData": [{"data": "%s"}]}
-                                """.formatted(Base64.getEncoder().encodeToString(contentEncryptionKey)))));
+                        .post(WireMock.urlPathMatching(DECRYPT_PATH))
+                        .willReturn(WireMock
+                                .okJson("""
+                                        {"decryptedData": [{"data": "%s"}]}
+                                        """.formatted(Base64.getEncoder().encodeToString(contentEncryptionKey)))
+                                .withFixedDelay((int) delay.toMillis())));
+    }
+
+    /** A second profile on the same CA certificate and RA profile. */
+    private ScepProfile storeAnotherProfile(String name) {
+        ScepProfile profile = new ScepProfile();
+        profile.setName(name);
+        profile.setEnabled(true);
+        profile.setRequireManualApproval(false);
+        profile.setIncludeCaCertificate(true);
+        profile.setChallengeSource(ProtocolChallengeSource.PROTOCOL_DEFAULT);
+        profile.setChallengePassword("another-profile-password");
+        profile.setCaCertificate(scepProfile.getCaCertificate());
+        profile.setRaProfile(raProfile);
+        return scepProfileRepository.save(profile);
+    }
+
+    /** Wraps the call to run as a separate HTTP request would: on its own thread, with its own request bound. */
+    private static <T> Callable<T> wrapInARequestOfItsOwn(Callable<T> call) {
+        SecurityContext caller = SecurityContextHolder.getContext();
+        return () -> {
+            ServletRequestAttributes request = new ServletRequestAttributes(new MockHttpServletRequest("POST",
+                    ScepServiceImpl.SCEP_URL_PREFIX + "/" + SCEP_PROFILE_NAME + "/pkiclient.exe"));
+            SecurityContextHolder.setContext(caller);
+            RequestContextHolder.setRequestAttributes(request);
+            try {
+                return call.call();
+            } finally {
+                request.requestCompleted();
+                RequestContextHolder.resetRequestAttributes();
+                SecurityContextHolder.clearContext();
+            }
+        };
+    }
+
+    private void awaitTheDecryptRequest(Future<?> enrolling) {
+        await()
+                .atMost(Duration.ofSeconds(10))
+                .failFast("the enrolment ended before its decrypt call", enrolling::isDone)
+                .until(() -> !mockServer
+                        .findAll(WireMock.postRequestedFor(WireMock.urlPathMatching(DECRYPT_PATH)))
+                        .isEmpty());
     }
 
     private static byte[] extractEncryptedContentEncryptionKey(byte[] scepMessage) throws Exception {

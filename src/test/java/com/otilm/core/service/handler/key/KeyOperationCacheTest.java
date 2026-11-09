@@ -11,6 +11,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.config.cache.CacheEvictor;
+import com.otilm.core.events.ConnectorChangedEvent;
 import com.otilm.core.model.connector.ImmutableConnectorInfo;
 import com.otilm.core.model.crypto.KeyOperationScope;
 import com.otilm.core.util.cache.CacheManagerFixtures;
@@ -107,7 +108,7 @@ class KeyOperationCacheTest {
         }
 
         @Test
-        void readsAgainOnlyTheObjectsOfTheForgottenConnector() {
+        void readsAgainOnlyThatConnectorsObjects_whenAConnectorChanges() {
             // given
             when(attributeEngine.getStoredObjectDataAttributesContent(any())).thenAnswer(read -> new ArrayList<>());
             UUID tokenUuid = UUID.randomUUID();
@@ -117,7 +118,7 @@ class KeyOperationCacheTest {
             cache.storedAttributes(Resource.TOKEN, otherConnectorsToken, otherConnectorUuid);
 
             // when
-            cache.forgetConnector(connectorUuid);
+            cache.forgetConnector(new ConnectorChangedEvent(connectorUuid));
             cache.storedAttributes(Resource.TOKEN, tokenUuid, connectorUuid);
             cache.storedAttributes(Resource.TOKEN, otherConnectorsToken, otherConnectorUuid);
 
@@ -272,7 +273,7 @@ class KeyOperationCacheTest {
         }
 
         @Test
-        void asksAgainOnlyForTheForgottenConnector() throws Exception {
+        void asksAgainOnlyForThatConnector_whenAConnectorChanges() throws Exception {
             // given
             UUID keyItemUuid = UUID.randomUUID();
             ApiClientConnectorInfo otherConnector = connectorOf(UUID.randomUUID(), "http://other.test");
@@ -284,7 +285,7 @@ class KeyOperationCacheTest {
             signDefinitions(otherConnector, keyItemUuid, otherConnectorsLoader);
 
             // when
-            cache.forgetConnector(connectorUuid);
+            cache.forgetConnector(new ConnectorChangedEvent(connectorUuid));
             signDefinitions(keyItemUuid, scope, loader);
             signDefinitions(otherConnector, keyItemUuid, otherConnectorsLoader);
 
@@ -320,7 +321,7 @@ class KeyOperationCacheTest {
             loader.awaitEntered();
 
             // when
-            cache.forgetConnector(connectorUuid);
+            cache.forgetConnector(new ConnectorChangedEvent(connectorUuid));
             loader.open();
             loading.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
             signDefinitions(keyItemUuid, scope, loader);

@@ -2,7 +2,11 @@ package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.messaging.jms.configuration.DiscoveryWorkProperties;
+import com.otilm.core.messaging.jms.configuration.StatusPollProperties.PollSchedule;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +28,26 @@ public class DiscoveryTickBudget {
     public DiscoveryTickBudget(DiscoveryRunTerminator terminator, DiscoveryWorkProperties workProperties) {
         this.terminator = terminator;
         this.workProperties = workProperties;
+    }
+
+    /**
+     * Refreshes the budget a clear answer earned without restarting the backoff ramp: the tick's row is due at its next
+     * rung, with the counter held at the rung where the ladder reaches its slowest delay.
+     */
+    public void refresh(DiscoveryWorkTick tick) {
+        PollSchedule ladder = workProperties.scheduleFor(tick.workType());
+        int nextAttempt = Math.min(tick.attempt() + 1, ladder.ceilingAttempt());
+        tick.reschedule(nextAttempt, OffsetDateTime.now(ZoneOffset.UTC).plus(ladder.delayFor(nextAttempt)));
+    }
+
+    /**
+     * Refreshes the budget like {@link #refresh}, but makes the row due at the ladder's slowest rung: for an answer
+     * that says nothing is ready yet, where asking again sooner only repeats it.
+     */
+    public void refreshAtSlowestRung(DiscoveryWorkTick tick) {
+        PollSchedule ladder = workProperties.scheduleFor(tick.workType());
+        int nextAttempt = Math.min(tick.attempt() + 1, ladder.ceilingAttempt());
+        tick.reschedule(nextAttempt, OffsetDateTime.now(ZoneOffset.UTC).plus(ladder.delayFor(ladder.ceilingAttempt())));
     }
 
     /**

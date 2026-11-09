@@ -58,7 +58,7 @@ public class ContentSigningFormattingAttributes {
      * by name, rejecting the connector if a name means two different things across operations.
      */
     public List<BaseAttribute> aggregate(ApiClientConnectorInfo connector, SignatureLevel maxLevel)
-            throws ConnectorException {
+            throws ConnectorException, ValidationException {
         ContentSigningFormattingSyncApiClient client = connectorApiFactory
                 .getContentSigningFormattingApiClient(connector);
         Map<String, BaseAttribute> merged = new LinkedHashMap<>();
