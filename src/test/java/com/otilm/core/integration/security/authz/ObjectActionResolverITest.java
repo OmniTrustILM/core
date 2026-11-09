@@ -2,12 +2,16 @@ package com.otilm.core.integration.security.authz;
 
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
-import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsDto;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.secret.SecretState;
+import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
@@ -19,16 +23,16 @@ import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.SecretVersion;
-import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
+import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.dao.entity.signing.TspProfileBasicCredential;
+import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
@@ -36,29 +40,35 @@ import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
-import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
+import com.otilm.core.dao.repository.signing.TspProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.ResourceExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.seeders.CryptographicKeySeeder;
+import com.otilm.core.util.seeders.TokenProfileSeeder;
 import com.otilm.core.util.seeders.TspProfileBasicCredentialSeeder;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.util.List;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.engine.spi.SessionImplementor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
-import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
@@ -96,12 +106,6 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     private OwnerAssociationRepository ownerAssociationRepository;
 
     @Autowired
-    private TokenInstanceReferenceRepository tokenRepository;
-
-    @Autowired
-    private CryptographicKeyRepository keyRepository;
-
-    @Autowired
     private TokenProfileRepository tokenProfileRepository;
 
     @Autowired
@@ -118,6 +122,21 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
     @Autowired
     private TspProfileBasicCredentialSeeder basicCredentialSeeder;
+
+    @Autowired
+    private TokenProfileSeeder tokenProfileSeeder;
+
+    @Autowired
+    private CryptographicKeySeeder keySeeder;
+
+    @Autowired
+    private TspProfileRepository tspProfileRepository;
+
+    @Autowired
+    private AttributeDefinitionRepository attributeDefinitionRepository;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private Connector connector;
 
@@ -220,7 +239,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         List<ResourceAction> allowed = actionsOn(Resource.CERTIFICATE, certificate);
 
         // then
-        assertThat(allowed).doesNotContain(ResourceAction.RENEW, ResourceAction.REVOKE);
+        assertThat(allowed).contains(ResourceAction.DETAIL).doesNotContain(ResourceAction.RENEW, ResourceAction.REVOKE);
     }
 
     @Test
@@ -234,7 +253,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         List<ResourceAction> allowed = actionsOn(Resource.CERTIFICATE, certificate);
 
         // then
-        assertThat(allowed).doesNotContain(ResourceAction.RENEW, ResourceAction.REVOKE);
+        assertThat(allowed).contains(ResourceAction.DETAIL).doesNotContain(ResourceAction.RENEW, ResourceAction.REVOKE);
     }
 
     @Test
@@ -547,6 +566,164 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 .doesNotContain(ResourceAction.GET_SECRET_CONTENT, ResourceAction.UPDATE);
     }
 
+    @Test
+    void releasesTheRequestConnection_whenAnsweringBetweenAuthorizationCalls() {
+        // given
+        UUID group = saveGroup();
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        EntityManagerHolder requestHolder = new EntityManagerHolder(requestEntityManager);
+        TransactionSynchronizationManager.bindResource(entityManagerFactory, requestHolder);
+
+        // when
+        try {
+            report(Resource.GROUP, group);
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+        }
+
+        // then
+        boolean connected = requestEntityManager
+                .unwrap(SessionImplementor.class)
+                .getJdbcCoordinator()
+                .getLogicalConnection()
+                .isPhysicallyConnected();
+        requestEntityManager.close();
+        assertThat(connected).as("the request's EntityManager holds no connection").isFalse();
+    }
+
+    @Test
+    void leavesOutCertificateDelete_whenLocationUpdateIsDeniedOnTheCertificate() {
+        // given
+        UUID certificate = saveCertificate(saveRaProfile());
+        denyResourceAccess(Resource.LOCATION, ResourceAction.UPDATE, certificate);
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.CERTIFICATE, certificate);
+
+        // then
+        assertThat(allowed)
+                .as("deleting removes the certificate from its locations, checked against the certificate's UUID")
+                .contains(ResourceAction.UPDATE)
+                .doesNotContain(ResourceAction.DELETE);
+    }
+
+    @Test
+    void leavesOutCertificateDetail_whenLocationsCannotBeListed() {
+        // given
+        UUID certificate = saveCertificate(saveRaProfile());
+        denyResourceAccess(Resource.LOCATION, ResourceAction.LIST);
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.CERTIFICATE, certificate);
+
+        // then
+        assertThat(allowed)
+                .as("the certificate's locations are read through the location list")
+                .contains(ResourceAction.UPDATE)
+                .doesNotContain(ResourceAction.DETAIL);
+    }
+
+    @Test
+    void leavesOutTokenUpdate_whenCredentialDetailIsDeniedAndTheTokenHasNoConnectorInterface() {
+        // given
+        TokenProfile tokenProfile = tokenProfileSeeder.seedTokenProfile();
+        UUID token = tokenProfile.getTokenInstanceReferenceUuid();
+        denyResourceAccess(Resource.CREDENTIAL, ResourceAction.DETAIL);
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.TOKEN, token);
+
+        // then
+        assertThat(allowed)
+                .as("updating the token in its connector loads the credentials its attributes name")
+                .contains(ResourceAction.DETAIL)
+                .doesNotContain(ResourceAction.UPDATE);
+    }
+
+    @Test
+    void reportsDetailAndDelete_whenTheRaProfileHasNoAuthority() {
+        // given
+        RaProfile detached = new RaProfile();
+        detached.setName("ra-profile-" + UUID.randomUUID());
+        detached.setEnabled(true);
+        UUID raProfile = raProfileRepository.save(detached).getUuid();
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.RA_PROFILE, raProfile);
+
+        // then
+        assertThat(allowed)
+                .as("the RA profile endpoints without an authority check it only when it is set")
+                .contains(ResourceAction.DETAIL, ResourceAction.DELETE)
+                .doesNotContain(ResourceAction.UPDATE, ResourceAction.ENABLE);
+    }
+
+    @Test
+    void reportsDetailAndDelete_whenTheTokenProfileHasNoToken() {
+        // given
+        TokenProfile unassociated = new TokenProfile();
+        unassociated.setName("token-profile-" + UUID.randomUUID());
+        unassociated.setEnabled(true);
+        UUID tokenProfile = tokenProfileRepository.save(unassociated).getUuid();
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.TOKEN_PROFILE, tokenProfile);
+
+        // then
+        assertThat(allowed)
+                .as("an unassociated token profile is read and deleted without a token check")
+                .contains(ResourceAction.DETAIL, ResourceAction.DELETE)
+                .doesNotContain(ResourceAction.UPDATE, ResourceAction.ENABLE);
+    }
+
+    @Test
+    void leavesOutTspProfileDelete_whenMembersOnTheVaultProfileOfACredentialSecretAreDenied() {
+        // given
+        Secret password = saveSecret();
+        TspProfileBasicCredential credential = basicCredentialSeeder.persistCredential(password);
+        denyResourceAccess(Resource.VAULT_PROFILE, ResourceAction.MEMBERS, password.getSourceVaultProfileUuid());
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.TSP_PROFILE, credential.getTspProfile().getUuid());
+
+        // then
+        assertThat(allowed)
+                .as("deleting the TSP profile deletes the secret of each basic credential")
+                .contains(ResourceAction.UPDATE)
+                .doesNotContain(ResourceAction.DELETE);
+    }
+
+    @Test
+    void reportsTspProfileDelete_whenSecretDeleteIsDeniedButTheProfileHasNoCredentials() {
+        // given
+        TspProfile profile = new TspProfile();
+        profile.setName("tsp-profile-" + UUID.randomUUID());
+        UUID tspProfile = tspProfileRepository.save(profile).getUuid();
+        denyResourceAccess(Resource.SECRET, ResourceAction.DELETE);
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.TSP_PROFILE, tspProfile);
+
+        // then
+        assertThat(allowed).contains(ResourceAction.DELETE);
+    }
+
+    @Test
+    void leavesOutAttribute_whenItIsAConnectorDataDefinition() {
+        // given
+        UUID custom = saveAttributeDefinition(AttributeType.CUSTOM);
+        UUID data = saveAttributeDefinition(AttributeType.DATA);
+
+        // when
+        List<ObjectAllowedActionsDto> items = report(Resource.ATTRIBUTE, custom, data);
+
+        // then
+        assertThat(items)
+                .as("the attribute endpoints expose custom attributes and metadata only")
+                .extracting(ObjectAllowedActionsDto::getUuid)
+                .containsExactly(custom);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private List<ObjectAllowedActionsDto> report(Resource resource, UUID... uuids) {
@@ -639,29 +816,34 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     private CryptographicKey saveKey(boolean withToken) {
-        CryptographicKey key = aCryptographicKey().withName("key-" + UUID.randomUUID()).build();
-        if (withToken) {
-            TokenInstanceReference token = new TokenInstanceReference();
-            token.setName("token-" + UUID.randomUUID());
-            token.setTokenInstanceUuid(UUID.randomUUID().toString());
-            token.setConnector(connector);
-            token.setStatus(TokenInstanceStatus.CONNECTED);
-            token = tokenRepository.save(token);
-            key.setTokenInstanceReference(token);
-            key.setTokenInstanceReferenceUuid(token.getUuid());
+        if (!withToken) {
+            return keySeeder.seedKey("key-" + UUID.randomUUID(), null, null);
         }
-        return keyRepository.save(key);
+        return saveKeyWithTokenProfile();
     }
 
     private CryptographicKey saveKeyWithTokenProfile() {
-        CryptographicKey key = saveKey(true);
-        TokenProfile tokenProfile = new TokenProfile();
-        tokenProfile.setName("token-profile-" + UUID.randomUUID());
-        tokenProfile.setTokenInstanceReference(key.getTokenInstanceReference());
-        tokenProfile.setTokenInstanceReferenceUuid(key.getTokenInstanceReferenceUuid());
-        tokenProfile.setEnabled(true);
-        key.setTokenProfileUuid(tokenProfileRepository.save(tokenProfile).getUuid());
-        return keyRepository.save(key);
+        TokenProfile tokenProfile = tokenProfileSeeder.seedTokenProfile();
+        return keySeeder.seedKey("key-" + UUID.randomUUID(), tokenProfile, tokenProfile.getTokenInstanceReference());
+    }
+
+    private UUID saveAttributeDefinition(AttributeType type) {
+        UUID attributeUuid = UUID.randomUUID();
+        CustomAttributeV3 attribute = new CustomAttributeV3();
+        attribute.setUuid(attributeUuid.toString());
+        attribute.setName("attribute-" + attributeUuid);
+        attribute.setContentType(AttributeContentType.STRING);
+        attribute.setProperties(new CustomAttributeProperties());
+        AttributeDefinition definition = new AttributeDefinition();
+        definition.setName(attribute.getName());
+        definition.setAttributeUuid(attributeUuid);
+        definition.setContentType(AttributeContentType.STRING);
+        definition.setLabel(attribute.getName());
+        definition.setType(type);
+        definition.setDefinition(attribute);
+        definition.setEnabled(true);
+        definition.setVersion(3);
+        return attributeDefinitionRepository.save(definition).getUuid();
     }
 
     private Secret saveSecret() {

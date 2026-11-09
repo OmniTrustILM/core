@@ -680,7 +680,7 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    static Stream<Arguments> grantsAdmittingAnObjectInSeveralGroups() {
+    private static Stream<Arguments> grantsAdmittingAnObjectInSeveralGroups() {
         return Stream
                 .of(arguments(named("members on every group", new GroupMembersGrant(List.of(), List.of()))),
                         arguments(named("members on every group but a denied one",
@@ -689,7 +689,7 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
                                 List.of(GroupSlot.FIRST, GroupSlot.SECOND), List.of(GroupSlot.THIRD)))));
     }
 
-    static Stream<Arguments> grantsExcludingTheObjectInSeveralGroups() {
+    private static Stream<Arguments> grantsExcludingTheObjectInSeveralGroups() {
         return Stream
                 .of(arguments(named("every group of the object denied",
                         new GroupMembersGrant(List.of(), List.of(GroupSlot.FIRST, GroupSlot.SECOND)))),
@@ -699,7 +699,7 @@ class SecurityFilterRepositoryITest extends BaseSpringBootTest {
                                 new GroupMembersGrant(List.of(GroupSlot.FIRST), List.of(GroupSlot.FIRST)))));
     }
 
-    static Stream<Arguments> grantsCountedAgainstTheList() {
+    private static Stream<Arguments> grantsCountedAgainstTheList() {
         return Stream
                 .of(arguments(named("members on every group", new GroupMembersGrant(List.of(), List.of()))),
                         arguments(named("members on every group but a denied one",

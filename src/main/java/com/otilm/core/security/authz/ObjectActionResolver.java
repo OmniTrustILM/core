@@ -6,6 +6,7 @@ import com.otilm.api.model.core.auth.ObjectAllowedActionsDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnAncestor;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnEachChild;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnLinked;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnLinkedThrough;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
@@ -13,11 +14,13 @@ import com.otilm.core.security.authz.ObjectActionRequirements.OnObjectUnder;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
+import com.otilm.core.security.authz.ObjectActionRequirements.WhenEmpty;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Selection;
 import java.util.ArrayList;
@@ -32,6 +35,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import org.springframework.stereotype.Component;
 
@@ -48,11 +52,12 @@ public class ObjectActionResolver {
 
     private final AuthorizationEnforcer authorizationEnforcer;
 
-    @PersistenceContext
-    private EntityManager entityManager;
+    private final EntityManagerFactory entityManagerFactory;
 
-    public ObjectActionResolver(AuthorizationEnforcer authorizationEnforcer) {
+    public ObjectActionResolver(AuthorizationEnforcer authorizationEnforcer,
+            EntityManagerFactory entityManagerFactory) {
         this.authorizationEnforcer = authorizationEnforcer;
+        this.entityManagerFactory = entityManagerFactory;
     }
 
     public List<ObjectAllowedActionsDto> resolve(Resource resource, List<UUID> objectUuids) {
@@ -82,6 +87,19 @@ public class ObjectActionResolver {
         return items;
     }
 
+    /**
+     * Reads through an EntityManager of its own, closed after the read, so no connection is held across the
+     * authorization calls between reads, as the request's EntityManager would hold one until the response is written.
+     */
+    private <T> T read(Function<EntityManager, T> query) {
+        EntityManager reader = entityManagerFactory.createEntityManager();
+        try {
+            return query.apply(reader);
+        } finally {
+            reader.close();
+        }
+    }
+
     private static Set<String> attributesRead(ResourceObjects objects) {
         Set<String> attributes = new LinkedHashSet<>();
         if (objects.parentAttribute() != null) {
@@ -90,16 +108,22 @@ public class ObjectActionResolver {
         Stream
                 .of(Stream.of(objects.listing(), objects.viewing()), objects.actions().values().stream())
                 .flatMap(lists -> lists.flatMap(List::stream))
-                .forEach(requirement -> {
-                    switch (requirement) {
-                        case OnLinked onLinked -> attributes.add(onLinked.attribute());
-                        case OnObjectUnder under -> attributes.add(under.parentAttribute());
-                        case OnLinkedThrough through -> attributes.add(through.attribute());
-                        default -> {
-                        }
-                    }
-                });
+                .forEach(requirement -> attributeRead(requirement).ifPresent(attributes::add));
         return attributes;
+    }
+
+    private static Optional<String> attributeRead(Requirement requirement) {
+        return switch (requirement) {
+            case OnLinked(var linked, String attribute, var action, var metWhenEmpty) -> Optional.of(attribute);
+            case OnObjectUnder(var action, var parent, String parentAttribute, var parentAction) ->
+                Optional.of(parentAttribute);
+            case OnLinkedThrough(var through, String attribute, var inner) -> Optional.of(attribute);
+            case WhenEmpty(String attribute, var inner) -> Optional.of(attribute);
+            case OnObject onObject -> Optional.empty();
+            case OnResource onResource -> Optional.empty();
+            case OnAncestor onAncestor -> Optional.empty();
+            case OnEachChild onEachChild -> Optional.empty();
+        };
     }
 
     /** Decisions and attributes read while answering one request, so each is asked once. */
@@ -109,18 +133,23 @@ public class ObjectActionResolver {
 
         private final Map<String, Optional<UUID>> attributes = new HashMap<>();
 
+        private final Map<String, List<UUID>> children = new HashMap<>();
+
         /** Reads the requested objects with every attribute the requirements need; returns those that exist. */
         Set<UUID> load(Resource resource, ResourceObjects objects, Collection<UUID> objectUuids) {
             List<String> names = List.copyOf(attributesRead(objects));
-            CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+            CriteriaBuilder cb = entityManagerFactory.getCriteriaBuilder();
             CriteriaQuery<Tuple> query = cb.createTupleQuery();
             Root<?> root = query.from(objects.entity());
             List<Selection<?>> selections = new ArrayList<>();
             selections.add(root.get(UUID_ATTRIBUTE));
             names.forEach(name -> selections.add(root.get(name)));
-            query.multiselect(selections).where(root.get(UUID_ATTRIBUTE).in(objectUuids));
+            List<Predicate> admitted = new ArrayList<>();
+            admitted.add(root.get(UUID_ATTRIBUTE).in(objectUuids));
+            objects.admitted().forEach((attribute, values) -> admitted.add(root.get(attribute).in(values)));
+            query.multiselect(selections).where(admitted.toArray(Predicate[]::new));
             Set<UUID> existing = new HashSet<>();
-            for (Tuple row : entityManager.createQuery(query).getResultList()) {
+            for (Tuple row : read(reader -> reader.createQuery(query).getResultList())) {
                 UUID objectUuid = row.get(0, UUID.class);
                 existing.add(objectUuid);
                 for (int i = 0; i < names.size(); i++) {
@@ -142,19 +171,27 @@ public class ObjectActionResolver {
 
         private boolean isMet(Requirement requirement, Resource resource, UUID objectUuid) {
             return switch (requirement) {
-                case OnObject onObject -> onObject(resource, onObject.action(), objectUuid);
+                case OnObject(ResourceAction action) -> onObject(resource, action, objectUuid);
                 case OnObjectUnder under -> underParent(resource, under, objectUuid);
-                case OnResource onResource ->
-                    onResource(Objects.requireNonNullElse(onResource.resource(), resource), onResource.action());
-                case OnAncestor onAncestor -> ancestor(resource, objectUuid, onAncestor.ancestor())
-                        .map(ancestorUuid -> onObject(onAncestor.ancestor(), onAncestor.action(), ancestorUuid))
+                case OnResource(Resource named, ResourceAction action) ->
+                    onResource(Objects.requireNonNullElse(named, resource), action);
+                case OnAncestor(Resource ancestor, ResourceAction action) -> ancestor(resource, objectUuid, ancestor)
+                        .map(ancestorUuid -> onObject(ancestor, action, ancestorUuid))
                         .orElse(false);
-                case OnLinked onLinked -> attribute(resource, onLinked.attribute(), objectUuid)
-                        .map(linkedUuid -> onObject(onLinked.resource(), onLinked.action(), linkedUuid))
-                        .orElse(onLinked.metWhenEmpty());
-                case OnLinkedThrough through -> attribute(resource, through.attribute(), objectUuid)
-                        .map(linkedUuid -> isMet(through.requirement(), through.through(), linkedUuid))
-                        .orElse(false);
+                case OnLinked(Resource linked, String attribute, ResourceAction action, boolean metWhenEmpty) ->
+                    attribute(resource, attribute, objectUuid)
+                            .map(linkedUuid -> onObject(linked, action, linkedUuid))
+                            .orElse(metWhenEmpty);
+                case OnLinkedThrough(Resource through, String attribute, Requirement inner) ->
+                    attribute(resource, attribute, objectUuid)
+                            .map(linkedUuid -> isMet(inner, through, linkedUuid))
+                            .orElse(false);
+                case WhenEmpty(String attribute, Requirement inner) ->
+                    attribute(resource, attribute, objectUuid).isPresent() || isMet(inner, resource, objectUuid);
+                case OnEachChild(Resource child, String childAttribute, List<Requirement> inner) ->
+                    children(child, childAttribute, objectUuid)
+                            .stream()
+                            .allMatch(childUuid -> allMet(inner, child, childUuid));
             };
         }
 
@@ -204,16 +241,24 @@ public class ObjectActionResolver {
                             key -> select(resource, attribute, objectUuid));
         }
 
+        private List<UUID> children(Resource child, String childAttribute, UUID objectUuid) {
+            return children.computeIfAbsent(key(child, childAttribute, objectUuid), key -> {
+                Class<?> entity = ObjectActionRequirements.of(child).orElseThrow().entity();
+                CriteriaBuilder cb = entityManagerFactory.getCriteriaBuilder();
+                CriteriaQuery<UUID> query = cb.createQuery(UUID.class);
+                Root<?> root = query.from(entity);
+                query.select(root.get(UUID_ATTRIBUTE)).where(cb.equal(root.get(childAttribute), objectUuid));
+                return read(reader -> reader.createQuery(query).getResultList());
+            });
+        }
+
         private Optional<UUID> select(Resource resource, String attribute, UUID objectUuid) {
             Class<?> entity = ObjectActionRequirements.of(resource).orElseThrow().entity();
-            CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+            CriteriaBuilder cb = entityManagerFactory.getCriteriaBuilder();
             CriteriaQuery<UUID> query = cb.createQuery(UUID.class);
             Root<?> root = query.from(entity);
             query.select(root.get(attribute)).where(cb.equal(root.get(UUID_ATTRIBUTE), objectUuid));
-            return entityManager
-                    .createQuery(query)
-                    .setMaxResults(1)
-                    .getResultList()
+            return read(reader -> reader.createQuery(query).setMaxResults(1).getResultList())
                     .stream()
                     .filter(Objects::nonNull)
                     .findFirst();

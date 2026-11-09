@@ -1,12 +1,18 @@
 package com.otilm.core.integration.security.authz;
 
+import com.otilm.api.model.client.certificate.CertificateUpdateObjectsDto;
+import com.otilm.api.model.client.comment.CommentCreateRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
+import com.otilm.api.model.client.cryptography.key.BulkKeyUsageRequestDto;
+import com.otilm.api.model.client.cryptography.key.EditKeyRequestDto;
+import com.otilm.api.model.client.cryptography.operations.CipherDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
-import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
+import com.otilm.api.model.client.cryptography.operations.VerifyDataRequestDto;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsDto;
 import com.otilm.api.model.core.auth.ObjectAllowedActionsRequestDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -17,32 +23,36 @@ import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.GroupAssociation;
 import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.RaProfile;
-import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.GroupAssociationRepository;
 import com.otilm.core.dao.repository.GroupRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
-import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
-import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
+import com.otilm.core.security.authz.ObjectActionRequirements;
 import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.security.authz.SecuredResource;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.service.CertificateExternalService;
 import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.service.CommentExternalService;
+import com.otilm.core.service.ComplianceInternalService;
+import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.ResourceExternalService;
+import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.seeders.CryptographicKeySeeder;
+import com.otilm.core.util.seeders.TokenProfileSeeder;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,7 +70,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
-import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
@@ -117,6 +126,24 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
     private CryptographicOperationExternalService cryptographicOperationService;
 
     @Autowired
+    private ClientOperationExternalService clientOperationExternalService;
+
+    @Autowired
+    private CryptographicKeyExportExternalService keyExportService;
+
+    @Autowired
+    private CommentExternalService commentService;
+
+    @Autowired
+    private ComplianceInternalService complianceService;
+
+    @Autowired
+    private TokenProfileSeeder tokenProfileSeeder;
+
+    @Autowired
+    private CryptographicKeySeeder keySeeder;
+
+    @Autowired
     private ConnectorRepository connectorRepository;
 
     @Autowired
@@ -130,15 +157,6 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateContentRepository certificateContentRepository;
-
-    @Autowired
-    private TokenInstanceReferenceRepository tokenRepository;
-
-    @Autowired
-    private TokenProfileRepository tokenProfileRepository;
-
-    @Autowired
-    private CryptographicKeyRepository keyRepository;
 
     @Autowired
     private GroupRepository groupRepository;
@@ -184,22 +202,8 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                         .build())
                 .getUuid();
 
-        TokenInstanceReference token = new TokenInstanceReference();
-        token.setName("token");
-        token.setTokenInstanceUuid(UUID.randomUUID().toString());
-        token.setConnector(connector);
-        token.setStatus(TokenInstanceStatus.CONNECTED);
-        token = tokenRepository.save(token);
-        TokenProfile tokenProfile = new TokenProfile();
-        tokenProfile.setName("token-profile");
-        tokenProfile.setTokenInstanceReference(token);
-        tokenProfile.setTokenInstanceReferenceUuid(token.getUuid());
-        tokenProfile.setEnabled(true);
-        tokenProfile = tokenProfileRepository.save(tokenProfile);
-        key = aCryptographicKey().withName("key").build();
-        key.setTokenInstanceReference(token);
-        key.setTokenProfile(tokenProfile);
-        key = keyRepository.save(key);
+        TokenProfile tokenProfile = tokenProfileSeeder.seedTokenProfile();
+        key = keySeeder.seedKey("key", tokenProfile, tokenProfile.getTokenInstanceReference());
 
         Group group = new Group();
         group.setName("group");
@@ -217,6 +221,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         List<ResourceAction> reported = reportedActions(Resource.CERTIFICATE, certificateUuid);
 
         // then
+        assertThat(endpoints.keySet()).containsExactlyInAnyOrderElementsOf(tabledActions(Resource.CERTIFICATE));
         assertReportedExactlyWhenAccepted(user, reported, endpoints);
     }
 
@@ -231,20 +236,42 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
         List<ResourceAction> reported = reportedActions(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
 
         // then
+        assertThat(endpoints.keySet()).containsExactlyInAnyOrderElementsOf(tabledActions(Resource.CRYPTOGRAPHIC_KEY));
         assertReportedExactlyWhenAccepted(user, reported, endpoints);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /** Ordered so the endpoints changing the certificate run last, archive restored and delete at the very end. */
     private Map<ResourceAction, List<Endpoint>> certificateEndpoints() {
         SecuredParentUUID authority = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
         SecuredUUID raProfileUuid = SecuredUUID.fromUUID(raProfile.getUuid());
+        SecuredUUID certificate = SecuredUUID.fromUUID(certificateUuid);
         Map<ResourceAction, List<Endpoint>> endpoints = new LinkedHashMap<>();
         endpoints
-                .put(ResourceAction.DETAIL, List
-                        .of(endpoint(() -> certificateService.getCertificate(SecuredUUID.fromUUID(certificateUuid)),
-                                check(Resource.CERTIFICATE, ResourceAction.DETAIL),
-                                check(Resource.RA_PROFILE, ResourceAction.MEMBERS))));
+                .put(ResourceAction.DETAIL,
+                        List
+                                .of(endpoint(() -> certificateService.getCertificate(certificate),
+                                        check(Resource.CERTIFICATE, ResourceAction.DETAIL),
+                                        check(Resource.RA_PROFILE, ResourceAction.MEMBERS)),
+                                        endpoint(() -> certificateService.listLocations(certificate),
+                                                check(Resource.CERTIFICATE, ResourceAction.DETAIL))));
+        endpoints
+                .put(ResourceAction.UPDATE, List
+                        .of(endpoint(
+                                () -> certificateService
+                                        .updateCertificateObjects(certificate, new CertificateUpdateObjectsDto()),
+                                check(Resource.CERTIFICATE, ResourceAction.UPDATE))));
+        // The compliance check endpoint logs a refused compliance profile check instead of failing, so that check is
+        // called directly; the guard snapshot pins that checkCompliance calls it.
+        endpoints
+                .put(ResourceAction.CHECK_COMPLIANCE, List
+                        .of(endpoint(() -> certificateService.checkCompliance(List.of(certificate)),
+                                check(Resource.CERTIFICATE, ResourceAction.CHECK_COMPLIANCE)),
+                                endpoint(
+                                        () -> complianceService
+                                                .checkResourceObjectCompliance(Resource.CERTIFICATE, certificateUuid),
+                                        check(Resource.COMPLIANCE_PROFILE, ResourceAction.CHECK_COMPLIANCE))));
         // Renewal reaches its create check only past CSR validation, which this fixture cannot pass, so the create
         // check is called directly; the guard snapshot pins that renewCertificate calls it.
         endpoints
@@ -263,6 +290,23 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                                                         .renewCertificateAction(UUID.randomUUID(),
                                                                 new ClientCertificateRenewRequestDto(), false),
                                                 check(Resource.CERTIFICATE, ResourceAction.RENEW))));
+        // Issuing reaches its issue, create and detail checks only past request validation, so they are called
+        // directly; the guard snapshot pins that issueExistingCertificate calls them.
+        endpoints
+                .put(ResourceAction.ISSUE, List
+                        .of(endpoint(
+                                () -> clientOperationExternalService
+                                        .issueExistingCertificate(authority, raProfileUuid, certificateUuid.toString(),
+                                                new ClientCertificateIssueRequestDto()),
+                                check(Resource.RA_PROFILE, ResourceAction.DETAIL),
+                                check(Resource.AUTHORITY, ResourceAction.DETAIL)),
+                                endpoint(certificateInternalService::checkIssuePermissions,
+                                        check(Resource.CERTIFICATE, ResourceAction.ISSUE)),
+                                endpoint(certificateInternalService::checkCreatePermissions,
+                                        check(Resource.CERTIFICATE, ResourceAction.CREATE)),
+                                endpoint(() -> certificateInternalService.getCertificateEntity(certificate),
+                                        check(Resource.CERTIFICATE, ResourceAction.DETAIL),
+                                        check(Resource.RA_PROFILE, ResourceAction.MEMBERS))));
         endpoints
                 .put(ResourceAction.REVOKE,
                         List
@@ -277,30 +321,112 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                                                         .revokeCertificateAction(UUID.randomUUID(),
                                                                 new ClientCertificateRevocationDto(), false),
                                                 check(Resource.CERTIFICATE, ResourceAction.REVOKE))));
+        endpoints.put(ResourceAction.COMMENT, List.of(comment(Resource.CERTIFICATE, certificateUuid)));
+        endpoints
+                .put(ResourceAction.ARCHIVE,
+                        List
+                                .of(endpoint(() -> certificateService.archiveCertificate(certificate),
+                                        check(Resource.CERTIFICATE, ResourceAction.ARCHIVE)),
+                                        endpoint(() -> certificateService.unarchiveCertificate(certificate),
+                                                check(Resource.CERTIFICATE, ResourceAction.ARCHIVE))));
+        endpoints
+                .put(ResourceAction.DELETE,
+                        List
+                                .of(endpoint(() -> certificateService.deleteCertificate(certificate),
+                                        check(Resource.CERTIFICATE, ResourceAction.DELETE))));
         return endpoints;
     }
 
+    /** Ordered so the endpoints changing the key run last, and removal from the inventory at the very end. */
     private Map<ResourceAction, List<Endpoint>> keyEndpoints() {
+        SecuredParentUUID token = SecuredParentUUID.fromUUID(key.getTokenInstanceReferenceUuid());
+        SecuredUUID tokenProfile = SecuredUUID.fromUUID(key.getTokenProfileUuid());
+        SecuredUUID keyUuid = SecuredUUID.fromUUID(key.getUuid());
+        String[] operationChecks = {
+                check(Resource.TOKEN, ResourceAction.DETAIL),
+                check(Resource.TOKEN_PROFILE, ResourceAction.DETAIL)};
         Map<ResourceAction, List<Endpoint>> endpoints = new LinkedHashMap<>();
         endpoints
                 .put(ResourceAction.DETAIL,
                         List
-                                .of(endpoint(() -> keyService.getKey(SecuredUUID.fromUUID(key.getUuid())),
+                                .of(endpoint(() -> keyService.getKey(keyUuid),
                                         check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL),
                                         check(Resource.TOKEN, ResourceAction.MEMBERS)),
                                         endpoint(() -> keyService.getEventHistory(key.getUuid(), UUID.randomUUID()),
                                                 check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL))));
         endpoints
-                .put(ResourceAction.SIGN, List
-                        .of(endpoint(
-                                () -> cryptographicOperationService
-                                        .signData(SecuredParentUUID.fromUUID(key.getTokenInstanceReferenceUuid()),
-                                                SecuredUUID.fromUUID(key.getTokenProfileUuid()), key.getUuid(),
-                                                UUID.randomUUID(), new SignDataRequestDto()),
-                                check(Resource.TOKEN, ResourceAction.DETAIL),
-                                check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.SIGN),
-                                check(Resource.TOKEN_PROFILE, ResourceAction.DETAIL))));
+                .put(ResourceAction.EXPORT_KEY, List
+                        .of(endpoint(() -> keyExportService.listExportKeyAttributes(key.getUuid(), UUID.randomUUID()),
+                                check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.EXPORT_KEY))));
+        endpoints
+                .put(ResourceAction.SIGN,
+                        List
+                                .of(endpoint(() -> cryptographicOperationService
+                                        .signData(token, tokenProfile, key.getUuid(), UUID.randomUUID(),
+                                                new SignDataRequestDto()),
+                                        operationChecks)));
+        endpoints
+                .put(ResourceAction.VERIFY,
+                        List
+                                .of(endpoint(() -> cryptographicOperationService
+                                        .verifyData(token, tokenProfile, key.getUuid(), UUID.randomUUID(),
+                                                new VerifyDataRequestDto()),
+                                        operationChecks)));
+        endpoints
+                .put(ResourceAction.ENCRYPT,
+                        List
+                                .of(endpoint(() -> cryptographicOperationService
+                                        .encryptData(token, tokenProfile, key.getUuid(), UUID.randomUUID(),
+                                                new CipherDataRequestDto()),
+                                        operationChecks)));
+        endpoints
+                .put(ResourceAction.DECRYPT,
+                        List
+                                .of(endpoint(() -> cryptographicOperationService
+                                        .decryptData(token, tokenProfile, key.getUuid(), UUID.randomUUID(),
+                                                new CipherDataRequestDto()),
+                                        operationChecks)));
+        endpoints.put(ResourceAction.COMMENT, List.of(comment(Resource.CRYPTOGRAPHIC_KEY, key.getUuid())));
+        endpoints
+                .put(ResourceAction.UPDATE,
+                        List
+                                .of(endpoint(() -> keyService.editKey(keyUuid, new EditKeyRequestDto()),
+                                        check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE)),
+                                        endpoint(() -> keyService.updateKeyUsages(bulkUsage()),
+                                                check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.UPDATE))));
+        endpoints
+                .put(ResourceAction.ENABLE,
+                        List
+                                .of(endpoint(() -> keyService.enableKey(key.getUuid(), List.of()),
+                                        check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.ENABLE)),
+                                        endpoint(() -> keyService.enableKey(List.of(key.getUuid().toString())),
+                                                check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.ENABLE))));
+        endpoints
+                .put(ResourceAction.DELETE, List
+                        .of(endpoint(() -> keyService.deleteKey(key.getUuid(), List.of(UUID.randomUUID().toString())),
+                                check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DELETE)),
+                                endpoint(() -> keyService.removeKeyFromInventory(keyUuid),
+                                        check(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DELETE))));
         return endpoints;
+    }
+
+    private BulkKeyUsageRequestDto bulkUsage() {
+        BulkKeyUsageRequestDto request = new BulkKeyUsageRequestDto();
+        request.setUuids(List.of(key.getUuid()));
+        request.setUsage(List.of());
+        return request;
+    }
+
+    private Endpoint comment(Resource resource, UUID objectUuid) {
+        CommentCreateRequestDto request = new CommentCreateRequestDto();
+        request.setBody("comment");
+        return endpoint(() -> commentService
+                .createComment(SecuredResource.fromResource(resource), SecuredUUID.fromUUID(objectUuid), request),
+                check(resource, ResourceAction.COMMENT));
+    }
+
+    private static Set<ResourceAction> tabledActions(Resource resource) {
+        return ObjectActionRequirements.of(resource).orElseThrow().actions().keySet();
     }
 
     private List<ResourceAction> reportedActions(Resource resource, UUID objectUuid) {

@@ -137,9 +137,9 @@ class AuthServiceITest extends BaseSpringBootTest {
 
         // then
         // SETTINGS through its list grant, CERTIFICATE through its create grant + DASHBOARD and APPROVAL by default
-        assertThat(allowedListings).hasSize(4);
         assertThat(allowedListings)
                 .as("DASHBOARD and APPROVAL must be allowed by default")
+                .hasSize(4)
                 .contains(Resource.DASHBOARD, Resource.APPROVAL);
     }
 
@@ -154,9 +154,9 @@ class AuthServiceITest extends BaseSpringBootTest {
         // then
         // GROUP and SETTINGS through list grants, USER through the group members grant, CERTIFICATE through its create
         // grant + DASHBOARD and APPROVAL
-        assertThat(allowedListings).hasSize(6);
         assertThat(allowedListings)
                 .as("DASHBOARD and APPROVAL must be allowed by default")
+                .hasSize(6)
                 .contains(Resource.DASHBOARD, Resource.APPROVAL);
     }
 
@@ -470,7 +470,7 @@ class AuthServiceITest extends BaseSpringBootTest {
     }
 
     /** Each grant is a template taking the allowed group's uuid first and the denied group's second. */
-    static Stream<Arguments> groupGrantsDenyingASecondGroupOfTheObject() {
+    private static Stream<Arguments> groupGrantsDenyingASecondGroupOfTheObject() {
         return Stream.of(arguments(named("members on every group but one the object is also assigned to", """
                 [{"name": "groups", "allowAllActions": false, "actions": ["members"], "objects": [
                     {"uuid": "%2$s", "name": "denied", "allow": [], "deny": ["members"]}]}]
@@ -518,7 +518,7 @@ class AuthServiceITest extends BaseSpringBootTest {
         groupAssociationRepository.save(association);
     }
 
-    private void injectProfileWithResources(String resourcesJson) {
+    private static void injectProfileWithResources(String resourcesJson) {
         String userProfileData = """
                 {
                     "user": {

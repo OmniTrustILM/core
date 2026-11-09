@@ -84,7 +84,7 @@ class ProfileAssociationLookupIndexesMigrationITest extends BaseSpringBootTest {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    static Stream<Arguments> lookups() {
+    private static Stream<Arguments> lookups() {
         return Stream
                 .of(Arguments
                         .of("idx_owner_association_owner_uuid",

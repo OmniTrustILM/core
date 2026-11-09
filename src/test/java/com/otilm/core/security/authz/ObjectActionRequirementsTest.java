@@ -3,6 +3,7 @@ package com.otilm.core.security.authz;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnAncestor;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnEachChild;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnLinked;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnLinkedThrough;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
@@ -10,6 +11,7 @@ import com.otilm.core.security.authz.ObjectActionRequirements.OnObjectUnder;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
+import com.otilm.core.security.authz.ObjectActionRequirements.WhenEmpty;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
@@ -182,19 +184,31 @@ class ObjectActionRequirementsTest {
 
     private static void collectMissingAttributes(Resource resource, Requirement requirement, Set<String> missing) {
         Class<?> entity = TABLE.get(resource).entity();
-        switch (requirement) {
-            case OnLinked onLinked -> requireField(resource, entity, onLinked.attribute(), missing);
-            case OnObjectUnder under -> requireField(resource, entity, under.parentAttribute(), missing);
-            case OnLinkedThrough through -> {
-                requireField(resource, entity, through.attribute(), missing);
-                if (!TABLE.containsKey(through.through())) {
-                    missing.add(resource.getCode() + " through untabled " + through.through().getCode());
-                } else {
-                    collectMissingAttributes(through.through(), through.requirement(), missing);
-                }
+        if (requirement instanceof OnLinked onLinked) {
+            requireField(resource, entity, onLinked.attribute(), missing);
+        } else if (requirement instanceof OnObjectUnder under) {
+            requireField(resource, entity, under.parentAttribute(), missing);
+        } else if (requirement instanceof OnLinkedThrough through) {
+            requireField(resource, entity, through.attribute(), missing);
+            collectMissingOnTabled(resource, through.through(), List.of(through.requirement()), missing);
+        } else if (requirement instanceof WhenEmpty whenEmpty) {
+            requireField(resource, entity, whenEmpty.attribute(), missing);
+            collectMissingAttributes(resource, whenEmpty.requirement(), missing);
+        } else if (requirement instanceof OnEachChild onEachChild) {
+            collectMissingOnTabled(resource, onEachChild.child(), onEachChild.requirements(), missing);
+            if (TABLE.containsKey(onEachChild.child())) {
+                requireField(onEachChild.child(), TABLE.get(onEachChild.child()).entity(), onEachChild.childAttribute(),
+                        missing);
             }
-            default -> {
-            }
+        }
+    }
+
+    private static void collectMissingOnTabled(Resource resource, Resource other, List<Requirement> requirements,
+            Set<String> missing) {
+        if (!TABLE.containsKey(other)) {
+            missing.add(resource.getCode() + " through untabled " + other.getCode());
+        } else {
+            requirements.forEach(requirement -> collectMissingAttributes(other, requirement, missing));
         }
     }
 

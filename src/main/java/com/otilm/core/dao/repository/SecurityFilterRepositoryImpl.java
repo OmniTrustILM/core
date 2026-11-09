@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.CryptographicKeyItem_;
 import com.otilm.core.dao.entity.GroupAssociation;
 import com.otilm.core.dao.entity.GroupAssociation_;
+import com.otilm.core.dao.entity.ResourceObjectAssociation_;
 import com.otilm.core.dao.entity.UniquelyIdentifiedObject;
 import com.otilm.core.dao.entity.UniquelyIdentified_;
 import com.otilm.core.model.auth.ResourceAction;
@@ -726,8 +727,8 @@ public class SecurityFilterRepositoryImpl<T, ID> extends SimpleJpaRepository<T, 
         Subquery<Integer> assigned = query.subquery(Integer.class);
         Root<GroupAssociation> association = assigned.from(GroupAssociation.class);
         Predicate ofObject = cb
-                .and(cb.equal(association.get(GroupAssociation_.objectUuid), objectUuid),
-                        cb.equal(association.get(GroupAssociation_.resource), resource));
+                .and(cb.equal(association.get(ResourceObjectAssociation_.objectUuid), objectUuid),
+                        cb.equal(association.get(ResourceObjectAssociation_.resource), resource));
         Predicate condition = groupUuids == null
                 ? ofObject
                 : cb.and(ofObject, association.get(GroupAssociation_.groupUuid).in(groupUuids));
