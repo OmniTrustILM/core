@@ -41,6 +41,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -56,6 +57,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -220,6 +222,101 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(row.getLeaseToken()).as("a stale tick frees its row for the sweep at once").isNull();
         assertThat(row.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));
         verify(workProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void keepsAFreshBudget_whenAHundredAndTwentyDarkSlicesFollowEachOther() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        armDrainRow(run, 0);
+        var darkSlices = 120;
+        int[] slicesServed = {0};
+        when(client.results(any(), anyInt(), anyLong()))
+                .thenAnswer(call -> checkpointedPage(position("target-" + (++slicesServed[0]) * 37)));
+        DiscoveryWorkTick tick = admitTick(run, 0);
+
+        // when
+        List<Integer> attemptsAfterEachSlice = new ArrayList<>();
+        for (int slice = 0; slice < darkSlices; slice++) {
+            worker.tick(tick);
+            DiscoveryWork row = drainRow(run);
+            attemptsAfterEachSlice.add(row.getAttempt());
+            tick = lease
+                    .admit(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.DRAIN, 0, row.getLeaseToken()))
+                    .orElseThrow();
+        }
+
+        // then
+        assertThat(attemptsAfterEachSlice).hasSize(darkSlices).containsOnly(0);
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        verify(workProducer, times(darkSlices)).produceMessage(any());
+    }
+
+    @Test
+    void idlesAtTheSlowestRungWithoutSpendingTheBudget_whenTheConnectorHasNothingReadyYet() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        List<MetadataAttribute> storedPosition = position("waiting-for-the-source");
+        run.setCheckpoint(storedPosition);
+        discoveryRepository.saveAndFlush(run);
+        var nearTheEndOfTheBudget = 98;
+        armDrainRow(run, nearTheEndOfTheBudget + 1);
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(finalCheckpointedPage(storedPosition));
+        PollSchedule ladder = workProperties.scheduleFor(DiscoveryWorkType.DRAIN);
+        OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
+
+        // when
+        worker.tick(admitTick(run, nearTheEndOfTheBudget));
+
+        // then
+        DiscoveryWork row = drainRow(run);
+        assertThat(row.getAttempt()).isEqualTo(ladder.ceilingAttempt());
+        assertThat(row.getNextDueAt()).isAfterOrEqualTo(before.plus(ladder.delayFor(ladder.ceilingAttempt())));
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        verify(workProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void expeditesTheStatusPoll_whenACheckpointedPageSaysNothingMoreIsReady() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        armDrainRow(run, 0);
+        workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
+        when(client.results(any(), anyInt(), anyLong()))
+                .thenReturn(finalCheckpointedPage(position("past-the-last-target"), keyItem(1, "key-a")));
+
+        // when
+        worker.tick(admitTick(run, 0));
+
+        // then
+        DiscoveryWork statusRow = agenda(run)
+                .stream()
+                .filter(row -> row.getWorkType() == DiscoveryWorkType.STATUS)
+                .findFirst()
+                .orElseThrow();
+        assertThat(statusRow.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));
+        assertThat(stagedRefs(run)).containsExactly("key-a");
+    }
+
+    @Test
+    void keepsTheStatusPollWhereItWas_whenABufferedPageSaysNothingMoreIsReady() throws Exception {
+        // given
+        Discovery run = runStillScanning();
+        armDrainRow(run, 0);
+        OffsetDateTime statusDue = OffsetDateTime.now(ZoneOffset.UTC).plusHours(1);
+        workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, statusDue);
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, keyItem(1, "key-a")));
+
+        // when
+        worker.tick(admitTick(run, 0));
+
+        // then
+        DiscoveryWork statusRow = agenda(run)
+                .stream()
+                .filter(row -> row.getWorkType() == DiscoveryWorkType.STATUS)
+                .findFirst()
+                .orElseThrow();
+        assertThat(statusRow.getNextDueAt()).isAfter(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(30));
     }
 
     @Test
@@ -599,6 +696,14 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     private static DiscoveryResultsResponseDto checkpointedPage(List<MetadataAttribute> checkpoint,
             DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = page(items.length, true, items);
+        page.setCheckpoint(checkpoint);
+        return page;
+    }
+
+    /** The page a connector answers once nothing more is ready: {@code more} is false. */
+    private static DiscoveryResultsResponseDto finalCheckpointedPage(List<MetadataAttribute> checkpoint,
+            DiscoveredItemDto... items) {
+        DiscoveryResultsResponseDto page = page(items.length, false, items);
         page.setCheckpoint(checkpoint);
         return page;
     }
