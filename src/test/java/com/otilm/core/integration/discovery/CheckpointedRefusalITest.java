@@ -211,6 +211,29 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         assertThat(reloaded.getDeliveryMode()).isEqualTo(DiscoveryDeliveryMode.BUFFERED);
     }
 
+    /** The reverse switch: the tick read a buffered run, and the resume that took its row made the run checkpointed. */
+    @Test
+    void endsNothing_whenABufferedStatusTickLosesItsRowToAResumeToCheckpointed() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.BUFFERED);
+        armRow(run, DiscoveryWorkType.STATUS, 0);
+        DiscoveryWorkTick overtakenAfterRenewing = spy(
+                tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, 0));
+        doReturn(false).when(overtakenAfterRenewing).stillHoldsItsRow();
+        DiscoveryStatusResponseDto staleFailure = new DiscoveryStatusResponseDto();
+        staleFailure.setState(DiscoveryRunState.FAILED);
+        when(client.status(any())).thenAnswer(call -> {
+            switchToCheckpointed(run);
+            return staleFailure;
+        });
+
+        // when
+        statusWorker.tick(overtakenAfterRenewing);
+
+        // then
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+    }
+
     /** A stop and a resume that land after the tick renewed leave the status as it was but take the tick's row. */
     @Test
     void endsNothing_whenAStatusTickThatLostItsRowAfterRenewingAnswersFailed() throws Exception {
@@ -277,6 +300,25 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
 
         // then
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void endsNothing_whenAResumeTurnsTheRunCheckpointedWhileTheLastBufferedDrainAttemptFails() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.BUFFERED);
+        armRow(run, DiscoveryWorkType.DRAIN, LAST_ALLOWED_DRAIN_ATTEMPT);
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            stopAndResumeAsCheckpointed(run);
+            throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
+        });
+
+        // when
+        drainWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.DRAIN, LAST_ALLOWED_DRAIN_ATTEMPT));
+
+        // then
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(reloaded.getDeliveryMode()).isEqualTo(DiscoveryDeliveryMode.CHECKPOINTED);
     }
 
     @Test
@@ -585,6 +627,24 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     private void resumeAndExpediteStatus(Discovery run) {
         commitTheResume(run);
         workWriter.expedite(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    /**
+     * A stop, which deletes the drain row, and a resume whose connector answered in checkpointed mode, which re-creates
+     * it: two raised revisions and a run that is checkpointed from now on.
+     */
+    private void stopAndResumeAsCheckpointed(Discovery run) {
+        workWriter.deleteForRun(run.getUuid(), DiscoveryWorkType.DRAIN);
+        switchToCheckpointed(run);
+        workWriter.expedite(run.getUuid(), DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    /** What a stop and a resume into checkpointed delivery leave on the run row: two raised revisions and the mode. */
+    private void switchToCheckpointed(Discovery run) {
+        Discovery current = reload(run);
+        current.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        current.setCheckpointRevision(current.getCheckpointRevision() + 2);
+        discoveryRepository.saveAndFlush(current);
     }
 
     /**

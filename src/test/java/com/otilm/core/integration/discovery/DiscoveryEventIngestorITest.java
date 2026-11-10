@@ -396,6 +396,25 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     }
 
     @Test
+    void dropsThePageAsStale_whenAResumeTurnedTheBufferedRunCheckpointed() {
+        // given
+        Discovery run = bufferedRun();
+        long revisionTheTickRead = run.getCheckpointRevision();
+        DiscoveryDeliveryMode modeTheTickRead = run.getDeliveryMode();
+        stopAndResumeAsCheckpointed(run);
+
+        // when
+        DrainPageOutcome outcome = ingestor
+                .applyDrainPage(run.getUuid(), page(1L, true, keyItem(1, "key-a")), revisionTheTickRead,
+                        modeTheTickRead);
+
+        // then
+        assertThat(outcome).isEqualTo(DrainPageOutcome.STALE);
+        assertThat(stagedRefs(run)).isEmpty();
+        assertThat(reload(run).getLastAppliedSequence()).isZero();
+    }
+
+    @Test
     void dropsThePageAsStale_whenAResumeTurnedTheCheckpointedRunBuffered() {
         // given
         Discovery run = checkpointedRun();
@@ -467,6 +486,22 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         attribute.setContentType(contentType);
         attribute.setContent(List.of(content));
         return attribute;
+    }
+
+    /** A stop and a resume whose connector answered in checkpointed mode: two raised revisions, now checkpointed. */
+    private void stopAndResumeAsCheckpointed(Discovery run) {
+        Discovery current = reload(run);
+        current.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        current.setCheckpointRevision(current.getCheckpointRevision() + 2);
+        current.setCheckpoint(position("cursor-0"));
+        discoveryRepository.saveAndFlush(current);
+    }
+
+    private Discovery bufferedRun() {
+        Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
+        run.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+        run.setCheckpointRevision(3);
+        return discoveryRepository.saveAndFlush(run);
     }
 
     /** A stop and a resume whose connector answered in buffered mode: two raised revisions, no longer checkpointed. */
