@@ -138,7 +138,7 @@ discovery:
   # Delivery modes offered to Discovery v2 connectors, most preferred first (wire codes, comma-separated). Removing
   # checkpointed makes a connector that supports only checkpointed delivery refuse every new run and every resume.
   delivery:
-    modes: ${DISCOVERY_DELIVERY_MODES:buffered}
+    modes: ${DISCOVERY_DELIVERY_MODES:checkpointed,buffered}
   slice:
     # How long a checkpointed run may receive nothing but "busy" answers on its drain before each one counts against
     # the drain budget again.

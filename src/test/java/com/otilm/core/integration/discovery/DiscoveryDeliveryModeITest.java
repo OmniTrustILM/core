@@ -99,7 +99,8 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
 
     @Test
     void failsTheRun_whenInitiateAnswersWithAModeThatWasNotOffered() throws Exception {
-        // given — the shipped offer, which names buffered only
+        // given
+        offerBufferedOnly();
         Discovery run = unstartedV2Run();
         var notOffered = DiscoveryDeliveryMode.CHECKPOINTED;
         stubInitiateAnswering(notOffered);
@@ -210,7 +211,8 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
 
     @Test
     void failsTheRun_whenAResumeAnswersWithAModeThatWasNotOffered() throws Exception {
-        // given — the shipped offer, which names buffered only
+        // given
+        offerBufferedOnly();
         Discovery run = stoppableV2Run(DiscoveryStatus.STOPPED, DiscoveryDeliveryMode.BUFFERED);
         var notOffered = DiscoveryDeliveryMode.CHECKPOINTED;
         when(client.resume(any())).thenReturn(resumeAnswering(notOffered));
@@ -228,6 +230,11 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** What an operator who dropped checkpointed from discovery.delivery.modes offers. */
+    private void offerBufferedOnly() {
+        ReflectionTestUtils.setField(adapter, OFFER_FIELD, new DiscoveryDeliveryModeOffer("buffered"));
+    }
 
     private void offerCheckpointedAndBuffered() {
         ReflectionTestUtils.setField(adapter, OFFER_FIELD, new DiscoveryDeliveryModeOffer("checkpointed,buffered"));

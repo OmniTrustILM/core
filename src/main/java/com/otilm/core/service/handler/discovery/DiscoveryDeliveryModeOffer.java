@@ -24,7 +24,7 @@ public class DiscoveryDeliveryModeOffer {
 
     private final List<DiscoveryDeliveryMode> offered;
 
-    public DiscoveryDeliveryModeOffer(@Value("${discovery.delivery.modes:buffered}") String modes) {
+    public DiscoveryDeliveryModeOffer(@Value("${discovery.delivery.modes:checkpointed,buffered}") String modes) {
         this.offered = parse(modes);
     }
 
