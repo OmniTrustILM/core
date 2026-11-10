@@ -11,6 +11,7 @@ import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.service.CrlService;
 import com.otilm.core.service.writer.CrlEntryData;
 import com.otilm.core.service.writer.CrlWriter;
+import com.otilm.core.service.writer.CrlWriter.CrlWrite;
 import com.otilm.core.util.CrlUtil;
 import com.otilm.core.util.PlatformX500NameStyle;
 import jakarta.persistence.EntityManager;
@@ -243,8 +244,11 @@ public class CrlServiceImpl implements CrlService {
             List<CrlEntryData> entries = new ArrayList<>();
             Date lastRevocationDate = collectEntries(x509CRL, entries);
 
-            UUID persistedUuid = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
-            crl.setUuid(persistedUuid);
+            CrlWrite write = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
+            if (!write.written()) {
+                return adoptStoredState(crl, issuerDn, issuerSerialNumber);
+            }
+            crl.setUuid(write.crlUuid());
             crl.setLastRevocationDate(lastRevocationDate);
             // Storing a base CRL drops the delta CRL applied to the one it replaces.
             crl.setCrlNumberDelta(null);
@@ -259,6 +263,24 @@ public class CrlServiceImpl implements CrlService {
         }
 
         return null;
+    }
+
+    /**
+     * Gives {@code crl} the state of the stored row, after a writer for another validation stored the same CRL or a
+     * newer one first. Callers refreshing a stored CRL read the refreshed state from the {@link Crl} they passed.
+     */
+    private Crl adoptStoredState(Crl crl, String issuerDn, String issuerSerialNumber) {
+        Crl stored = findStoredCrl(issuerDn, issuerSerialNumber);
+        if (stored == null) {
+            throw new IllegalStateException("CRL row of issuer " + issuerDn + " not found after it was stored");
+        }
+        crl.setUuid(stored.getUuid());
+        crl.setCrlNumber(stored.getCrlNumber());
+        crl.setNextUpdate(stored.getNextUpdate());
+        crl.setLastRevocationDate(stored.getLastRevocationDate());
+        crl.setCrlNumberDelta(stored.getCrlNumberDelta());
+        crl.setNextUpdateDelta(stored.getNextUpdateDelta());
+        return crl;
     }
 
     private Date collectEntries(X509CRL x509CRL, List<CrlEntryData> sink) {
@@ -340,8 +362,8 @@ public class CrlServiceImpl implements CrlService {
                 .orElse(null);
 
         crlWriter
-                .applyDeltaCrl(crl.getUuid(), upserts, removals, deltaCrlNumber.toString(), deltaCrl.getNextUpdate(),
-                        lastRevocationDate);
+                .applyDeltaCrl(crl.getUuid(), crl.getCrlNumber(), removals, upserts, deltaCrlNumber.toString(),
+                        deltaCrl.getNextUpdate(), lastRevocationDate);
     }
 
     /**
