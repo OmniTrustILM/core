@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service.cmp.message.handler;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -50,6 +51,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.mockbeans.PollMocks;
 import java.math.BigInteger;
 import java.security.SecureRandom;
@@ -86,6 +88,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -489,6 +492,44 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
                 "expected the safe placeholder when the cause is not a CmpProcessingException — internal SQL detail must not leak to the wire");
     }
 
+    @Test
+    @Transactional
+    void logsTheRevocationFailureWithoutTheConnectorsText_whenTheConnectorRefusesTheRevocation() throws Exception {
+        // given
+        var echoedSecret = "passphrase-the-connector-echoed";
+        PKIMessage request = prepareARevocationTheConnectorRefuses(echoedSecret);
+        var configuration = new Mobile3gppProfileContext(cmpProfileSigPrt, raProfile, request, certificateKeyService,
+                null, null);
+
+        // when
+        List<String> logged;
+        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
+            testedHandler.handle(request, configuration);
+            logged = probe.logged();
+        }
+
+        // then
+        SecretLeakProbe.assertNoneReveals(logged, echoedSecret);
+    }
+
+    @Test
+    @Transactional
+    void answersTheRevocationWithCoreText_whenTheConnectorRefusesIt() throws Exception {
+        // given
+        var echoedSecret = "passphrase-the-connector-echoed";
+        PKIMessage request = prepareARevocationTheConnectorRefuses(echoedSecret);
+        var configuration = new Mobile3gppProfileContext(cmpProfileSigPrt, raProfile, request, certificateKeyService,
+                null, null);
+
+        // when
+        PKIMessage response = testedHandler.handle(request, configuration);
+
+        // then
+        RevRepContent body = (RevRepContent) response.getBody().getContent();
+        String freeText = body.getStatus()[0].getStatusString().getStringAtUTF8(0).getString();
+        assertThat(freeText).contains("cannot revoke certificate").doesNotContain(echoedSecret);
+    }
+
     /**
      * The reason a CMP client puts in the rr crlEntryDetails/reasonCode must reach the revoke call rather than being
      * flattened to UNSPECIFIED.
@@ -781,5 +822,20 @@ class RevocationMessageHandlerITest extends BaseSpringBootTest {
         certificateContentSig.setCertificate(certificateSig);
         certificateContentRepository.save(certificateContentSig);
         return certificateSig;
+    }
+
+    /** An issued certificate's revocation request, whose revocation the connector refuses in its own words. */
+    private PKIMessage prepareARevocationTheConnectorRefuses(String connectorText) throws Exception {
+        revokedCertificate.setState(CertificateState.ISSUED);
+        revokedCertificate.setRaProfile(raProfile);
+        revokedCertificate.setRaProfileUuid(raProfile.getUuid());
+        certificateRepository.save(revokedCertificate);
+        willThrow(new ConnectorException(connectorText))
+                .given(clientOperationService)
+                .revokeCertificate(any(), any(), any(), any());
+        return CmpTestUtil
+                .createSignatureBasedMessage("783", CmpTestUtil.generateKeyPairEC().getPrivate(),
+                        CmpTestUtil.createRevocationBody(x509Certificate.getSerialNumber()))
+                .toASN1Structure();
     }
 }

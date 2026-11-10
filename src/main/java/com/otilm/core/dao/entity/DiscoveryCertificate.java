@@ -2,6 +2,7 @@ package com.otilm.core.dao.entity;
 
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.discovery.DiscoveryCertificateDto;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.DtoMapper;
 import jakarta.persistence.Column;
@@ -23,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
 
@@ -99,6 +101,7 @@ public class DiscoveryCertificate extends UniquelyIdentifiedAndAudited
 
     @Column(name = "meta", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(ReplaceOnlyMutability.class)
     private List<MetadataAttribute> meta;
 
     // Metadata attributes the connector declared encrypted, kept out of meta and encrypted; see StagedMetadata.

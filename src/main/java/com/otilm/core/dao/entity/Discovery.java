@@ -5,6 +5,7 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
@@ -35,6 +36,7 @@ import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.Formula;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.annotations.SQLJoinTableRestriction;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
@@ -132,6 +134,7 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     @SuppressWarnings("java:S1948")
     @Column(name = "checkpoint", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(ReplaceOnlyMutability.class)
     private List<MetadataAttribute> checkpoint;
 
     // The connector's latest progress report, stamped with when it was recorded. Null on a v1 run and until the

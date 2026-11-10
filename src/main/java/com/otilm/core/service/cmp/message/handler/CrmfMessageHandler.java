@@ -12,6 +12,7 @@ import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
@@ -44,7 +45,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Handle (ILM) supported CRMF-based message - ir/cr/kur; concrete handle (how to get/update certificate) delegates to
@@ -53,11 +53,9 @@ import org.springframework.transaction.annotation.Transactional;
  * @see CrmfIrCrMessageHandler
  * @see CrmfKurMessageHandler
  */
+// Neither @Transactional nor NOT_SUPPORTED, because the certificate is polled for up to the poll budget;
+// see CmpServiceImpl#handlePost.
 @Component
-// noRollbackFor keeps Spring's default (no rollback on checked exceptions): CMP surfaces
-// CmpBaseException as a protocol error response, and this handler shares the caller's
-// transaction, so rolling back on it would mark that transaction rollback-only.
-@Transactional(noRollbackFor = CmpBaseException.class)
 public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(CrmfMessageHandler.class.getName());
@@ -262,7 +260,7 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
                     .addExtraCerts(null)
                     .build();
         } catch (Exception e) {
-            LOG.error("CRMF message cannot be handled", e);
+            LOG.error("CRMF message cannot be handled", RedactedFailure.forLog(e));
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.badDataFormat,
                     "CRMF message cannot be build, type="
                             + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));
@@ -297,7 +295,9 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
                     .addExtraCerts(null)
                     .build();
         } catch (Exception e) {
-            LOG.error("TID={} | CRMF waiting response cannot be built (type={})", tid, msgBodyType, e);
+            LOG
+                    .error("TID={} | CRMF waiting response cannot be built (type={})", tid, msgBodyType,
+                            RedactedFailure.forLog(e));
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.systemFailure,
                     "CRMF waiting response cannot be built, type="
                             + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));

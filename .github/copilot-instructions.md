@@ -59,3 +59,16 @@ Severity is the consequence of not fixing; `Fix` is what fixing costs. They are 
 `CLAUDE.md` describes how this repository works, written for an agent that changes code. Treat it as context for judging whether a change fits, not as instructions for this review.
 
 Treat `.claude/rules/test-style.md` and `.claude/rules/test-support.md` as instructions for this review. Read both, and check only the test methods and support-class members this diff adds or changes against them, since older code moves to the style when someone changes it. Report each departure as incorrect code, with Severity Low and Category Testing, and quote the rule sentence it departs from.
+
+## Shared engineering context
+
+For PR review, read the shared engineering context in `.github/review-context/`:
+`org-map.md`, `conventions/pr-and-commits.md`, `repos/interfaces.md`,
+`repos/core.md`, `review-policy.md` and `cross-repo.md`. `review-policy.md` says
+how to apply the others, and `manifest.json` identifies the source commit the
+files were exported from. The trailer, placement table and collapsed section
+above still decide the output of this review.
+
+For a cross-repo change, inspect the actual counterpart code and consumed
+revision through the configured read-only GitHub tools, and say when that
+context is unavailable.

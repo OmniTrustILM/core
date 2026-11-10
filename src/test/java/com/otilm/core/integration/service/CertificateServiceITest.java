@@ -96,6 +96,7 @@ import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateEventHistoryRepository;
+import com.otilm.core.dao.repository.CertificateProtocolAssociationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
@@ -2669,6 +2670,59 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(stored.getCertificateRequestFormat()).isEqualTo(CertificateRequestFormat.PKCS10);
             registered = certificateRepository.findByUuid(registered.getUuid()).orElseThrow();
             assertThat(registered.getCommonName()).isEqualTo("placeholder-cn");
+        }
+    }
+
+    // ── ProtocolAssociations ─────────────────────────────────────────────────
+    @Nested
+    class ProtocolAssociations {
+
+        @Autowired
+        private CertificateProtocolAssociationRepository protocolAssociationRepository;
+
+        @Test
+        void replacesTheAssociation_whenAttributingACertificateAgain() throws Exception {
+            // given — a certificate attributed through one profile, as a completion refused at approval leaves it
+            AcmeProfile firstProfile = createAcmeProfileGroupingInto("first profile", group);
+            Group secondGroup = saveGroup("second group");
+            AcmeProfile secondProfile = createAcmeProfileGroupingInto("second profile", secondGroup);
+            certificateService
+                    .applyProtocolAssociations(certificate.getUuid(),
+                            CertificateProtocolInfo.Acme(firstProfile.getUuid(), null));
+
+            // when
+            certificateService
+                    .applyProtocolAssociations(certificate.getUuid(),
+                            CertificateProtocolInfo.Acme(secondProfile.getUuid(), null));
+
+            // then
+            assertThat(protocolAssociationRepository.findAll()).singleElement().satisfies(association -> {
+                assertThat(association.getCertificateUuid()).isEqualTo(certificate.getUuid());
+                assertThat(association.getProtocolProfileUuid()).isEqualTo(secondProfile.getUuid());
+            });
+            assertThat(
+                    certificateRepository.findWithAssociationsByUuid(certificate.getUuid()).orElseThrow().getGroups())
+                    .containsExactly(secondGroup);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private AcmeProfile createAcmeProfileGroupingInto(String name, Group certificateGroup) {
+            ProtocolCertificateAssociations associations = new ProtocolCertificateAssociations();
+            associations.setGroupUuids(List.of(certificateGroup.getUuid()));
+            protocolCertificateAssociationsRepository.save(associations);
+            AcmeProfile profile = new AcmeProfile();
+            profile.setName(name);
+            profile.setEnabled(false);
+            profile.setCertificateAssociations(associations);
+            profile.setCertificateAssociationsUuid(associations.getUuid());
+            return acmeProfileRepository.save(profile);
+        }
+
+        private Group saveGroup(String name) {
+            Group newGroup = new Group();
+            newGroup.setName(name);
+            return groupRepository.save(newGroup);
         }
     }
 
