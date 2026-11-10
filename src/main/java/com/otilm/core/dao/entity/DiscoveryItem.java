@@ -2,6 +2,7 @@ package com.otilm.core.dao.entity;
 
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -18,6 +19,7 @@ import java.util.UUID;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.type.SqlTypes;
@@ -86,6 +88,7 @@ public class DiscoveryItem extends UniquelyIdentified {
     // Provider-reported location context; unrecoverable if dropped at staging — key location lives here.
     @Column(name = "meta", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(ReplaceOnlyMutability.class)
     private List<MetadataAttribute> meta;
 
     // Metadata attributes the connector declared encrypted, kept out of meta and encrypted; see StagedMetadata.

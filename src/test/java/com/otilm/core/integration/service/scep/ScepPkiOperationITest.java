@@ -5,6 +5,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
+import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -17,6 +18,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.CryptographicKey;
+import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.scep.ScepProfile;
@@ -25,6 +27,7 @@ import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
@@ -36,6 +39,7 @@ import com.otilm.core.service.scep.message.ScepConstants;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.SqlCapture;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import java.math.BigInteger;
 import java.security.KeyPair;
@@ -44,7 +48,9 @@ import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.Base64;
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.ASN1String;
@@ -58,15 +64,21 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 
+import static com.otilm.core.util.KeyMetaFixtures.keyIdMeta;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.signingPrivateKey;
 import static com.otilm.core.util.seeders.CryptographicKeySeeder.KeyItemSpec.verifyingPublicKey;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Named.named;
 
 /**
  * End-to-end PKIOperation tests: a real signed CMS PKCSReq goes in, and the assertion is on what a SCEP client actually
@@ -110,6 +122,8 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
     private ScepTransactionRepository scepTransactionRepository;
     @Autowired
     private CryptographicKeySeeder cryptographicKeySeeder;
+    @Autowired
+    private CryptographicKeyItemRepository cryptographicKeyItemRepository;
 
     private WireMockServer mockServer;
     private RaProfile raProfile;
@@ -287,6 +301,26 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
         assertEquals(String.valueOf(FailInfo.BAD_REQUEST.getValue()), attribute(response, ScepConstants.id_failInfo));
     }
 
+    /**
+     * Answering loads the CA key's items, and an item with provider metadata must not be written back: the write would
+     * lock the row until the request commits and make every request on the CA key wait for the one before.
+     */
+    @ParameterizedTest
+    @MethodSource("enrolmentAndPoll")
+    void writesNoKeyItemRow_whenAnsweringAPkiOperation(byte[] pkiOperation) throws Exception {
+        // given
+        storeProviderMetadataOnTheCaPublicKey();
+
+        // when
+        SqlCapture.Captured<ResponseEntity<Object>> answered = SqlCapture
+                .during(() -> scepService
+                        .handlePost(SCEP_PROFILE_NAME, ScepServiceImpl.SCEP_OPERATION_PKI_OPERATION, pkiOperation));
+
+        // then
+        assertScepFormatted(answered.result());
+        assertThat(answered.statements()).noneMatch(sql -> sql.startsWith("update core.cryptographic_key_item"));
+    }
+
     private void storeTransaction(UUID certificateUuid) {
         ScepTransaction transaction = new ScepTransaction();
         transaction.setTransactionId(ScepMessageTestData.TRANSACTION_ID);
@@ -395,5 +429,27 @@ class ScepPkiOperationITest extends BaseSpringBootTest {
                         .willReturn(WireMock.okJson("""
                                 {"verifications": [{"result": true}]}
                                 """)));
+    }
+
+    /**
+     * Gives the CA key's public item the metadata a v2 key provider stores. The private item keeps the v1 reference the
+     * connector mock signs with.
+     */
+    private void storeProviderMetadataOnTheCaPublicKey() {
+        CryptographicKeyItem publicKey = cryptographicKeyItemRepository
+                .findByKeyUuidIn(List.of(scepProfile.getCaCertificate().getKeyUuid()))
+                .stream()
+                .filter(item -> item.getType() == KeyType.PUBLIC_KEY)
+                .findFirst()
+                .orElseThrow();
+        publicKey.setKeyMeta(keyIdMeta("ca-public-key-id"));
+        cryptographicKeyItemRepository.save(publicKey);
+    }
+
+    private static Stream<Named<byte[]>> enrolmentAndPoll() throws Exception {
+        return Stream
+                .of(named("enrolment",
+                        ScepMessageTestData.passwordEnvelopedPkcsReq(ScepMessageTestData.CHALLENGE_PASSWORD)),
+                        named("poll", ScepMessageTestData.passwordEnvelopedMessage(MessageType.CERT_POLL, null)));
     }
 }

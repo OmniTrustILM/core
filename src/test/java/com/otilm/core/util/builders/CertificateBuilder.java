@@ -40,6 +40,7 @@ public class CertificateBuilder {
     private CertificateValidationStatus validationStatus;
     private CertificateSubjectType subjectType;
     private Date notBefore;
+    private Date notAfter;
     private Boolean archived;
     private CertificateContent certificateContent;
     private Long certificateContentId;
@@ -127,6 +128,11 @@ public class CertificateBuilder {
 
     public CertificateBuilder withNotBefore(Date notBefore) {
         this.notBefore = notBefore;
+        return this;
+    }
+
+    public CertificateBuilder withNotAfter(Date notAfter) {
+        this.notAfter = notAfter;
         return this;
     }
 
@@ -226,6 +232,9 @@ public class CertificateBuilder {
         }
         if (notBefore != null) {
             certificate.setNotBefore(notBefore);
+        }
+        if (notAfter != null) {
+            certificate.setNotAfter(notAfter);
         }
         if (archived != null) {
             certificate.setArchived(archived);

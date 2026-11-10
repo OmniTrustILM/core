@@ -42,6 +42,11 @@ public final class ConnectorBuilder {
         return this;
     }
 
+    public ConnectorBuilder withVersion(ConnectorVersion version) {
+        this.connectorVersion = version;
+        return this;
+    }
+
     public ConnectorBuilder withInterfaceCode(ConnectorInterface code) {
         this.interfaceCode = code;
         return this;
