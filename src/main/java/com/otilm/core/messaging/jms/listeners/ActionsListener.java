@@ -21,7 +21,9 @@ import com.otilm.core.dao.repository.ApprovalProfileRelationRepository;
 import com.otilm.core.messaging.jms.configuration.MessagingProperties;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.messaging.model.IssueActionData;
 import com.otilm.core.messaging.model.NotificationRecipient;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.ApprovalInternalService;
 import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
@@ -31,6 +33,7 @@ import java.security.cert.CertificateException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +65,13 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
         boolean hasApproval = actionMessage.getApprovalUuid() != null;
         boolean isApproved = hasApproval && actionMessage.getApprovalStatus().equals(ApprovalStatusEnum.APPROVED);
 
+        if (!hasApproval && isIssueWithNothingToIssue(actionMessage)) {
+            logger
+                    .info("Dropping the issue action of certificate {}: it holds no certificate signing request to issue",
+                            actionMessage.getResourceUuid());
+            return;
+        }
+
         if (!hasApproval) {
             final Optional<List<ApprovalProfileRelation>> approvalProfileRelationOptional = approvalProfileRelationRepository
                     .findByResourceUuidAndResource(actionMessage.getApprovalProfileResourceUuid(),
@@ -74,14 +84,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
                     final ApprovalProfileVersion approvalProfileVersion = approvalProfileRelation
                             .getApprovalProfile()
                             .getTheLatestApprovalProfileVersion();
-                    final Approval approval = approvalService
-                            .createApproval(approvalProfileVersion, actionMessage.getResource(),
-                                    actionMessage.getResourceAction(), actionMessage.getResourceUuid(),
-                                    actionMessage.getUserUuid(), actionMessage.getData());
-                    logger
-                            .info("Created new Approval {} for object {}", approval.getUuid(),
-                                    actionMessage.getResourceUuid());
-                    processApprovalCreated(actionMessage);
+                    requestApproval(approvalProfileVersion, actionMessage);
                 } catch (Exception e) {
                     String errorMessage = String
                             .format("Cannot create new approval to approve %s %s action!",
@@ -117,10 +120,44 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
         }
     }
 
+    /**
+     * An issue can reach the broker although queuing it reported a failure, after which the certificate was failed or
+     * its registration completion undone. It has nothing to issue, so it is dropped. The check is made again under the
+     * certificate's row lock when an approval is requested, since the undo can run after this one.
+     */
+    private boolean isIssueWithNothingToIssue(final ActionMessage actionMessage) {
+        return actionMessage.getResource() == Resource.CERTIFICATE
+                && actionMessage.getResourceAction() == ResourceAction.ISSUE && clientOperationService
+                        .hasNothingToIssue(actionMessage.getResourceUuid(), queuedRequestOf(actionMessage));
+    }
+
+    /**
+     * A certificate's approval is requested under the certificate's row lock, together with its move to
+     * PENDING_APPROVAL, so the undo of a completion cannot slip between the check and the approval.
+     */
+    private void requestApproval(final ApprovalProfileVersion approvalProfileVersion, final ActionMessage actionMessage)
+            throws NotFoundException {
+        if (actionMessage.getResource() == Resource.CERTIFICATE) {
+            clientOperationService.requestApproval(approvalProfileVersion, actionMessage);
+            return;
+        }
+        final Approval approval = approvalService
+                .createApproval(approvalProfileVersion, actionMessage.getResource(), actionMessage.getResourceAction(),
+                        actionMessage.getResourceUuid(), actionMessage.getUserUuid(), actionMessage.getData());
+        logger.info("Created new Approval {} for object {}", approval.getUuid(), actionMessage.getResourceUuid());
+        processApprovalCreated(actionMessage);
+    }
+
+    /**
+     * The certificate request an ISSUE action, or the decision of its approval, was queued for; null for one that names
+     * none.
+     */
+    private static UUID queuedRequestOf(final ActionMessage actionMessage) {
+        return IssueActionData.certificateRequestUuidOf(actionMessage.getData());
+    }
+
     private void processApprovalCreated(final ActionMessage actionMessage) throws NotFoundException {
-        if (Objects.requireNonNull(actionMessage.getResource()) == Resource.CERTIFICATE) {
-            clientOperationService.approvalCreatedAction(actionMessage.getResourceUuid());
-        } else if (Objects.requireNonNull(actionMessage.getResource()) == Resource.SECRET) {
+        if (Objects.requireNonNull(actionMessage.getResource()) == Resource.SECRET) {
             secretService.approvalCreatedAction(actionMessage.getResourceUuid());
         } else {
             logger.error("Action listener does not support resource {}", actionMessage.getResource().getLabel());
@@ -146,7 +183,10 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
         // handle rejected actions
         if (hasApproval && !isApproved) {
             switch (Objects.requireNonNull(actionMessage.getResourceAction())) {
-                case ISSUE, RENEW, REKEY ->
+                case ISSUE -> clientOperationService
+                        .issueCertificateRejectedAction(actionMessage.getResourceUuid(),
+                                queuedRequestOf(actionMessage));
+                case RENEW, REKEY ->
                     clientOperationService.issueCertificateRejectedAction(actionMessage.getResourceUuid());
                 case REVOKE -> clientOperationService.revokeCertificateRejectedAction(actionMessage.getResourceUuid());
                 default -> logger
@@ -158,7 +198,9 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
 
         // handle
         switch (actionMessage.getResourceAction()) {
-            case ISSUE -> clientOperationService.issueCertificateAction(actionMessage.getResourceUuid(), isApproved);
+            case ISSUE -> clientOperationService
+                    .issueCertificateAction(actionMessage.getResourceUuid(), queuedRequestOf(actionMessage),
+                            isApproved);
             case REKEY -> {
                 final ClientCertificateRekeyRequestDto clientCertificateRekeyRequestDto = mapper
                         .convertValue(actionMessage.getData(), ClientCertificateRekeyRequestDto.class);

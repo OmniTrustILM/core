@@ -13,6 +13,8 @@ import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.core.dao.entity.ApprovalProfileVersion;
+import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -47,11 +49,46 @@ public interface ClientOperationInternalService {
 
     void approvalCreatedAction(final UUID certificateUuid) throws NotFoundException;
 
+    /**
+     * Requests the approval of a certificate action and moves the certificate to PENDING_APPROVAL in one transaction,
+     * under the certificate's row lock. An issue action with nothing to issue requests none, so the check cannot race
+     * with the undo of a completion whose queuing failed.
+     */
+    void requestApproval(ApprovalProfileVersion approvalProfileVersion, ActionMessage actionMessage)
+            throws NotFoundException;
+
+    /**
+     * Whether an issue action not yet approved has nothing to issue: the certificate is gone, is neither a submitted
+     * request nor a registration holding the request of a completion, or holds another request than the one the action
+     * was queued for. Such an action arrives late after its queuing reported a failure, or is delivered again.
+     *
+     * @param certificateRequestUuid the request the action was queued for, or null when it names none
+     */
+    boolean hasNothingToIssue(UUID certificateUuid, UUID certificateRequestUuid);
+
     void issueCertificateAction(final UUID certificateUuid, boolean isApproved)
             throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException,
             CertificateOperationException, NotFoundException;
 
+    /**
+     * As {@link #issueCertificateAction(UUID, boolean)} for an action queued for one certificate request: a certificate
+     * that holds another request by the time it is claimed is not issued.
+     *
+     * @param certificateRequestUuid the request the action was queued for, or null when it names none
+     */
+    void issueCertificateAction(UUID certificateUuid, UUID certificateRequestUuid, boolean isApproved)
+            throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException,
+            CertificateOperationException, NotFoundException;
+
     void issueCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException;
+
+    /**
+     * As {@link #issueCertificateRejectedAction(UUID)} for the rejection of an approval requested for one certificate
+     * request: a certificate that holds another request by then is left as it is.
+     *
+     * @param certificateRequestUuid the request the approval was requested for, or null when it names none
+     */
+    void issueCertificateRejectedAction(UUID certificateUuid, UUID certificateRequestUuid) throws NotFoundException;
 
     ClientCertificateDataResponseDto renewCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, ClientCertificateRenewRequestDto request)
