@@ -43,7 +43,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * <p>
@@ -81,8 +80,9 @@ import org.springframework.transaction.annotation.Transactional;
  *      }
  * </pre>
  */
+// Neither @Transactional nor NOT_SUPPORTED, because each revocation is polled for up to the poll budget;
+// see CmpServiceImpl#handlePost.
 @Component
-@Transactional
 public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(RevocationMessageHandler.class.getName());
