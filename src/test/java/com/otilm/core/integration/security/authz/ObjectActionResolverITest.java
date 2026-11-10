@@ -746,6 +746,24 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 .containsExactly(objectUuid);
     }
 
+    @Test
+    void leavesOutMetadata_whenOnlyListAndDetailOnTheObjectItselfAreAllowed() {
+        // given
+        UUID custom = saveAttributeDefinition(AttributeType.CUSTOM);
+        UUID metadata = saveAttributeDefinition(AttributeType.META);
+        denyOnTheResourceAsAWhole(Resource.ATTRIBUTE, ResourceAction.LIST);
+        denyOnTheResourceAsAWhole(Resource.ATTRIBUTE, ResourceAction.DETAIL);
+
+        // when
+        List<ObjectAllowedActionsDto> items = report(Resource.ATTRIBUTE, custom, metadata);
+
+        // then
+        assertThat(items)
+                .as("the metadata endpoints check list and detail on the resource as a whole")
+                .extracting(ObjectAllowedActionsDto::getUuid)
+                .containsExactly(custom);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private List<ObjectAllowedActionsDto> report(Resource resource, UUID... uuids) {

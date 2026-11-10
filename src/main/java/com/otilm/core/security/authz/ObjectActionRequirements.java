@@ -50,8 +50,8 @@ import java.util.function.Function;
 public final class ObjectActionRequirements {
 
     /** A condition an action on the object requires. */
-    public sealed interface Requirement
-            permits OnObject, OnObjectUnder, OnResource, OnAncestor, OnLinked, OnLinkedThrough, WhenEmpty, OnEachChild {
+    public sealed interface Requirement permits OnObject, OnObjectUnder, OnResource, OnAncestor, OnLinked,
+            OnLinkedThrough, WhenEmpty, WhenEquals, OnEachChild {
     }
 
     /**
@@ -111,6 +111,10 @@ public final class ObjectActionRequirements {
 
     /** The requirement only when the entity attribute is empty, such as for a token without a connector interface. */
     public record WhenEmpty(String attribute, Requirement requirement) implements Requirement {
+    }
+
+    /** The requirement only when the entity attribute holds the value, such as for metadata attribute definitions. */
+    public record WhenEquals(String attribute, Object value, Requirement requirement) implements Requirement {
     }
 
     /**
@@ -176,7 +180,14 @@ public final class ObjectActionRequirements {
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         also(Resource.ATTRIBUTE, ResourceAction.DETAIL, new OnObject(ResourceAction.DETAIL));
         admit(Resource.ATTRIBUTE, "type", AttributeType.CUSTOM, AttributeType.META);
-        viewedThroughObjectDetail(Resource.ATTRIBUTE);
+        // Only custom attributes are listed and looked up by object; the metadata endpoints check the resource.
+        WhenEquals metadataViewed = new WhenEquals("type", AttributeType.META, new OnResource(ResourceAction.DETAIL));
+        also(Resource.ATTRIBUTE, ResourceAction.DETAIL, metadataViewed);
+        listedAndViewed(Resource.ATTRIBUTE,
+                List
+                        .of(new WhenEquals("type", AttributeType.META, new OnResource(ResourceAction.LIST)),
+                                new OnObject(ResourceAction.LIST)),
+                List.of(metadataViewed, new OnObject(ResourceAction.DETAIL)));
         onObject(Resource.PROXY, Proxy.class, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
                 ResourceAction.GET_PROXY_INSTALLATION);
         // Deleting an ACME or CMP profile first lists the RA profiles using it. Force deleting an ACME profile also
@@ -518,12 +529,14 @@ public final class ObjectActionRequirements {
 
     /** The object is viewable through a lookup checking only detail on it, such as the resource object lookup. */
     private static void viewedThroughObjectDetail(Resource resource) {
+        listedAndViewed(resource, TABLE.get(resource).listing(), List.of(new OnObject(ResourceAction.DETAIL)));
+    }
+
+    private static void listedAndViewed(Resource resource, List<Requirement> listing, List<Requirement> viewing) {
         ResourceObjects objects = TABLE.get(resource);
         TABLE
-                .put(resource,
-                        new ResourceObjects(objects.entity(), objects.parent(), objects.parentAttribute(),
-                                objects.listing(), List.of(new OnObject(ResourceAction.DETAIL)), objects.actions(),
-                                objects.admitted()));
+                .put(resource, new ResourceObjects(objects.entity(), objects.parent(), objects.parentAttribute(),
+                        listing, viewing, objects.actions(), objects.admitted()));
     }
 
     private static void admit(Resource resource, String attribute, Object... values) {

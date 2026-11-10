@@ -12,6 +12,7 @@ import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import com.otilm.core.security.authz.ObjectActionRequirements.WhenEmpty;
+import com.otilm.core.security.authz.ObjectActionRequirements.WhenEquals;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
@@ -194,6 +195,9 @@ class ObjectActionRequirementsTest {
         } else if (requirement instanceof WhenEmpty whenEmpty) {
             requireField(resource, entity, whenEmpty.attribute(), missing);
             collectMissingAttributes(resource, whenEmpty.requirement(), missing);
+        } else if (requirement instanceof WhenEquals whenEquals) {
+            requireField(resource, entity, whenEquals.attribute(), missing);
+            collectMissingAttributes(resource, whenEquals.requirement(), missing);
         } else if (requirement instanceof OnEachChild onEachChild) {
             collectMissingOnTabled(resource, onEachChild.child(), onEachChild.requirements(), missing);
             onEachChild.whenNone().forEach(whenNone -> collectMissingAttributes(resource, whenNone, missing));

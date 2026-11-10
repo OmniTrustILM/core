@@ -15,6 +15,7 @@ import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import com.otilm.core.security.authz.ObjectActionRequirements.WhenEmpty;
+import com.otilm.core.security.authz.ObjectActionRequirements.WhenEquals;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Tuple;
@@ -106,6 +107,7 @@ public class ObjectActionResolver {
                 Optional.of(parentAttribute);
             case OnLinkedThrough(var through, String attribute, var inner) -> Optional.of(attribute);
             case WhenEmpty(String attribute, var inner) -> Optional.of(attribute);
+            case WhenEquals(String attribute, var value, var inner) -> Optional.of(attribute);
             case OnObject onObject -> Optional.empty();
             case OnResource onResource -> Optional.empty();
             case OnAncestor onAncestor -> Optional.empty();
@@ -118,7 +120,7 @@ public class ObjectActionResolver {
 
         private final Map<String, Boolean> decisions = new HashMap<>();
 
-        private final Map<String, Optional<UUID>> attributes = new HashMap<>();
+        private final Map<String, Optional<Object>> values = new HashMap<>();
 
         private final Map<String, List<UUID>> children = new HashMap<>();
 
@@ -140,9 +142,7 @@ public class ObjectActionResolver {
                 UUID objectUuid = row.get(0, UUID.class);
                 existing.add(objectUuid);
                 for (int i = 0; i < names.size(); i++) {
-                    attributes
-                            .put(key(resource, names.get(i), objectUuid),
-                                    Optional.ofNullable(row.get(i + 1, UUID.class)));
+                    values.put(key(resource, names.get(i), objectUuid), Optional.ofNullable(row.get(i + 1)));
                 }
             }
             return existing;
@@ -175,6 +175,9 @@ public class ObjectActionResolver {
                             .orElse(false);
                 case WhenEmpty(String attribute, Requirement inner) ->
                     attribute(resource, attribute, objectUuid).isPresent() || isMet(inner, resource, objectUuid);
+                case WhenEquals(String attribute, Object value, Requirement inner) ->
+                    value(resource, attribute, objectUuid).filter(value::equals).isEmpty()
+                            || isMet(inner, resource, objectUuid);
                 case OnEachChild(Resource child, String childAttribute, List<Requirement> inner, List<Requirement> whenNone) -> {
                     List<UUID> childUuids = children(child, childAttribute, objectUuid);
                     yield childUuids.isEmpty()
@@ -225,7 +228,11 @@ public class ObjectActionResolver {
         }
 
         private Optional<UUID> attribute(Resource resource, String attribute, UUID objectUuid) {
-            return attributes
+            return value(resource, attribute, objectUuid).map(UUID.class::cast);
+        }
+
+        private Optional<Object> value(Resource resource, String attribute, UUID objectUuid) {
+            return values
                     .computeIfAbsent(key(resource, attribute, objectUuid),
                             key -> select(resource, attribute, objectUuid));
         }
@@ -241,10 +248,10 @@ public class ObjectActionResolver {
             });
         }
 
-        private Optional<UUID> select(Resource resource, String attribute, UUID objectUuid) {
+        private Optional<Object> select(Resource resource, String attribute, UUID objectUuid) {
             Class<?> entity = ObjectActionRequirements.of(resource).orElseThrow().entity();
             CriteriaBuilder cb = entityManagerFactory.getCriteriaBuilder();
-            CriteriaQuery<UUID> query = cb.createQuery(UUID.class);
+            CriteriaQuery<Object> query = cb.createQuery(Object.class);
             Root<?> root = query.from(entity);
             query.select(root.get(attribute)).where(cb.equal(root.get(UUID_ATTRIBUTE), objectUuid));
             return read(reader -> reader.createQuery(query).setMaxResults(1).getResultList())
