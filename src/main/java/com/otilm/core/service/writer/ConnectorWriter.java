@@ -120,8 +120,8 @@ public class ConnectorWriter {
     }
 
     /**
-     * The connector as its row stands under the lock. Under open-in-view the locked read alone returns the instance the
-     * request loaded before the call.
+     * The connector as its row stands under the lock. A caller's EntityManager may already hold the connector, and a
+     * locked read alone returns that copy unchanged.
      */
     private Optional<Connector> lockFresh(UUID connectorUuid) {
         Optional<Connector> locked = connectorRepository.findWithLockByUuid(connectorUuid);

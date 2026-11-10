@@ -77,10 +77,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -106,6 +108,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
@@ -115,12 +120,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.verify;
 
 class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
@@ -186,6 +188,9 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private Connector connector;
     private WireMockServer mockServer;
@@ -545,16 +550,21 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testReconnectConnector_alreadyConnectedSkipsStatusWrite()
-            throws NotFoundException, ConnectorException, JsonProcessingException {
+    void leavesRowUntouched_whenReconnectingConnectedConnector() throws Exception {
+        // given
         mockInfoEndpoint();
-        clearInvocations(connectorRepositorySpy);
+        OffsetDateTime updatedBeforeReconnect = connectorRepository
+                .findByUuid(connector.getUuid())
+                .orElseThrow()
+                .getUpdated();
 
+        // when
         connectorService.reconnect(connector.getSecuredUuid());
 
-        verify(connectorRepositorySpy, never()).save(any());
+        // then
         Connector reconnected = connectorRepository.findByUuid(connector.getUuid()).orElseThrow();
-        Assertions.assertEquals(ConnectorStatus.CONNECTED, reconnected.getStatus());
+        assertThat(reconnected.getStatus()).isEqualTo(ConnectorStatus.CONNECTED);
+        assertThat(reconnected.getUpdated()).isEqualTo(updatedBeforeReconnect);
     }
 
     @Test
@@ -931,6 +941,18 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
+        void returnsHealth_whenCallerHoldsTransaction() throws Exception {
+            // given
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+
+            // when
+            HealthInfo health = insideCallersTransaction(() -> connectorService.checkHealth(connectorUuid));
+
+            // then
+            assertThat(health.getStatus()).isEqualTo(HealthStatus.UP);
+        }
+
+        @Test
         void refusesReconnect_whenRouteEditCommitsWhileItWaits() throws Exception {
             // given
             String originalUrl = connector.getUrl();
@@ -1245,6 +1267,16 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
                 TransactionSynchronizationManager.unbindResource(entityManagerFactory);
                 requestEntityManager.close();
                 requestEntityManager = null;
+            }
+        }
+
+        private <T> T insideCallersTransaction(Callable<T> work) throws Exception {
+            TransactionStatus callersTransaction = transactionManager
+                    .getTransaction(TransactionDefinition.withDefaults());
+            try {
+                return work.call();
+            } finally {
+                transactionManager.rollback(callersTransaction);
             }
         }
 

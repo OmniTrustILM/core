@@ -58,7 +58,7 @@ For logic deep in private methods or complex Spring contexts, extract a static t
 The standard pattern when a method must do both local writes and an external call:
 
 ```java
-@Transactional(propagation = Propagation.NOT_SUPPORTED)  // method runs without ambient tx
+@OutsideTransaction  // method runs without ambient tx or the request's EntityManager
 public ... someMethod(...) {
     // 1. Read state, validate, build the request — outside any tx
     // 2. Make the external call — outside any tx
@@ -78,8 +78,8 @@ public ... someMethod(...) {
 Symmetrically: when the external call comes AFTER the local commit, commit first then call externally.
 
 Under open-in-view, the request's EntityManager keeps the connection of the first transaction that runs on it. A method
-that calls out between short transactions therefore carries `@OutsideTransaction`, which runs it with `NOT_SUPPORTED`
-and sets that EntityManager aside.
+that calls out between short transactions therefore carries `@OutsideTransaction` in place of plain `NOT_SUPPORTED`:
+it runs the method with `NOT_SUPPORTED` and sets that EntityManager aside.
 
 ## State divergence on post-external-commitment failures
 
@@ -134,7 +134,7 @@ Align the live half's window to the aggregate's bucket boundary, not to the exac
 
 ## Transactional boundaries live on services, not repositories
 
-Repositories in `com.otilm.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods use `NOT_SUPPORTED` when needed to avoid holding locks across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
+Repositories in `com.otilm.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods carry `@OutsideTransaction`, so no lock or connection is held across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
 
 ## Race conditions on multi-actor endpoints
 
