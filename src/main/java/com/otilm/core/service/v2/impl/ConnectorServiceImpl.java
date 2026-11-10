@@ -456,35 +456,11 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
                         AttributeEngine.getResponseAttributesFromRequestAttributes(request.getAuthAttributes()));
         apiClientDto.setProxy(request.getProxy());
         for (ConnectorAdapter connectorAdapter : connectorAdapters.values()) {
-            ConnectInfo connectInfo = null;
-            try {
-                connectInfo = connectorAdapter.checkConnection(apiClientDto);
-                connectorAdapter.validateConnection(connectInfo);
-            } catch (ConnectorException | ValidationException e) {
-                if (e instanceof ConnectorCommunicationException || e instanceof ConnectorEntityNotFoundException
-                        || e instanceof ConnectorServerException) {
-                    logger
-                            .debug("No connector of version {} is running on the provided URL '{}'.",
-                                    connectorAdapter.getVersion().getLabel(), request.getUrl());
-                    continue;
-                }
-
-                if (e instanceof ValidationException) {
-                    logger
-                            .error("Validation error when connecting to connector of version {} with the provided URL '{}': {}",
-                                    connectorAdapter.getVersion().getLabel(), request.getUrl(), e.getMessage());
-                } else {
-                    logger
-                            .error("Unable to connect to connector of version {} running on the provided URL '{}': {}",
-                                    connectorAdapter.getVersion().getLabel(), request.getUrl(), e.getMessage(), e);
-                }
-
-                if (connectInfo == null) {
-                    connectInfo = ConnectInfo.fromError(connectorAdapter.getVersion(), e.getMessage());
-                } else {
-                    connectInfo.setErrorMessage(e.getMessage());
-                }
+            Optional<ConnectInfo> answer = connectInfoOf(connectorAdapter, apiClientDto);
+            if (answer.isEmpty()) {
+                continue;
             }
+            ConnectInfo connectInfo = answer.get();
 
             Optional<UUID> knownConnectorUuid = transactionHandler
                     .runInTransaction(() -> connectorRepository
@@ -845,6 +821,47 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
             connectorWriter.markOffline(target.uuid(), target.route());
             evictConnectorCache(target.uuid());
             throw new ConnectorException(message);
+        }
+    }
+
+    /**
+     * Returns the answer of the adapter's version at the connector's URL, carrying the reason it was refused, or empty
+     * when no connector of that version runs there.
+     */
+    private Optional<ConnectInfo> connectInfoOf(ConnectorAdapter connectorAdapter,
+            ApiClientConnectorInfo connectorInfo) {
+        ConnectInfo connectInfo;
+        try {
+            connectInfo = connectorAdapter.checkConnection(connectorInfo);
+        } catch (ConnectorCommunicationException | ConnectorEntityNotFoundException | ConnectorServerException e) {
+            logger
+                    .debug("No connector of version {} is running on the provided URL '{}'.",
+                            connectorAdapter.getVersion().getLabel(), connectorInfo.getUrl());
+            return Optional.empty();
+        } catch (ConnectorException | ValidationException e) {
+            logConnectFailure(connectorAdapter, connectorInfo, e);
+            return Optional.of(ConnectInfo.fromError(connectorAdapter.getVersion(), e.getMessage()));
+        }
+
+        try {
+            connectorAdapter.validateConnection(connectInfo);
+        } catch (ValidationException e) {
+            logConnectFailure(connectorAdapter, connectorInfo, e);
+            connectInfo.setErrorMessage(e.getMessage());
+        }
+        return Optional.of(connectInfo);
+    }
+
+    private static void logConnectFailure(ConnectorAdapter connectorAdapter, ApiClientConnectorInfo connectorInfo,
+            Exception e) {
+        if (e instanceof ValidationException) {
+            logger
+                    .error("Validation error when connecting to connector of version {} with the provided URL '{}': {}",
+                            connectorAdapter.getVersion().getLabel(), connectorInfo.getUrl(), e.getMessage());
+        } else {
+            logger
+                    .error("Unable to connect to connector of version {} running on the provided URL '{}': {}",
+                            connectorAdapter.getVersion().getLabel(), connectorInfo.getUrl(), e.getMessage(), e);
         }
     }
 

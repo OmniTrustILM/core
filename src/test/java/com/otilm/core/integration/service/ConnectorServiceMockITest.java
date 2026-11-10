@@ -106,7 +106,7 @@ class ConnectorServiceMockITest {
     private AutoCloseable mocks;
 
     @BeforeEach
-    void setUp() {
+    void wireConnectorServiceAndStubFunctionGroups() {
         mocks = MockitoAnnotations.openMocks(this);
 
         endpoint1 = new Endpoint();

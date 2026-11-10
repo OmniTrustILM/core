@@ -1,6 +1,7 @@
 package com.otilm.core.architecture;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaMethod;
@@ -189,7 +190,7 @@ public class TransactionalBoundaryArchTest {
         return element
                 .getAnnotations()
                 .stream()
-                .map(annotation -> annotation.getRawType())
+                .map(JavaAnnotation::getRawType)
                 .filter(annotationType -> annotationType.isAnnotatedWith(Transactional.class))
                 .map(annotationType -> annotationType.getAnnotationOfType(Transactional.class))
                 .findFirst();

@@ -108,6 +108,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
+import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
@@ -895,7 +897,7 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         private Connector connectorV1;
 
         @BeforeEach
-        void probeConnectorCalls() throws JsonProcessingException {
+        void probeConnectorsOfBothVersions() throws JsonProcessingException {
             serviceTarget = AopTestUtils.getUltimateTargetObject(connectorService);
             serviceTarget.setConnectorAdapters(probing(connectorAdapters));
             serviceV1Target = AopTestUtils.getUltimateTargetObject(connectorServiceV1);
@@ -903,40 +905,19 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
             mockInfoEndpoint();
             mockServer.stubFor(WireMock.get("/v2/health").willReturn(WireMock.okJson("{ \"status\": \"UP\" }")));
             mockServer.stubFor(WireMock.get("/v1").willReturn(WireMock.notFound()));
-        }
-
-        @BeforeEach
-        void createConnectorV1() throws JsonProcessingException {
-            functionGroupSeeder.seed(FunctionGroupCode.CREDENTIAL_PROVIDER, List.of());
-            var credentialProvider = new com.otilm.api.model.client.connector.InfoResponse(List.of("Basic"),
-                    FunctionGroupCode.CREDENTIAL_PROVIDER, List.of());
-            String functionGroups = objectMapper.writeValueAsString(List.of(credentialProvider));
-            mockServer
-                    .stubFor(WireMock
-                            .get(WireMock.urlPathMatching(".+/v1"))
-                            .willReturn(WireMock.okJson(functionGroups)));
-            mockServer
-                    .stubFor(WireMock
-                            .get(WireMock.urlPathMatching(".+/v1/health"))
-                            .willReturn(WireMock.okJson("{ \"status\": \"ok\" }")));
-            connectorV1 = connectorRepository
-                    .save(connectorEntity("connectorV1", urlUnder("v1-connector"), ConnectorVersion.V1));
+            createConnectorV1();
         }
 
         @AfterEach
-        void restoreConnectorClients() {
+        void stopProbing() {
             serviceTarget.setConnectorAdapters(connectorAdapters);
             serviceV1Target.setConnectorApiFactory(connectorApiFactory);
-        }
-
-        @AfterEach
-        void stopBackgroundWork() {
             background.shutdownNow();
         }
 
         @ParameterizedTest
         @EnumSource(ConnectorCall.class)
-        void holdsNoConnection_whileCallingConnector(ConnectorCall call) throws Throwable {
+        void holdsNoConnection_whenCallingConnector(ConnectorCall call) throws Exception {
             // given — connectors of both versions that answer every call
 
             // when
@@ -1024,7 +1005,10 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
             duringCall = target -> {
                 throw connectionRefused(target);
             };
-            ConnectorRequestDto request = createRequest("proxiedConnector", urlUnder("proxied"));
+            ConnectorRequestDto request = aV2ConnectorRequest()
+                    .withName("proxiedConnector")
+                    .withUrl(urlUnder("proxied"))
+                    .build();
             request.setProxyUuid(proxy.getUuid().toString());
 
             // when
@@ -1041,7 +1025,10 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
             duringCall = target -> {
                 throw connectionRefused(target);
             };
-            ConnectorRequestDto request = createRequest("directConnector", urlUnder("direct"));
+            ConnectorRequestDto request = aV2ConnectorRequest()
+                    .withName("directConnector")
+                    .withUrl(urlUnder("direct"))
+                    .build();
 
             // when
             ThrowingCallable create = () -> connectorService.createConnector(request);
@@ -1163,12 +1150,21 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
             void run(ApiClientConnectorInfo target) throws ConnectorException;
         }
 
+        @FunctionalInterface
+        interface RequestWork {
+            void run() throws Exception;
+        }
+
         private void perform(ConnectorCall call) throws Exception {
             SecuredUUID connectorUuid = connector.getSecuredUuid();
             SecuredUUID connectorV1Uuid = connectorV1.getSecuredUuid();
             switch (call) {
                 case CONNECT -> connectorService.connect(connectRequest(LoopbackWireMock.url(mockServer)));
-                case CREATE -> connectorService.createConnector(createRequest("createdConnector", urlUnder("created")));
+                case CREATE -> connectorService
+                        .createConnector(aV2ConnectorRequest()
+                                .withName("createdConnector")
+                                .withUrl(urlUnder("created"))
+                                .build());
                 case EDIT -> connectorService.editConnector(connectorUuid, editRequest(urlUnder("edited")));
                 case RECONNECT -> connectorService.reconnect(connectorUuid);
                 case BULK_RECONNECT -> connectorService.bulkReconnect(List.of(connectorUuid));
@@ -1184,7 +1180,10 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
                 case REGISTER -> connectorRegistrationService
                         .registerConnector(createRequestV1("registeredConnector", urlUnder("registered")));
                 case REGISTER_V2 -> connectorRegistrationService
-                        .registerConnectorV2(createRequest("registeredConnectorV2", urlUnder("registered-v2")));
+                        .registerConnectorV2(aV2ConnectorRequest()
+                                .withName("registeredConnectorV2")
+                                .withUrl(urlUnder("registered-v2"))
+                                .build());
             }
         }
 
@@ -1235,13 +1234,13 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
                     .isPhysicallyConnected();
         }
 
-        /** Runs the call with an EntityManager bound to the thread. Open-in-view binds one to each request. */
-        private void asRequest(ThrowingCallable call) throws Throwable {
+        /** Runs the work with an EntityManager bound to the thread. Open-in-view binds one to each request. */
+        private void asRequest(RequestWork work) throws Exception {
             requestEntityManager = entityManagerFactory.createEntityManager();
             TransactionSynchronizationManager
                     .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
             try {
-                call.call();
+                work.run();
             } finally {
                 TransactionSynchronizationManager.unbindResource(entityManagerFactory);
                 requestEntityManager.close();
@@ -1295,6 +1294,23 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
             }
         }
 
+        private void createConnectorV1() throws JsonProcessingException {
+            functionGroupSeeder.seed(FunctionGroupCode.CREDENTIAL_PROVIDER, List.of());
+            var credentialProvider = new com.otilm.api.model.client.connector.InfoResponse(List.of("Basic"),
+                    FunctionGroupCode.CREDENTIAL_PROVIDER, List.of());
+            String functionGroups = objectMapper.writeValueAsString(List.of(credentialProvider));
+            mockServer
+                    .stubFor(WireMock
+                            .get(WireMock.urlPathMatching(".+/v1"))
+                            .willReturn(WireMock.okJson(functionGroups)));
+            mockServer
+                    .stubFor(WireMock
+                            .get(WireMock.urlPathMatching(".+/v1/health"))
+                            .willReturn(WireMock.okJson("{ \"status\": \"ok\" }")));
+            connectorV1 = connectorRepository
+                    .save(connectorEntity("connectorV1", urlUnder("v1-connector"), ConnectorVersion.V1));
+        }
+
         private Proxy persistProxy() {
             Proxy proxy = new Proxy();
             proxy.setName("testProxy");
@@ -1312,11 +1328,12 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         }
 
         private static Connector connectorEntity(String name, String url, ConnectorVersion version) {
-            Connector created = new Connector();
-            created.setName(name);
-            created.setUrl(url);
-            created.setVersion(version);
-            created.setStatus(ConnectorStatus.CONNECTED);
+            Connector created = aConnector()
+                    .withGeneratedUuid()
+                    .withName(name)
+                    .withUrl(url)
+                    .withVersion(version)
+                    .build();
             created.setAuthType(AuthType.NONE);
             return created;
         }
@@ -1324,15 +1341,6 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         private static ConnectRequestDto connectRequest(String url) {
             ConnectRequestDto request = new ConnectRequestDto();
             request.setUrl(url);
-            request.setAuthType(AuthType.NONE);
-            return request;
-        }
-
-        private static ConnectorRequestDto createRequest(String name, String url) {
-            ConnectorRequestDto request = new ConnectorRequestDto();
-            request.setName(name);
-            request.setUrl(url);
-            request.setVersion(ConnectorVersion.V2);
             request.setAuthType(AuthType.NONE);
             return request;
         }
