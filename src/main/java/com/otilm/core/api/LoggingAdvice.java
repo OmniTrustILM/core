@@ -64,10 +64,10 @@ public class LoggingAdvice {
             return result;
         } catch (AcmeProblemDocumentException | ValidationException | AlreadyExistException e) {
             String detail = RedactedFailure.isConnectorWritten(e) ? "" : " Exception: " + e.getLocalizedMessage();
-            log.error(e.getClass().getSimpleName() + " when calling " + path + detail);
+            log.error("{} when calling {}{}", e.getClass().getSimpleName(), path, detail);
             throw e;
         } catch (Exception e) {
-            log.error("Exception when calling " + path, RedactedFailure.forLog(e));
+            log.error("Exception when calling {}", path, RedactedFailure.forLog(e));
             throw e;
         } finally {
             long elapsedTime = System.currentTimeMillis() - start;
