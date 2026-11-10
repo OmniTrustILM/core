@@ -45,7 +45,8 @@ public class DiscoveryBusyDeferral {
 
     /**
      * Makes the tick's row due again after the connector's {@code Retry-After}, or after {@link #DEFAULT_DELAY} with
-     * jitter, at the attempt the tick was claimed with. A tick that was overtaken only frees its row.
+     * jitter, at the attempt the tick was claimed with. A tick that was overtaken frees its row at that attempt, due
+     * now.
      *
      * @param fence whether the tick still speaks for the run, checked under the run's row lock
      * @return false once the connector has been busy for longer than the maximum wait, leaving the caller to charge the
@@ -60,7 +61,7 @@ public class DiscoveryBusyDeferral {
                 return true;
             }
             if (!fence.admits(locked)) {
-                tick.releaseOnly();
+                tick.reschedule(tick.attempt(), now);
                 return true;
             }
             Duration busyFor = workRepository

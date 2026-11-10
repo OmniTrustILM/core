@@ -154,8 +154,8 @@ public class DiscoveryDrainTickWorker {
         }
         if (outcome == DrainPageOutcome.STALE) {
             // Whoever moved the run on scheduled what comes next; climbing the ladder over a duplicate could end a
-            // healthy run.
-            tick.releaseOnly();
+            // healthy run. The row is freed at the attempt the tick was claimed with, giving back the claim's charge.
+            tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC));
             return;
         }
         // A checkpointed page this tick applied raised the revision once; a run it ended no longer needs fencing.

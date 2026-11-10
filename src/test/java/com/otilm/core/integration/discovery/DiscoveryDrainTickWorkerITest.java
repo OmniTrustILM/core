@@ -223,6 +223,25 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void givesBackTheClaimsAttempt_whenThePageIsStale() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        var attemptTheTickCarries = 4;
+        armDrainRow(run, attemptTheTickCarries + 1);
+        DiscoveryWorkTick tick = admitTick(run, attemptTheTickCarries);
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            raiseTheRevisionBehindTheTick(run);
+            return checkpointedPage(position("cursor-1"), keyItem(1, "key-a"));
+        });
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(drainRow(run).getAttempt()).isEqualTo(attemptTheTickCarries);
+    }
+
+    @Test
     void endsTheRun_whenACheckpointedConnectorKeepsOmittingTheCheckpoint() throws Exception {
         // given
         Discovery run = checkpointedRunStillScanning();

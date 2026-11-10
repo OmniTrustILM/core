@@ -377,6 +377,27 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void givesBackTheClaimsAttempt_whenAnOvertakenTickIsAnsweredBusy() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
+        var attemptTheTickCarries = 4;
+        armRow(run, DiscoveryWorkType.DRAIN, attemptTheTickCarries + 1);
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            raiseTheRevisionBehindTheTick(run);
+            throw serverFailure(HttpStatus.SERVICE_UNAVAILABLE);
+        });
+
+        // when
+        drainWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.DRAIN, attemptTheTickCarries));
+
+        // then
+        DiscoveryWork row = row(run, DiscoveryWorkType.DRAIN);
+        assertThat(row.getAttempt()).isEqualTo(attemptTheTickCarries);
+        assertThat(row.getLeaseToken()).isNull();
+        assertThat(row.getBusySince()).as("an overtaken tick starts no busy clock").isNull();
+    }
+
+    @Test
     void keepsTheFirstBusyTime_whenTheConnectorIsBusyAgain() throws Exception {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
