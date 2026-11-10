@@ -47,7 +47,7 @@ public class NativeSigningExceptionHandlingAdvice {
     @ExceptionHandler(SigningEngineException.class)
     public ResponseEntity<Object> handleSigningEngineException(SigningEngineException ex) {
         SigningEngineFailure failure = ex.failure();
-        LOG.debug("Native signing failed: {} {}", failure, ex.operatorMessage());
+        LOG.debug("Native signing failed: {} {} (item {})", failure, ex.operatorMessage(), ex.itemIdentifier());
         boolean callerFault = failure == SigningEngineFailure.INVALID_INPUT
                 || failure == SigningEngineFailure.MALFORMED_INPUT;
         // The signer and formatting clients wrap an unreachable connector in a fault of their own.

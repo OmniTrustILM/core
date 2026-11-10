@@ -22,8 +22,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.postgresql.util.PSQLException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -194,7 +196,9 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
         ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
-        assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(recordBatch)
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasRootCauseInstanceOf(PSQLException.class);
         assertThat(outboxRepo.count()).isZero();
     }
 
@@ -213,7 +217,9 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
                 });
 
         // then
-        assertThatThrownBy(recordBatchInCallersTransaction).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(recordBatchInCallersTransaction)
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasRootCauseInstanceOf(PSQLException.class);
     }
 
     @Test
