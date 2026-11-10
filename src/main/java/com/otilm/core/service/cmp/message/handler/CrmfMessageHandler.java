@@ -45,7 +45,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Handle (ILM) supported CRMF-based message - ir/cr/kur; concrete handle (how to get/update certificate) delegates to
@@ -54,11 +53,9 @@ import org.springframework.transaction.annotation.Transactional;
  * @see CrmfIrCrMessageHandler
  * @see CrmfKurMessageHandler
  */
+// Neither @Transactional nor NOT_SUPPORTED, because the certificate is polled for up to the poll budget;
+// see CmpServiceImpl#handlePost.
 @Component
-// noRollbackFor keeps Spring's default (no rollback on checked exceptions): CMP surfaces
-// CmpBaseException as a protocol error response, and this handler shares the caller's
-// transaction, so rolling back on it would mark that transaction rollback-only.
-@Transactional(noRollbackFor = CmpBaseException.class)
 public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(CrmfMessageHandler.class.getName());
