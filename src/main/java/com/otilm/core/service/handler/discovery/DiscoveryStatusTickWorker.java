@@ -96,7 +96,7 @@ public class DiscoveryStatusTickWorker {
             return;
         }
 
-        DiscoveryTickFence fence = stillCurrent(tick, run.getStatus());
+        DiscoveryTickFence fence = stillCurrent(tick, run);
         DiscoveryStatusResponseDto status;
         try {
             // Outside any transaction, by the platform's connector-call rule.
@@ -136,10 +136,13 @@ public class DiscoveryStatusTickWorker {
      * For a checkpointed run, a status tick may end the run only while the run still has the status the tick read and
      * the tick still holds its row: a stop changes the first and clears the second, a resume does both too. Not the
      * checkpoint revision, which every drain page raises, so a status tick failing its last attempt while slices land
-     * could then never end the run. A buffered run is not fenced.
+     * could then never end the run. The fence holds when either the run as the tick read it or the run as it is now is
+     * checkpointed, so a resume that switches the mode still revokes the tick; a run buffered throughout is not fenced.
      */
-    private static DiscoveryTickFence stillCurrent(DiscoveryWorkTick tick, DiscoveryStatus polledAs) {
-        return lockedRun -> lockedRun.getDeliveryMode() != DiscoveryDeliveryMode.CHECKPOINTED
+    private static DiscoveryTickFence stillCurrent(DiscoveryWorkTick tick, Discovery runAsRead) {
+        DiscoveryStatus polledAs = runAsRead.getStatus();
+        boolean readCheckpointed = runAsRead.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED;
+        return lockedRun -> !(readCheckpointed || lockedRun.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED)
                 || (lockedRun.getStatus() == polledAs && tick.stillHoldsItsRow());
     }
 

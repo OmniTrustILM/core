@@ -194,6 +194,26 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void endsNothing_whenAResumeTurnsTheRunBufferedWhileTheLastStatusAttemptFails() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
+        armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
+        when(client.status(any())).thenAnswer(call -> {
+            stop(run);
+            commitTheResumeAsBuffered(run);
+            throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
+        });
+
+        // when
+        statusWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT));
+
+        // then
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(reloaded.getDeliveryMode()).isEqualTo(DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    @Test
     void endsTheRun_whenACurrentStatusTickFailsOnItsLastAttempt() throws Exception {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
@@ -514,6 +534,14 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         current.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
         current.setStoppedAt(null);
         current.setCheckpointRevision(current.getCheckpointRevision() + 1);
+        discoveryRepository.saveAndFlush(current);
+    }
+
+    /** The resume transaction of a resume whose connector answered in buffered mode. */
+    private void commitTheResumeAsBuffered(Discovery run) {
+        commitTheResume(run);
+        Discovery current = reload(run);
+        current.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
         discoveryRepository.saveAndFlush(current);
     }
 
