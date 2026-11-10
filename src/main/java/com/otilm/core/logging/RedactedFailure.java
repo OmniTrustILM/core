@@ -24,7 +24,11 @@ public final class RedactedFailure extends RuntimeException implements PlatformE
         return isConnectorWritten(failure) ? redact(failure) : failure;
     }
 
-    private static boolean isConnectorWritten(Throwable failure) {
+    /**
+     * Whether a connector may have written part of the failure's chain: a {@link JsonProcessingException},
+     * {@link ConnectorException} or {@link ValidationException} anywhere in it.
+     */
+    public static boolean isConnectorWritten(Throwable failure) {
         return ExceptionUtils.indexOfType(failure, JsonProcessingException.class) >= 0
                 || ExceptionUtils.indexOfType(failure, ConnectorException.class) >= 0
                 || ExceptionUtils.indexOfType(failure, ValidationException.class) >= 0;

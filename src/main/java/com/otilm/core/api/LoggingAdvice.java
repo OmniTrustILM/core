@@ -63,9 +63,8 @@ public class LoggingAdvice {
             log.trace("Method {} result: {}", path, getValue(result));
             return result;
         } catch (AcmeProblemDocumentException | ValidationException | AlreadyExistException e) {
-            log
-                    .error(e.getClass().getSimpleName() + " when calling " + path + " Exception: "
-                            + e.getLocalizedMessage());
+            String detail = RedactedFailure.isConnectorWritten(e) ? "" : " Exception: " + e.getLocalizedMessage();
+            log.error(e.getClass().getSimpleName() + " when calling " + path + detail);
             throw e;
         } catch (Exception e) {
             log.error("Exception when calling " + path, RedactedFailure.forLog(e));

@@ -7,6 +7,7 @@ import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.core.util.SecretLeakProbe;
 import java.lang.reflect.Method;
@@ -83,6 +84,22 @@ class LoggingAdviceTest {
         List<String> lines = renderLogged();
         SecretLeakProbe.assertNoneReveals(lines, echoedSecret);
         assertThat(lines).anyMatch(line -> line.contains(ConnectorException.class.getName()));
+    }
+
+    @Test
+    void logsAValidationFailureWithoutItsText_whenAConnectorMayHaveWrittenIt() throws Throwable {
+        // given — a connector's refusal reaches the controller as a ValidationException carrying its own sentences
+        var echoedSecret = "passphrase-the-connector-echoed";
+        ProceedingJoinPoint joinPoint = fixtureJoinPoint(new Object[]{"a", "b"}, null);
+        when(joinPoint.proceed()).thenThrow(new ValidationException(echoedSecret));
+
+        // when
+        catchThrowable(() -> advice.logAround(joinPoint));
+
+        // then
+        List<String> lines = renderLogged();
+        SecretLeakProbe.assertNoneReveals(lines, echoedSecret);
+        assertThat(lines).anyMatch(line -> line.contains("ValidationException when calling"));
     }
 
     // Invoked only reflectively as the traced-method fixture (the advice reads its parameter annotations).
