@@ -56,6 +56,7 @@ public class DiscoveryDrainTickWorker {
     private final TransactionHandler transactionHandler;
     private final DiscoveryWorkLease lease;
     private final DiscoveryBusyDeferral busyDeferral;
+    private final DiscoverySlicePermits slicePermits;
     private final int maxItems;
     private final long maxBytes;
 
@@ -63,10 +64,11 @@ public class DiscoveryDrainTickWorker {
             DiscoveryEventIngestor ingestor, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
             DiscoveryRunTerminator terminator, DiscoveryTickBudget budget, DiscoveryWorkProperties workProperties,
             TransactionHandler transactionHandler, DiscoveryWorkLease lease, DiscoveryBusyDeferral busyDeferral,
-            @Value("${discovery.drain.max-items:500}") int maxItems,
+            DiscoverySlicePermits slicePermits, @Value("${discovery.drain.max-items:500}") int maxItems,
             @Value("${discovery.drain.max-bytes:5242880}") long maxBytes) {
         this.lease = lease;
         this.busyDeferral = busyDeferral;
+        this.slicePermits = slicePermits;
         this.discoveryRepository = discoveryRepository;
         this.client = client;
         this.ingestor = ingestor;
@@ -114,6 +116,13 @@ public class DiscoveryDrainTickWorker {
 
         long revision = run.getCheckpointRevision();
         DiscoveryTickFence fence = CheckpointRevision.fence(revision, run.getDeliveryMode());
+        boolean holdsASlicePermit = isCheckpointed(run);
+        if (holdsASlicePermit && !slicePermits.tryAcquire()) {
+            // No waiting: the row is due again at once for the next sweep, and the claim's charge is given back.
+            logger.debug("Drain for discovery {} deferred: this node's slice cap is taken", discoveryUuid);
+            tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC));
+            return;
+        }
         DiscoveryResultsResponseDto page;
         try {
             // Outside any transaction, by the platform's connector-call rule.
@@ -127,6 +136,10 @@ public class DiscoveryDrainTickWorker {
                     .endConnectorOwned(discoveryUuid, DiscoveryStatus.FAILED,
                             "The discovery run can no longer be addressed at its connector");
             return;
+        } finally {
+            if (holdsASlicePermit) {
+                slicePermits.release();
+            }
         }
 
         if (page.getItems() == null || page.getMore() == null || page.getHighestSequence() == null) {
