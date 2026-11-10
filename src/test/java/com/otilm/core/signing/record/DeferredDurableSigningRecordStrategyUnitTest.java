@@ -125,13 +125,14 @@ class DeferredDurableSigningRecordStrategyUnitTest {
     void failsCountingEveryItem_whenStagingTheBatchFails() {
         // given
         List<SigningRecordInputSource> batch = createRecordableBatch(3);
-        doThrow(new RuntimeException("db down")).when(writer).insertOutboxBatch(any());
+        var stagingFailure = new RuntimeException("db down");
+        doThrow(stagingFailure).when(writer).insertOutboxBatch(any());
 
         // when
         ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
-        assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class).hasMessageContaining("db down");
+        assertThatThrownBy(recordBatch).isSameAs(stagingFailure);
         assertThat(intakeFailedCounter(MODE, SigningRecordMetrics.REASON_SAVE_ERROR)).isEqualTo(batch.size());
     }
 

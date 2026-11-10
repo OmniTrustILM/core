@@ -241,6 +241,8 @@ class BestEffortSigningRecordStrategyUnitTest {
         verifyNoInteractions(writer);
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private BestEffortSigningRecordStrategy createStrategy(BestEffortBackpressurePolicy policy) {
         var properties = new SigningRecordBestEffortProperties(1, policy, 1L, MAX_BATCH_SIZE);
         return new BestEffortSigningRecordStrategy(metrics, writer, new SigningRecordInputMapper(), queue, properties);

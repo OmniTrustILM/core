@@ -84,6 +84,8 @@ class SigningRecordMetricsTest {
         assertThat(returned).isEqualTo(recordUuid);
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private long countDurationSamples(String mode) {
         Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).tag("batch", "false").timer();
         return timer == null ? 0L : timer.count();

@@ -219,13 +219,14 @@ class ImmediateSigningRecordStrategyUnitTest {
     void failsCountingEveryItem_whenTheBatchWriteFails() {
         // given
         List<SigningRecordInputSource> batch = createRecordableBatch(3);
-        doThrow(new RuntimeException("db down")).when(writer).insertBatch(any());
+        var writeFailure = new RuntimeException("db down");
+        doThrow(writeFailure).when(writer).insertBatch(any());
 
         // when
         ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
-        assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class).hasMessageContaining("db down");
+        assertThatThrownBy(recordBatch).isSameAs(writeFailure);
         assertThat(persistCounter(MODE)).isEqualTo(batch.size());
         assertThat(persistFailedCounter(MODE)).isEqualTo(batch.size());
         assertThat(intakeFailedCounter(MODE, SigningRecordMetrics.REASON_PERSIST_ERROR)).isEqualTo(batch.size());
