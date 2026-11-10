@@ -641,9 +641,6 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
                 "an authenticated renewal must get past the registration gate to the envelope preflight");
     }
 
-    /**
-     * A request is answered for the profile it was sent to, even when another profile's request is served meanwhile.
-     */
     @Test
     void completesTheRegistration_whenAnotherProfileIsServedDuringTheEnrolment() throws Exception {
         // given
