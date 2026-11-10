@@ -84,22 +84,42 @@ class ActionsListenerTest {
     // ==================== No approval needed — direct action ====================
 
     @Test
-    void processMessage_certificateIssue_noApprovalNeeded_callsIssueCertificateAction() throws Exception {
+    void issuesTheCertificateAsItsRequester_whenNoApprovalIsNeeded() throws Exception {
+        // given — no approval profile for the resource
         UUID resourceUuid = UUID.randomUUID();
         UUID userUuid = UUID.randomUUID();
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, userUuid, null, null,
                 null);
-
-        // No approval profile configured for this resource → falls through to direct action.
         when(approvalProfileRelationRepository.findByResourceUuidAndResource(any(), any()))
                 .thenReturn(Optional.of(List.of()));
 
+        // when
         listener.processMessage(msg);
 
+        // then
         verify(authHelper).authenticateAsUser(userUuid);
-        verify(clientOperationService).issueCertificateAction(resourceUuid, false);
+        verify(clientOperationService).issueCertificateAction(resourceUuid, null, false);
         verifyNoInteractions(approvalInternalService);
         verifyNoInteractions(notificationProducer);
+    }
+
+    @Test
+    void issuesTheRequestTheIssueWasQueuedFor_whenNoApprovalIsNeeded() throws Exception {
+        // given
+        UUID certificateUuid = UUID.randomUUID();
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, certificateUuid, UUID.randomUUID(),
+                null, null, null);
+        UUID queuedFor = UUID.randomUUID();
+        msg.setCertificateRequestUuid(queuedFor);
+        when(approvalProfileRelationRepository.findByResourceUuidAndResource(any(), any()))
+                .thenReturn(Optional.of(List.of()));
+
+        // when
+        listener.processMessage(msg);
+
+        // then
+        verify(clientOperationService).hasNothingToIssue(certificateUuid, queuedFor);
+        verify(clientOperationService).issueCertificateAction(certificateUuid, queuedFor, false);
     }
 
     @Test
@@ -109,13 +129,15 @@ class ActionsListenerTest {
         UUID registrationUuid = UUID.randomUUID();
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, registrationUuid, UUID.randomUUID(),
                 null, null, null);
-        when(clientOperationService.hasNothingToIssue(registrationUuid)).thenReturn(true);
+        UUID queuedFor = UUID.randomUUID();
+        msg.setCertificateRequestUuid(queuedFor);
+        when(clientOperationService.hasNothingToIssue(registrationUuid, queuedFor)).thenReturn(true);
 
         // when
         listener.processMessage(msg);
 
         // then
-        verify(clientOperationService, never()).issueCertificateAction(any(), anyBoolean());
+        verify(clientOperationService, never()).issueCertificateAction(any(), any(), anyBoolean());
         verifyNoInteractions(approvalProfileRelationRepository, approvalInternalService, notificationProducer);
     }
 
@@ -167,7 +189,7 @@ class ActionsListenerTest {
         verify(clientOperationService).requestApproval(any(), eq(msg));
         verifyNoInteractions(approvalInternalService);
         verify(authHelper, never()).authenticateAsUser(any());
-        verify(clientOperationService, never()).issueCertificateAction(any(), anyBoolean());
+        verify(clientOperationService, never()).issueCertificateAction(any(), any(), anyBoolean());
     }
 
     @Test

@@ -26,4 +26,11 @@ public class ActionMessage {
 
     private ApprovalStatusEnum approvalStatus;
 
+    /**
+     * The certificate request an issue was queued for. A registration whose completion was undone can take another
+     * completion before the undone one's issue arrives, so that issue must not act on the request it finds. Null on
+     * other actions, on the action an approval decision sends, and on messages queued before this field.
+     */
+    private UUID certificateRequestUuid;
+
 }

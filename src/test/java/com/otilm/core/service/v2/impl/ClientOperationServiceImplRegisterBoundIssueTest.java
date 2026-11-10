@@ -679,6 +679,24 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         Mockito.verifyNoInteractions(adapter);
     }
 
+    @Test
+    void leavesTheRegistrationUnclaimed_whenItHoldsAnotherRequestThanItsIssueWasQueuedFor() {
+        // given — the issue was queued for a completion that was undone before another completion attached its request
+        RegisterCapability adapter = registerCapableAdapter();
+        certificate.setCertificateRequestUuid(UUID.randomUUID());
+        UUID undoneRequestUuid = UUID.randomUUID();
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, undoneRequestUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(stateMachine, never())
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                        ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verifyNoInteractions(adapter);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static MetadataAttribute caHandle(String name, String value) {

@@ -58,13 +58,25 @@ public interface ClientOperationInternalService {
             throws NotFoundException;
 
     /**
-     * Whether an issue action not yet approved has nothing to issue: the certificate is gone, or is neither a submitted
-     * request nor a registration holding the request of a completion. Such an action arrives late after its queuing
-     * reported a failure, or is delivered again.
+     * Whether an issue action not yet approved has nothing to issue: the certificate is gone, is neither a submitted
+     * request nor a registration holding the request of a completion, or holds another request than the one the action
+     * was queued for. Such an action arrives late after its queuing reported a failure, or is delivered again.
+     *
+     * @param certificateRequestUuid the request the action was queued for, or null when it names none
      */
-    boolean hasNothingToIssue(UUID certificateUuid);
+    boolean hasNothingToIssue(UUID certificateUuid, UUID certificateRequestUuid);
 
     void issueCertificateAction(final UUID certificateUuid, boolean isApproved)
+            throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException,
+            CertificateOperationException, NotFoundException;
+
+    /**
+     * As {@link #issueCertificateAction(UUID, boolean)} for an action queued for one certificate request: a certificate
+     * that holds another request by the time it is claimed is not issued.
+     *
+     * @param certificateRequestUuid the request the action was queued for, or null when it names none
+     */
+    void issueCertificateAction(UUID certificateUuid, UUID certificateRequestUuid, boolean isApproved)
             throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException,
             CertificateOperationException, NotFoundException;
 

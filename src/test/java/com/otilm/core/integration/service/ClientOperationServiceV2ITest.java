@@ -4877,7 +4877,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
             // when
             boolean nothingToIssue = clientOperationInternalService
-                    .hasNothingToIssue(findSubmittedCertificate().getUuid());
+                    .hasNothingToIssue(findSubmittedCertificate().getUuid(), null);
 
             // then
             assertThat(nothingToIssue).isTrue();
@@ -5165,7 +5165,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
             // when
             boolean nothingToIssue = clientOperationInternalService
-                    .hasNothingToIssue(UUID.fromString(registrationUuid));
+                    .hasNothingToIssue(UUID.fromString(registrationUuid), null);
 
             // then
             assertThat(nothingToIssue).isTrue();
@@ -5174,16 +5174,67 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         @Test
         void holdsTheCompletionToIssue_whenItsIssueWasQueued() throws Exception {
             // given
+            ArgumentCaptor<ActionMessage> queued = ArgumentCaptor.forClass(ActionMessage.class);
+            clientOperationService
+                    .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid,
+                            createCompletionRequest());
+            verify(actionProducer).produceMessage(queued.capture());
+
+            // when
+            boolean nothingToIssue = clientOperationInternalService
+                    .hasNothingToIssue(UUID.fromString(registrationUuid),
+                            queued.getValue().getCertificateRequestUuid());
+
+            // then
+            assertThat(nothingToIssue).isFalse();
+        }
+
+        @Test
+        void queuesTheIssueForTheRequestItAttached() throws Exception {
+            // given
+            ArgumentCaptor<ActionMessage> queued = ArgumentCaptor.forClass(ActionMessage.class);
+
+            // when
             clientOperationService
                     .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid,
                             createCompletionRequest());
 
+            // then
+            verify(actionProducer).produceMessage(queued.capture());
+            UUID attached = certificateRepository
+                    .findByUuid(UUID.fromString(registrationUuid))
+                    .orElseThrow()
+                    .getCertificateRequestUuid();
+            assertThat(queued.getValue().getCertificateRequestUuid()).isNotNull().isEqualTo(attached);
+        }
+
+        @Test
+        void holdsNothingToIssue_whenItsIssueWasQueuedForAnUndoneCompletion() throws Exception {
+            // given — another completion attached its request before the undone completion's issue arrived
+            ActionMessage lateIssue = completeAgainAfterAnUndoneCompletion();
+
             // when
             boolean nothingToIssue = clientOperationInternalService
-                    .hasNothingToIssue(UUID.fromString(registrationUuid));
+                    .hasNothingToIssue(UUID.fromString(registrationUuid), lateIssue.getCertificateRequestUuid());
 
             // then
-            assertThat(nothingToIssue).isFalse();
+            assertThat(nothingToIssue).isTrue();
+        }
+
+        @Test
+        void requestsNoApproval_whenItsIssueWasQueuedForAnUndoneCompletion() throws Exception {
+            // given — another completion attached its request before the undone completion's issue arrived
+            ActionMessage lateIssue = completeAgainAfterAnUndoneCompletion();
+            ApprovalProfileVersion approvalProfileVersion = createApprovalProfileVersion();
+
+            // when
+            clientOperationInternalService.requestApproval(approvalProfileVersion, lateIssue);
+
+            // then
+            UUID registration = UUID.fromString(registrationUuid);
+            assertThat(readApprovalsOf(registration)).isEmpty();
+            assertThat(certificateRepository.findByUuid(registration).orElseThrow().getState())
+                    .isEqualTo(CertificateState.REGISTERED);
         }
 
         @Test
@@ -5384,6 +5435,28 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 }
             }
             return values;
+        }
+
+        /**
+         * Completes the registration twice: the first completion is undone after its publish reported a failure, though
+         * its issue may still arrive, and the second attaches its own request.
+         *
+         * @return the issue the undone completion queued
+         */
+        private ActionMessage completeAgainAfterAnUndoneCompletion() throws Exception {
+            List<ActionMessage> queued = new ArrayList<>();
+            doAnswer(invocation -> {
+                queued.add(invocation.getArgument(0));
+                throw new IllegalStateException("acknowledgement lost");
+            }).doAnswer(invocation -> {
+                queued.add(invocation.getArgument(0));
+                return null;
+            }).when(actionProducer).produceMessage(any());
+            ClientCertificateIssueRequestDto completion = createCompletionRequest();
+            catchThrowable(() -> clientOperationService
+                    .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion));
+            clientOperationService.issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion);
+            return queued.getFirst();
         }
 
         private void assertStillRegisteredWithoutARequest() {

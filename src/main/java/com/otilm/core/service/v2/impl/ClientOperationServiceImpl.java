@@ -680,7 +680,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 return response;
             }
             runBeforeDispatch(beforeDispatch, certificateUuid);
-            queueIssue(raProfileUuid.getValue(), certificateUuid);
+            queueIssue(raProfileUuid.getValue(), certificateUuid, certificate.getCertificateRequest().getUuid());
         } catch (NotFoundException | RuntimeException e) {
             // Nothing would ever issue a certificate whose issue was not queued, so it is failed. A publish that threw
             // may still have reached the broker, though: once its action has picked the certificate up, it is queued.
@@ -716,7 +716,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     /** Queues the issue of the certificate on behalf of the caller, subject to the RA profile's approval profile. */
-    private void queueIssue(UUID raProfileUuid, UUID certificateUuid) {
+    private void queueIssue(UUID raProfileUuid, UUID certificateUuid, UUID certificateRequestUuid) {
         final ActionMessage actionMessage = new ActionMessage();
         actionMessage.setApprovalProfileResource(Resource.RA_PROFILE);
         actionMessage.setApprovalProfileResourceUuid(raProfileUuid);
@@ -724,6 +724,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         actionMessage.setResource(Resource.CERTIFICATE);
         actionMessage.setResourceAction(ResourceAction.ISSUE);
         actionMessage.setResourceUuid(certificateUuid);
+        actionMessage.setCertificateRequestUuid(certificateRequestUuid);
         actionProducer.produceMessage(actionMessage);
     }
 
@@ -1373,9 +1374,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         final Certificate certificate = certificateRepository
                 .findAndLockWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-        if (actionMessage.getResourceAction() == ResourceAction.ISSUE && !awaitsIssue(certificate)) {
+        if (actionMessage.getResourceAction() == ResourceAction.ISSUE
+                && !awaitsIssue(certificate, actionMessage.getCertificateRequestUuid())) {
             logger
-                    .info("Requesting no approval for the issue of certificate {}: it holds nothing to issue",
+                    .info("Requesting no approval for the issue of certificate {}: it holds nothing this issue can issue",
                             certificateUuid);
             return;
         }
@@ -1387,23 +1389,52 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Override
-    public boolean hasNothingToIssue(UUID certificateUuid) {
+    public boolean hasNothingToIssue(UUID certificateUuid, UUID certificateRequestUuid) {
         return certificateRepository
                 .findByUuid(certificateUuid)
-                .map(certificate -> !awaitsIssue(certificate))
+                .map(certificate -> !awaitsIssue(certificate, certificateRequestUuid))
                 .orElse(true);
     }
 
-    /** A submitted request, or a registration holding the request of a completion. */
-    private static boolean awaitsIssue(Certificate certificate) {
-        return certificate.getState() == CertificateState.REQUESTED
+    /**
+     * A submitted request, or a registration holding the request of a completion, and when the issue names the request
+     * it was queued for, that request.
+     */
+    private static boolean awaitsIssue(Certificate certificate, UUID queuedRequestUuid) {
+        boolean awaitsIssue = certificate.getState() == CertificateState.REQUESTED
                 || (certificate.getState() == CertificateState.REGISTERED
                         && certificate.getCertificateRequestUuid() != null);
+        return awaitsIssue && holdsQueuedRequest(certificate, queuedRequestUuid);
+    }
+
+    /** Whether the certificate holds the request an issue was queued for; an issue that names none accepts any. */
+    private static boolean holdsQueuedRequest(Certificate certificate, UUID queuedRequestUuid) {
+        return queuedRequestUuid == null || queuedRequestUuid.equals(certificate.getCertificateRequestUuid());
+    }
+
+    /** Whether an ISSUE action queued for the given request may still claim the certificate for issuance. */
+    private static boolean isClaimableForIssue(Certificate certificate, UUID queuedRequestUuid) {
+        CertificateState state = certificate.getState();
+        boolean claimableState = state == CertificateState.REQUESTED || state == CertificateState.PENDING_APPROVAL
+                || state == CertificateState.REGISTERED;
+        return claimableState && holdsQueuedRequest(certificate, queuedRequestUuid);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void issueCertificateAction(final UUID certificateUuid, final UUID certificateRequestUuid,
+            boolean isApproved) throws CertificateOperationException, NotFoundException {
+        issueCertificate(certificateUuid, certificateRequestUuid, isApproved);
     }
 
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void issueCertificateAction(final UUID certificateUuid, boolean isApproved)
+            throws CertificateOperationException, NotFoundException {
+        issueCertificate(certificateUuid, null, isApproved);
+    }
+
+    private void issueCertificate(final UUID certificateUuid, final UUID certificateRequestUuid, boolean isApproved)
             throws CertificateOperationException, NotFoundException {
         if (!isApproved) {
             certificateService.checkIssuePermissions();
@@ -1423,14 +1454,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             if (authority != null
                     && adapterFactory.forAuthority(authority) instanceof RegisterCapability registerCapability
                     && capabilityService.supports(authority, FeatureFlag.CERTIFICATE_REGISTRATION)) {
-                issueRegisteredCertificateAction(placeholder, registerCapability);
+                issueRegisteredCertificateAction(placeholder, registerCapability, certificateRequestUuid);
                 return;
             }
         }
-        issuePlainCertificateAction(certificateUuid);
+        issuePlainCertificateAction(certificateUuid, certificateRequestUuid);
     }
 
-    private void issuePlainCertificateAction(final UUID certificateUuid)
+    private void issuePlainCertificateAction(final UUID certificateUuid, final UUID certificateRequestUuid)
             throws CertificateOperationException, NotFoundException {
         // Claim the certificate under a pessimistic row lock, committing before the connector call so the lock never
         // spans HTTP.
@@ -1452,15 +1483,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                         certificate.toStringShort())));
             }
 
-            // If the state is no longer claimable, a concurrent ISSUE already claimed this certificate to PENDING_ISSUE
-            // (or it reached a terminal state).
+            // If the certificate is no longer claimable, a concurrent ISSUE already claimed it to PENDING_ISSUE (or it
+            // reached a terminal state), or another completion replaced the request this issue was queued for.
             // Commit and return rather than letting it fall into the connector catch, because PENDING_ISSUE -> FAILED
             // is a *legal* transition.
-            if (certificate.getState() != CertificateState.REQUESTED
-                    && certificate.getState() != CertificateState.PENDING_APPROVAL
-                    && certificate.getState() != CertificateState.REGISTERED) {
+            if (!isClaimableForIssue(certificate, certificateRequestUuid)) {
                 logger
-                        .info("Certificate {} is in state {} and no longer claimable for issuance; a concurrent ISSUE action likely won the claim — skipping",
+                        .info("Certificate {} in state {} holds nothing this ISSUE action can claim; a concurrent ISSUE action won the claim or another completion replaced its request — skipping",
                                 certificateUuid, certificate.getState().getLabel());
                 transactionManager.commit(tx);
                 return;
@@ -1642,9 +1671,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * Issues against a prior registration. The phases keep the pessimistic lock off the connector call and honour the
      * state-divergence rule once the connector has accepted.
      */
-    private void issueRegisteredCertificateAction(Certificate certificate, RegisterCapability registerCapability)
-            throws CertificateOperationException, NotFoundException {
-        RegisterReplayContext replay = captureRegisterReplayContext(certificate);
+    private void issueRegisteredCertificateAction(Certificate certificate, RegisterCapability registerCapability,
+            UUID queuedRequestUuid) throws CertificateOperationException, NotFoundException {
+        RegisterReplayContext replay = captureRegisterReplayContext(certificate, queuedRequestUuid);
         AdapterOperationResult result = callRegisterBoundIssue(certificate, registerCapability, replay);
         completeAcceptedRegisterBoundIssue(certificate, result);
         clearBindingBestEffort(certificate.getUuid());
@@ -1664,7 +1693,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * a concurrent operation won the race, and this throws. On success it claims the placeholder into
      * {@code PENDING_ISSUE} and releases the lock before the connector call in Phase 2.
      */
-    private RegisterReplayContext captureRegisterReplayContext(Certificate certificate)
+    private RegisterReplayContext captureRegisterReplayContext(Certificate certificate, UUID queuedRequestUuid)
             throws CertificateOperationException, NotFoundException {
         final UUID certUuid = certificate.getUuid();
         final AuthorityInstanceReference authority = certificate.getRaProfile().getAuthorityInstanceReference();
@@ -1685,10 +1714,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                         "Register-bound issue for certificate %s raced with another operation; state is now %s."
                                 .formatted(certUuid, state.getLabel()));
             }
-            // The connector is sent the request this action read before the lock. An undone completion's late action
-            // read none, or another completion attached its own since; the registration waits for its current issue.
+            // The connector is sent the request this action was queued for, or else the one it read before the lock.
+            // An undone completion's late action finds none, or another completion's since; the registration waits
+            // for its current issue.
+            UUID expectedRequestUuid = queuedRequestUuid != null
+                    ? queuedRequestUuid
+                    : certificate.getCertificateRequestUuid();
             if (managed.getCertificateRequest() == null
-                    || !Objects.equals(managed.getCertificateRequestUuid(), certificate.getCertificateRequestUuid())) {
+                    || !Objects.equals(managed.getCertificateRequestUuid(), expectedRequestUuid)) {
                 throw new CertificateOperationException(
                         "Register-bound issue for certificate %s has no current certificate signing request to issue."
                                 .formatted(certUuid));
@@ -2173,7 +2206,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             requestAttributeWarnings = completeRegistration(raProfile, certificate.getUuid(), request,
                     challengeAuthorized);
         } else {
-            queueIssue(raProfileUuid.getValue(), certificate.getUuid());
+            queueIssue(raProfileUuid.getValue(), certificate.getUuid(), certificate.getCertificateRequestUuid());
         }
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
@@ -2209,7 +2242,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // (issueExistingCertificate is NOT_SUPPORTED), so the resolve and the attribute-engine writes run in their
             // own transactions and cannot mark the completed certificate's transaction rollback-only.
             persistCompletionRequestValues(raProfile, certificateRequestUuid, request);
-            queueIssue(raProfile.getUuid(), certificateUuid);
+            queueIssue(raProfile.getUuid(), certificateUuid, certificateRequestUuid);
         } catch (RuntimeException e) {
             boolean pickedUp = undoCompletionUnlessPickedUp(certificateUuid, certificateRequestUuid);
             if (!pickedUp) {

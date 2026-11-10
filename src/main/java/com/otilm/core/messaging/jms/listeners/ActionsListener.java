@@ -125,8 +125,8 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
      */
     private boolean isIssueWithNothingToIssue(final ActionMessage actionMessage) {
         return actionMessage.getResource() == Resource.CERTIFICATE
-                && actionMessage.getResourceAction() == ResourceAction.ISSUE
-                && clientOperationService.hasNothingToIssue(actionMessage.getResourceUuid());
+                && actionMessage.getResourceAction() == ResourceAction.ISSUE && clientOperationService
+                        .hasNothingToIssue(actionMessage.getResourceUuid(), actionMessage.getCertificateRequestUuid());
     }
 
     /**
@@ -185,7 +185,9 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
 
         // handle
         switch (actionMessage.getResourceAction()) {
-            case ISSUE -> clientOperationService.issueCertificateAction(actionMessage.getResourceUuid(), isApproved);
+            case ISSUE -> clientOperationService
+                    .issueCertificateAction(actionMessage.getResourceUuid(), actionMessage.getCertificateRequestUuid(),
+                            isApproved);
             case REKEY -> {
                 final ClientCertificateRekeyRequestDto clientCertificateRekeyRequestDto = mapper
                         .convertValue(actionMessage.getData(), ClientCertificateRekeyRequestDto.class);
