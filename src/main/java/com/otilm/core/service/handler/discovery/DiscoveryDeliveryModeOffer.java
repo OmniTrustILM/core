@@ -4,6 +4,7 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -33,8 +34,18 @@ public class DiscoveryDeliveryModeOffer {
         return offered;
     }
 
-    public boolean offers(DiscoveryDeliveryMode mode) {
-        return offered.contains(mode);
+    /**
+     * The mode a run is in after a connector answered initiate or resume with {@code answered}.
+     *
+     * @return the chosen mode, or buffered when the answer names none, even when buffered was not offered: a connector
+     * that predates delivery modes cannot choose, and an operator who narrowed the offer must not fail every run it
+     * drives; empty when the connector chose a mode that was not offered, a contract violation
+     */
+    public Optional<DiscoveryDeliveryMode> accept(DiscoveryDeliveryMode answered) {
+        if (answered == null) {
+            return Optional.of(DiscoveryDeliveryMode.BUFFERED);
+        }
+        return offered.contains(answered) ? Optional.of(answered) : Optional.empty();
     }
 
     private static List<DiscoveryDeliveryMode> parse(String modes) {

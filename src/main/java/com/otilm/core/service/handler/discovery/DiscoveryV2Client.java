@@ -75,11 +75,12 @@ public class DiscoveryV2Client {
     private final ResourceInternalService resourceService;
     private final AuthHelper authHelper;
     private final OutboundSecretContainment outboundContainment;
+    private final DiscoveryDeliveryModeOffer deliveryModeOffer;
 
     public DiscoveryV2Client(ConnectorApiFactory connectorApiFactory, ConnectorRepository connectorRepository,
             AttributeEngine attributeEngine, CredentialInternalService credentialService,
             ResourceInternalService resourceService, AuthHelper authHelper,
-            OutboundSecretContainment outboundContainment) {
+            OutboundSecretContainment outboundContainment, DiscoveryDeliveryModeOffer deliveryModeOffer) {
         this.connectorApiFactory = connectorApiFactory;
         this.connectorRepository = connectorRepository;
         this.attributeEngine = attributeEngine;
@@ -87,6 +88,7 @@ public class DiscoveryV2Client {
         this.resourceService = resourceService;
         this.authHelper = authHelper;
         this.outboundContainment = outboundContainment;
+        this.deliveryModeOffer = deliveryModeOffer;
     }
 
     /** What this connector can discover, as it reports right now. Never persisted, so it is always asked. */
@@ -252,7 +254,8 @@ public class DiscoveryV2Client {
      *
      * <p>
      * The resource set goes on every request, not only initiate: a stateless connector rebuilding a resumed run cannot
-     * recover it from {@code resourceAttributes}, which omits any resource declaring no attributes of its own.
+     * recover it from {@code resourceAttributes}, which omits any resource declaring no attributes of its own. So do
+     * the offered delivery modes, which a connector checks before it accepts a run and again before it resumes one.
      *
      * @return the secret values resolved into the request, for {@link #contained} to catch on the way back
      */
@@ -261,6 +264,7 @@ public class DiscoveryV2Client {
         request.setRunId(run.getUuid());
         request.setCheckpoint(run.getCheckpoint());
         request.setResources(resourcesOf(run));
+        request.setDeliveryModes(deliveryModeOffer.offered());
         Map<String, List<DataAttribute>> scopes = resolvedScopes(run, connector);
         request.setAttributes(AttributeDefinitionUtils.getClientAttributes(scopes.getOrDefault(RUN_SCOPE, List.of())));
         Map<Resource, List<RequestAttribute>> byResource = new EnumMap<>(Resource.class);

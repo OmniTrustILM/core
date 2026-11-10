@@ -3,6 +3,7 @@ package com.otilm.core.service.handler.discovery;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
@@ -68,6 +69,43 @@ class DiscoveryDeliveryModeOfferTest {
         assertThatThrownBy(parse)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("discovery.delivery.modes");
+    }
+
+    @Test
+    void acceptsTheAnswerAsBuffered_whenItNamesNoModeAndBufferedIsNotOffered() {
+        // given
+        var checkpointedOnly = new DiscoveryDeliveryModeOffer("checkpointed");
+        DiscoveryDeliveryMode noModeAnswered = null;
+
+        // when
+        Optional<DiscoveryDeliveryMode> accepted = checkpointedOnly.accept(noModeAnswered);
+
+        // then
+        assertThat(accepted).contains(DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    @Test
+    void acceptsTheChosenMode_whenItWasOffered() {
+        // given
+        var bothModes = new DiscoveryDeliveryModeOffer("checkpointed,buffered");
+
+        // when
+        Optional<DiscoveryDeliveryMode> accepted = bothModes.accept(DiscoveryDeliveryMode.CHECKPOINTED);
+
+        // then
+        assertThat(accepted).contains(DiscoveryDeliveryMode.CHECKPOINTED);
+    }
+
+    @Test
+    void refusesTheChosenMode_whenItWasNotOffered() {
+        // given
+        var bufferedOnly = new DiscoveryDeliveryModeOffer("buffered");
+
+        // when
+        Optional<DiscoveryDeliveryMode> accepted = bufferedOnly.accept(DiscoveryDeliveryMode.CHECKPOINTED);
+
+        // then
+        assertThat(accepted).isEmpty();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -17,10 +17,13 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStatusResponseDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryStopResponseDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryV2ScopedRequestDto;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorDto;
@@ -84,13 +87,16 @@ class DiscoveryV2ClientTest {
     @Mock
     private DiscoverySyncApiClient apiClient;
 
+    private static final String OFFERED_MODES = "checkpointed,buffered";
+
     private DiscoveryV2Client client;
     private Discovery run;
 
     @BeforeEach
     void setUp() {
         client = new DiscoveryV2Client(connectorApiFactory, connectorRepository, attributeEngine, credentialService,
-                resourceService, authHelper, new OutboundSecretContainment(new ObjectMapper()));
+                resourceService, authHelper, new OutboundSecretContainment(new ObjectMapper()),
+                new DiscoveryDeliveryModeOffer(OFFERED_MODES));
         // Runs the elevated body inline: the bare mock returns null without invoking it, so every assertion about
         // what the loaders received would pass while resolving nothing.
         lenient()
@@ -127,6 +133,31 @@ class DiscoveryV2ClientTest {
         assertThat(sent.getValue().getCheckpoint())
                 .as("the connector is stateless; without its own handle it cannot resolve the run")
                 .isEqualTo(run.getCheckpoint());
+    }
+
+    @Test
+    void offersTheConfiguredModes_onEveryRequest() throws Exception {
+        // given
+        when(apiClient.initiate(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+        when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
+        when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
+        when(apiClient.stop(any(), any())).thenReturn(new DiscoveryStopResponseDto());
+        when(apiClient.resume(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+
+        // when
+        client.initiate(run);
+        client.status(run);
+        client.results(run, 500, 5_242_880L);
+        client.stop(run);
+        client.resume(run);
+        client.cancel(run);
+
+        // then
+        List<DiscoveryV2ScopedRequestDto> sent = capturedRequestsOfEveryCall();
+        assertThat(sent)
+                .hasSize(6)
+                .allSatisfy(request -> assertThat(request.getDeliveryModes())
+                        .containsExactly(DiscoveryDeliveryMode.CHECKPOINTED, DiscoveryDeliveryMode.BUFFERED));
     }
 
     @Test
@@ -430,6 +461,25 @@ class DiscoveryV2ClientTest {
         ArgumentCaptor<DiscoveryRunRequestDto> sent = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
         verify(apiClient).status(any(ConnectorDto.class), sent.capture());
         return sent.getValue();
+    }
+
+    private List<DiscoveryV2ScopedRequestDto> capturedRequestsOfEveryCall() throws Exception {
+        ArgumentCaptor<DiscoveryInitiateRequestDto> initiate = ArgumentCaptor
+                .forClass(DiscoveryInitiateRequestDto.class);
+        ArgumentCaptor<DiscoveryRunRequestDto> status = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
+        ArgumentCaptor<DiscoveryDrainRequestDto> drain = ArgumentCaptor.forClass(DiscoveryDrainRequestDto.class);
+        ArgumentCaptor<DiscoveryRunRequestDto> stop = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
+        ArgumentCaptor<DiscoveryRunRequestDto> resume = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
+        ArgumentCaptor<DiscoveryRunRequestDto> cancel = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
+        verify(apiClient).initiate(any(ConnectorDto.class), initiate.capture());
+        verify(apiClient).status(any(ConnectorDto.class), status.capture());
+        verify(apiClient).results(any(ConnectorDto.class), drain.capture());
+        verify(apiClient).stop(any(ConnectorDto.class), stop.capture());
+        verify(apiClient).resume(any(ConnectorDto.class), resume.capture());
+        verify(apiClient).cancel(any(ConnectorDto.class), cancel.capture());
+        return List
+                .of(initiate.getValue(), status.getValue(), drain.getValue(), stop.getValue(), resume.getValue(),
+                        cancel.getValue());
     }
 
     private DiscoveryDrainRequestDto capturedDrain() throws Exception {
