@@ -866,38 +866,53 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testFinalize() throws URISyntaxException, ConnectorException, CertificateException, AlreadyExistException,
-            JOSEException, AcmeProblemDocumentException, JsonProcessingException {
-        String baseUri = BASE_URI + ACME_PROFILE_NAME;
-        URI requestUri = new URI(baseUri + "/order/" + ORDER_ID_VALID + "/finalize");
+    void countsAFailedOrder_whenFinalizingAnOrderWhoseCertificateFailed() {
+        // given
         certificate.setState(CertificateState.FAILED);
         certificateRepository.save(certificate);
         order1.setStatus(OrderStatus.PENDING);
         acmeOrderRepository.save(order1);
-        Assertions
-                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(ACME_PROFILE_NAME,
-                        ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
-        AcmeAccount acmeAccount = acmeAccountRepository.findByUuid(order1.getAcmeAccountUuid()).orElseThrow();
-        Assertions.assertEquals(1, acmeAccount.getFailedOrders());
-        certificate.setState(CertificateState.ISSUED);
-        certificateRepository.save(certificate);
+        int failedOrdersBefore = failedOrders(order1);
+
+        // when
+        ThrowingCallable finalize = this::finalizeOrder1;
+
+        // then
+        assertThatThrownBy(finalize).isInstanceOf(AcmeProblemDocumentException.class);
+        assertThat(failedOrders(order1)).isEqualTo(failedOrdersBefore + 1);
+    }
+
+    @Test
+    void countsAValidOrder_whenFinalizingAnOrderWhoseCertificateWasIssued() {
+        // given
         order1.setStatus(OrderStatus.PENDING);
         acmeOrderRepository.save(order1);
-        Assertions
-                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(ACME_PROFILE_NAME,
-                        ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
-        acmeAccount = acmeAccountRepository.findByUuid(order1.getAcmeAccountUuid()).orElseThrow();
-        Assertions.assertEquals(1, acmeAccount.getValidOrders());
+        int validOrdersBefore = validOrders(order1);
 
-        order1.setCertificateReference(null);
-        order1.setCertificateReferenceUuid(null);
-        order1.setStatus(OrderStatus.READY);
-        acmeOrderRepository.save(order1);
-        finalizeInRequest(ACME_PROFILE_NAME, ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri,
-                false);
-        acmeAccount = acmeAccountRepository.findByUuid(order1.getAcmeAccountUuid()).orElseThrow();
-        Assertions.assertEquals(2, acmeAccount.getFailedOrders());
+        // when
+        ThrowingCallable finalize = this::finalizeOrder1;
 
+        // then
+        assertThatThrownBy(finalize).isInstanceOf(AcmeProblemDocumentException.class);
+        assertThat(validOrders(order1)).isEqualTo(validOrdersBefore + 1);
+    }
+
+    @Test
+    void countsAFailedOrder_whenTheCertificateRequestCannotBeSubmitted() throws Exception {
+        // given — the connector serves no issue attributes, so the submission fails
+        detachCertificateAndMakeReady(order1);
+        int failedOrdersBefore = failedOrders(order1);
+
+        // when
+        finalizeOrder1();
+
+        // then
+        assertThat(failedOrders(order1)).isEqualTo(failedOrdersBefore + 1);
+    }
+
+    @Test
+    void countsNoFailedOrder_whenTheCertificateRequestIsSubmitted() throws Exception {
+        // given
         mockServer
                 .stubFor(WireMock
                         .post(WireMock
@@ -910,23 +925,47 @@ class AcmeServiceITest extends BaseSpringBootTest {
                                 .urlPathMatching(
                                         "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
                         .willReturn(WireMock.okJson("[]")));
-        order1.setCertificateReference(null);
-        order1.setCertificateReferenceUuid(null);
-        order1.setStatus(OrderStatus.READY);
-        acmeOrderRepository.save(order1);
-        finalizeInRequest(ACME_PROFILE_NAME, ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri,
-                false);
-        acmeAccount = acmeAccountRepository.findByUuid(order1.getAcmeAccountUuid()).orElseThrow();
-        Assertions.assertEquals(2, acmeAccount.getFailedOrders());
+        detachCertificateAndMakeReady(order1);
+        int failedOrdersBefore = failedOrders(order1);
+
+        // when
+        finalizeOrder1();
+
+        // then
+        assertThat(failedOrders(order1)).isEqualTo(failedOrdersBefore);
     }
 
     @Test
-    void testFinalize_raProfileBased() throws URISyntaxException {
+    void refusesAsNotReady_whenFinalizingAValidOrderThroughTheRaProfileUrl() throws Exception {
+        // given — the seeded order is already valid
         String baseUri = RA_BASE_URI + RA_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/order/" + ORDER_ID_VALID + "/finalize");
-        Assertions
-                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(RA_PROFILE_NAME,
-                        ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri, true));
+        String requestJson = buildFinalizeRequestJSON(requestUri, baseUri);
+
+        // when
+        ThrowingCallable finalize = () -> finalizeInRequest(RA_PROFILE_NAME, ORDER_ID_VALID, requestJson, requestUri,
+                true);
+
+        // then
+        assertThatThrownBy(finalize)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.ORDER_NOT_READY.getType()));
+    }
+
+    /** Finalizes {@link #order1} through its ACME profile URL with the seeded CSR. */
+    private ResponseEntity<Order> finalizeOrder1() throws Exception {
+        String baseUri = BASE_URI + ACME_PROFILE_NAME;
+        URI requestUri = new URI(baseUri + "/order/" + ORDER_ID_VALID + "/finalize");
+        return finalizeInRequest(ACME_PROFILE_NAME, ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri),
+                requestUri, false);
+    }
+
+    private void detachCertificateAndMakeReady(AcmeOrder order) {
+        order.setCertificateReference(null);
+        order.setCertificateReferenceUuid(null);
+        order.setStatus(OrderStatus.READY);
+        acmeOrderRepository.save(order);
     }
 
     private String buildFinalizeRequestJSON(URI requestUri, String baseUri) throws JOSEException {
@@ -2140,19 +2179,24 @@ class AcmeServiceITest extends BaseSpringBootTest {
      * An order cannot be finalized while one of its authorizations has failed, however it came to be ready.
      */
     @Test
-    void testFinalizeOrder_refusesOrderLeftReadyBehindFailedAuthorization() throws Exception {
+    void refusesAsNotReady_whenTheOrderIsLeftReadyBehindAFailedAuthorization() throws Exception {
+        // given
         orderLeftOpenBehindFailedAuthorization("orderStaleFin", "authStaleFin", OrderStatus.READY);
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/order/orderStaleFin/finalize");
+        String requestJson = buildFinalizeRequestJSON(requestUri, baseUri);
 
-        AcmeProblemDocumentException refused = Assertions
-                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(ACME_PROFILE_NAME,
-                        "orderStaleFin", buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
+        // when
+        ThrowingCallable finalize = () -> finalizeInRequest(ACME_PROFILE_NAME, "orderStaleFin", requestJson, requestUri,
+                false);
 
-        Assertions.assertEquals(Problem.ORDER_NOT_READY.getType(), refused.getProblemDocument().getType());
-        Assertions
-                .assertEquals(OrderStatus.INVALID,
-                        acmeOrderRepository.findByOrderId("orderStaleFin").orElseThrow().getStatus());
+        // then
+        assertThatThrownBy(finalize)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.ORDER_NOT_READY.getType()));
+        assertThat(acmeOrderRepository.findByOrderId("orderStaleFin").orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.INVALID);
     }
 
     /**
@@ -2176,7 +2220,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testFinalizeOrder_refusesOrderWhoseAuthorizationIsStillPendingBehindFailedChallenge() throws Exception {
+    void refusesAsNotReady_whenTheAuthorizationIsStillPendingBehindAFailedChallenge() throws Exception {
+        // given
         AcmeChallenge challenge = failedChallengeLeftUnpropagated("orderStaleFin2", "authStaleFin2",
                 "challengeStaleFin2");
         AcmeOrder order = challenge.getAuthorization().getOrder();
@@ -2184,18 +2229,21 @@ class AcmeServiceITest extends BaseSpringBootTest {
         acmeOrderRepository.save(order);
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/order/orderStaleFin2/finalize");
+        String requestJson = buildFinalizeRequestJSON(requestUri, baseUri);
 
-        AcmeProblemDocumentException refused = Assertions
-                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(ACME_PROFILE_NAME,
-                        "orderStaleFin2", buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
+        // when
+        ThrowingCallable finalize = () -> finalizeInRequest(ACME_PROFILE_NAME, "orderStaleFin2", requestJson,
+                requestUri, false);
 
-        Assertions.assertEquals(Problem.ORDER_NOT_READY.getType(), refused.getProblemDocument().getType());
-        Assertions
-                .assertEquals(AuthorizationStatus.INVALID,
-                        acmeAuthorizationRepository.findByAuthorizationId("authStaleFin2").orElseThrow().getStatus());
-        Assertions
-                .assertEquals(OrderStatus.INVALID,
-                        acmeOrderRepository.findByOrderId("orderStaleFin2").orElseThrow().getStatus());
+        // then
+        assertThatThrownBy(finalize)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.ORDER_NOT_READY.getType()));
+        assertThat(acmeAuthorizationRepository.findByAuthorizationId("authStaleFin2").orElseThrow().getStatus())
+                .isEqualTo(AuthorizationStatus.INVALID);
+        assertThat(acmeOrderRepository.findByOrderId("orderStaleFin2").orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.INVALID);
     }
 
     /**
@@ -2429,23 +2477,27 @@ class AcmeServiceITest extends BaseSpringBootTest {
      * An order can be finalized only by the account that placed it.
      */
     @Test
-    void testFinalizeOrder_refusesAnotherAccount() throws Exception {
+    void refusesAsUnauthorized_whenAnotherAccountFinalizesTheOrder() throws Exception {
+        // given
         AcmeOrder order = pendingOrder("orderForeignFin");
         order.setStatus(OrderStatus.READY);
         acmeOrderRepository.save(order);
         otherAccount();
         String baseUri = BASE_URI + ACME_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/order/orderForeignFin/finalize");
+        String signedByAnotherAccount = signedByOtherAccount("{\"csr\":\"MIIB\"}", requestUri, baseUri);
 
-        AcmeProblemDocumentException refused = Assertions
-                .assertThrows(AcmeProblemDocumentException.class,
-                        () -> finalizeInRequest(ACME_PROFILE_NAME, "orderForeignFin",
-                                signedByOtherAccount("{\"csr\":\"MIIB\"}", requestUri, baseUri), requestUri, false));
+        // when
+        ThrowingCallable finalize = () -> finalizeInRequest(ACME_PROFILE_NAME, "orderForeignFin",
+                signedByAnotherAccount, requestUri, false);
 
-        Assertions.assertEquals(Problem.UNAUTHORIZED.getType(), refused.getProblemDocument().getType());
-        Assertions
-                .assertEquals(OrderStatus.READY,
-                        acmeOrderRepository.findByOrderId("orderForeignFin").orElseThrow().getStatus());
+        // then
+        assertThatThrownBy(finalize)
+                .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                        refused -> assertThat(refused.getProblemDocument().getType())
+                                .isEqualTo(Problem.UNAUTHORIZED.getType()));
+        assertThat(acmeOrderRepository.findByOrderId("orderForeignFin").orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.READY);
     }
 
     private AcmeAccount otherAccount() throws JOSEException {
@@ -2641,6 +2693,10 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
     private int failedOrders(AcmeOrder order) {
         return acmeAccountRepository.findByUuid(order.getAcmeAccountUuid()).orElseThrow().getFailedOrders();
+    }
+
+    private int validOrders(AcmeOrder order) {
+        return acmeAccountRepository.findByUuid(order.getAcmeAccountUuid()).orElseThrow().getValidOrders();
     }
 
     private AcmeOrder pendingOrder(String orderId) {
