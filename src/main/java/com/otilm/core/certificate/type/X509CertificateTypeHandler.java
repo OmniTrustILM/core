@@ -1,0 +1,265 @@
+package com.otilm.core.certificate.type;
+
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.model.core.certificate.CertificateFormat;
+import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
+import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.core.container.KeystoreDetection;
+import com.otilm.core.model.request.CertificateRequest;
+import com.otilm.core.model.request.CrmfCertificateRequest;
+import com.otilm.core.model.request.Pkcs10CertificateRequest;
+import com.otilm.core.util.CertificateRequestUtils;
+import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.CryptographyUtil;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.cert.jcajce.JcaCertStore;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
+import org.bouncycastle.cms.CMSProcessableByteArray;
+import org.bouncycastle.cms.CMSSignedDataGenerator;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.openssl.PEMParser;
+import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
+import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
+import org.bouncycastle.util.io.pem.PemObject;
+import org.bouncycastle.util.io.pem.PemWriter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import static org.bouncycastle.openssl.PEMParser.TYPE_CERTIFICATE;
+import static org.bouncycastle.openssl.PEMParser.TYPE_PKCS7;
+import static org.bouncycastle.openssl.PEMParser.TYPE_X509_CERTIFICATE;
+
+/**
+ * The handler of X.509 certificates, with PKCS#10 and CRMF requests. It puts the existing X.509 logic of
+ * {@link CertificateUtil}, {@link CertificateRequestUtils} and the request models behind the handler interface and adds
+ * no behavior of its own.
+ */
+@Component
+public class X509CertificateTypeHandler implements CertificateTypeHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(X509CertificateTypeHandler.class);
+
+    private static final String PEM_MARKER = "-----BEGIN";
+
+    @Override
+    public String typeCode() {
+        return CertificateType.X509.getCode();
+    }
+
+    @Override
+    public Set<CertificateOperation> supportedOperations() {
+        return EnumSet.allOf(CertificateOperation.class);
+    }
+
+    @Override
+    public Optional<ParsedCertificate> parseCertificate(byte[] content) {
+        if (KeystoreDetection.isKeystore(content)) {
+            return Optional.empty();
+        }
+        byte[] der = decodeCertificateContent(content);
+        if (der == null) {
+            return Optional.empty();
+        }
+        try {
+            X509Certificate certificate = CertificateUtil.getX509Certificate(der);
+            return Optional.of(new ParsedCertificate(typeCode(), certificate.getEncoded(), propertiesOf(certificate)));
+        } catch (CertificateException | NoSuchAlgorithmException e) {
+            logger.debug("The content is not an X.509 certificate: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public Optional<ParsedRequest> parseRequest(byte[] content) {
+        byte[] der = decodeRequestContent(content);
+        if (der == null) {
+            return Optional.empty();
+        }
+        CertificateRequest request = readRequest(der);
+        if (request == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional
+                    .of(new ParsedRequest(typeCode(), request.getFormat(), request.getEncoded(),
+                            request.getSubject() == null ? null : request.getSubject().toString(),
+                            request.getPublicKey()));
+        } catch (NoSuchAlgorithmException | CertificateRequestException e) {
+            throw new CertificateTypeHandlerException(
+                    "The X.509 certificate request has an unusable public key: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean verifySignature(ParsedCertificate certificate, ParsedCertificate issuer) {
+        try {
+            X509Certificate subject = CertificateUtil.getX509Certificate(certificate.encoded());
+            X509Certificate signer = issuer == null ? subject : CertificateUtil.getX509Certificate(issuer.encoded());
+            subject.verify(signer.getPublicKey());
+            return true;
+        } catch (Exception e) {
+            logger.debug("Unable to verify certificate for signature", e);
+            return false;
+        }
+    }
+
+    /** Whether the alternative signature of a hybrid certificate is valid for the issuer's alternative key. */
+    public boolean verifyAlternativeSignature(ParsedCertificate certificate, ParsedCertificate issuer) {
+        try {
+            X509Certificate subject = CertificateUtil.getX509Certificate(certificate.encoded());
+            X509Certificate signer = issuer == null ? subject : CertificateUtil.getX509Certificate(issuer.encoded());
+            return new JcaX509CertificateHolder(subject)
+                    .isAlternativeSignatureValid(new JcaContentVerifierProviderBuilder()
+                            .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                            .build(CertificateUtil
+                                    .getAltPublicKey(
+                                            signer.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()))));
+        } catch (Exception e) {
+            logger.debug("Unable to verify certificate for alternative signature", e);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean verifySignature(ParsedRequest request, ParsedCertificate current) {
+        try {
+            CertificateRequest parsed = CertificateRequestUtils
+                    .createCertificateRequest(request.encoded(), request.format());
+            if (parsed instanceof Pkcs10CertificateRequest pkcs10) {
+                PublicKey publicKey = CryptographyUtil.decodePublicKey(pkcs10.getJcaObject().getSubjectPublicKeyInfo());
+                return pkcs10
+                        .getJcaObject()
+                        .isSignatureValid(new JcaContentVerifierProviderBuilder()
+                                .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                                .build(publicKey));
+            }
+            CrmfCertificateRequest crmf = (CrmfCertificateRequest) parsed;
+            return crmf.getCertificateRequestMessage().hasProofOfPossession() && crmf
+                    .getCertificateRequestMessage()
+                    .isValidSigningKeyPOP(new JcaContentVerifierProviderBuilder()
+                            .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                            .build(request.publicKey()));
+        } catch (Exception e) {
+            logger.debug("Unable to verify the signature of the certificate request", e);
+            return false;
+        }
+    }
+
+    @Override
+    public boolean isIssuedBy(ParsedCertificate certificate, ParsedCertificate issuer) {
+        try {
+            X509Certificate subject = CertificateUtil.getX509Certificate(certificate.encoded());
+            X509Certificate signer = CertificateUtil.getX509Certificate(issuer.encoded());
+            return subject.getIssuerX500Principal().equals(signer.getSubjectX500Principal())
+                    && verifySignature(certificate, issuer);
+        } catch (CertificateException e) {
+            return false;
+        }
+    }
+
+    @Override
+    public Set<CertificateFormat> downloadFormats() {
+        return EnumSet.of(CertificateFormat.RAW, CertificateFormat.PKCS7);
+    }
+
+    @Override
+    public byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding) {
+        try {
+            X509Certificate x509 = CertificateUtil.getX509Certificate(certificate.encoded());
+            if (format == CertificateFormat.RAW) {
+                return encoding == CertificateFormatEncoding.DER ? x509.getEncoded() : toPem(x509);
+            }
+            CMSSignedDataGenerator generator = new CMSSignedDataGenerator();
+            generator.addCertificates(new JcaCertStore(List.of(x509)));
+            byte[] pkcs7 = generator.generate(new CMSProcessableByteArray(new byte[0])).getEncoded();
+            return encoding == CertificateFormatEncoding.PEM ? toPem("PKCS7", pkcs7) : pkcs7;
+        } catch (Exception e) {
+            throw new CertificateTypeHandlerException(
+                    "Could not encode the X.509 certificate as " + format + ": " + e.getMessage());
+        }
+    }
+
+    @Override
+    public Optional<CertificateTypeDetails> describeDetails(ParsedCertificate certificate) {
+        return Optional.empty();
+    }
+
+    private static CertificateProperties propertiesOf(X509Certificate certificate)
+            throws CertificateException, NoSuchAlgorithmException {
+        Validity validity = new Validity(certificate.getNotBefore().toInstant(), certificate.getNotAfter().toInstant(),
+                ValidityPrecision.DATE_TIME);
+        return new CertificateProperties(certificate.getSerialNumber().toString(16),
+                certificate.getIssuerX500Principal().getName(), certificate.getSubjectX500Principal().getName(),
+                validity, certificate.getPublicKey(), CertificateUtil.getThumbprint(certificate.getEncoded()));
+    }
+
+    private static byte[] decodeCertificateContent(byte[] content) {
+        if (!startsWithPemMarker(content)) {
+            return content;
+        }
+        try (PEMParser pemParser = new PEMParser(new StringReader(new String(content, StandardCharsets.UTF_8)))) {
+            PemObject pemObject = pemParser.readPemObject();
+            if (pemObject != null && (TYPE_CERTIFICATE.equals(pemObject.getType())
+                    || TYPE_X509_CERTIFICATE.equals(pemObject.getType()) || TYPE_PKCS7.equals(pemObject.getType()))) {
+                return pemObject.getContent();
+            }
+        } catch (IOException e) {
+            logger.debug("Failed to read the content as a PEM object: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private static byte[] decodeRequestContent(byte[] content) {
+        return startsWithPemMarker(content)
+                ? CertificateRequestUtils.normalizeAndDecodeCsr(new String(content, StandardCharsets.UTF_8))
+                : content;
+    }
+
+    private static CertificateRequest readRequest(byte[] der) {
+        try {
+            return new Pkcs10CertificateRequest(der);
+        } catch (CertificateRequestException notPkcs10) {
+            try {
+                return new CrmfCertificateRequest(der);
+            } catch (CertificateRequestException notCrmf) {
+                return null;
+            }
+        }
+    }
+
+    private static boolean startsWithPemMarker(byte[] content) {
+        return new String(content, 0, Math.min(content.length, 64), StandardCharsets.ISO_8859_1)
+                .stripLeading()
+                .startsWith(PEM_MARKER);
+    }
+
+    private static byte[] toPem(X509Certificate certificate) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JcaPEMWriter writer = new JcaPEMWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8))) {
+            writer.writeObject(certificate);
+        }
+        return out.toByteArray();
+    }
+
+    private static byte[] toPem(String type, byte[] content) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (PemWriter writer = new PemWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8))) {
+            writer.writeObject(new PemObject(type, content));
+        }
+        return out.toByteArray();
+    }
+}
