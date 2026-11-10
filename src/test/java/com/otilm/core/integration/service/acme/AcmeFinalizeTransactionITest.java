@@ -4,16 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.AcmeProblemDocumentException;
-import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.acme.AccountStatus;
 import com.otilm.api.model.core.acme.Order;
 import com.otilm.api.model.core.acme.OrderStatus;
 import com.otilm.api.model.core.acme.Problem;
-import com.otilm.api.model.core.connector.FunctionGroupCode;
-import com.otilm.core.dao.entity.AuthorityInstanceReference;
-import com.otilm.core.dao.entity.Connector;
-import com.otilm.core.dao.entity.Connector2FunctionGroup;
-import com.otilm.core.dao.entity.FunctionGroup;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
@@ -21,7 +15,9 @@ import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
+import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.acme.AcmeNonceRepository;
@@ -33,9 +29,8 @@ import com.otilm.core.service.acme.identifier.AcmeCsrIdentifiers;
 import com.otilm.core.service.writer.AcmeChallengeWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
-import com.otilm.core.util.MetaDefinitions;
+import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.mockbeans.ProducerMocks;
-import com.otilm.core.util.seeders.FunctionGroupSeeder;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import jakarta.persistence.EntityManager;
@@ -43,17 +38,18 @@ import jakarta.persistence.EntityManagerFactory;
 import java.net.URI;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.Base64;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.hibernate.Session;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,7 +65,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -82,8 +77,10 @@ import static org.mockito.Mockito.verify;
 
 /**
  * ACME finalize must hold no database transaction while it submits the certificate request, or the connection its reads
- * took sits {@code idle in transaction} for the whole submission. Each finalize runs with an EntityManager bound to the
- * thread, as open-in-view binds one, and the action producer is a mock, so the queued request stays queued.
+ * took sits {@code idle in transaction} for the whole submission, and must still write the order only under its lock,
+ * so that a second finalize submits nothing and a concurrent account deactivation is not overwritten. Each finalize
+ * runs with an EntityManager bound to the thread, as open-in-view binds one, and the action producer is a mock, so the
+ * queued request stays queued.
  */
 @Import(ProducerMocks.class)
 @TypeExcludeFilters(ProducerMocks.MockedProducersTypeExcludeFilter.class)
@@ -95,11 +92,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     private static final String DOMAIN_NAME = "finalize.example.com";
     private static final String FINALIZE_PATH = "/acme/" + ACME_PROFILE_NAME + "/order/" + ORDER_ID + "/finalize";
 
-    private static final String IDLE_IN_TRANSACTION = """
-            select count(*) from pg_stat_activity
-             where datname = current_database()
-               and state = 'idle in transaction'
-            """;
+    private static final String CONNECTION_STATE = "select state from pg_stat_activity where pid = ?";
 
     @Autowired
     private AcmeExternalService acmeService;
@@ -124,7 +117,9 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     @Autowired
     private AcmeChallengeWriter acmeChallengeWriter;
     @Autowired
-    private FunctionGroupSeeder functionGroupSeeder;
+    private FunctionGroupRepository functionGroupRepository;
+    @Autowired
+    private ConnectorInterfaceRepository connectorInterfaceRepository;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
     @Autowired
@@ -134,6 +129,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     private WireMockServer mockServer;
     private KeyPair accountKeys;
     private UUID orderUuid;
+    private EntityManager requestEntityManager;
 
     @BeforeEach
     void seedReadyOrder() throws Exception {
@@ -142,7 +138,11 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         keyPairGenerator.initialize(2048);
         accountKeys = keyPairGenerator.generateKeyPair();
 
-        RaProfile raProfile = seedRaProfile(seedAuthority(mockServer));
+        RaProfile raProfile = AuthorityFixtures
+                .v2Authority(new AuthorityFixtures.Repos(connectorRepository, functionGroupRepository,
+                        connector2FunctionGroupRepository, authorityInstanceReferenceRepository, raProfileRepository,
+                        connectorInterfaceRepository), mockServer, "ApiKey")
+                .raProfile();
         AcmeAccount account = seedAccount(seedAcmeProfile(raProfile), raProfile);
         AcmeOrder order = new AcmeOrder();
         order.setOrderId(ORDER_ID);
@@ -156,13 +156,18 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         mockServer.stop();
     }
 
+    /**
+     * Only the request's own connection is sampled: the test database is shared with every cached context, whose
+     * scheduled jobs may be between two statements of a transaction at any moment.
+     */
     @Test
-    void leavesNoConnectionIdleInTransaction_whenQueuingTheCertificateRequest() throws Exception {
+    void keepsTheRequestsConnectionOutOfATransaction_whenQueuingTheCertificateRequest() throws Exception {
         // given
         JdbcTemplate monitor = new JdbcTemplate(dataSource);
-        AtomicLong idleInTransactionWhileQueuing = new AtomicLong(-1);
+        AtomicReference<String> requestConnectionState = new AtomicReference<>();
         doAnswer(invocation -> {
-            idleInTransactionWhileQueuing.set(monitor.queryForObject(IDLE_IN_TRANSACTION, Long.class));
+            requestConnectionState
+                    .set(monitor.queryForObject(CONNECTION_STATE, String.class, requestEntityManagerBackend()));
             return null;
         }).when(actionProducer).produceMessage(any());
 
@@ -170,7 +175,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         finalizeOrder();
 
         // then
-        assertThat(idleInTransactionWhileQueuing.get()).isZero();
+        assertThat(requestConnectionState.get()).isEqualTo("idle");
     }
 
     /**
@@ -197,7 +202,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     }
 
     @Test
-    void showsTheOrderProcessing_whileTheCertificateRequestIsQueued() throws Exception {
+    void showsTheOrderProcessing_whenQueuingTheCertificateRequest() throws Exception {
         // given
         AtomicReference<OrderStatus> statusSeenByAnotherClient = new AtomicReference<>();
         doAnswer(invocation -> {
@@ -214,6 +219,8 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
 
     @Test
     void answersProcessing_whenTheCertificateRequestIsQueued() throws Exception {
+        // given — the ready order every test seeds
+
         // when
         ResponseEntity<Order> response = finalizeOrder();
 
@@ -296,8 +303,8 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
                     .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
                             exception -> assertThat(exception.getProblemDocument().getType())
                                     .isEqualTo(Problem.ORDER_NOT_READY.getType()));
+            verify(actionProducer, never()).produceMessage(any());
         }
-        verify(actionProducer, never()).produceMessage(any());
     }
 
     @Test
@@ -316,7 +323,10 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /** Closes the order as a concurrent account deactivation does, in a request of its own. */
+    /**
+     * Closes the order as a concurrent account deactivation does, in a request of its own, but without the failed-order
+     * count the deactivation adds afterwards, so the account's count shows only what finalize adds.
+     */
     private void deactivateOrderOnAnotherThread() {
         CompletableFuture.runAsync(() -> acmeChallengeWriter.deactivateOrder(orderUuid)).join();
     }
@@ -342,7 +352,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         RequestContextHolder
                 .setRequestAttributes(new ServletRequestAttributes(
                         new MockHttpServletRequest("POST", "/v1/protocols" + FINALIZE_PATH)));
-        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        requestEntityManager = entityManagerFactory.createEntityManager();
         TransactionSynchronizationManager
                 .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
         try {
@@ -352,6 +362,16 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
             requestEntityManager.close();
             RequestContextHolder.resetRequestAttributes();
         }
+    }
+
+    private long requestEntityManagerBackend() {
+        return requestEntityManager.unwrap(Session.class).doReturningWork(connection -> {
+            try (Statement statement = connection.createStatement();
+                    ResultSet backend = statement.executeQuery("select pg_backend_pid()")) {
+                backend.next();
+                return backend.getLong(1);
+            }
+        });
     }
 
     /** Reads the order on an EntityManager of its own, so it sees only what has been committed. */
@@ -382,43 +402,6 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
                                         "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
                         .willReturn(WireMock.okJson("[]")));
         return connectorServer;
-    }
-
-    private AuthorityInstanceReference seedAuthority(WireMockServer connectorServer) {
-        Connector connector = connectorRepository
-                .save(aConnector()
-                        .withName("acmeFinalizeConnector")
-                        .withUrl(LoopbackWireMock.url(connectorServer))
-                        .withVersion(ConnectorVersion.V2)
-                        .withGeneratedUuid()
-                        .build());
-
-        FunctionGroup functionGroup = functionGroupSeeder.seed(FunctionGroupCode.AUTHORITY_PROVIDER, List.of());
-        Connector2FunctionGroup c2fg = new Connector2FunctionGroup();
-        c2fg.setConnector(connector);
-        c2fg.setConnectorUuid(connector.getUuid());
-        c2fg.setFunctionGroup(functionGroup);
-        c2fg.setFunctionGroupUuid(functionGroup.getUuid());
-        c2fg.setKinds(MetaDefinitions.serializeArrayString(List.of("ApiKey")));
-        connector2FunctionGroupRepository.save(c2fg);
-
-        AuthorityInstanceReference authorityInstance = new AuthorityInstanceReference();
-        authorityInstance.setUuid(UUID.randomUUID());
-        authorityInstance.setName("acmeFinalizeAuthority");
-        authorityInstance.setConnector(connector);
-        authorityInstance.setConnectorUuid(connector.getUuid());
-        authorityInstance.setKind("ApiKey");
-        authorityInstance.setAuthorityInstanceUuid("1l");
-        return authorityInstanceReferenceRepository.save(authorityInstance);
-    }
-
-    private RaProfile seedRaProfile(AuthorityInstanceReference authorityInstance) {
-        RaProfile raProfile = new RaProfile();
-        raProfile.setName("acmeFinalizeRaProfile");
-        raProfile.setEnabled(true);
-        raProfile.setAuthorityInstanceReference(authorityInstance);
-        raProfile.setAuthorityInstanceReferenceUuid(authorityInstance.getUuid());
-        return raProfileRepository.save(raProfile);
     }
 
     private AcmeProfile seedAcmeProfile(RaProfile raProfile) {

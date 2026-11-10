@@ -637,8 +637,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
-    // Spring's annotation rather than the class's jakarta one: the transaction-boundary rules read Spring's, and the
-    // rollback attribute is what those rules require of a method declaring a checked exception.
+    // Spring's annotation rather than the jakarta one the other endpoints declare: the transaction-boundary rules read
+    // Spring's, and the rollback attribute is what those rules require of a method declaring a checked exception.
     @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED,
             noRollbackFor = AcmeProblemDocumentException.class)
     public ResponseEntity<Challenge> validateChallenge(String acmeProfileName, String challengeId, URI requestUri,
@@ -776,7 +776,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
         certificateIssueRequestDto.setRequest(decodedCsr);
         certificateIssueRequestDto.setFormat(CertificateRequestFormat.PKCS10);
         if (!acmeChallengeWriter.claimForFinalize(order.getUuid())) {
-            logger.debug("Order {} was finalized by another request meanwhile", order.getOrderId());
+            logger.debug("Order {} is no longer ready to finalize", order.getOrderId());
             throw new AcmeProblemDocumentException(HttpStatus.FORBIDDEN, Problem.ORDER_NOT_READY);
         }
         return createCert(order, certificateIssueRequestDto);
@@ -1541,14 +1541,13 @@ public class AcmeServiceImpl implements AcmeExternalService {
     }
 
     /**
-     * Submits the certificate request of a claimed order and returns the order as it stands afterwards. A failed
-     * submission rolls back on the request's EntityManager, which clears it, so the order is re-read rather than
-     * reused.
+     * Submits the certificate request of a claimed order and returns the order as it stands afterwards. The submission
+     * may have cleared the request's EntityManager and an account deactivation may have changed the order, so the order
+     * is read under its lock rather than reused.
      */
     private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
         Certificate certificate;
         try {
-            // keep state as PROCESSING since issuing is async process
             if (logger.isDebugEnabled()) {
                 logger
                         .debug("Requesting Certificate for the Order: {} and issue request: {}", order,

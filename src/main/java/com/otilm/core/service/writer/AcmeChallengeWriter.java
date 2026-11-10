@@ -193,7 +193,7 @@ public class AcmeChallengeWriter {
      */
     @Transactional
     public boolean claimForFinalize(UUID orderUuid) {
-        AcmeOrder order = lockOrder(orderUuid);
+        AcmeOrder order = lockOrderRow(orderUuid);
         if (order.getStatus() != OrderStatus.READY || order.getCertificateReferenceUuid() != null) {
             return false;
         }
@@ -203,14 +203,14 @@ public class AcmeChallengeWriter {
     }
 
     /**
-     * Links the certificate a finalize request submitted to its order. The status stays as it stands: an account
-     * deactivation during the submission has already closed the order.
+     * Links the certificate a finalize request submitted to its order. The status stays as it stands: processing while
+     * the certificate is issued, or invalid if an account deactivation closed the order during the submission.
      *
      * @return the order as it stands after this call
      */
     @Transactional
     public AcmeOrder recordFinalizeSubmission(UUID orderUuid, String certificateId, Certificate certificate) {
-        AcmeOrder order = lockOrder(orderUuid);
+        AcmeOrder order = lockOrderRow(orderUuid);
         order.setCertificateId(certificateId);
         order.setCertificateReference(certificate);
         acmeOrderRepository.save(order);
@@ -225,7 +225,7 @@ public class AcmeChallengeWriter {
      */
     @Transactional
     public AcmeOrder failFinalizeSubmission(UUID orderUuid) {
-        AcmeOrder order = lockOrder(orderUuid);
+        AcmeOrder order = lockOrderRow(orderUuid);
         OrderStatus statusBefore = order.getStatus();
         if (statusBefore == OrderStatus.PROCESSING) {
             order.setStatus(OrderStatus.INVALID);
@@ -253,20 +253,25 @@ public class AcmeChallengeWriter {
     }
 
     /**
-     * Counts a valid order against its account.
-     */
-    @Transactional
-    public void countValidOrder(UUID accountUuid) {
-        acmeAccountRepository.incrementValidOrders(accountUuid, OffsetDateTime.now(ZoneOffset.UTC));
-    }
-
-    /**
      * Locks the order row and re-reads the order, all of its authorizations and all of their challenges. The
      * persistence context may already hold any of these rows from reads made before the lock was taken, and every
      * decision below depends on their current state, not on what a sibling looked like before another request
      * committed.
      */
     private AcmeOrder lockOrder(UUID orderUuid) {
+        AcmeOrder order = lockOrderRow(orderUuid);
+        for (AcmeAuthorization authorization : order.getAuthorizations()) {
+            entityManager.refresh(authorization);
+            authorization.getChallenges().forEach(entityManager::refresh);
+        }
+        return order;
+    }
+
+    /**
+     * Locks the order row and re-reads the order alone, for a decision that rests only on the order's own status and
+     * certificate.
+     */
+    private AcmeOrder lockOrderRow(UUID orderUuid) {
         AcmeOrder order = acmeOrderRepository
                 .findWithLockByUuid(orderUuid)
                 .orElseThrow(() -> new IllegalStateException("ACME order " + orderUuid + " no longer exists"));
@@ -274,10 +279,6 @@ public class AcmeChallengeWriter {
         // what is still pending, and a query on the order table alone need not have flushed them.
         entityManager.flush();
         entityManager.refresh(order);
-        for (AcmeAuthorization authorization : order.getAuthorizations()) {
-            entityManager.refresh(authorization);
-            authorization.getChallenges().forEach(entityManager::refresh);
-        }
         return order;
     }
 

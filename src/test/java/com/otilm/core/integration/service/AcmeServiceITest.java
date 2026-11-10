@@ -942,7 +942,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
     }
 
     /**
-     * Finalizes as one HTTP request does: an EntityManager stays bound to the thread throughout, as open-in-view binds.
+     * Finalizes as one HTTP request does: an EntityManager stays bound to the thread throughout, as open-in-view binds
+     * one.
      */
     private ResponseEntity<Order> finalizeInRequest(String acmeProfileName, String orderId, String requestJson,
             URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException, ConnectorException,
