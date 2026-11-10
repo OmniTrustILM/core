@@ -104,6 +104,13 @@ public class DiscoveryDrainTickWorker {
             workWriter.deleteForRun(discoveryUuid, DiscoveryWorkType.DRAIN);
             return;
         }
+        if (run.getStatus() == DiscoveryStatus.STOPPED && isCheckpointed(run)) {
+            // A checkpointed connector scans while it answers a drain, so a stray tick must not reach it before a
+            // resume. The stop deleted the row, and resume re-creates it.
+            logger.debug("Dropping drain tick for discovery {}: the checkpointed run is stopped", discoveryUuid);
+            tick.releaseOnly();
+            return;
+        }
 
         long revision = run.getCheckpointRevision();
         DiscoveryTickFence fence = CheckpointRevision.fence(revision, run.getDeliveryMode());

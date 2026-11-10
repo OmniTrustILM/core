@@ -174,12 +174,13 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
 
     /** A resume commits the run before it expedites the status row, so for a moment the tick still holds its row. */
     @Test
-    void endsNothing_whenAResumeCommitsWhileTheLastStatusAttemptOfTheStoppedRunFails() throws Exception {
+    void endsNothing_whenAResumeIntoCheckpointedCommitsWhileTheLastStatusAttemptOfTheStoppedRunFails()
+            throws Exception {
         // given
-        Discovery run = persistAsStopped(runIn(DiscoveryDeliveryMode.CHECKPOINTED));
+        Discovery run = persistAsStopped(runIn(DiscoveryDeliveryMode.BUFFERED));
         armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
         when(client.status(any())).thenAnswer(call -> {
-            commitTheResume(run);
+            commitTheResumeAsCheckpointed(run);
             throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
         });
 
@@ -619,6 +620,14 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         commitTheResume(run);
         Discovery current = reload(run);
         current.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+        discoveryRepository.saveAndFlush(current);
+    }
+
+    /** The resume transaction of a resume whose connector answered in checkpointed mode. */
+    private void commitTheResumeAsCheckpointed(Discovery run) {
+        commitTheResume(run);
+        Discovery current = reload(run);
+        current.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
         discoveryRepository.saveAndFlush(current);
     }
 

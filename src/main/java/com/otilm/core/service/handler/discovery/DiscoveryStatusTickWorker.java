@@ -95,6 +95,12 @@ public class DiscoveryStatusTickWorker {
             workWriter.deleteForRun(discoveryUuid, DiscoveryWorkType.STATUS);
             return;
         }
+        if (run.getStatus() == DiscoveryStatus.STOPPED && run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED) {
+            // A checkpoint does not record the stop, so the connector would answer RUNNING and show a divergence that
+            // is not there. A resume frees the row before it expedites it, so this park cannot land over that.
+            tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC).plus(stoppedPollInterval));
+            return;
+        }
 
         DiscoveryTickFence fence = stillCurrent(tick, run);
         DiscoveryStatusResponseDto status;
