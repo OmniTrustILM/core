@@ -132,8 +132,7 @@ public class PollFeature {
 
                 if (expectedState.equals(current)) {
                     Certificate reached = loadFresh(certUUID);
-                    // The load is a second read: classify the state it saw, in case the
-                    // certificate moved on after the state read.
+                    // A second read: the certificate may have moved on since the state read.
                     current = reached.getState();
                     if (expectedState.equals(current)) {
                         if (serialNumber == null) {
@@ -196,14 +195,10 @@ public class PollFeature {
     }
 
     /**
-     * Loads and refreshes the certificate in one short transaction. The request's EntityManager may still hold the copy
-     * cached at submission, without content and in its old state, and {@code refresh} needs a transaction.
-     *
-     * <p>
-     * The content is loaded before the transaction ends because the caller parses it afterwards, and the transaction
-     * may have run on an EntityManager of its own that closes at commit: one with no request EntityManager bound, or
-     * under {@code NOT_SUPPORTED} once the request has read outside a transaction.
-     * </p>
+     * Loads and refreshes the certificate in one short transaction: the request's EntityManager may hold the copy
+     * cached at submission, and {@code refresh} needs a transaction. The content is loaded inside it because the caller
+     * parses the content afterwards, when the EntityManager the transaction used may already be closed (none bound to
+     * the request, or {@code NOT_SUPPORTED} after a read outside a transaction).
      */
     private Certificate loadFresh(SecuredUUID certUUID) throws NotFoundException {
         TransactionStatus transaction = transactionManager.getTransaction(new DefaultTransactionDefinition());

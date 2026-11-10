@@ -433,8 +433,7 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
 
     @Test
     void answersWaiting_whenARealPollFindsTheEnrolmentNotYetIssued() throws Exception {
-        // given — a real poll reads the certificate's state from the database; nothing issues it, so the short
-        // budget ends with the enrolment accepted as pending, over the protocol
+        // given — a real poll that nothing issues within its budget
         Certificate registration = seedRegistration(SUBJECT_DN, Map.of("dNSName", List.of("device-1.example")),
                 CertificateState.REGISTERED);
         PollFeature realPoll = new PollFeature();

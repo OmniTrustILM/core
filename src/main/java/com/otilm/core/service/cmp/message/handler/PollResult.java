@@ -34,9 +34,7 @@ public sealed interface PollResult {
     }
 
     /**
-     * Certificate is still in an asynchronous state when the budget ends: queued for the actions listener
-     * ({@code REQUESTED}, or a {@code REGISTERED} placeholder), or {@code PENDING_*} because the authority provider
-     * connector returned HTTP 202. The operation completes later.
+     * Certificate is still in an asynchronous state when the budget ends; the operation completes later.
      */
     record StillPending(CertificateState currentState) implements PollResult {
     }

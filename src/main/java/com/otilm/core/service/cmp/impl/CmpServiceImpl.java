@@ -195,14 +195,12 @@ public class CmpServiceImpl implements CmpExternalService {
      * specific <code>profileName</code>.
      *
      * <p>
-     * Runs without a transaction: an issue or a revocation waits for its certificate for up to the poll budget, and a
-     * transaction around the request would keep its connection idle in transaction for all of that time. The
-     * validators, handlers and services called here open their own short transactions on the request's EntityManager
-     * and the connection it holds under open-in-view, so the wait and a revocation use that one connection. Submitting
-     * an issue, renewal, rekey or registration completion still takes a second connection briefly, because those
-     * services suspend the handler's transaction. This is deliberately not {@code NOT_SUPPORTED}: inside that scope,
-     * once the request has read outside a transaction, every short transaction takes a second connection while the
-     * request keeps its first.
+     * Runs without a transaction, so an issue or a revocation waiting out the poll budget keeps no connection idle in
+     * transaction. The validators, handlers and services it calls run their own short transactions on the request's
+     * open-in-view connection; submitting an issue, renewal, rekey or registration completion still takes a second
+     * connection briefly, because those services suspend the handler's transaction. Deliberately not
+     * {@code NOT_SUPPORTED}: there, after the request's first read outside a transaction, every short transaction takes
+     * a second connection while the request keeps its first.
      * </p>
      *
      * @param profileName specific customer-based configuration/customization

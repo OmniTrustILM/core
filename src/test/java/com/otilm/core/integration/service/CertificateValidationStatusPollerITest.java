@@ -34,9 +34,8 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The CMP handler waits for a fresh certificate's validation with no transaction, while the request's EntityManager,
- * bound by open-in-view, already holds the certificate as it was when the chain was loaded. The SCEP handler waits from
- * inside its own transaction.
+ * CMP waits for a fresh certificate's validation with no transaction, while the request's open-in-view EntityManager
+ * may already hold the certificate; SCEP waits inside its own transaction.
  */
 class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
 
@@ -162,9 +161,8 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
     }
 
     /**
-     * Samples the pool's checked-out connections every 50 ms, starting once the wait has taken its first sample, and
-     * keeps the fewest seen. The caller's transaction holds one connection throughout; a sample's own short read adds a
-     * second only for that read.
+     * Samples the pool's checked-out connections every 50 ms, from after the wait's first sample, and keeps the fewest
+     * seen; a sample's own read adds a connection only while it runs.
      */
     private static final class ActiveConnectionWatch {
 

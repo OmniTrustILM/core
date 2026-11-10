@@ -93,10 +93,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
 /**
- * A CMP request waits for its certificate in a poll loop. The loop must not hold a database transaction: the connection
- * would sit {@code idle in transaction} for the whole budget, beside the one the submission takes. Each request runs
- * with an EntityManager bound to the thread, as open-in-view binds one in production, and the action producer is a
- * mock, so a certificate stays where the submission left it until a test moves it on.
+ * The CMP poll loop must hold no database transaction, or its connection sits {@code idle in transaction} for the whole
+ * budget. Each request runs with an EntityManager bound to the thread, as open-in-view binds one, and the action
+ * producer is a mock, so a certificate stays where the submission left it until a test moves it on.
  */
 @Import(ProducerMocks.class)
 @TypeExcludeFilters(ProducerMocks.MockedProducersTypeExcludeFilter.class)
