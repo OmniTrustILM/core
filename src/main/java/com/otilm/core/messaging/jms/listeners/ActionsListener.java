@@ -82,14 +82,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
                     final ApprovalProfileVersion approvalProfileVersion = approvalProfileRelation
                             .getApprovalProfile()
                             .getTheLatestApprovalProfileVersion();
-                    final Approval approval = approvalService
-                            .createApproval(approvalProfileVersion, actionMessage.getResource(),
-                                    actionMessage.getResourceAction(), actionMessage.getResourceUuid(),
-                                    actionMessage.getUserUuid(), actionMessage.getData());
-                    logger
-                            .info("Created new Approval {} for object {}", approval.getUuid(),
-                                    actionMessage.getResourceUuid());
-                    processApprovalCreated(actionMessage);
+                    requestApproval(approvalProfileVersion, actionMessage);
                 } catch (Exception e) {
                     String errorMessage = String
                             .format("Cannot create new approval to approve %s %s action!",
@@ -127,8 +120,8 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
 
     /**
      * An issue can reach the broker although queuing it reported a failure, after which the certificate was failed or
-     * its registration completion undone. It has nothing to issue, so it is dropped before an approval is requested for
-     * it: a pending approval would be left open, and would refuse the approval a registration's retry needs.
+     * its registration completion undone. It has nothing to issue, so it is dropped. The check is made again under the
+     * certificate's row lock when an approval is requested, since the undo can run after this one.
      */
     private boolean isIssueWithNothingToIssue(final ActionMessage actionMessage) {
         return actionMessage.getResource() == Resource.CERTIFICATE
@@ -136,10 +129,25 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
                 && clientOperationService.hasNothingToIssue(actionMessage.getResourceUuid());
     }
 
+    /**
+     * A certificate's approval is requested under the certificate's row lock, together with its move to
+     * PENDING_APPROVAL, so the undo of a completion cannot slip between the check and the approval.
+     */
+    private void requestApproval(final ApprovalProfileVersion approvalProfileVersion, final ActionMessage actionMessage)
+            throws NotFoundException {
+        if (actionMessage.getResource() == Resource.CERTIFICATE) {
+            clientOperationService.requestApproval(approvalProfileVersion, actionMessage);
+            return;
+        }
+        final Approval approval = approvalService
+                .createApproval(approvalProfileVersion, actionMessage.getResource(), actionMessage.getResourceAction(),
+                        actionMessage.getResourceUuid(), actionMessage.getUserUuid(), actionMessage.getData());
+        logger.info("Created new Approval {} for object {}", approval.getUuid(), actionMessage.getResourceUuid());
+        processApprovalCreated(actionMessage);
+    }
+
     private void processApprovalCreated(final ActionMessage actionMessage) throws NotFoundException {
-        if (Objects.requireNonNull(actionMessage.getResource()) == Resource.CERTIFICATE) {
-            clientOperationService.approvalCreatedAction(actionMessage.getResourceUuid());
-        } else if (Objects.requireNonNull(actionMessage.getResource()) == Resource.SECRET) {
+        if (Objects.requireNonNull(actionMessage.getResource()) == Resource.SECRET) {
             secretService.approvalCreatedAction(actionMessage.getResourceUuid());
         } else {
             logger.error("Action listener does not support resource {}", actionMessage.getResource().getLabel());

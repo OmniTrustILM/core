@@ -78,7 +78,7 @@ class CertificateProtocolAssociationUniqueMigrationITest extends BaseSpringBootT
     }
 
     @Test
-    void keepsTheLatestAssociationOfEachCertificate() throws Exception {
+    void keepsTheLatestAssociationOfEachCertificate_whenACertificateHasSeveral() throws Exception {
         // given
         insertAssociation(FIRST, CERTIFICATE, "SCEP");
         insertAssociation(SECOND, CERTIFICATE, "CMP");
@@ -94,7 +94,7 @@ class CertificateProtocolAssociationUniqueMigrationITest extends BaseSpringBootT
     }
 
     @Test
-    void refusesASecondAssociationOfACertificate() throws Exception {
+    void refusesASecondAssociationOfACertificate_whenTheMigrationHasRun() throws Exception {
         // given
         insertAssociation(FIRST, CERTIFICATE, "SCEP");
         applyMigration();

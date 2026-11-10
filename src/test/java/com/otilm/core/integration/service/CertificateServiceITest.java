@@ -2683,9 +2683,9 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void replacesTheAssociation_whenAttributingACertificateAgain() throws Exception {
             // given — a certificate attributed through one profile, as a completion refused at approval leaves it
-            AcmeProfile firstProfile = acmeProfileGroupingInto("first profile", group);
+            AcmeProfile firstProfile = createAcmeProfileGroupingInto("first profile", group);
             Group secondGroup = saveGroup("second group");
-            AcmeProfile secondProfile = acmeProfileGroupingInto("second profile", secondGroup);
+            AcmeProfile secondProfile = createAcmeProfileGroupingInto("second profile", secondGroup);
             certificateService
                     .applyProtocolAssociations(certificate.getUuid(),
                             CertificateProtocolInfo.Acme(firstProfile.getUuid(), null));
@@ -2707,7 +2707,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private AcmeProfile acmeProfileGroupingInto(String name, Group certificateGroup) {
+        private AcmeProfile createAcmeProfileGroupingInto(String name, Group certificateGroup) {
             ProtocolCertificateAssociations associations = new ProtocolCertificateAssociations();
             associations.setGroupUuids(List.of(certificateGroup.getUuid()));
             protocolCertificateAssociationsRepository.save(associations);

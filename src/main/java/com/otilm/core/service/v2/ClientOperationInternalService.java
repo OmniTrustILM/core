@@ -13,6 +13,8 @@ import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRenewRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRevocationDto;
+import com.otilm.core.dao.entity.ApprovalProfileVersion;
+import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -46,6 +48,14 @@ public interface ClientOperationInternalService {
             NoSuchAlgorithmException, InvalidKeyException, CertificateOperationException, CertificateRequestException;
 
     void approvalCreatedAction(final UUID certificateUuid) throws NotFoundException;
+
+    /**
+     * Requests the approval of a certificate action and moves the certificate to PENDING_APPROVAL in one transaction,
+     * under the certificate's row lock. An issue action with nothing to issue requests none, so the check cannot race
+     * with the undo of a completion whose queuing failed.
+     */
+    void requestApproval(ApprovalProfileVersion approvalProfileVersion, ActionMessage actionMessage)
+            throws NotFoundException;
 
     /**
      * Whether an issue action not yet approved has nothing to issue: the certificate is gone, or is neither a submitted

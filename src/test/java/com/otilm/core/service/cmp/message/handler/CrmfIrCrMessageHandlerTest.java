@@ -79,7 +79,7 @@ class CrmfIrCrMessageHandlerTest {
     }
 
     @Test
-    void completesTheRegistrationWithTheProfilesIssueAttributes() throws Exception {
+    void completesTheRegistrationWithTheProfilesIssueAttributes_whenInRegistrationMode() throws Exception {
         // given
         ClientOperationExternalService clientOperationExternalService = mock(ClientOperationExternalService.class);
         handler.setClientOperationExternalService(clientOperationExternalService);

@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -153,26 +154,18 @@ class ActionsListenerTest {
     // ==================== Approval profile present — creates approval ====================
 
     @Test
-    void processMessage_certificateAction_approvalProfileExists_createsApprovalAndCallsApprovalCreated()
-            throws Exception {
-        UUID resourceUuid = UUID.randomUUID();
-        UUID userUuid = UUID.randomUUID();
-        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, userUuid, null, null,
-                null);
-
+    void requestsTheApprovalThroughTheClientOperationService_whenACertificateActionNeedsOne() throws Exception {
+        // given
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, UUID.randomUUID(), UUID.randomUUID(),
+                null, null, null);
         stubApprovalProfileRelation();
-        Approval createdApproval = new Approval();
-        createdApproval.setUuid(UUID.randomUUID());
-        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any()))
-                .thenReturn(createdApproval);
 
+        // when
         listener.processMessage(msg);
 
-        verify(approvalInternalService)
-                .createApproval(any(), eq(Resource.CERTIFICATE), eq(ResourceAction.ISSUE), eq(resourceUuid),
-                        eq(userUuid), any());
-        verify(clientOperationService).approvalCreatedAction(resourceUuid);
-        // The "create approval" branch returns early — direct action must NOT run.
+        // then — the action itself waits for the approval
+        verify(clientOperationService).requestApproval(any(), eq(msg));
+        verifyNoInteractions(approvalInternalService);
         verify(authHelper, never()).authenticateAsUser(any());
         verify(clientOperationService, never()).issueCertificateAction(any(), anyBoolean());
     }
@@ -196,21 +189,23 @@ class ActionsListenerTest {
     }
 
     @Test
-    void processMessage_approvalCreationFails_producesErrorNotificationAndThrowsMessageHandlingException()
-            throws Exception {
+    void rejectsTheMessageWithANotification_whenRequestingTheApprovalFails() throws Exception {
+        // given
         UUID resourceUuid = UUID.randomUUID();
-        UUID userUuid = UUID.randomUUID();
-        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, userUuid, null, null,
-                null);
-
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, UUID.randomUUID(),
+                null, null, null);
         stubApprovalProfileRelation();
-        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any()))
-                .thenThrow(new RuntimeException("approval creation exploded"));
+        doThrow(new RuntimeException("approval creation exploded"))
+                .when(clientOperationService)
+                .requestApproval(any(), any());
 
-        assertThatThrownBy(() -> listener.processMessage(msg))
+        // when
+        ThrowingCallable process = () -> listener.processMessage(msg);
+
+        // then
+        assertThatThrownBy(process)
                 .isInstanceOf(MessageHandlingException.class)
                 .hasMessageContaining("approval creation failed");
-
         verify(notificationProducer)
                 .produceInternalNotificationMessage(eq(Resource.CERTIFICATE), eq(resourceUuid), any(), any(), any());
     }

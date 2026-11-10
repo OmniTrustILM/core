@@ -62,6 +62,8 @@ import com.otilm.core.certificate.request.RegisterWireBuilder;
 import com.otilm.core.certificate.request.RenewContentSeeder;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.dao.entity.Approval;
+import com.otilm.core.dao.entity.ApprovalProfileVersion;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateLocation;
@@ -96,6 +98,7 @@ import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.ApprovalInternalService;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.ComplianceInternalService;
@@ -216,6 +219,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private LocationInternalService locationInternalService;
     private CertificateInternalService certificateService;
     private ComplianceInternalService complianceService;
+    private ApprovalInternalService approvalService;
     private CertificateEventHistoryInternalService certificateEventHistoryService;
     private ExtendedAttributeService extendedAttributeService;
     private ConnectorApiFactory connectorApiFactory;
@@ -385,6 +389,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setComplianceService(ComplianceInternalService complianceService) {
         this.complianceService = complianceService;
+    }
+
+    @Autowired
+    public void setApprovalService(ApprovalInternalService approvalService) {
+        this.approvalService = approvalService;
     }
 
     @Autowired
@@ -1355,6 +1364,26 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             return;
         }
         stateMachine.transitionAuditedExternally(certificate, CertificateState.PENDING_APPROVAL);
+    }
+
+    @Override
+    public void requestApproval(ApprovalProfileVersion approvalProfileVersion, ActionMessage actionMessage)
+            throws NotFoundException {
+        final UUID certificateUuid = actionMessage.getResourceUuid();
+        final Certificate certificate = certificateRepository
+                .findAndLockWithAssociationsByUuid(certificateUuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        if (actionMessage.getResourceAction() == ResourceAction.ISSUE && !awaitsIssue(certificate)) {
+            logger
+                    .info("Requesting no approval for the issue of certificate {}: it holds nothing to issue",
+                            certificateUuid);
+            return;
+        }
+        final Approval approval = approvalService
+                .createApproval(approvalProfileVersion, Resource.CERTIFICATE, actionMessage.getResourceAction(),
+                        certificateUuid, actionMessage.getUserUuid(), actionMessage.getData());
+        logger.info("Created new Approval {} for object {}", approval.getUuid(), certificateUuid);
+        approvalCreatedAction(certificateUuid);
     }
 
     @Override
