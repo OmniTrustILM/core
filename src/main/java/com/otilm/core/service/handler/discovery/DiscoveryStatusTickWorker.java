@@ -127,7 +127,7 @@ public class DiscoveryStatusTickWorker {
         }
 
         // A stopped run's answer already rescheduled the row and gave up the token, so this refresh changes nothing.
-        if (apply(tick, status, run.getStatus())) {
+        if (apply(tick, status, run.getStatus(), fence)) {
             budget.refresh(tick);
         }
     }
@@ -180,7 +180,8 @@ public class DiscoveryStatusTickWorker {
      * @return whether the run is still live and its budget should be refreshed — false once the answer was itself
      * terminal, where there is no longer an agenda row to refresh
      */
-    private boolean apply(DiscoveryWorkTick tick, DiscoveryStatusResponseDto status, DiscoveryStatus polledAs) {
+    private boolean apply(DiscoveryWorkTick tick, DiscoveryStatusResponseDto status, DiscoveryStatus polledAs,
+            DiscoveryTickFence fence) {
         UUID discoveryUuid = tick.discoveryUuid();
         DiscoveryRunState state = status.getState();
         return Boolean.TRUE.equals(transactionHandler.runInNewTransaction(() -> {
@@ -199,6 +200,12 @@ public class DiscoveryStatusTickWorker {
                 logger
                         .debug("Dropping status tick for discovery {}: it moved from {} to {} during the poll",
                                 discoveryUuid, polledAs, locked.getStatus());
+                return false;
+            }
+            // A stop and a resume that both land after the poll leave the status as it was, but they took the
+            // tick's row: the answer describes the run before them.
+            if (!fence.admits(locked)) {
+                logger.debug("Dropping status tick for discovery {}: it was overtaken during the poll", discoveryUuid);
                 return false;
             }
             // Two status calls for one run can be in flight at once: a call that outlives its lease is published

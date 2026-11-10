@@ -12,6 +12,8 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryStatusResponseDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
@@ -25,6 +27,7 @@ import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryDrainTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryStatusTickWorker;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
@@ -52,6 +55,8 @@ import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 /**
@@ -211,6 +216,26 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         Discovery reloaded = reload(run);
         assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
         assertThat(reloaded.getDeliveryMode()).isEqualTo(DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    /** A stop and a resume that land after the tick renewed leave the status as it was but take the tick's row. */
+    @Test
+    void endsNothing_whenAStatusTickThatLostItsRowAfterRenewingAnswersFailed() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
+        armRow(run, DiscoveryWorkType.STATUS, 0);
+        DiscoveryWorkTick overtakenAfterRenewing = spy(
+                tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, 0));
+        doReturn(false).when(overtakenAfterRenewing).stillHoldsItsRow();
+        DiscoveryStatusResponseDto staleFailure = new DiscoveryStatusResponseDto();
+        staleFailure.setState(DiscoveryRunState.FAILED);
+        when(client.status(any())).thenReturn(staleFailure);
+
+        // when
+        statusWorker.tick(overtakenAfterRenewing);
+
+        // then
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
     }
 
     @Test
