@@ -3,6 +3,7 @@ package com.otilm.core.service.writer;
 import com.otilm.api.model.core.acme.AuthorizationStatus;
 import com.otilm.api.model.core.acme.ChallengeStatus;
 import com.otilm.api.model.core.acme.OrderStatus;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
@@ -181,6 +182,55 @@ public class AcmeChallengeWriter {
         order.setStatus(statusFromCertificate);
         acmeOrderRepository.save(order);
         countOrderOutcome(order, statusBefore);
+        return order;
+    }
+
+    /**
+     * Moves a ready order with no certificate requested yet to processing for its finalize request. A second finalize
+     * request for the order finds it taken and submits nothing.
+     *
+     * @return whether the order was ready and this call moved it to processing
+     */
+    @Transactional
+    public boolean claimForFinalize(UUID orderUuid) {
+        AcmeOrder order = lockOrder(orderUuid);
+        if (order.getStatus() != OrderStatus.READY || order.getCertificateReferenceUuid() != null) {
+            return false;
+        }
+        order.setStatus(OrderStatus.PROCESSING);
+        acmeOrderRepository.save(order);
+        return true;
+    }
+
+    /**
+     * Links the certificate a finalize request submitted to its order. The status stays as it stands: an account
+     * deactivation during the submission has already closed the order.
+     *
+     * @return the order as it stands after this call
+     */
+    @Transactional
+    public AcmeOrder recordFinalizeSubmission(UUID orderUuid, String certificateId, Certificate certificate) {
+        AcmeOrder order = lockOrder(orderUuid);
+        order.setCertificateId(certificateId);
+        order.setCertificateReference(certificate);
+        acmeOrderRepository.save(order);
+        return order;
+    }
+
+    /**
+     * Closes an order whose finalize submission failed and counts the failure, unless an account deactivation during
+     * the submission closed it first.
+     *
+     * @return the order as it stands after this call
+     */
+    @Transactional
+    public AcmeOrder failFinalizeSubmission(UUID orderUuid) {
+        AcmeOrder order = lockOrder(orderUuid);
+        OrderStatus statusBefore = order.getStatus();
+        if (statusBefore == OrderStatus.PROCESSING) {
+            order.setStatus(OrderStatus.INVALID);
+        }
+        recordOrderTransition(order, statusBefore);
         return order;
     }
 

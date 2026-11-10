@@ -3,10 +3,12 @@ package com.otilm.core.integration.service.acme;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.otilm.api.exception.AcmeProblemDocumentException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.acme.AccountStatus;
 import com.otilm.api.model.core.acme.Order;
 import com.otilm.api.model.core.acme.OrderStatus;
+import com.otilm.api.model.core.acme.Problem;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
@@ -27,6 +29,8 @@ import com.otilm.core.dao.repository.acme.AcmeOrderRepository;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.service.acme.AcmeExternalService;
 import com.otilm.core.service.acme.AcmeTestUtil;
+import com.otilm.core.service.acme.identifier.AcmeCsrIdentifiers;
+import com.otilm.core.service.writer.AcmeChallengeWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
@@ -43,14 +47,17 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
@@ -64,9 +71,14 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * ACME finalize must hold no database transaction while it submits the certificate request, or the connection its reads
@@ -110,6 +122,8 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     @Autowired
     private AcmeNonceRepository acmeNonceRepository;
     @Autowired
+    private AcmeChallengeWriter acmeChallengeWriter;
+    @Autowired
     private FunctionGroupSeeder functionGroupSeeder;
     @Autowired
     private EntityManagerFactory entityManagerFactory;
@@ -119,6 +133,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private WireMockServer mockServer;
     private KeyPair accountKeys;
+    private UUID orderUuid;
 
     @BeforeEach
     void seedReadyOrder() throws Exception {
@@ -133,7 +148,7 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         order.setOrderId(ORDER_ID);
         order.setStatus(OrderStatus.READY);
         order.setAcmeAccount(account);
-        acmeOrderRepository.save(order);
+        orderUuid = acmeOrderRepository.save(order).getUuid();
     }
 
     @AfterEach
@@ -159,8 +174,9 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     }
 
     /**
-     * The request's EntityManager keeps the connection its first read takes. A submission that holds a second one while
-     * it runs makes every finalize in flight wait for two connections from the pool.
+     * The request's EntityManager keeps the connection its first read takes, and nothing else may still hold one once
+     * the request is queued. The submission's own short transactions borrow a second connection while they run, which
+     * this does not see.
      */
     @Test
     void holdsOnlyTheRequestsConnection_whenQueuingTheCertificateRequest() throws Exception {
@@ -223,7 +239,92 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         assertThat(acmeAccountRepository.findByAccountId(ACCOUNT_ID).orElseThrow().getFailedOrders()).isEqualTo(1);
     }
 
+    @Test
+    void keepsTheOrderInvalid_whenADeactivationClosesItDuringTheSubmission() throws Exception {
+        // given
+        doAnswer(invocation -> {
+            deactivateOrderOnAnotherThread();
+            return null;
+        }).when(actionProducer).produceMessage(any());
+
+        // when
+        ResponseEntity<Order> response = finalizeOrder();
+
+        // then
+        assertThat(response.getBody().getStatus()).isEqualTo(OrderStatus.INVALID);
+        AcmeOrder stored = acmeOrderRepository.findByOrderId(ORDER_ID).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(OrderStatus.INVALID);
+        assertThat(stored.getCertificateReferenceUuid()).isNotNull();
+    }
+
+    @Test
+    void countsNoFailure_whenADeactivationClosedTheOrderBeforeTheSubmissionFailed() throws Exception {
+        // given
+        doAnswer(invocation -> {
+            deactivateOrderOnAnotherThread();
+            throw new IllegalStateException("queue unavailable");
+        }).when(actionProducer).produceMessage(any());
+
+        // when
+        finalizeOrder();
+
+        // then
+        assertThat(acmeOrderRepository.findByOrderId(ORDER_ID).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.INVALID);
+        assertThat(acmeAccountRepository.findByAccountId(ACCOUNT_ID).orElseThrow().getFailedOrders()).isZero();
+    }
+
+    /**
+     * Another finalize request claims the order after this one found it ready. Reading the CSR's identifiers is the
+     * hook: finalize does it between the ready check and its own claim.
+     */
+    @Test
+    void answersOrderNotReady_whenAnotherFinalizeClaimsTheOrderFirst() {
+        try (MockedStatic<AcmeCsrIdentifiers> csrIdentifiers = mockStatic(AcmeCsrIdentifiers.class,
+                CALLS_REAL_METHODS)) {
+            // given
+            csrIdentifiers.when(() -> AcmeCsrIdentifiers.of(any())).thenAnswer(invocation -> {
+                claimOrderOnAnotherThread();
+                return invocation.callRealMethod();
+            });
+
+            // when
+            ThrowingCallable finalize = this::finalizeOrder;
+
+            // then
+            assertThatThrownBy(finalize)
+                    .isInstanceOfSatisfying(AcmeProblemDocumentException.class,
+                            exception -> assertThat(exception.getProblemDocument().getType())
+                                    .isEqualTo(Problem.ORDER_NOT_READY.getType()));
+        }
+        verify(actionProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void refusesTheClaim_whenAnotherFinalizeClaimedTheOrderFirst() {
+        // given
+        boolean firstClaim = acmeChallengeWriter.claimForFinalize(orderUuid);
+
+        // when
+        boolean secondClaim = acmeChallengeWriter.claimForFinalize(orderUuid);
+
+        // then
+        assertThat(firstClaim).isTrue();
+        assertThat(secondClaim).isFalse();
+        assertThat(readCommittedOrderStatus()).isEqualTo(OrderStatus.PROCESSING);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Closes the order as a concurrent account deactivation does, in a request of its own. */
+    private void deactivateOrderOnAnotherThread() {
+        CompletableFuture.runAsync(() -> acmeChallengeWriter.deactivateOrder(orderUuid)).join();
+    }
+
+    /** Claims the order as a concurrent finalize request does, in a request of its own. */
+    private void claimOrderOnAnotherThread() {
+        CompletableFuture.runAsync(() -> acmeChallengeWriter.claimForFinalize(orderUuid)).join();
+    }
 
     /**
      * Sends the finalize request as one HTTP request does: with the servlet request in context and an EntityManager
