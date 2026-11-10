@@ -14,6 +14,11 @@ final class CheckpointRevision {
     private CheckpointRevision() {
     }
 
+    /** A drain tick's fence: the checkpointed run is still at the revision the tick read. */
+    static DiscoveryTickFence fence(long revisionTheTickRead) {
+        return lockedRun -> !movedOn(lockedRun, revisionTheTickRead);
+    }
+
     /** Whether {@code run}, read under its row lock, is a checkpointed run that has moved past the tick's revision. */
     static boolean movedOn(Discovery run, long revisionTheTickRead) {
         return run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED

@@ -208,8 +208,8 @@ class DiscoveryConnectorErrorsTest {
     static Stream<Named<Exception>> refusals() {
         return Stream
                 .of(named("a problem document over REST", problem(ErrorCode.VALIDATION_FAILED)),
-                        named("a plain 422 over REST",
-                                new ConnectorClientException("HTTP 422", HttpStatus.UNPROCESSABLE_ENTITY)),
+                        named("a 422 with an empty problem body over REST",
+                                new ConnectorClientException("HTTP 422", HttpStatus.valueOf(422))),
                         named("a validation failure over the proxy", new ValidationException("HTTP 422")));
     }
 

@@ -79,11 +79,19 @@ public class DiscoveryRunTerminator {
      * @return whether this call was the one that ended the run
      */
     public boolean endIfRevision(UUID discoveryUuid, long expectedRevision, DiscoveryStatus status, String reason) {
+        return endIfAdmitted(discoveryUuid, CheckpointRevision.fence(expectedRevision), status, reason);
+    }
+
+    /**
+     * Ends a run like {@link #endConnectorOwned}, unless the tick asking for it no longer speaks for the run.
+     *
+     * @param fence checked under the run's row lock
+     * @return whether this call was the one that ended the run
+     */
+    public boolean endIfAdmitted(UUID discoveryUuid, DiscoveryTickFence fence, DiscoveryStatus status, String reason) {
         return endIf(discoveryUuid, DiscoveryRunLifecycle::hasLeftTheConnector, run -> {
-            if (CheckpointRevision.movedOn(run, expectedRevision)) {
-                logger
-                        .debug("Not ending discovery {}: the tick read revision {} and the run is at {}", discoveryUuid,
-                                expectedRevision, run.getCheckpointRevision());
+            if (!fence.admits(run)) {
+                logger.debug("Not ending discovery {}: the tick asking for it was overtaken", discoveryUuid);
                 return null;
             }
             return new Ending(status, reason);

@@ -173,10 +173,10 @@ public class DiscoveryDrainTickWorker {
      */
     private void handleNonConformant(UUID discoveryUuid, int attempt, long revision) {
         if (!budget
-                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, revision,
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, CheckpointRevision.fence(revision),
                         "The connector's results omitted a field the contract requires")) {
             logger
-                    .warn("Drain {} for discovery {} returned a page missing items, more or highestSequence; retrying "
+                    .warn("Drain {} for discovery {} returned a page missing a field the contract requires; retrying "
                             + "when next due", attempt, discoveryUuid);
         }
     }
@@ -189,7 +189,7 @@ public class DiscoveryDrainTickWorker {
     private void handleUnstageable(UUID discoveryUuid, int attempt, long revision, RuntimeException e) {
         logger.error("Ingesting a drained page for discovery {} failed: {}", discoveryUuid, e.getMessage(), e);
         budget
-                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, revision,
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, CheckpointRevision.fence(revision),
                         "Core could not store the discovered items this run's connector handed over");
     }
 
@@ -346,8 +346,8 @@ public class DiscoveryDrainTickWorker {
             return;
         }
         if (!budget
-                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, revision, e,
-                        "The connector stopped handing over discovered items for this run")) {
+                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, CheckpointRevision.fence(revision),
+                        e, "The connector stopped handing over discovered items for this run")) {
             logger
                     .warn("Drain {} for discovery {} failed, retrying when next due: {}", attempt, discoveryUuid,
                             e.getMessage());
@@ -361,7 +361,7 @@ public class DiscoveryDrainTickWorker {
             return;
         }
         if (!budget
-                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, tick.attempt(), revision,
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, tick.attempt(), CheckpointRevision.fence(revision),
                         "The connector stayed too busy to continue this discovery run")) {
             logger
                     .warn("Drain {} for discovery {} is still refused as busy; retrying when next due", tick.attempt(),

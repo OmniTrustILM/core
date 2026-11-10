@@ -128,6 +128,7 @@ public class DiscoveryEventIngestor {
         boolean itemsApplied = stageItems(run, page);
         boolean positionMoved = !CheckpointComparison.same(run.getCheckpoint(), checkpoint);
         run.setCheckpoint(checkpoint);
+        // Raised for a page that moved nothing too, so every other page asked from this position reads as stale.
         run.setCheckpointRevision(run.getCheckpointRevision() + 1);
         // The connector answered, so a busy spell is over.
         workWriter.clearBusySince(run.getUuid(), DiscoveryWorkType.DRAIN);

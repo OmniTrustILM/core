@@ -121,13 +121,67 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
     }
 
+    /** Drain pages raise the checkpoint revision every few seconds; they say nothing about whether status answers. */
     @Test
-    void endsNothing_whenAStaleStatusTickFailsOnItsLastAttempt() throws Exception {
+    void endsTheRun_whenDrainPagesLandWhileTheLastStatusAttemptFails() throws Exception {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
         armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
         when(client.status(any())).thenAnswer(call -> {
             applyAnotherTicksPage(run);
+            throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
+        });
+
+        // when
+        statusWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT));
+
+        // then
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+    }
+
+    @Test
+    void endsNothing_whenTheRunIsStoppedWhileTheLastStatusAttemptFails() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
+        armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
+        when(client.status(any())).thenAnswer(call -> {
+            stop(run);
+            throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
+        });
+
+        // when
+        statusWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT));
+
+        // then
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
+    }
+
+    @Test
+    void endsNothing_whenTheRunIsStoppedAndResumedWhileTheLastStatusAttemptFails() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
+        armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
+        when(client.status(any())).thenAnswer(call -> {
+            stop(run);
+            resumeAndExpediteStatus(run);
+            throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
+        });
+
+        // when
+        statusWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT));
+
+        // then
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+    }
+
+    /** A resume commits the run before it expedites the status row, so for a moment the tick still holds its row. */
+    @Test
+    void endsNothing_whenAResumeCommitsWhileTheLastStatusAttemptOfTheStoppedRunFails() throws Exception {
+        // given
+        Discovery run = stopped(runIn(DiscoveryDeliveryMode.CHECKPOINTED));
+        armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
+        when(client.status(any())).thenAnswer(call -> {
+            commitTheResume(run);
             throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
         });
 
@@ -387,6 +441,39 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         Discovery current = reload(run);
         current.setCheckpointRevision(current.getCheckpointRevision() + 1);
         discoveryRepository.saveAndFlush(current);
+    }
+
+    /** What a stop writes: the status, a raised revision, and the status row freed with its budget restored. */
+    private void stop(Discovery run) {
+        Discovery current = reload(run);
+        current.setStatus(DiscoveryStatus.STOPPED);
+        current.setConnectorStatus(DiscoveryStatus.STOPPED);
+        current.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        current.setCheckpointRevision(current.getCheckpointRevision() + 1);
+        discoveryRepository.saveAndFlush(current);
+        workWriter.resetAttempt(run.getUuid(), DiscoveryWorkType.STATUS, 0);
+    }
+
+    private Discovery stopped(Discovery run) {
+        run.setStatus(DiscoveryStatus.STOPPED);
+        run.setConnectorStatus(DiscoveryStatus.STOPPED);
+        run.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        return discoveryRepository.saveAndFlush(run);
+    }
+
+    /** The resume transaction alone, before the resume expedites the agenda rows. */
+    private void commitTheResume(Discovery run) {
+        Discovery current = reload(run);
+        current.setStatus(DiscoveryStatus.IN_PROGRESS);
+        current.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
+        current.setStoppedAt(null);
+        current.setCheckpointRevision(current.getCheckpointRevision() + 1);
+        discoveryRepository.saveAndFlush(current);
+    }
+
+    private void resumeAndExpediteStatus(Discovery run) {
+        commitTheResume(run);
+        workWriter.expedite(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     private void markBusySince(Discovery run, OffsetDateTime busySince) {

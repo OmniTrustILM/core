@@ -556,7 +556,6 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         return page;
     }
 
-    /** Conformant on the wire and still unstorable: its payload refuses to serialize, on every attempt. */
     private static DiscoveryResultsResponseDto checkpointedPage(List<MetadataAttribute> checkpoint,
             DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = page(items.length, true, items);
@@ -575,6 +574,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         discoveryRepository.saveAndFlush(current);
     }
 
+    /** Conformant on the wire and still unstorable: its payload refuses to serialize, on every attempt. */
     private static DiscoveredItemDto unstageableKeyItem(long sequence) {
         DiscoveredKeyDto payload = new DiscoveredKeyDto() {
             @JsonProperty

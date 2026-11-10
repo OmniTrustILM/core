@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 public final class DiscoveryConnectorErrors {
 
     private static final String UNANSWERED = "the connector did not answer";
+    private static final int UNPROCESSABLE = 422;
 
     private DiscoveryConnectorErrors() {
     }
@@ -69,9 +70,9 @@ public final class DiscoveryConnectorErrors {
             return true;
         }
         if (e instanceof ConnectorClientException client) {
-            return client.getHttpStatus() == HttpStatus.UNPROCESSABLE_ENTITY;
+            return hasStatus(client.getHttpStatus(), UNPROCESSABLE);
         }
-        return answeredWith(e, HttpStatus.UNPROCESSABLE_ENTITY);
+        return answeredWith(e, UNPROCESSABLE);
     }
 
     /**
@@ -80,9 +81,9 @@ public final class DiscoveryConnectorErrors {
      */
     public static boolean isBusy(Throwable e) {
         if (e instanceof ConnectorServerException server) {
-            return server.getHttpStatus() == HttpStatus.SERVICE_UNAVAILABLE;
+            return hasStatus(server.getHttpStatus(), HttpStatus.SERVICE_UNAVAILABLE.value());
         }
-        return answeredWith(e, HttpStatus.SERVICE_UNAVAILABLE);
+        return answeredWith(e, HttpStatus.SERVICE_UNAVAILABLE.value());
     }
 
     /**
@@ -97,9 +98,17 @@ public final class DiscoveryConnectorErrors {
         return seconds == null || seconds <= 0 ? Optional.empty() : Optional.of(Duration.ofSeconds(seconds));
     }
 
-    private static boolean answeredWith(Throwable e, HttpStatus status) {
+    private static boolean answeredWith(Throwable e, int status) {
         return e instanceof ConnectorProblemException problem && problem.getProblemDetail() != null
-                && problem.getProblemDetail().getStatus() == status.value();
+                && problem.getProblemDetail().getStatus() == status;
+    }
+
+    /**
+     * By code, not by constant: 422 has two {@link HttpStatus} constants, and the transports resolve it to whichever
+     * {@code HttpStatus.valueOf} returns.
+     */
+    private static boolean hasStatus(HttpStatus status, int code) {
+        return status != null && status.value() == code;
     }
 
     /**

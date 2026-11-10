@@ -127,6 +127,12 @@ public class DiscoveryWorkWriter {
         workRepository.deferBusyLeased(discoveryUuid, workType, leaseToken, attempt, nextDueAt, now);
     }
 
+    /** Whether the row is still leased to {@code leaseToken}. Joins the caller's transaction. */
+    @Transactional
+    public boolean isLeasedTo(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken) {
+        return workRepository.existsByDiscoveryUuidAndWorkTypeAndLeaseToken(discoveryUuid, workType, leaseToken);
+    }
+
     /** Stops the busy clock on the run's {@code workType} row. */
     @Transactional
     public void clearBusySince(UUID discoveryUuid, DiscoveryWorkType workType) {
