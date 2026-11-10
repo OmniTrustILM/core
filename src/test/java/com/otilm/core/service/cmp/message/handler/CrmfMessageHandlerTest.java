@@ -1,5 +1,6 @@
 package com.otilm.core.service.cmp.message.handler;
 
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
@@ -15,6 +16,7 @@ import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
 import com.otilm.core.service.cmp.message.protection.ProtectionStrategy;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
+import com.otilm.core.util.SecretLeakProbe;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.math.BigInteger;
 import java.security.KeyPair;
@@ -54,6 +56,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.eq;
@@ -194,6 +197,39 @@ class CrmfMessageHandlerTest {
         assertThat(certResponse.getStatus().getStatus().intValue()).isEqualTo(PKIStatus.WAITING);
         assertThat(certResponse.getCertifiedKeyPair()).isNull();
         assertThat(certResponse.getCertReqId().getValue()).isEqualTo(BigInteger.ZERO);
+    }
+
+    @Test
+    void logsTheFailureWithoutTheConnectorsText_whenTheConnectorRefusesToSignTheWaitingResponse() throws Exception {
+        // given
+        CmpTransactionService cmpTransactionService = mock(CmpTransactionService.class);
+        when(cmpTransactionService.createTransactionEntity(anyString(), any(), anyString(), any(), any()))
+                .thenReturn(new CmpTransaction());
+        CrmfIrCrMessageHandler irCrMessageHandler = mock(CrmfIrCrMessageHandler.class);
+        when(irCrMessageHandler.getTransactionState()).thenReturn(CmpTransactionState.CERT_ISSUED);
+        handler.setCmpTransactionService(cmpTransactionService);
+        handler.setCrmfIrCrMessageHandler(irCrMessageHandler);
+        var echoedSecret = "token-pin-the-connector-echoed";
+        ConfigurationContext configuration = configurationWithMockedProtection();
+        when(configuration.getProtectionStrategy().createProtection(any(PKIHeader.class), any(PKIBody.class)))
+                .thenThrow(new ConnectorException(echoedSecret));
+        CertRequest certRequest = new CertRequest(new ASN1Integer(0),
+                new CertTemplateBuilder().setSubject(new X500Name("CN=cmp-certificate")).build(), null);
+        PKIMessage request = irMessage(certRequest);
+        ClientCertificateDataResponseDto requestedCert = new ClientCertificateDataResponseDto();
+        requestedCert.setUuid(UUID.randomUUID().toString());
+
+        // when
+        List<String> logged;
+        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
+            catchThrowable(() -> ReflectionTestUtils
+                    .invokeMethod(handler, "handleAsynchronousAcceptance", request.getHeader().getTransactionID(),
+                            request, configuration, "ir", requestedCert, certRequest));
+            logged = probe.logged();
+        }
+
+        // then
+        SecretLeakProbe.assertNoneReveals(logged, echoedSecret);
     }
 
     private static PKIMessage irMessage(CertRequest certRequest) {

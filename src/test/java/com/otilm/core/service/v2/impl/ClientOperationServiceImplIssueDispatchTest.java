@@ -170,6 +170,37 @@ class ClientOperationServiceImplIssueDispatchTest {
     }
 
     @Test
+    void issuesTheRequest_whenTheCertificateStillHoldsTheRequestItsIssueWasQueuedFor() throws Exception {
+        // given
+        UUID queuedFor = UUID.randomUUID();
+        certificate.setCertificateRequestUuid(queuedFor);
+        when(adapter.issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+
+        // when
+        service.issueCertificateAction(certUuid, queuedFor, true);
+
+        // then
+        verify(adapter).issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any());
+    }
+
+    @Test
+    void issuesNothing_whenTheCertificateHoldsAnotherRequestThanItsIssueWasQueuedFor() throws Exception {
+        // given — a late issue queued for a request the certificate no longer holds
+        certificate.setCertificateRequestUuid(UUID.randomUUID());
+        UUID replacedRequestUuid = UUID.randomUUID();
+
+        // when
+        service.issueCertificateAction(certUuid, replacedRequestUuid, true);
+
+        // then
+        Mockito.verifyNoInteractions(adapter);
+        verify(stateMachine, never())
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                        ArgumentMatchers.any(), ArgumentMatchers.any());
+    }
+
+    @Test
     void stillRaisesTheActionEvent_whenTheLocationLookupFailsAfterIssuance() throws Exception {
         // given
         when(adapter.issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any()))

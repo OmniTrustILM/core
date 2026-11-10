@@ -25,6 +25,7 @@ import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.logging.LoggingHelper;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.security.authz.ProtocolEndpoint;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.cmp.CmpExternalService;
@@ -331,20 +332,22 @@ public class CmpServiceImpl implements CmpExternalService {
     /**
      * Records the failure on the CMP transaction, logs the given processing phase, and returns the CMP error response
      * to the client. The {@code pkiResponse} is built by the caller because each phase shapes it differently (protected
-     * vs. unprotected, domain body vs. generic body).
+     * vs. unprotected, domain body vs. generic body). A failure a connector wrote part of is logged without its
+     * messages ({@link RedactedFailure}).
      */
     private ResponseEntity<byte[]> errorResponse(ASN1OctetString tid, String logPrefix, String requestAsString,
             String phase, Exception e, PKIMessage pkiResponse) {
         handleTrxError(tid, e);
         if (LOG.isErrorEnabled()) {
+            Throwable failure = RedactedFailure.forLog(e);
             if (verbose) {
                 LOG
                         .error("{} | {} failed: \n\n response:\n {}", logPrefix, phase,
-                                PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
+                                PkiMessageDumper.dumpPkiMessage(pkiResponse), failure);
             } else {
                 LOG
                         .error("{} | {} failed: \n\nrequest:\n {}\n response:\n {}", logPrefix, phase, requestAsString,
-                                PkiMessageDumper.dumpPkiMessage(pkiResponse), e);
+                                PkiMessageDumper.dumpPkiMessage(pkiResponse), failure);
             }
         }
         return buildBadRequest(pkiResponse);
@@ -374,7 +377,9 @@ public class CmpServiceImpl implements CmpExternalService {
                     .addExtraCerts(null)
                     .build();
         } catch (Exception buildError) {
-            LOG.error("failed to build protected CMP error response; falling back to unprotected error", buildError);
+            LOG
+                    .error("failed to build protected CMP error response; falling back to unprotected error",
+                            RedactedFailure.forLog(buildError));
             return PkiMessageError.unprotectedMessage(pkiRequest.getHeader(), errorBody);
         }
     }
