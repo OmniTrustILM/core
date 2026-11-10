@@ -139,7 +139,7 @@ class DiscoveryV2ClientTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"initiate", "status", "results", "stop", "resume", "cancel"})
-    void offersTheConfiguredModes_onEveryRequest(String operation) throws Exception {
+    void offersTheConfiguredModes_whenSendingAnyCall(String operation) throws Exception {
         // given — the client offers checkpointed, then buffered
 
         // when

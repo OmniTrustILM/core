@@ -218,7 +218,7 @@ class DiscoveryEventIngestorTest {
         return run;
     }
 
-    private DiscoveryResultsResponseDto page(DiscoveredItemDto... items) {
+    private static DiscoveryResultsResponseDto page(DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = new DiscoveryResultsResponseDto();
         page.setItems(List.of(items));
         page.setHighestSequence(1L);
@@ -226,7 +226,7 @@ class DiscoveryEventIngestorTest {
         return page;
     }
 
-    private DiscoveryResultsResponseDto checkpointedPage(DiscoveredItemDto... items) {
+    private static DiscoveryResultsResponseDto checkpointedPage(DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = page(items);
         page.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("position", "after this page"));
         return page;

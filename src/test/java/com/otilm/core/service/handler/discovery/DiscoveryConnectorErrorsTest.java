@@ -213,7 +213,7 @@ class DiscoveryConnectorErrorsTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Named<Exception>> refusals() {
+    private static Stream<Named<Exception>> refusals() {
         return Stream
                 .of(named("a problem document over REST", problem(ErrorCode.VALIDATION_FAILED)),
                         named("a 422 with an empty problem body over REST",
@@ -221,14 +221,14 @@ class DiscoveryConnectorErrorsTest {
                         named("a 422 with a plain body over REST", new ValidationException("HTTP 422")));
     }
 
-    static Stream<Named<Exception>> busyAnswers() {
+    private static Stream<Named<Exception>> busyAnswers() {
         return Stream
                 .of(named("a problem document over REST", problem(ErrorCode.SERVICE_UNAVAILABLE)),
                         named("a server failure over either transport",
                                 new ConnectorServerException("HTTP 503", HttpStatus.SERVICE_UNAVAILABLE)));
     }
 
-    static Stream<Named<Exception>> notBusyFailures() {
+    private static Stream<Named<Exception>> notBusyFailures() {
         return Stream
                 .of(named("an internal error",
                         new ConnectorServerException("HTTP 500", HttpStatus.INTERNAL_SERVER_ERROR)),

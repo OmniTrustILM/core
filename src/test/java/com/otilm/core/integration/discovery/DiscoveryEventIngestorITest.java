@@ -433,7 +433,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         assertThat(persisted.getMessage()).contains("run handle is too large");
     }
 
-    private DiscoveryResultsResponseDto page(long highestSequence, boolean more, DiscoveredItemDto... items) {
+    private static DiscoveryResultsResponseDto page(long highestSequence, boolean more, DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = new DiscoveryResultsResponseDto();
         page.setItems(List.of(items));
         page.setHighestSequence(highestSequence);
@@ -441,7 +441,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         return page;
     }
 
-    private DiscoveryResultsResponseDto checkpointedPage(List<MetadataAttribute> checkpoint,
+    private static DiscoveryResultsResponseDto checkpointedPage(List<MetadataAttribute> checkpoint,
             DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = page(items.length, true, items);
         page.setCheckpoint(checkpoint);

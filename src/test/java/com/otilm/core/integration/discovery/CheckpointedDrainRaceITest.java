@@ -6,11 +6,8 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
-import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
-import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
-import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.service.handler.discovery.CheckpointComparison;
@@ -18,11 +15,11 @@ import com.otilm.core.service.handler.discovery.DiscoveryEventIngestor;
 import com.otilm.core.service.handler.discovery.DrainPageOutcome;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
-import com.otilm.core.util.DiscoveryInterfaceFixture;
+import com.otilm.core.util.seeders.DiscoveryRunSeeder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.time.Duration;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -35,6 +32,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Two duplicate drain ticks of one checkpointed run, built from the same revision, applying their pages at the same
@@ -48,9 +46,7 @@ class CheckpointedDrainRaceITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryRepository discoveryRepository;
     @Autowired
-    private ConnectorRepository connectorRepository;
-    @Autowired
-    private ConnectorInterfaceRepository connectorInterfaceRepository;
+    private DiscoveryRunSeeder runSeeder;
     @Autowired
     private DiscoveryItemRepository itemRepository;
     @Autowired
@@ -119,28 +115,21 @@ class CheckpointedDrainRaceITest extends BaseSpringBootTest {
      * activity view is a snapshot taken once per transaction, so each look clears it first.
      */
     private void awaitTicksWaitingForALock(int count) {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
-        while (System.nanoTime() < deadline) {
-            entityManager.createNativeQuery("SELECT pg_stat_clear_snapshot()").getSingleResult();
-            Number waiting = (Number) entityManager
-                    .createNativeQuery("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
-                            + "AND wait_event_type = 'Lock'")
-                    .getSingleResult();
-            if (waiting.intValue() >= count) {
-                return;
-            }
-            pause();
-        }
-        throw new AssertionError("The ticks never both waited for the run's lock");
+        await()
+                .atMost(Duration.ofSeconds(20))
+                .pollInterval(Duration.ofMillis(50))
+                .pollInSameThread()
+                .alias("both ticks waiting for the run's lock")
+                .until(() -> sessionsWaitingForALock() >= count);
     }
 
-    private static void pause() {
-        try {
-            TimeUnit.MILLISECONDS.sleep(50);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError("Interrupted while waiting for the ticks", e);
-        }
+    private int sessionsWaitingForALock() {
+        entityManager.createNativeQuery("SELECT pg_stat_clear_snapshot()").getSingleResult();
+        Number waiting = (Number) entityManager
+                .createNativeQuery("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                        + "AND wait_event_type = 'Lock'")
+                .getSingleResult();
+        return waiting.intValue();
     }
 
     private static DiscoveryResultsResponseDto page(List<MetadataAttribute> checkpoint, DiscoveredItemDto... items) {
@@ -174,16 +163,7 @@ class CheckpointedDrainRaceITest extends BaseSpringBootTest {
     }
 
     private Discovery checkpointedRun() {
-        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
-                .v2Interface(connectorRepository, connectorInterfaceRepository);
-        Discovery run = new Discovery();
-        run.setName("v2-scan-" + UUID.randomUUID());
-        run.setKind("IP-HostName");
-        run.setStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
-        run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
+        Discovery run = runSeeder.seedV2Run(DiscoveryStatus.IN_PROGRESS);
         run.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
         run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
         run.setCheckpointRevision(3);

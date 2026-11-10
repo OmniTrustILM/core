@@ -4,8 +4,6 @@ import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
-import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
@@ -15,11 +13,8 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStatusResponseDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
-import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryWork;
-import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
-import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
 import com.otilm.core.messaging.jms.producers.DiscoveryWorkProducer;
@@ -31,7 +26,7 @@ import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
-import com.otilm.core.util.DiscoveryInterfaceFixture;
+import com.otilm.core.util.seeders.DiscoveryRunSeeder;
 import com.otilm.core.util.seeders.DiscoveryWorkTickSeeder;
 import java.net.URI;
 import java.time.Duration;
@@ -39,7 +34,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
@@ -49,6 +43,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.junit.jupiter.api.Named.named;
@@ -82,9 +77,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryRepository discoveryRepository;
     @Autowired
-    private ConnectorRepository connectorRepository;
-    @Autowired
-    private ConnectorInterfaceRepository connectorInterfaceRepository;
+    private DiscoveryRunSeeder runSeeder;
     @Autowired
     private DiscoveryWorkRepository workRepository;
     @Autowired
@@ -470,14 +463,14 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Named<Exception>> refusalsOverRest() {
+    private static Stream<Named<Exception>> refusalsOverRest() {
         return Stream
                 .of(named("a problem document over REST",
                         problem(HttpStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_FAILED, null)),
                         named("a 422 with a plain body", new ValidationException("HTTP 422")));
     }
 
-    static Stream<Named<Exception>> busyAnswersOnEitherTransport() {
+    private static Stream<Named<Exception>> busyAnswersOnEitherTransport() {
         return Stream
                 .of(named("a problem document over REST",
                         problem(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.SERVICE_UNAVAILABLE, null)),
@@ -517,9 +510,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     private static DiscoveredItemDto keyItem(long sequence) {
-        DiscoveredKeyDto payload = new DiscoveredKeyDto();
-        payload.setType(KeyType.PUBLIC_KEY);
-        payload.setAlgorithm(KeyAlgorithm.RSA);
+        DiscoveredKeyDto payload = aPublicKey().build();
         DiscoveredItemDto item = new DiscoveredItemDto();
         item.setSequence(sequence);
         item.setUniqueRef("key-" + sequence);
@@ -614,16 +605,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     private Discovery runIn(DiscoveryDeliveryMode mode) {
-        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
-                .v2Interface(connectorRepository, connectorInterfaceRepository);
-        Discovery run = new Discovery();
-        run.setName("v2-scan-" + UUID.randomUUID());
-        run.setKind("IP-HostName");
-        run.setStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
-        run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
+        Discovery run = runSeeder.seedV2Run(DiscoveryStatus.IN_PROGRESS);
         run.setConnectorState("running");
         run.setDeliveryMode(mode);
         run.setCheckpointRevision(3);
