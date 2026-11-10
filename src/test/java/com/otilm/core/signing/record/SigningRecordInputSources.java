@@ -20,6 +20,6 @@ public final class SigningRecordInputSources {
 
     /** Records the input as a batch of one, as the engines that sign one operation at a time do. */
     public static List<UUID> recordOne(SigningRecordStrategy strategy, SigningRecordInput input) {
-        return strategy.record(input.getSigningProfile(), List.of(of(input)));
+        return strategy.recordSigning(input.getSigningProfile(), List.of(of(input)));
     }
 }

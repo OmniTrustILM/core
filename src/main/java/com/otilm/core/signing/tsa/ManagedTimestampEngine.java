@@ -254,7 +254,7 @@ public class ManagedTimestampEngine {
                     .source(signingProfile, request, serialNumber, genTime, encodedToken, protocol);
             signingRecordStrategyFactory
                     .strategyFor(signingProfile.recordPolicy().persistenceMode())
-                    .record(signingProfile, List.of(source));
+                    .recordSigning(signingProfile, List.of(source));
         } catch (Exception e) {
             logger
                     .error("Failed to record signing for signing profile '{}'; the timestamp was issued regardless",

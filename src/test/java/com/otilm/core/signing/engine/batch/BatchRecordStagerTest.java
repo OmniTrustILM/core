@@ -54,7 +54,7 @@ class BatchRecordStagerTest {
     void returnsTheRecordReferences_whenStagingSucceeds() throws Exception {
         // given
         List<UUID> recordUuids = List.of(UUID.randomUUID(), UUID.randomUUID());
-        when(strategy.record(RECORDING_PROFILE, batch)).thenReturn(recordUuids);
+        when(strategy.recordSigning(RECORDING_PROFILE, batch)).thenReturn(recordUuids);
 
         // when
         List<UUID> references = stager.stage(RECORDING_PROFILE, batch);
@@ -67,7 +67,7 @@ class BatchRecordStagerTest {
     void failsTheRunAtTheStagingStep_whenStagingFails() {
         // given
         var stagingFailure = new IllegalStateException("outbox insert violated a constraint");
-        when(strategy.record(RECORDING_PROFILE, batch)).thenThrow(stagingFailure);
+        when(strategy.recordSigning(RECORDING_PROFILE, batch)).thenThrow(stagingFailure);
 
         // when
         ThrowingCallable stage = () -> stager.stage(RECORDING_PROFILE, batch);

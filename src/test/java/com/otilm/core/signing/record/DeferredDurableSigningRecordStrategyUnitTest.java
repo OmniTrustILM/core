@@ -111,7 +111,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         List<SigningRecordInputSource> batch = recordableBatch(3);
 
         // when
-        List<UUID> references = strategy.record(recordingProfile, batch);
+        List<UUID> references = strategy.recordSigning(recordingProfile, batch);
 
         // then
         List<UUID> stagedUuids = captureStagedBatch().stream().map(SigningRecordOutbox::getUuid).toList();
@@ -126,7 +126,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         doThrow(new RuntimeException("db down")).when(writer).insertOutboxBatch(any());
 
         // when
-        ThrowingCallable recordBatch = () -> strategy.record(recordingProfile, batch);
+        ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
         assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class).hasMessage("db down");

@@ -246,7 +246,7 @@ class ManagedTimestampEngineTest {
         SigningEngineException thrown = catchIssue();
         assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
         assertThat(thrown.operatorMessage()).contains("imprint other than the one requested");
-        verify(signingRecordStrategy, never()).record(any(), any());
+        verify(signingRecordStrategy, never()).recordSigning(any(), any());
     }
 
     @Test
@@ -258,7 +258,7 @@ class ManagedTimestampEngineTest {
         SigningEngineException thrown = catchIssue();
         assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
         assertThat(thrown.operatorMessage()).contains("SHA-256 was requested");
-        verify(signingRecordStrategy, never()).record(any(), any());
+        verify(signingRecordStrategy, never()).recordSigning(any(), any());
     }
 
     /** The serial keys the signing record, so a token carrying a different one would be recorded under the wrong id. */
@@ -271,7 +271,7 @@ class ManagedTimestampEngineTest {
         SigningEngineException thrown = catchIssue();
         assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
         assertThat(thrown.operatorMessage()).contains("serial number");
-        verify(signingRecordStrategy, never()).record(any(), any());
+        verify(signingRecordStrategy, never()).recordSigning(any(), any());
     }
 
     @Test
@@ -329,7 +329,7 @@ class ManagedTimestampEngineTest {
         engine.process(aTspRequest().build(), signingProfile, aResolvedProfile(false, null));
 
         // then — the deferred source built from the granted token is handed to the strategy
-        verify(signingRecordStrategy).record(signingProfile, List.of(recordInputSource));
+        verify(signingRecordStrategy).recordSigning(signingProfile, List.of(recordInputSource));
     }
 
     @Test

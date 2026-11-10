@@ -1139,7 +1139,7 @@ class ManagedContentSigningEngineTest {
             engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
-            verify(signingRecordStrategy).record(any(), eq(List.of(recordSource)));
+            verify(signingRecordStrategy).recordSigning(any(), eq(List.of(recordSource)));
         }
 
         @Test
@@ -1167,7 +1167,7 @@ class ManagedContentSigningEngineTest {
             when(acquisitions.signatureValue(any(), any())).thenReturn("signature".getBytes());
             stubEmbedSignatureValue("signed document".getBytes());
             stubRecordSource();
-            doThrow(new RuntimeException("outbox down")).when(signingRecordStrategy).record(any(), any());
+            doThrow(new RuntimeException("outbox down")).when(signingRecordStrategy).recordSigning(any(), any());
 
             // when
             SignedContent signed = engine

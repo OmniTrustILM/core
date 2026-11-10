@@ -20,5 +20,5 @@ public interface SigningRecordStrategy {
      * @param signingProfile the signing profile every operation of the batch ran on
      * @return the UUIDs of the records in source order, or an empty list when the profile records nothing
      */
-    List<UUID> record(SigningProfileModel<?, ?> signingProfile, List<SigningRecordInputSource> sources);
+    List<UUID> recordSigning(SigningProfileModel<?, ?> signingProfile, List<SigningRecordInputSource> sources);
 }

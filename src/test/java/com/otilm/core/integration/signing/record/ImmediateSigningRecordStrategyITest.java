@@ -161,7 +161,7 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
                         recordableSource(recordingProfile));
 
         // when
-        List<UUID> references = strategy.record(recordingProfile, batch);
+        List<UUID> references = strategy.recordSigning(recordingProfile, batch);
 
         // then
         assertThat(recordRepo.findAll())
@@ -178,7 +178,7 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
                         sourceWithoutSigningTime(recordingProfile));
 
         // when
-        ThrowingCallable recordBatch = () -> strategy.record(recordingProfile, batch);
+        ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
         assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class);
@@ -195,7 +195,7 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
         // when
         Throwable raisedByTheBatch = new TransactionTemplate(transactionManager).execute(callersTransaction -> {
             callersTransaction.setRollbackOnly();
-            return catchThrowable(() -> strategy.record(recordingProfile, batch));
+            return catchThrowable(() -> strategy.recordSigning(recordingProfile, batch));
         });
 
         // then

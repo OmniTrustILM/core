@@ -116,7 +116,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         List<SigningRecordInputSource> batch = recordableBatch(3);
 
         // when
-        List<UUID> references = strategy.record(recordingProfile, batch);
+        List<UUID> references = strategy.recordSigning(recordingProfile, batch);
 
         // then
         List<UUID> insertedUuids = captureInsertedBatch().stream().map(SigningRecord::getUuid).toList();
@@ -129,7 +129,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         List<SigningRecordInputSource> batch = recordableBatch(3);
 
         // when
-        strategy.record(recordingProfile, batch);
+        strategy.recordSigning(recordingProfile, batch);
 
         // then
         assertThat(intakeCounter(MODE)).isEqualTo(batch.size());
@@ -142,7 +142,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         List<SigningRecordInputSource> batch = recordableBatch(3);
 
         // when
-        strategy.record(recordingProfile, batch);
+        strategy.recordSigning(recordingProfile, batch);
 
         // then
         assertThat(batchDurationSampleCount(MODE)).isEqualTo(1);
@@ -155,7 +155,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         List<SigningRecordInputSource> oneSource = recordableBatch(1);
 
         // when
-        strategy.record(recordingProfile, oneSource);
+        strategy.recordSigning(recordingProfile, oneSource);
 
         // then
         assertThat(durationSampleCount(MODE)).isEqualTo(1);
@@ -172,7 +172,7 @@ class ImmediateSigningRecordStrategyUnitTest {
                         SigningRecordInputSources.of(recordingDisabledInput));
 
         // when
-        List<UUID> references = strategy.record(recordingDisabledProfile, batch);
+        List<UUID> references = strategy.recordSigning(recordingDisabledProfile, batch);
 
         // then
         assertThat(references).isEmpty();
@@ -194,7 +194,7 @@ class ImmediateSigningRecordStrategyUnitTest {
                         new DeferredSigningRecordInputSource(recordingDisabledProfile, countedBuild));
 
         // when
-        strategy.record(recordingDisabledProfile, batch);
+        strategy.recordSigning(recordingDisabledProfile, batch);
 
         // then
         assertThat(builtSources).hasValue(0);
@@ -206,7 +206,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         List<SigningRecordInputSource> emptyBatch = List.of();
 
         // when
-        List<UUID> references = strategy.record(recordingProfile, emptyBatch);
+        List<UUID> references = strategy.recordSigning(recordingProfile, emptyBatch);
 
         // then
         assertThat(references).isEmpty();
@@ -220,7 +220,7 @@ class ImmediateSigningRecordStrategyUnitTest {
         doThrow(new RuntimeException("db down")).when(writer).insertBatch(any());
 
         // when
-        ThrowingCallable recordBatch = () -> strategy.record(recordingProfile, batch);
+        ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
         assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class).hasMessage("db down");
@@ -241,7 +241,7 @@ class ImmediateSigningRecordStrategyUnitTest {
                         SigningRecordInputSources.of(aSigningRecordInput().signingProfile(nextProfileVersion).build()));
 
         // when
-        ThrowingCallable recordBatch = () -> strategy.record(recordingProfile, batch);
+        ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
         assertThatThrownBy(recordBatch).isInstanceOf(IllegalArgumentException.class);

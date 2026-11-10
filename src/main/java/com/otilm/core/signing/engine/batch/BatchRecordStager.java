@@ -37,7 +37,7 @@ public class BatchRecordStager {
             throws SigningEngineException {
         SigningRecordPersistenceMode mode = signingProfile.recordPolicy().persistenceMode();
         try {
-            return strategyFactory.strategyFor(mode).record(signingProfile, sources);
+            return strategyFactory.strategyFor(mode).recordSigning(signingProfile, sources);
         } catch (RuntimeException e) {
             throw SigningEngineException
                     .stepFailed(SigningEngineFailure.STEP_FAILED, STEP, "the signing records could not be staged", e,

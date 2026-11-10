@@ -230,7 +230,7 @@ class BestEffortSigningRecordStrategyUnitTest {
                 .toList();
 
         // when
-        List<UUID> references = strategy.record(recordingProfile, batch);
+        List<UUID> references = strategy.recordSigning(recordingProfile, batch);
 
         // then
         ArgumentCaptor<SigningRecord> queued = ArgumentCaptor.forClass(SigningRecord.class);

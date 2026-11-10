@@ -28,7 +28,8 @@ public abstract class AbstractSigningRecordStrategy implements SigningRecordStra
     }
 
     @Override
-    public final List<UUID> record(SigningProfileModel<?, ?> signingProfile, List<SigningRecordInputSource> sources) {
+    public final List<UUID> recordSigning(SigningProfileModel<?, ?> signingProfile,
+            List<SigningRecordInputSource> sources) {
         if (sources.isEmpty()) {
             return List.of();
         }

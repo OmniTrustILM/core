@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Integration test for {@link BestEffortSigningRecordStrategy} over a real Postgres via {@link BaseSpringBootTest},
- * exercising the genuine async pipeline: {@link BestEffortSigningRecordStrategy#record} enqueues, and the real
+ * exercising the genuine async pipeline: {@link BestEffortSigningRecordStrategy#recordSigning} enqueues, and the real
  * background {@link SigningRecordBestEffortFlusher} thread drains the queue and persists a batch into
  * {@code signing_record} through the writer. The strategy's branch logic (policy gating, queue dispatch, metrics,
  * failure isolation, mapping field-fidelity over a captor) is pinned against mocks in
