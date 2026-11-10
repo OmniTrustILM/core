@@ -1,117 +1,107 @@
 package com.otilm.core.service.handler;
 
-import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
-import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
-import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.security.authz.SecuredUUID;
-import com.otilm.core.service.CertificateInternalService;
+import com.otilm.core.dao.repository.CertificateRepository;
+import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link CertificateValidationStatusPoller#resolveOrKeep}.
- *
- * <p>
- * An already-resolved DTO status is returned without any DB read. A NOT_CHECKED status is polled (each sample a fresh
- * read) until it resolves or the budget is exhausted; if it never resolves — or the certificate can no longer be found
- * — NOT_CHECKED is returned so the caller decides the fallback.
- * </p>
+ * Unit tests for {@link CertificateValidationStatusPoller#resolveOrKeep}. Open-in-view freshness of the reads is
+ * covered by {@code CertificateValidationStatusPollerITest}.
  */
+@ExtendWith(MockitoExtension.class)
 class CertificateValidationStatusPollerTest {
 
-    private CertificateInternalService certificateService;
+    @Mock
+    private CertificateRepository certificateRepository;
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
     private CertificateValidationStatusPoller poller;
 
     @BeforeEach
-    void setUp() {
-        certificateService = mock(CertificateInternalService.class);
+    void wirePoller() {
         poller = new CertificateValidationStatusPoller();
-        poller.setCertificateService(certificateService);
+        poller.setCertificateRepository(certificateRepository);
+        poller.setTransactionManager(transactionManager);
     }
 
     @Test
-    void returnsImmediately_whenDtoAlreadyResolved() throws NotFoundException {
-        CertificateDetailDto dto = dto(CertificateValidationStatus.VALID);
+    void returnsTheDtoStatusWithoutReading_whenAlreadyResolved() {
+        // given
+        CertificateDetailDto alreadyValid = detail(CertificateValidationStatus.VALID);
 
-        CertificateValidationStatus resolved = poller.resolveOrKeep(dto);
+        // when
+        CertificateValidationStatus resolved = poller.resolveOrKeep(alreadyValid);
 
+        // then
         assertThat(resolved).isEqualTo(CertificateValidationStatus.VALID);
-        // Already resolved on the DTO — no DB read at all.
-        verify(certificateService, times(0)).getCertificateEntity(any(SecuredUUID.class));
+        verifyNoInteractions(certificateRepository);
     }
 
     @Test
-    void resolvesToValid_whenValidationLandsDuringWait() throws Exception {
-        // Each sample is a fresh read; the poller observes the flip once validation commits.
-        CertificateDetailDto dto = dto(CertificateValidationStatus.NOT_CHECKED);
-        Certificate entity = entity(CertificateValidationStatus.NOT_CHECKED);
-        AtomicInteger reads = new AtomicInteger();
-        when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenAnswer(invocation -> {
-            if (reads.incrementAndGet() >= 2) {
-                entity.setValidationStatus(CertificateValidationStatus.VALID);
-            }
-            return entity;
-        });
+    void returnsValid_whenValidationLandsDuringTheWait() {
+        // given
+        CertificateDetailDto notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
+        when(certificateRepository.findValidationStatusByUuid(any(UUID.class)))
+                .thenReturn(Optional.of(CertificateValidationStatus.NOT_CHECKED))
+                .thenReturn(Optional.of(CertificateValidationStatus.VALID));
 
-        // Small budget: the per-sample sleep is clamped to the remaining budget, so the test
-        // spends ~budget of wall-clock, not a full sampling interval. The flip is driven by the
-        // read count (2nd read), not by elapsed time, so it stays deterministic.
-        CertificateValidationStatus resolved = poller.resolveOrKeep(dto, 50L);
+        // when
+        CertificateValidationStatus resolved = poller.resolveOrKeep(notYetChecked, 1_000L);
 
+        // then
         assertThat(resolved).isEqualTo(CertificateValidationStatus.VALID);
-        assertThat(reads.get()).isGreaterThanOrEqualTo(2);
     }
 
     @Test
-    void returnsNotChecked_whenBudgetExhausted() throws Exception {
-        // Validation never lands (listener down / backlogged): NOT_CHECKED is returned after
-        // the budget, via repeated fresh reads.
-        CertificateDetailDto dto = dto(CertificateValidationStatus.NOT_CHECKED);
-        when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
-                .thenReturn(entity(CertificateValidationStatus.NOT_CHECKED));
+    void returnsNotChecked_whenTheBudgetRunsOut() {
+        // given
+        CertificateDetailDto notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
+        when(certificateRepository.findValidationStatusByUuid(any(UUID.class)))
+                .thenReturn(Optional.of(CertificateValidationStatus.NOT_CHECKED));
 
-        CertificateValidationStatus resolved = poller.resolveOrKeep(dto, 10L);
+        // when
+        CertificateValidationStatus resolved = poller.resolveOrKeep(notYetChecked, 10L);
 
+        // then
         assertThat(resolved).isEqualTo(CertificateValidationStatus.NOT_CHECKED);
-        verify(certificateService, atLeast(2)).getCertificateEntity(any(SecuredUUID.class));
+        verify(certificateRepository, atLeast(2)).findValidationStatusByUuid(any(UUID.class));
     }
 
     @Test
-    void returnsNotChecked_whenCertificateNoLongerFound() throws Exception {
-        // The re-read failing to find the entity resolves nothing — keep the transient status.
-        CertificateDetailDto dto = dto(CertificateValidationStatus.NOT_CHECKED);
-        when(certificateService.getCertificateEntity(any(SecuredUUID.class)))
-                .thenThrow(new com.otilm.api.exception.NotFoundException(Certificate.class, dto.getUuid()));
+    void returnsNotChecked_whenTheCertificateIsGone() {
+        // given
+        CertificateDetailDto notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
+        when(certificateRepository.findValidationStatusByUuid(any(UUID.class))).thenReturn(Optional.empty());
 
-        CertificateValidationStatus resolved = poller.resolveOrKeep(dto);
+        // when
+        CertificateValidationStatus resolved = poller.resolveOrKeep(notYetChecked);
 
+        // then
         assertThat(resolved).isEqualTo(CertificateValidationStatus.NOT_CHECKED);
     }
 
-    private static CertificateDetailDto dto(CertificateValidationStatus status) {
-        CertificateDetailDto dto = new CertificateDetailDto();
-        dto.setUuid(UUID.randomUUID().toString());
-        dto.setValidationStatus(status);
-        return dto;
-    }
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static Certificate entity(CertificateValidationStatus status) {
-        Certificate cert = new Certificate();
-        cert.setUuid(UUID.randomUUID());
-        cert.setState(CertificateState.ISSUED);
-        cert.setValidationStatus(status);
-        return cert;
+    private static CertificateDetailDto detail(CertificateValidationStatus status) {
+        CertificateDetailDto detail = new CertificateDetailDto();
+        detail.setUuid(UUID.randomUUID().toString());
+        detail.setValidationStatus(status);
+        return detail;
     }
 }

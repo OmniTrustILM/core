@@ -65,10 +65,6 @@ import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.NoTransactionException;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -77,7 +73,6 @@ import static com.otilm.core.service.cmp.CmpConstants.HTTP_HEADER_CONTENT_TYPE;
 @Service
 // init stores per-request state in fields, so each HTTP request gets an instance of its own.
 @Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
-@Transactional
 public class CmpServiceImpl implements CmpExternalService {
 
     private static final Logger LOG = LoggerFactory.getLogger(CmpServiceImpl.class.getName());
@@ -198,6 +193,15 @@ public class CmpServiceImpl implements CmpExternalService {
     /**
      * Handling http post's request (which include binary <code>request</code> content of {@link PKIMessage}) related to
      * specific <code>profileName</code>.
+     *
+     * <p>
+     * Runs without a transaction, so an issue or a revocation waiting out the poll budget keeps no connection idle in
+     * transaction. The validators, handlers and services it calls run their own short transactions on the request's
+     * open-in-view connection; submitting an issue, renewal, rekey or registration completion still takes a second
+     * connection briefly, because those services suspend the handler's transaction. Deliberately not
+     * {@code NOT_SUPPORTED}: there, after the request's first read outside a transaction, every short transaction takes
+     * a second connection while the request keeps its first.
+     * </p>
      *
      * @param profileName specific customer-based configuration/customization
      * @param request contains {@link PKIMessage}
@@ -328,18 +332,10 @@ public class CmpServiceImpl implements CmpExternalService {
      * Records the failure on the CMP transaction, logs the given processing phase, and returns the CMP error response
      * to the client. The {@code pkiResponse} is built by the caller because each phase shapes it differently (protected
      * vs. unprotected, domain body vs. generic body).
-     *
-     * <p>
-     * A request transaction a collaborator has already doomed is left without the failure record: the write would only
-     * be discarded with the rollback, and it fails outright when the database has aborted the transaction, which would
-     * replace this response with the generic JSON error.
-     * </p>
      */
     private ResponseEntity<byte[]> errorResponse(ASN1OctetString tid, String logPrefix, String requestAsString,
             String phase, Exception e, PKIMessage pkiResponse) {
-        if (!ownDoomedTransaction()) {
-            handleTrxError(tid, e);
-        }
+        handleTrxError(tid, e);
         if (LOG.isErrorEnabled()) {
             if (verbose) {
                 LOG
@@ -383,9 +379,6 @@ public class CmpServiceImpl implements CmpExternalService {
         }
     }
 
-    // Should it be handled in new transaction? It wqs made private since it was called intra class so Transactional
-    // annotation was ignored anyway
-    // @Transactional(propagation = Propagation.REQUIRES_NEW)
     private void handleTrxError(ASN1OctetString tid, Exception e) {
         // A follow-up that failed the registration binding was never authorized to act on the transaction
         // it names — failing it here would let any active registration under the RA profile poison another
@@ -401,29 +394,6 @@ public class CmpServiceImpl implements CmpExternalService {
                 updatedTransaction.setCustomReason(customReason.substring(0, Math.min(254, customReason.length())));
                 cmpTransactionService.save(updatedTransaction);
             }
-        }
-    }
-
-    /**
-     * A failure that crossed a nested transactional collaborator (a message handler, or a service running under
-     * {@code rollbackFor = Exception.class}) has already marked the request transaction rollback-only. Left at that,
-     * the commit at the boundary throws and the CMP error built here is replaced by the generic JSON error. Marking the
-     * rollback locally makes the boundary roll back quietly and return the protocol response. A transaction nothing has
-     * doomed still commits.
-     *
-     * @return whether the request transaction is rolling back
-     */
-    private static boolean ownDoomedTransaction() {
-        try {
-            TransactionStatus status = TransactionAspectSupport.currentTransactionStatus();
-            if (!status.isRollbackOnly()) {
-                return false;
-            }
-            status.setRollbackOnly();
-            return true;
-        } catch (NoTransactionException e) {
-            LOG.debug("No active transaction for the failed CMP request");
-            return false;
         }
     }
 

@@ -359,6 +359,13 @@ public interface CertificateRepository extends ComplianceSubjectRepository<Certi
     Optional<CertificateState> findStateByUuid(@Param("uuid") UUID uuid);
 
     /**
+     * Reads the current {@code validationStatus} of a certificate row by UUID. A scalar projection, so it reads the
+     * database even when the caller's persistence context already holds the certificate.
+     */
+    @Query("SELECT c.validationStatus FROM Certificate c WHERE c.uuid = :uuid")
+    Optional<CertificateValidationStatus> findValidationStatusByUuid(@Param("uuid") UUID uuid);
+
+    /**
      * Scalar projection of the RA-profile UUID — authorize without managing the full entity (so a later locking read
      * returns fresh state, not an already-managed stale instance).
      */
