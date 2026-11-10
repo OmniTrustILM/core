@@ -19,13 +19,16 @@ final class CheckpointRevision {
      * run even once a resume has made the run buffered, so nothing built for the old mode lands after it.
      */
     static DiscoveryTickFence fence(long revisionTheTickRead, DiscoveryDeliveryMode modeTheTickRead) {
-        return lockedRun -> !(isCheckpointed(modeTheTickRead) || isCheckpointed(lockedRun.getDeliveryMode()))
-                || lockedRun.getCheckpointRevision() == revisionTheTickRead;
+        return lockedRun -> !movedOn(lockedRun, revisionTheTickRead, modeTheTickRead);
     }
 
-    /** Whether {@code run}, read under its row lock, is a checkpointed run that has moved past the tick's revision. */
-    static boolean movedOn(Discovery run, long revisionTheTickRead) {
-        return isCheckpointed(run.getDeliveryMode()) && run.getCheckpointRevision() != revisionTheTickRead;
+    /**
+     * Whether {@code run}, read under its row lock, has moved past the revision a tick read: either the run as the tick
+     * read it or the run as it is now is checkpointed, and the revision differs.
+     */
+    static boolean movedOn(Discovery run, long revisionTheTickRead, DiscoveryDeliveryMode modeTheTickRead) {
+        return (isCheckpointed(modeTheTickRead) || isCheckpointed(run.getDeliveryMode()))
+                && run.getCheckpointRevision() != revisionTheTickRead;
     }
 
     private static boolean isCheckpointed(DiscoveryDeliveryMode mode) {

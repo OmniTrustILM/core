@@ -88,7 +88,7 @@ class DiscoveryEventIngestorTest {
 
         // The agenda row cascaded away with the run, so this is a redelivered obsolete tick, not a fault:
         // throwing would send it round the broker's redelivery loop forever.
-        ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", null)), 0L);
+        ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", null)), 0L, null);
 
         verifyNoInteractions(itemWriter, certificateHandler);
     }
@@ -100,7 +100,7 @@ class DiscoveryEventIngestorTest {
         String identity = DiscoveredKeyIdentity.of((DiscoveredKeyDto) known.getPayload());
         when(keyItemRepository.findKnownFingerprints(Set.of(identity))).thenReturn(List.of(identity));
 
-        ingestor.applyDrainPage(run.getUuid(), page(known), 0L);
+        ingestor.applyDrainPage(run.getUuid(), page(known), 0L, run.getDeliveryMode());
 
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(false));
     }
@@ -110,7 +110,7 @@ class DiscoveryEventIngestorTest {
         Discovery run = run();
         when(keyItemRepository.findKnownFingerprints(any())).thenReturn(List.of());
 
-        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", SPKI)), 0L);
+        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", SPKI)), 0L, run.getDeliveryMode());
 
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(true));
     }
@@ -119,7 +119,7 @@ class DiscoveryEventIngestorTest {
     void keyWithoutAPublicPart_isStagedAsNewlyDiscoveredWithoutAnInventoryLookup() {
         Discovery run = run();
 
-        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)), 0L);
+        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)), 0L, run.getDeliveryMode());
 
         verify(keyItemRepository, never()).findKnownFingerprints(any());
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(true));
@@ -139,7 +139,7 @@ class DiscoveryEventIngestorTest {
         payload.setPublicKeyFormat(KeyFormat.PRKI);
         payload.setPublicKey("MIIBOgIBAAJBAK...");
 
-        DrainPageOutcome outcome = ingestor.applyDrainPage(run.getUuid(), page(leaked), 0L);
+        DrainPageOutcome outcome = ingestor.applyDrainPage(run.getUuid(), page(leaked), 0L, run.getDeliveryMode());
 
         verify(itemWriter, never()).stage(any(), any(), anyBoolean());
         ArgumentCaptor<List<DiscoveryMessageDraft>> filed = ArgumentCaptor.captor();
@@ -164,7 +164,8 @@ class DiscoveryEventIngestorTest {
 
         // when
         DrainPageOutcome outcome = ingestor
-                .applyDrainPage(run.getUuid(), checkpointedPage(keyItem(1, "key-a", null)), revisionTheTickRead);
+                .applyDrainPage(run.getUuid(), checkpointedPage(keyItem(1, "key-a", null)), revisionTheTickRead,
+                        run.getDeliveryMode());
 
         // then
         assertThat(outcome).isEqualTo(DrainPageOutcome.STALE);
@@ -184,7 +185,8 @@ class DiscoveryEventIngestorTest {
 
         // when
         DrainPageOutcome outcome = ingestor
-                .applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)), revisionTheTickRead);
+                .applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)), revisionTheTickRead,
+                        run.getDeliveryMode());
 
         // then
         assertThat(outcome).isEqualTo(DrainPageOutcome.ADVANCED);
@@ -200,7 +202,7 @@ class DiscoveryEventIngestorTest {
         DiscoveryResultsResponseDto noCheckpoint = page(keyItem(1, "key-a", null));
 
         // when
-        ThrowingCallable apply = () -> ingestor.applyDrainPage(run.getUuid(), noCheckpoint, 0L);
+        ThrowingCallable apply = () -> ingestor.applyDrainPage(run.getUuid(), noCheckpoint, 0L, run.getDeliveryMode());
 
         // then
         assertThatThrownBy(apply).isInstanceOf(NonConformantPageException.class);

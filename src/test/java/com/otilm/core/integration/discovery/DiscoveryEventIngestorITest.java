@@ -86,7 +86,9 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
 
         // The connector reports its own fingerprint, computed however it likes. Staging has to reach the same
         // conclusion the import will: this key is already in the inventory.
-        ingestor.applyDrainPage(run.getUuid(), page(1L, false, keyWithMaterial(1, "ssh://host-a:22", material)), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(1L, false, keyWithMaterial(1, "ssh://host-a:22", material)), 0L,
+                        run.getDeliveryMode());
 
         assertThat(stagedItems(run)).singleElement().satisfies(item -> assertThat(item.isNewlyDiscovered()).isFalse());
     }
@@ -97,7 +99,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
 
         ingestor
                 .applyDrainPage(run.getUuid(), page(1L, false, keyWithMaterial(1, "ssh://host-b:22", rsaPublicKey())),
-                        0L);
+                        0L, run.getDeliveryMode());
 
         assertThat(stagedItems(run)).singleElement().satisfies(item -> assertThat(item.isNewlyDiscovered()).isTrue());
     }
@@ -106,7 +108,9 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void drainPage_stagesItsItemsAndAdvancesTheCursorToTheHighestOneReceived() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
 
-        ingestor.applyDrainPage(run.getUuid(), page(3L, false, keyItem(1, "key-a"), keyItem(2, "key-b")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(3L, false, keyItem(1, "key-a"), keyItem(2, "key-b")), 0L,
+                        run.getDeliveryMode());
 
         assertThat(stagedRefs(run)).containsExactlyInAnyOrder("key-a", "key-b");
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
@@ -116,9 +120,9 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void redeliveredPage_stagesNothingNewAndLeavesTheCursorWhereItWas() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
         DiscoveryResultsResponseDto page = page(2L, false, keyItem(1, "key-a"), keyItem(2, "key-b"));
-        ingestor.applyDrainPage(run.getUuid(), page, 0L);
+        ingestor.applyDrainPage(run.getUuid(), page, 0L, run.getDeliveryMode());
 
-        ingestor.applyDrainPage(run.getUuid(), page, 0L);
+        ingestor.applyDrainPage(run.getUuid(), page, 0L, run.getDeliveryMode());
 
         assertThat(stagedRefs(run)).containsExactlyInAnyOrder("key-a", "key-b");
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
@@ -127,10 +131,14 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     @Test
     void overlappingPage_stagesOnlyTheItemsPastTheCursor() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-        ingestor.applyDrainPage(run.getUuid(), page(2L, true, keyItem(1, "key-a"), keyItem(2, "key-b")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(2L, true, keyItem(1, "key-a"), keyItem(2, "key-b")), 0L,
+                        run.getDeliveryMode());
 
         // The connector re-sends the tail of the previous page alongside the new item.
-        ingestor.applyDrainPage(run.getUuid(), page(3L, false, keyItem(2, "key-b"), keyItem(3, "key-c")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(3L, false, keyItem(2, "key-b"), keyItem(3, "key-c")), 0L,
+                        run.getDeliveryMode());
 
         assertThat(stagedRefs(run)).containsExactlyInAnyOrder("key-a", "key-b", "key-c");
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(3);
@@ -142,7 +150,9 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
 
         // highestSequence is run-wide: the connector has produced 7 items but handed over only 5. Advancing
         // to 7 would skip items 6 and 7 forever, since the next drain asks for everything after the cursor.
-        ingestor.applyDrainPage(run.getUuid(), page(7L, true, keyItem(4, "key-d"), keyItem(5, "key-e")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(7L, true, keyItem(4, "key-d"), keyItem(5, "key-e")), 0L,
+                        run.getDeliveryMode());
 
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(5);
     }
@@ -151,11 +161,15 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void itemTotal_isTheCursor_soTheListingShowsWhatTheDetailReportsAsReceived() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
 
-        ingestor.applyDrainPage(run.getUuid(), page(3L, true, keyItem(1, "key-a"), certificateItem(2, "cert-a")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(3L, true, keyItem(1, "key-a"), certificateItem(2, "cert-a")), 0L,
+                        run.getDeliveryMode());
         assertThat(reload(run).getTotalItemsDiscovered()).isEqualTo(2);
 
         // The tail of the previous page comes back with one new item: only the new one counts.
-        ingestor.applyDrainPage(run.getUuid(), page(3L, false, certificateItem(2, "cert-a"), keyItem(3, "key-b")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(3L, false, certificateItem(2, "cert-a"), keyItem(3, "key-b")), 0L,
+                        run.getDeliveryMode());
         Discovery reloaded = reload(run);
         assertThat(reloaded.getTotalItemsDiscovered()).isEqualTo(3).isEqualTo(reloaded.getLastAppliedSequence());
     }
@@ -163,7 +177,9 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     @Test
     void itemTotal_survivesTheRunBeingReleasedFromItsConnectorsInterface() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-        ingestor.applyDrainPage(run.getUuid(), page(2L, false, keyItem(1, "key-a"), keyItem(2, "key-b")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(2L, false, keyItem(1, "key-a"), keyItem(2, "key-b")), 0L,
+                        run.getDeliveryMode());
         Discovery ended = reload(run);
         ended.setStatus(DiscoveryStatus.COMPLETED);
         discoveryRepository.saveAndFlush(ended);
@@ -181,9 +197,11 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     @Test
     void emptyPage_stagesNothingAndMovesNothing() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-        ingestor.applyDrainPage(run.getUuid(), page(2L, false, keyItem(1, "key-a"), keyItem(2, "key-b")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(2L, false, keyItem(1, "key-a"), keyItem(2, "key-b")), 0L,
+                        run.getDeliveryMode());
 
-        ingestor.applyDrainPage(run.getUuid(), page(9L, false), 0L);
+        ingestor.applyDrainPage(run.getUuid(), page(9L, false), 0L, run.getDeliveryMode());
 
         assertThat(stagedRefs(run)).containsExactlyInAnyOrder("key-a", "key-b");
         assertThat(reload(run).getLastAppliedSequence()).isEqualTo(2);
@@ -193,7 +211,9 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void certificateItems_landInTheCertificateStagingTableAndNotBesideTheOtherResources() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
 
-        ingestor.applyDrainPage(run.getUuid(), page(2L, false, certificateItem(1, "cert-a"), keyItem(2, "key-b")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(2L, false, certificateItem(1, "cert-a"), keyItem(2, "key-b")), 0L,
+                        run.getDeliveryMode());
 
         entityManager.flush();
         assertThat(certificateRepository.countByDiscovery(reload(run))).isEqualTo(1);
@@ -205,11 +225,13 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void certificateTotal_movesAsPagesLandRatherThanOnlyAtTheEnd() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
 
-        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")), 0L);
+        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")), 0L, run.getDeliveryMode());
         entityManager.flush();
         assertThat(reload(run).getTotalCertificatesDiscovered()).isEqualTo(1);
 
-        ingestor.applyDrainPage(run.getUuid(), page(3L, false, certificateItem(2, "cert-b"), keyItem(3, "key-a")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(3L, false, certificateItem(2, "cert-b"), keyItem(3, "key-a")), 0L,
+                        run.getDeliveryMode());
         entityManager.flush();
         assertThat(reload(run).getTotalCertificatesDiscovered())
                 .as("keys are staged too, but this figure counts certificates")
@@ -220,9 +242,11 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     @Test
     void certificateTotal_doesNotCountARepeatTwice() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")), 0L);
+        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")), 0L, run.getDeliveryMode());
 
-        ingestor.applyDrainPage(run.getUuid(), page(2L, false, certificateItem(2, "cert-a")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(2L, false, certificateItem(2, "cert-a")), 0L,
+                        run.getDeliveryMode());
 
         entityManager.flush();
         assertThat(reload(run).getTotalCertificatesDiscovered()).isEqualTo(1);
@@ -231,11 +255,13 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     @Test
     void certificateRefReSentUnderANewerSequence_isStagedOnce() {
         Discovery run = v2Run(DiscoveryStatus.IN_PROGRESS);
-        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")), 0L);
+        ingestor.applyDrainPage(run.getUuid(), page(1L, true, certificateItem(1, "cert-a")), 0L, run.getDeliveryMode());
 
         // The contract makes uniqueRef the key Core dedupes by across drains and retries, so a connector may
         // re-send an item under a newer sequence -- above the cursor, where the cursor filter no longer sees it.
-        ingestor.applyDrainPage(run.getUuid(), page(2L, false, certificateItem(2, "cert-a")), 0L);
+        ingestor
+                .applyDrainPage(run.getUuid(), page(2L, false, certificateItem(2, "cert-a")), 0L,
+                        run.getDeliveryMode());
 
         entityManager.flush();
         assertThat(certificateRepository.countByDiscovery(reload(run))).isEqualTo(1);
@@ -249,8 +275,12 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         Discovery first = v2Run(DiscoveryStatus.IN_PROGRESS);
         Discovery second = v2Run(DiscoveryStatus.IN_PROGRESS);
 
-        ingestor.applyDrainPage(first.getUuid(), page(1L, false, certificateItem(1, "cert-a")), 0L);
-        ingestor.applyDrainPage(second.getUuid(), page(1L, false, certificateItem(1, "cert-a")), 0L);
+        ingestor
+                .applyDrainPage(first.getUuid(), page(1L, false, certificateItem(1, "cert-a")), 0L,
+                        first.getDeliveryMode());
+        ingestor
+                .applyDrainPage(second.getUuid(), page(1L, false, certificateItem(1, "cert-a")), 0L,
+                        second.getDeliveryMode());
 
         // Dedupe is per run, not global: two runs scanning the same estate both legitimately find it.
         entityManager.flush();
@@ -268,9 +298,11 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
 
         // when
         DrainPageOutcome first = ingestor
-                .applyDrainPage(run.getUuid(), checkpointedPage(firstPosition), revisionBothTicksRead);
+                .applyDrainPage(run.getUuid(), checkpointedPage(firstPosition), revisionBothTicksRead,
+                        run.getDeliveryMode());
         DrainPageOutcome second = ingestor
-                .applyDrainPage(run.getUuid(), checkpointedPage(secondPosition), revisionBothTicksRead);
+                .applyDrainPage(run.getUuid(), checkpointedPage(secondPosition), revisionBothTicksRead,
+                        run.getDeliveryMode());
 
         // then
         assertThat(List.of(first, second)).containsExactly(DrainPageOutcome.ADVANCED, DrainPageOutcome.STALE);
@@ -290,10 +322,10 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         DrainPageOutcome first = ingestor
                 .applyDrainPage(run.getUuid(),
                         checkpointedPage(firstPosition, keyItem(1, "key-a"), keyItem(2, "key-b")),
-                        revisionBothTicksRead);
+                        revisionBothTicksRead, run.getDeliveryMode());
         DrainPageOutcome second = ingestor
                 .applyDrainPage(run.getUuid(), checkpointedPage(position("cursor-3"), keyItem(1, "key-a"),
-                        keyItem(2, "key-b"), keyItem(3, "key-c")), revisionBothTicksRead);
+                        keyItem(2, "key-b"), keyItem(3, "key-c")), revisionBothTicksRead, run.getDeliveryMode());
 
         // then
         assertThat(List.of(first, second)).containsExactly(DrainPageOutcome.ADVANCED, DrainPageOutcome.STALE);
@@ -315,7 +347,9 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         keysJsonbReorders.put("cursor", 120);
         keysJsonbReorders.put("hw", 37);
         List<MetadataAttribute> position = objectPosition(keysJsonbReorders);
-        ingestor.applyDrainPage(run.getUuid(), checkpointedPage(position), run.getCheckpointRevision());
+        ingestor
+                .applyDrainPage(run.getUuid(), checkpointedPage(position), run.getCheckpointRevision(),
+                        run.getDeliveryMode());
 
         // when
         boolean same = CheckpointComparison.same(reload(run).getCheckpoint(), objectPosition(keysJsonbReorders));
@@ -332,7 +366,8 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         List<MetadataAttribute> movedPosition = position("cursor-240");
 
         // when
-        DrainPageOutcome outcome = ingestor.applyDrainPage(run.getUuid(), checkpointedPage(movedPosition), revision);
+        DrainPageOutcome outcome = ingestor
+                .applyDrainPage(run.getUuid(), checkpointedPage(movedPosition), revision, run.getDeliveryMode());
 
         // then
         assertThat(outcome).isEqualTo(DrainPageOutcome.ADVANCED);
@@ -346,15 +381,37 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void doesNotAdvance_whenAnItemlessPageRepeatsTheStoredCheckpoint() {
         // given
         Discovery run = checkpointedRun();
-        ingestor.applyDrainPage(run.getUuid(), checkpointedPage(position("cursor-240")), run.getCheckpointRevision());
+        ingestor
+                .applyDrainPage(run.getUuid(), checkpointedPage(position("cursor-240")), run.getCheckpointRevision(),
+                        run.getDeliveryMode());
         long revisionAfterTheFirstPage = reload(run).getCheckpointRevision();
 
         // when
         DrainPageOutcome outcome = ingestor
-                .applyDrainPage(run.getUuid(), checkpointedPage(position("cursor-240")), revisionAfterTheFirstPage);
+                .applyDrainPage(run.getUuid(), checkpointedPage(position("cursor-240")), revisionAfterTheFirstPage,
+                        run.getDeliveryMode());
 
         // then
         assertThat(outcome).isEqualTo(DrainPageOutcome.NOT_ADVANCED);
+    }
+
+    @Test
+    void dropsThePageAsStale_whenAResumeTurnedTheCheckpointedRunBuffered() {
+        // given
+        Discovery run = checkpointedRun();
+        long revisionTheTickRead = run.getCheckpointRevision();
+        DiscoveryDeliveryMode modeTheTickRead = run.getDeliveryMode();
+        stopAndResumeAsBuffered(run);
+
+        // when
+        DrainPageOutcome outcome = ingestor
+                .applyDrainPage(run.getUuid(), checkpointedPage(position("cursor-2"), keyItem(1, "key-a")),
+                        revisionTheTickRead, modeTheTickRead);
+
+        // then
+        assertThat(outcome).isEqualTo(DrainPageOutcome.STALE);
+        assertThat(stagedRefs(run)).isEmpty();
+        assertThat(reload(run).getLastAppliedSequence()).isZero();
     }
 
     @Test
@@ -366,7 +423,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         // when
         DrainPageOutcome outcome = ingestor
                 .applyDrainPage(run.getUuid(), checkpointedPage(overTheCap, keyItem(1, "key-a")),
-                        run.getCheckpointRevision());
+                        run.getCheckpointRevision(), run.getDeliveryMode());
 
         // then
         assertThat(outcome).isEqualTo(DrainPageOutcome.NOT_ADVANCED);
@@ -410,6 +467,14 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         attribute.setContentType(contentType);
         attribute.setContent(List.of(content));
         return attribute;
+    }
+
+    /** A stop and a resume whose connector answered in buffered mode: two raised revisions, no longer checkpointed. */
+    private void stopAndResumeAsBuffered(Discovery run) {
+        Discovery current = reload(run);
+        current.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+        current.setCheckpointRevision(current.getCheckpointRevision() + 2);
+        discoveryRepository.saveAndFlush(current);
     }
 
     private Discovery checkpointedRun() {

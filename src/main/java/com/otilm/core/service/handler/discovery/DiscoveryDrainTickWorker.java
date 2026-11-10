@@ -140,7 +140,7 @@ public class DiscoveryDrainTickWorker {
         }
         DrainPageOutcome outcome;
         try {
-            outcome = ingestor.applyDrainPage(discoveryUuid, page, revision);
+            outcome = ingestor.applyDrainPage(discoveryUuid, page, revision, run.getDeliveryMode());
         } catch (NonConformantPageException e) {
             handleNonConformant(discoveryUuid, attempt, fence);
             return;

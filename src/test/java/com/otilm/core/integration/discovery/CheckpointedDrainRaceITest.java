@@ -73,9 +73,13 @@ class CheckpointedDrainRaceITest extends BaseSpringBootTest {
         try {
             applied = whileHoldingTheRunsLock(run, () -> {
                 Future<DrainPageOutcome> first = ticks
-                        .submit(() -> ingestor.applyDrainPage(run.getUuid(), firstPage, revisionBothTicksRead));
+                        .submit(() -> ingestor
+                                .applyDrainPage(run.getUuid(), firstPage, revisionBothTicksRead,
+                                        run.getDeliveryMode()));
                 Future<DrainPageOutcome> second = ticks
-                        .submit(() -> ingestor.applyDrainPage(run.getUuid(), secondPage, revisionBothTicksRead));
+                        .submit(() -> ingestor
+                                .applyDrainPage(run.getUuid(), secondPage, revisionBothTicksRead,
+                                        run.getDeliveryMode()));
                 awaitTicksWaitingForALock(2);
                 return List.of(first, second);
             });

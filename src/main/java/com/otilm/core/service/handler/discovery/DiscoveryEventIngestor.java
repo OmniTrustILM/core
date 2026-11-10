@@ -82,16 +82,16 @@ public class DiscoveryEventIngestor {
      * produced but not yet handed over.
      *
      * <p>
-     * A checkpointed run is applied only from the position the page was asked from: {@code expectedRevision} is the
-     * checkpoint revision of the run the tick built its request from, and a run that has moved on since drops the page
-     * as {@link DrainPageOutcome#STALE}. Its items, cursor, checkpoint and revision are written together. A buffered
-     * run ignores the revision.
+     * A checkpointed run is applied only from the position the page was asked from: {@code expectedRevision} and
+     * {@code modeTheTickRead} describe the run the tick built its request from, and a run that has moved on since drops
+     * the page as {@link DrainPageOutcome#STALE}, even when a resume has made it buffered. Its items, cursor,
+     * checkpoint and revision are written together. A run buffered both then and now ignores the revision.
      *
      * @throws NonConformantPageException when a checkpointed page carries no checkpoint
      */
     @Transactional
-    public DrainPageOutcome applyDrainPage(UUID discoveryUuid, DiscoveryResultsResponseDto page,
-            long expectedRevision) {
+    public DrainPageOutcome applyDrainPage(UUID discoveryUuid, DiscoveryResultsResponseDto page, long expectedRevision,
+            DiscoveryDeliveryMode modeTheTickRead) {
         Optional<Discovery> located = lockRun(discoveryUuid, "drain page");
         if (located.isEmpty()) {
             return DrainPageOutcome.NOT_ADVANCED;
@@ -103,20 +103,19 @@ public class DiscoveryEventIngestor {
             logger.warn("Dropping drain page for discovery {}: the run ended as {}", discoveryUuid, run.getStatus());
             return DrainPageOutcome.NOT_ADVANCED;
         }
+        if (CheckpointRevision.movedOn(run, expectedRevision, modeTheTickRead)) {
+            logger
+                    .debug("Dropping a stale drain page for discovery {}: asked from revision {}, the run is at {}",
+                            discoveryUuid, expectedRevision, run.getCheckpointRevision());
+            return DrainPageOutcome.STALE;
+        }
         if (run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED) {
-            return applyCheckpointedPage(run, page, expectedRevision);
+            return applyCheckpointedPage(run, page);
         }
         return stageItems(run, page) ? DrainPageOutcome.ADVANCED : DrainPageOutcome.NOT_ADVANCED;
     }
 
-    private DrainPageOutcome applyCheckpointedPage(Discovery run, DiscoveryResultsResponseDto page,
-            long expectedRevision) {
-        if (CheckpointRevision.movedOn(run, expectedRevision)) {
-            logger
-                    .debug("Dropping a stale drain page for discovery {}: asked from revision {}, the run is at {}",
-                            run.getUuid(), expectedRevision, run.getCheckpointRevision());
-            return DrainPageOutcome.STALE;
-        }
+    private DrainPageOutcome applyCheckpointedPage(Discovery run, DiscoveryResultsResponseDto page) {
         List<MetadataAttribute> checkpoint = page.getCheckpoint();
         if (checkpoint == null) {
             throw new NonConformantPageException("A checkpointed results page carried no checkpoint");

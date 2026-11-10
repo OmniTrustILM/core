@@ -272,7 +272,7 @@ class DiscoveryProcessTickWorkerITest extends BaseSpringBootTest {
     @Test
     void keysDrainedFromAConnector_reachTheInventoryAndTheListingSaysWhatTheyBecame() throws Exception {
         Discovery run = processingRun();
-        ingestor.applyDrainPage(run.getUuid(), drainedKeys(), 0L);
+        ingestor.applyDrainPage(run.getUuid(), drainedKeys(), 0L, run.getDeliveryMode());
 
         worker.tick(admitTick(run, 0));
         worker.tick(admitTick(run, 0));
