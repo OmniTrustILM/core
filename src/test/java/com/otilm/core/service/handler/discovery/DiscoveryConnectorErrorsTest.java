@@ -1,14 +1,26 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import java.net.URI;
+import java.time.Duration;
+import java.util.Optional;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Named.named;
 
 /**
  * The two questions every tick asks about a connector failure: is this definitive, and what may an operator be told.
@@ -109,6 +121,112 @@ class DiscoveryConnectorErrorsTest {
                 .isEqualTo("the connector did not answer");
         assertThat(DiscoveryConnectorErrors.describe(new ConnectorException("connection refused")))
                 .isEqualTo("the connector did not answer");
+    }
+
+    @ParameterizedTest
+    @MethodSource("refusals")
+    void readsARefusal_whenTheConnectorAnswered422(Exception refusal) {
+        // when
+        boolean isRefusal = DiscoveryConnectorErrors.isRefusal(refusal);
+
+        // then
+        assertThat(isRefusal).isTrue();
+    }
+
+    @ParameterizedTest
+    @MethodSource("busyAnswers")
+    void readsNoRefusal_whenTheConnectorWasBusy(Exception busy) {
+        // when
+        boolean isRefusal = DiscoveryConnectorErrors.isRefusal(busy);
+
+        // then
+        assertThat(isRefusal).isFalse();
+    }
+
+    @ParameterizedTest
+    @MethodSource("busyAnswers")
+    void readsBusy_whenTheConnectorAnswered503(Exception busy) {
+        // when
+        boolean isBusy = DiscoveryConnectorErrors.isBusy(busy);
+
+        // then
+        assertThat(isBusy).isTrue();
+    }
+
+    @ParameterizedTest
+    @MethodSource("notBusyFailures")
+    void readsNotBusy_whenTheFailureWasSomethingElse(Exception failure) {
+        // when
+        boolean isBusy = DiscoveryConnectorErrors.isBusy(failure);
+
+        // then
+        assertThat(isBusy).isFalse();
+    }
+
+    @Test
+    void returnsTheRetryAfter_whenTheProblemDocumentCarriesOne() {
+        // given
+        var retryAfterSeconds = 40;
+        ConnectorProblemException busy = problem(ErrorCode.SERVICE_UNAVAILABLE);
+        busy.getProblemDetail().setRetryAfterSeconds(retryAfterSeconds);
+
+        // when
+        Optional<Duration> retryAfter = DiscoveryConnectorErrors.retryAfter(busy);
+
+        // then
+        assertThat(retryAfter).contains(Duration.ofSeconds(retryAfterSeconds));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, -5})
+    void returnsNoRetryAfter_whenTheProblemDocumentCarriesNoUsableOne(int unusableSeconds) {
+        // given
+        ConnectorProblemException busy = problem(ErrorCode.SERVICE_UNAVAILABLE);
+        busy.getProblemDetail().setRetryAfterSeconds(unusableSeconds);
+
+        // when
+        Optional<Duration> retryAfter = DiscoveryConnectorErrors.retryAfter(busy);
+
+        // then
+        assertThat(retryAfter).isEmpty();
+    }
+
+    @Test
+    void returnsNoRetryAfter_whenTheTransportCarriesNone() {
+        // given
+        var proxied = new ConnectorServerException("HTTP 503", HttpStatus.SERVICE_UNAVAILABLE);
+
+        // when
+        Optional<Duration> retryAfter = DiscoveryConnectorErrors.retryAfter(proxied);
+
+        // then
+        assertThat(retryAfter).isEmpty();
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    static Stream<Named<Exception>> refusals() {
+        return Stream
+                .of(named("a problem document over REST", problem(ErrorCode.VALIDATION_FAILED)),
+                        named("a plain 422 over REST",
+                                new ConnectorClientException("HTTP 422", HttpStatus.UNPROCESSABLE_ENTITY)),
+                        named("a validation failure over the proxy", new ValidationException("HTTP 422")));
+    }
+
+    static Stream<Named<Exception>> busyAnswers() {
+        return Stream
+                .of(named("a problem document over REST", problem(ErrorCode.SERVICE_UNAVAILABLE)),
+                        named("a server failure over either transport",
+                                new ConnectorServerException("HTTP 503", HttpStatus.SERVICE_UNAVAILABLE)));
+    }
+
+    static Stream<Named<Exception>> notBusyFailures() {
+        return Stream
+                .of(named("an internal error",
+                        new ConnectorServerException("HTTP 500", HttpStatus.INTERNAL_SERVER_ERROR)),
+                        named("a gateway timeout", problem(ErrorCode.GATEWAY_TIMEOUT)),
+                        named("a refusal", problem(ErrorCode.VALIDATION_FAILED)),
+                        named("an unreachable connector", new ConnectorException("connection refused")));
     }
 
     private static ConnectorProblemException problem(ErrorCode code) {

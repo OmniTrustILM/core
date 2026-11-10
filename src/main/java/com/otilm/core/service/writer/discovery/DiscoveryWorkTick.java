@@ -60,6 +60,14 @@ public final class DiscoveryWorkTick {
         lease.reschedule(this, nextAttempt, nextDueAt);
     }
 
+    /**
+     * Schedules the row's next tick for when its busy connector may answer, at the attempt this tick was claimed with,
+     * so the claim's charge is given back, and frees the row. Starts the row's busy clock unless it is running.
+     */
+    public void deferWhileBusy(OffsetDateTime nextDueAt) {
+        lease.deferBusy(this, nextDueAt);
+    }
+
     /** Frees the row so the sweep can claim it at once, without charging an attempt or rescheduling it. */
     public void releaseOnly() {
         lease.release(this);

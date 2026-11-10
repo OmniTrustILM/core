@@ -4,6 +4,7 @@ import com.otilm.core.dao.entity.DiscoveryWork;
 import com.otilm.core.model.discovery.DiscoveryWorkType;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -89,6 +90,28 @@ public interface DiscoveryWorkRepository extends JpaRepository<DiscoveryWork, UU
     int rescheduleLeased(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
             @Param("leaseToken") UUID leaseToken, @Param("attempt") int attempt,
             @Param("nextDueAt") OffsetDateTime nextDueAt);
+
+    /**
+     * Schedules the row's next tick at {@code attempt} and frees it, if the tick holding {@code leaseToken} still holds
+     * it, and starts the row's busy clock at {@code now} unless it is already running.
+     */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.attempt = :attempt, w.nextDueAt = :nextDueAt, w.leaseToken = NULL, "
+            + "w.leaseExpiresAt = NULL, w.busySince = COALESCE(w.busySince, :now) "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.leaseToken = :leaseToken")
+    int deferBusyLeased(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType,
+            @Param("leaseToken") UUID leaseToken, @Param("attempt") int attempt,
+            @Param("nextDueAt") OffsetDateTime nextDueAt, @Param("now") OffsetDateTime now);
+
+    /** Stops the row's busy clock: its connector answered. */
+    @Modifying
+    @Query("UPDATE DiscoveryWork w SET w.busySince = NULL "
+            + "WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType AND w.busySince IS NOT NULL")
+    int clearBusySince(@Param("discoveryUuid") UUID discoveryUuid, @Param("workType") DiscoveryWorkType workType);
+
+    @Query("SELECT w.busySince FROM DiscoveryWork w WHERE w.discoveryUuid = :discoveryUuid AND w.workType = :workType")
+    Optional<OffsetDateTime> findBusySince(@Param("discoveryUuid") UUID discoveryUuid,
+            @Param("workType") DiscoveryWorkType workType);
 
     /**
      * Frees the row, if the tick holding {@code leaseToken} still holds it, and makes it due no later than {@code now}:

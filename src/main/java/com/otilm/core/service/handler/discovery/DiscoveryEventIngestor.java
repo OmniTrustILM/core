@@ -18,6 +18,7 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.model.discovery.DiscoveryMessageCode;
 import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
+import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
@@ -110,7 +111,7 @@ public class DiscoveryEventIngestor {
 
     private DrainPageOutcome applyCheckpointedPage(Discovery run, DiscoveryResultsResponseDto page,
             long expectedRevision) {
-        if (run.getCheckpointRevision() != expectedRevision) {
+        if (CheckpointRevision.movedOn(run, expectedRevision)) {
             logger
                     .debug("Dropping a stale drain page for discovery {}: asked from revision {}, the run is at {}",
                             run.getUuid(), expectedRevision, run.getCheckpointRevision());
@@ -128,6 +129,8 @@ public class DiscoveryEventIngestor {
         boolean positionMoved = !CheckpointComparison.same(run.getCheckpoint(), checkpoint);
         run.setCheckpoint(checkpoint);
         run.setCheckpointRevision(run.getCheckpointRevision() + 1);
+        // The connector answered, so a busy spell is over.
+        workWriter.clearBusySince(run.getUuid(), DiscoveryWorkType.DRAIN);
         return itemsApplied || positionMoved ? DrainPageOutcome.ADVANCED : DrainPageOutcome.NOT_ADVANCED;
     }
 

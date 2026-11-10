@@ -1,10 +1,15 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
+import java.time.Duration;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -52,6 +57,49 @@ public final class DiscoveryConnectorErrors {
     public static boolean isConfigurationRefused(Throwable e) {
         return e instanceof ConnectorProblemException problem && problem.getProblemDetail() != null
                 && problem.getProblemDetail().getErrorCode() == ErrorCode.VALIDATION_FAILED;
+    }
+
+    /**
+     * True when the connector answered 422: it cannot do what was asked, and asking again repeats the answer. Over REST
+     * the answer is a problem document, or a plain client error without one; the AMQP proxy turns a 422 into a
+     * {@link ValidationException}.
+     */
+    public static boolean isRefusal(Throwable e) {
+        if (e instanceof ValidationException) {
+            return true;
+        }
+        if (e instanceof ConnectorClientException client) {
+            return client.getHttpStatus() == HttpStatus.UNPROCESSABLE_ENTITY;
+        }
+        return answeredWith(e, HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+
+    /**
+     * True when the connector answered 503: it is busy, and will answer later. Over REST the answer is a problem
+     * document, or a server error without one, which is also what the AMQP proxy relays.
+     */
+    public static boolean isBusy(Throwable e) {
+        if (e instanceof ConnectorServerException server) {
+            return server.getHttpStatus() == HttpStatus.SERVICE_UNAVAILABLE;
+        }
+        return answeredWith(e, HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    /**
+     * When the connector asked to be called again, where its answer says so: the problem document's
+     * {@code retryAfterSeconds}, which mirrors the {@code Retry-After} header no transport passes on.
+     */
+    public static Optional<Duration> retryAfter(Throwable e) {
+        if (!(e instanceof ConnectorProblemException problem) || problem.getProblemDetail() == null) {
+            return Optional.empty();
+        }
+        Integer seconds = problem.getProblemDetail().getRetryAfterSeconds();
+        return seconds == null || seconds <= 0 ? Optional.empty() : Optional.of(Duration.ofSeconds(seconds));
+    }
+
+    private static boolean answeredWith(Throwable e, HttpStatus status) {
+        return e instanceof ConnectorProblemException problem && problem.getProblemDetail() != null
+                && problem.getProblemDetail().getStatus() == status.value();
     }
 
     /**

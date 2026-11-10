@@ -95,13 +95,15 @@ public class DiscoveryStatusTickWorker {
             return;
         }
 
+        // A failure is charged, and may end the run, only while a checkpointed run is still where this tick read it.
+        long revision = run.getCheckpointRevision();
         DiscoveryStatusResponseDto status;
         try {
             // Outside any transaction, by the platform's connector-call rule.
             status = client.status(run);
         } catch (ConnectorException | RuntimeException e) {
             // RuntimeException too: one that escapes to the listener moves the row up a rung but can never end the run.
-            handleUnanswered(discoveryUuid, attempt, e);
+            handleUnanswered(discoveryUuid, attempt, revision, e);
             return;
         } catch (NotFoundException | AttributeException e) {
             // The call could not be assembled at all: the connector row or the run's attributes are gone.
@@ -116,7 +118,7 @@ public class DiscoveryStatusTickWorker {
             // Required on the wire, so its absence is not an answer: unguarded, the null would reach
             // state.getCode() inside the transaction and escape to the listener's log-and-acknowledge instead of
             // spending the budget.
-            handleNonConformant(discoveryUuid, attempt);
+            handleNonConformant(discoveryUuid, attempt, revision);
             return;
         }
         if (!tick.renew()) {
@@ -134,9 +136,9 @@ public class DiscoveryStatusTickWorker {
      * A tick the connector did not answer. Below the budget, the listener's retry moves the row one rung up its backoff
      * ladder.
      */
-    private void handleUnanswered(UUID discoveryUuid, int attempt, Throwable e) {
+    private void handleUnanswered(UUID discoveryUuid, int attempt, long revision, Throwable e) {
         if (!budget
-                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.STATUS, attempt, e,
+                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.STATUS, attempt, revision, e,
                         "The connector stopped answering status polls for this run")) {
             logger
                     .warn("Status poll {} for discovery {} failed, retrying when next due: {}", attempt, discoveryUuid,
@@ -148,9 +150,9 @@ public class DiscoveryStatusTickWorker {
      * A status answer Core cannot act on. Counted against the budget like any other unanswered tick, so a connector
      * that keeps omitting the run state ends the run rather than stalling it forever.
      */
-    private void handleNonConformant(UUID discoveryUuid, int attempt) {
+    private void handleNonConformant(UUID discoveryUuid, int attempt, long revision) {
         if (!budget
-                .spend(discoveryUuid, DiscoveryWorkType.STATUS, attempt,
+                .spend(discoveryUuid, DiscoveryWorkType.STATUS, attempt, revision,
                         "The connector's status answers omitted the run state")) {
             logger
                     .warn("Status poll {} for discovery {} returned no run state; retrying when next due", attempt,

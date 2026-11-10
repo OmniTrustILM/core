@@ -118,6 +118,22 @@ public class DiscoveryWorkWriter {
     }
 
     /**
+     * Schedules the row's next tick at {@code attempt} without charging the budget, and frees it, if the tick holding
+     * {@code leaseToken} still holds it; starts the busy clock at {@code now} unless it is already running.
+     */
+    @Transactional
+    public void deferBusyLeased(UUID discoveryUuid, DiscoveryWorkType workType, UUID leaseToken, int attempt,
+            OffsetDateTime nextDueAt, OffsetDateTime now) {
+        workRepository.deferBusyLeased(discoveryUuid, workType, leaseToken, attempt, nextDueAt, now);
+    }
+
+    /** Stops the busy clock on the run's {@code workType} row. */
+    @Transactional
+    public void clearBusySince(UUID discoveryUuid, DiscoveryWorkType workType) {
+        workRepository.clearBusySince(discoveryUuid, workType);
+    }
+
+    /**
      * Frees the row, due no later than {@code now}, if the tick holding {@code leaseToken} still holds it.
      */
     @Transactional

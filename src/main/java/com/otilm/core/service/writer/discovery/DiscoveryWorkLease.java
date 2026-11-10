@@ -76,6 +76,11 @@ public class DiscoveryWorkLease {
         workWriter.rescheduleLeased(tick.discoveryUuid(), tick.workType(), tick.token(), attempt, nextDueAt);
     }
 
+    void deferBusy(DiscoveryWorkTick tick, OffsetDateTime nextDueAt) {
+        workWriter
+                .deferBusyLeased(tick.discoveryUuid(), tick.workType(), tick.token(), tick.attempt(), nextDueAt, now());
+    }
+
     void release(DiscoveryWorkTick tick) {
         workWriter.releaseLease(tick.discoveryUuid(), tick.workType(), tick.token(), now());
     }

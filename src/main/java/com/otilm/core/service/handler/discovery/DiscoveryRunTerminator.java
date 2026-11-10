@@ -72,6 +72,25 @@ public class DiscoveryRunTerminator {
     }
 
     /**
+     * Ends a run like {@link #endConnectorOwned}, unless it is a checkpointed run that has moved past
+     * {@code expectedRevision}: a tick built from an older position must not end a run another tick, a stop or a resume
+     * has since moved on.
+     *
+     * @return whether this call was the one that ended the run
+     */
+    public boolean endIfRevision(UUID discoveryUuid, long expectedRevision, DiscoveryStatus status, String reason) {
+        return endIf(discoveryUuid, DiscoveryRunLifecycle::hasLeftTheConnector, run -> {
+            if (CheckpointRevision.movedOn(run, expectedRevision)) {
+                logger
+                        .debug("Not ending discovery {}: the tick read revision {} and the run is at {}", discoveryUuid,
+                                expectedRevision, run.getCheckpointRevision());
+                return null;
+            }
+            return new Ending(status, reason);
+        });
+    }
+
+    /**
      * Ends a run, accepting even one already {@code PROCESSING} — processing itself legitimately ends a run, unlike the
      * connector-driven ending in {@link #endConnectorOwned}.
      */

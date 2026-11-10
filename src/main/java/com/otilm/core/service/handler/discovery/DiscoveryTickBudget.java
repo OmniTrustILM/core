@@ -51,33 +51,36 @@ public class DiscoveryTickBudget {
     }
 
     /**
-     * Charges one unanswered tick.
+     * Charges one unanswered tick. The ending is fenced by the checkpoint revision the tick read, so a late failure of
+     * a tick another tick, a stop or a resume overtook ends nothing.
      *
+     * @param expectedRevision the checkpoint revision of the run the tick read
      * @param terminalReason Core-authored text for the run's ending, used only once the budget is spent
      * @return whether this call ended the run, leaving the caller nothing to reschedule
      */
-    public boolean spend(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, String terminalReason) {
+    public boolean spend(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, long expectedRevision,
+            String terminalReason) {
         if (attempt + 1 < workProperties.scheduleFor(workType).maxAttempts()) {
             return false;
         }
-        terminator.endConnectorOwned(discoveryUuid, DiscoveryStatus.FAILED, terminalReason);
-        return true;
+        return terminator.endIfRevision(discoveryUuid, expectedRevision, DiscoveryStatus.FAILED, terminalReason);
     }
 
     /**
      * Charges a tick the connector did not answer, ending the run at once when the failure says the connector has
-     * forgotten it — retrying that costs the same refusal every time.
+     * forgotten it — retrying that costs the same refusal every time. Fenced like {@link #spend}.
      *
+     * @param expectedRevision the checkpoint revision of the run the tick read
      * @param whatStopped Core-authored description of the call that failed; the connector's own text is never forwarded
      */
-    public boolean spendOnUnanswered(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, Throwable e,
-            String whatStopped) {
+    public boolean spendOnUnanswered(UUID discoveryUuid, DiscoveryWorkType workType, int attempt, long expectedRevision,
+            Throwable e, String whatStopped) {
         if (DiscoveryConnectorErrors.isRunNoLongerTracked(e)) {
-            terminator
-                    .endConnectorOwned(discoveryUuid, DiscoveryStatus.FAILED,
+            return terminator
+                    .endIfRevision(discoveryUuid, expectedRevision, DiscoveryStatus.FAILED,
                             "The connector no longer tracks this run");
-            return true;
         }
-        return spend(discoveryUuid, workType, attempt, whatStopped + ": " + DiscoveryConnectorErrors.describe(e));
+        return spend(discoveryUuid, workType, attempt, expectedRevision,
+                whatStopped + ": " + DiscoveryConnectorErrors.describe(e));
     }
 }

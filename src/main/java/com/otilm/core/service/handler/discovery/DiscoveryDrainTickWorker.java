@@ -4,6 +4,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -54,16 +55,18 @@ public class DiscoveryDrainTickWorker {
     private final DiscoveryWorkProperties workProperties;
     private final TransactionHandler transactionHandler;
     private final DiscoveryWorkLease lease;
+    private final DiscoveryBusyDeferral busyDeferral;
     private final int maxItems;
     private final long maxBytes;
 
     public DiscoveryDrainTickWorker(DiscoveryRepository discoveryRepository, DiscoveryV2Client client,
             DiscoveryEventIngestor ingestor, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
             DiscoveryRunTerminator terminator, DiscoveryTickBudget budget, DiscoveryWorkProperties workProperties,
-            TransactionHandler transactionHandler, DiscoveryWorkLease lease,
+            TransactionHandler transactionHandler, DiscoveryWorkLease lease, DiscoveryBusyDeferral busyDeferral,
             @Value("${discovery.drain.max-items:500}") int maxItems,
             @Value("${discovery.drain.max-bytes:5242880}") long maxBytes) {
         this.lease = lease;
+        this.busyDeferral = busyDeferral;
         this.discoveryRepository = discoveryRepository;
         this.client = client;
         this.ingestor = ingestor;
@@ -111,7 +114,7 @@ public class DiscoveryDrainTickWorker {
             page = client.results(run, maxItems, maxBytes);
         } catch (ConnectorException | RuntimeException e) {
             // RuntimeException too: one that escapes to the listener moves the row up a rung but can never end the run.
-            handleUnanswered(discoveryUuid, attempt, e);
+            handleUnanswered(tick, run, revision, e);
             return;
         } catch (NotFoundException | AttributeException e) {
             terminator
@@ -125,7 +128,7 @@ public class DiscoveryDrainTickWorker {
             // page that means "no items" sends an empty array; a missing "items" or a missing "more" read as
             // an answer hands a half-drained run to processing and releases the connector handle, which is
             // permanent, silent loss. Spend the budget on it instead.
-            handleNonConformant(discoveryUuid, attempt);
+            handleNonConformant(discoveryUuid, attempt, revision);
             return;
         }
 
@@ -138,14 +141,14 @@ public class DiscoveryDrainTickWorker {
         try {
             outcome = ingestor.applyDrainPage(discoveryUuid, page, revision);
         } catch (NonConformantPageException e) {
-            handleNonConformant(discoveryUuid, attempt);
+            handleNonConformant(discoveryUuid, attempt, revision);
             return;
         } catch (RuntimeException e) {
             // Staging sits outside the connector-call catch, so without this a deterministic page failure -- a
             // payload that will not serialize, a constraint violation -- escapes to the listener's
             // log-and-acknowledge and the same poison page retries forever, never reaching the budget. The page's
             // transaction has already rolled back, so the cursor is untouched either way.
-            handleUnstageable(discoveryUuid, attempt, e);
+            handleUnstageable(discoveryUuid, attempt, revision, e);
             return;
         }
         if (outcome == DrainPageOutcome.STALE) {
@@ -154,7 +157,13 @@ public class DiscoveryDrainTickWorker {
             tick.releaseOnly();
             return;
         }
-        continueAfter(tick, run, page, outcome == DrainPageOutcome.ADVANCED);
+        // A checkpointed page this tick applied raised the revision once; a run it ended no longer needs fencing.
+        long revisionAfterThePage = isCheckpointed(run) ? revision + 1 : revision;
+        continueAfter(tick, run, page, outcome == DrainPageOutcome.ADVANCED, revisionAfterThePage);
+    }
+
+    private static boolean isCheckpointed(Discovery run) {
+        return run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED;
     }
 
     /**
@@ -162,9 +171,9 @@ public class DiscoveryDrainTickWorker {
      * run's page. Counted against the drain budget like any other unanswered tick, so a connector that keeps omitting
      * required fields ends the run rather than stalling it forever.
      */
-    private void handleNonConformant(UUID discoveryUuid, int attempt) {
+    private void handleNonConformant(UUID discoveryUuid, int attempt, long revision) {
         if (!budget
-                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt,
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, revision,
                         "The connector's results omitted a field the contract requires")) {
             logger
                     .warn("Drain {} for discovery {} returned a page missing items, more or highestSequence; retrying "
@@ -177,10 +186,10 @@ public class DiscoveryDrainTickWorker {
      * stage must not retry forever — but ended with Core named as the party that failed, because on this path the
      * connector answered and answered correctly.
      */
-    private void handleUnstageable(UUID discoveryUuid, int attempt, RuntimeException e) {
+    private void handleUnstageable(UUID discoveryUuid, int attempt, long revision, RuntimeException e) {
         logger.error("Ingesting a drained page for discovery {} failed: {}", discoveryUuid, e.getMessage(), e);
         budget
-                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt,
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, revision,
                         "Core could not store the discovered items this run's connector handed over");
     }
 
@@ -189,7 +198,7 @@ public class DiscoveryDrainTickWorker {
      * publishes that step rather than waiting for a sweep to notice.
      */
     private void continueAfter(DiscoveryWorkTick tick, Discovery run, DiscoveryResultsResponseDto page,
-            boolean advanced) {
+            boolean advanced, long revision) {
         UUID discoveryUuid = tick.discoveryUuid();
         if (Boolean.TRUE.equals(page.getMore())) {
             if (advanced) {
@@ -197,7 +206,7 @@ public class DiscoveryDrainTickWorker {
             } else {
                 // "More to come" that carried nothing new is a connector repeating itself. Publishing again
                 // would spin as fast as it answers, so this climbs the ladder and eventually ends the run.
-                awaitTheRest(tick, page.getHighestSequence());
+                awaitTheRest(tick, page.getHighestSequence(), revision);
             }
             return;
         }
@@ -210,7 +219,7 @@ public class DiscoveryDrainTickWorker {
         // highestSequence under the run row's lock, which a separate pre-check could only do without one.
         Optional<Handover> handover = swapToProcessing(discoveryUuid, page.getHighestSequence());
         if (handover.isEmpty()) {
-            awaitTheRest(tick, page.getHighestSequence());
+            awaitTheRest(tick, page.getHighestSequence(), revision);
             return;
         }
         // Strictly after the handover commits. The acknowledgement lets the connector discard the run's whole
@@ -247,11 +256,11 @@ public class DiscoveryDrainTickWorker {
      * due-now retry would be an unbounded stream of {@code results} calls against a connector that may never catch up.
      * Spending the budget ends the run with a reason instead.
      */
-    private void awaitTheRest(DiscoveryWorkTick tick, Long highestSequence) {
+    private void awaitTheRest(DiscoveryWorkTick tick, Long highestSequence, long revision) {
         int next = tick.attempt() + 1;
         if (next >= workProperties.scheduleFor(DiscoveryWorkType.DRAIN).maxAttempts()) {
             terminator
-                    .endConnectorOwned(tick.discoveryUuid(), DiscoveryStatus.FAILED,
+                    .endIfRevision(tick.discoveryUuid(), revision, DiscoveryStatus.FAILED,
                             "The connector reported %d item(s) but never handed them all over"
                                     .formatted(highestSequence));
             return;
@@ -314,14 +323,49 @@ public class DiscoveryDrainTickWorker {
     /**
      * A tick the connector did not answer. Below the budget, the listener's retry moves the row one rung up its backoff
      * ladder.
+     *
+     * <p>
+     * A checkpointed run's connector holds nothing between calls, so a refusal is final — an oversized target or a
+     * checkpoint it cannot read — and ends the run at once, while a busy answer only defers the drain. A buffered run
+     * charges both to the budget, as it always has.
      */
-    private void handleUnanswered(UUID discoveryUuid, int attempt, Throwable e) {
+    private void handleUnanswered(DiscoveryWorkTick tick, Discovery run, long revision, Throwable e) {
+        UUID discoveryUuid = tick.discoveryUuid();
+        int attempt = tick.attempt();
+        if (isCheckpointed(run) && DiscoveryConnectorErrors.isRefusal(e)) {
+            logger
+                    .warn("Drain {} for discovery {} was refused by its connector: {}", attempt, discoveryUuid,
+                            e.getMessage());
+            terminator
+                    .endIfRevision(discoveryUuid, revision, DiscoveryStatus.FAILED,
+                            "The connector cannot continue this discovery run");
+            return;
+        }
+        if (isCheckpointed(run) && DiscoveryConnectorErrors.isBusy(e)) {
+            handleBusy(tick, revision, e);
+            return;
+        }
         if (!budget
-                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, e,
+                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, revision, e,
                         "The connector stopped handing over discovered items for this run")) {
             logger
                     .warn("Drain {} for discovery {} failed, retrying when next due: {}", attempt, discoveryUuid,
                             e.getMessage());
+        }
+    }
+
+    private void handleBusy(DiscoveryWorkTick tick, long revision, Throwable e) {
+        UUID discoveryUuid = tick.discoveryUuid();
+        if (busyDeferral.defer(tick, revision, DiscoveryConnectorErrors.retryAfter(e))) {
+            logger.debug("Drain for discovery {} deferred: its connector is busy", discoveryUuid);
+            return;
+        }
+        if (!budget
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, tick.attempt(), revision,
+                        "The connector stayed too busy to continue this discovery run")) {
+            logger
+                    .warn("Drain {} for discovery {} is still refused as busy; retrying when next due", tick.attempt(),
+                            discoveryUuid);
         }
     }
 
