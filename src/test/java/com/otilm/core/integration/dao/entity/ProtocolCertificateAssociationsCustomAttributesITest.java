@@ -18,10 +18,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * The custom attributes of a loaded association are stored when they are replaced, also by a list as long as the one
- * loaded, and loading them alone writes nothing.
- */
 class ProtocolCertificateAssociationsCustomAttributesITest extends BaseSpringBootTest {
 
     private static final UUID DOMAIN_ATTRIBUTE_UUID = UUID.fromString("6b0f0c8e-5f4e-4c7a-9d2b-1a3e5c7f9b21");
