@@ -21,6 +21,7 @@ import com.otilm.core.dao.repository.ApprovalProfileRelationRepository;
 import com.otilm.core.messaging.jms.configuration.MessagingProperties;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.messaging.model.IssueActionData;
 import com.otilm.core.messaging.model.NotificationRecipient;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.ApprovalInternalService;
@@ -32,6 +33,7 @@ import java.security.cert.CertificateException;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -126,7 +128,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
     private boolean isIssueWithNothingToIssue(final ActionMessage actionMessage) {
         return actionMessage.getResource() == Resource.CERTIFICATE
                 && actionMessage.getResourceAction() == ResourceAction.ISSUE && clientOperationService
-                        .hasNothingToIssue(actionMessage.getResourceUuid(), actionMessage.getCertificateRequestUuid());
+                        .hasNothingToIssue(actionMessage.getResourceUuid(), queuedRequestOf(actionMessage));
     }
 
     /**
@@ -144,6 +146,14 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
                         actionMessage.getResourceUuid(), actionMessage.getUserUuid(), actionMessage.getData());
         logger.info("Created new Approval {} for object {}", approval.getUuid(), actionMessage.getResourceUuid());
         processApprovalCreated(actionMessage);
+    }
+
+    /**
+     * The certificate request an ISSUE action, or the decision of its approval, was queued for; null for one that names
+     * none.
+     */
+    private static UUID queuedRequestOf(final ActionMessage actionMessage) {
+        return IssueActionData.certificateRequestUuidOf(actionMessage.getData());
     }
 
     private void processApprovalCreated(final ActionMessage actionMessage) throws NotFoundException {
@@ -173,7 +183,10 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
         // handle rejected actions
         if (hasApproval && !isApproved) {
             switch (Objects.requireNonNull(actionMessage.getResourceAction())) {
-                case ISSUE, RENEW, REKEY ->
+                case ISSUE -> clientOperationService
+                        .issueCertificateRejectedAction(actionMessage.getResourceUuid(),
+                                queuedRequestOf(actionMessage));
+                case RENEW, REKEY ->
                     clientOperationService.issueCertificateRejectedAction(actionMessage.getResourceUuid());
                 case REVOKE -> clientOperationService.revokeCertificateRejectedAction(actionMessage.getResourceUuid());
                 default -> logger
@@ -186,7 +199,7 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
         // handle
         switch (actionMessage.getResourceAction()) {
             case ISSUE -> clientOperationService
-                    .issueCertificateAction(actionMessage.getResourceUuid(), actionMessage.getCertificateRequestUuid(),
+                    .issueCertificateAction(actionMessage.getResourceUuid(), queuedRequestOf(actionMessage),
                             isApproved);
             case REKEY -> {
                 final ClientCertificateRekeyRequestDto clientCertificateRekeyRequestDto = mapper

@@ -11,6 +11,7 @@ import com.otilm.core.dao.repository.ApprovalProfileRelationRepository;
 import com.otilm.core.messaging.jms.configuration.MessagingProperties;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.messaging.model.IssueActionData;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.ApprovalInternalService;
@@ -110,7 +111,7 @@ class ActionsListenerTest {
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, certificateUuid, UUID.randomUUID(),
                 null, null, null);
         UUID queuedFor = UUID.randomUUID();
-        msg.setCertificateRequestUuid(queuedFor);
+        msg.setData(new IssueActionData(queuedFor));
         when(approvalProfileRelationRepository.findByResourceUuidAndResource(any(), any()))
                 .thenReturn(Optional.of(List.of()));
 
@@ -130,7 +131,7 @@ class ActionsListenerTest {
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, registrationUuid, UUID.randomUUID(),
                 null, null, null);
         UUID queuedFor = UUID.randomUUID();
-        msg.setCertificateRequestUuid(queuedFor);
+        msg.setData(new IssueActionData(queuedFor));
         when(clientOperationService.hasNothingToIssue(registrationUuid, queuedFor)).thenReturn(true);
 
         // when
@@ -276,6 +277,38 @@ class ActionsListenerTest {
         // A rejected REVOKE must not run the issue-rejection path nor the actual revoke.
         verify(clientOperationService, never()).issueCertificateRejectedAction(any());
         verify(clientOperationService, never()).revokeCertificateAction(any(), any(), anyBoolean());
+    }
+
+    @Test
+    void rejectsOnlyTheRequestTheApprovalWasFor_whenAnIssueApprovalIsRejected() throws Exception {
+        // given — the decision replays the approval's stored data, which comes back as a JSON object
+        UUID certificateUuid = UUID.randomUUID();
+        UUID approvalWasFor = UUID.randomUUID();
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, certificateUuid, UUID.randomUUID(),
+                UUID.randomUUID(), ApprovalStatusEnum.REJECTED,
+                Map.of("certificateRequestUuid", approvalWasFor.toString()));
+
+        // when
+        listener.processMessage(msg);
+
+        // then
+        verify(clientOperationService).issueCertificateRejectedAction(certificateUuid, approvalWasFor);
+    }
+
+    @Test
+    void issuesOnlyTheRequestTheApprovalWasFor_whenAnIssueApprovalIsApproved() throws Exception {
+        // given — the decision replays the approval's stored data, which comes back as a JSON object
+        UUID certificateUuid = UUID.randomUUID();
+        UUID approvalWasFor = UUID.randomUUID();
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, certificateUuid, UUID.randomUUID(),
+                UUID.randomUUID(), ApprovalStatusEnum.APPROVED,
+                Map.of("certificateRequestUuid", approvalWasFor.toString()));
+
+        // when
+        listener.processMessage(msg);
+
+        // then
+        verify(clientOperationService).issueCertificateAction(certificateUuid, approvalWasFor, true);
     }
 
     // ==================== Authentication failure ====================

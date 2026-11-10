@@ -14,6 +14,7 @@ import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.client.approval.ApprovalStatusEnum;
 import com.otilm.api.model.client.approvalprofile.ApprovalProfileRequestDto;
 import com.otilm.api.model.client.approvalprofile.ApprovalStepRequestDto;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -112,6 +113,7 @@ import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.messaging.jms.listeners.poll.PendingIssueReaper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.messaging.model.IssueActionData;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.model.crypto.AttributesWithOwner;
@@ -5183,7 +5185,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             // when
             boolean nothingToIssue = clientOperationInternalService
                     .hasNothingToIssue(UUID.fromString(registrationUuid),
-                            queued.getValue().getCertificateRequestUuid());
+                            IssueActionData.certificateRequestUuidOf(queued.getValue().getData()));
 
             // then
             assertThat(nothingToIssue).isFalse();
@@ -5205,7 +5207,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                     .findByUuid(UUID.fromString(registrationUuid))
                     .orElseThrow()
                     .getCertificateRequestUuid();
-            assertThat(queued.getValue().getCertificateRequestUuid()).isNotNull().isEqualTo(attached);
+            assertThat(IssueActionData.certificateRequestUuidOf(queued.getValue().getData()))
+                    .isNotNull()
+                    .isEqualTo(attached);
         }
 
         @Test
@@ -5215,10 +5219,66 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
             // when
             boolean nothingToIssue = clientOperationInternalService
-                    .hasNothingToIssue(UUID.fromString(registrationUuid), lateIssue.getCertificateRequestUuid());
+                    .hasNothingToIssue(UUID.fromString(registrationUuid),
+                            IssueActionData.certificateRequestUuidOf(lateIssue.getData()));
 
             // then
             assertThat(nothingToIssue).isTrue();
+        }
+
+        @Test
+        void keepsTheRequestOnItsApproval_whenItsIssueApprovalIsRequested() throws Exception {
+            // given
+            ArgumentCaptor<ActionMessage> queued = ArgumentCaptor.forClass(ActionMessage.class);
+            clientOperationService
+                    .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid,
+                            createCompletionRequest());
+            verify(actionProducer).produceMessage(queued.capture());
+            ApprovalProfileVersion approvalProfileVersion = createApprovalProfileVersion();
+
+            // when
+            clientOperationInternalService.requestApproval(approvalProfileVersion, queued.getValue());
+
+            // then
+            UUID registration = UUID.fromString(registrationUuid);
+            UUID attached = certificateRepository.findByUuid(registration).orElseThrow().getCertificateRequestUuid();
+            assertThat(readApprovalsOf(registration))
+                    .singleElement()
+                    .satisfies(
+                            approval -> assertThat(IssueActionData.certificateRequestUuidOf(approval.getObjectData()))
+                                    .isEqualTo(attached));
+        }
+
+        @Test
+        void keepsTheLaterCompletion_whenTheRejectionOfAnEarlierOneIsDeliveredAgain() throws Exception {
+            // given — an earlier completion's approval was rejected, and a later completion awaits its own approval
+            List<ActionMessage> queued = new ArrayList<>();
+            doAnswer(invocation -> {
+                queued.add(invocation.getArgument(0));
+                return null;
+            }).when(actionProducer).produceMessage(any());
+            ApprovalProfileVersion approvalProfileVersion = createApprovalProfileVersion();
+            UUID registration = UUID.fromString(registrationUuid);
+            clientOperationService
+                    .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid,
+                            createCompletionRequest());
+            clientOperationInternalService.requestApproval(approvalProfileVersion, queued.get(0));
+            UUID earlierRequest = IssueActionData.certificateRequestUuidOf(queued.get(0).getData());
+            closeTheApprovalOf(registration, ApprovalStatusEnum.REJECTED);
+            clientOperationInternalService.issueCertificateRejectedAction(registration, earlierRequest);
+            clientOperationService
+                    .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid,
+                            createCompletionRequest());
+            clientOperationInternalService.requestApproval(approvalProfileVersion, queued.get(1));
+            UUID laterRequest = IssueActionData.certificateRequestUuidOf(queued.get(1).getData());
+
+            // when
+            clientOperationInternalService.issueCertificateRejectedAction(registration, earlierRequest);
+
+            // then
+            Certificate awaitingApproval = certificateRepository.findByUuid(registration).orElseThrow();
+            assertThat(awaitingApproval.getState()).isEqualTo(CertificateState.PENDING_APPROVAL);
+            assertThat(awaitingApproval.getCertificateRequestUuid()).isEqualTo(laterRequest);
         }
 
         @Test
@@ -5457,6 +5517,17 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                     .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion));
             clientOperationService.issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion);
             return queued.getFirst();
+        }
+
+        /** Closes the registration's pending approval as its approvers decided, without the decision's own action. */
+        private void closeTheApprovalOf(UUID registration, ApprovalStatusEnum decision) {
+            Approval pending = readApprovalsOf(registration)
+                    .stream()
+                    .filter(approval -> approval.getStatus() == ApprovalStatusEnum.PENDING)
+                    .findFirst()
+                    .orElseThrow();
+            pending.setStatus(decision);
+            approvalRepository.save(pending);
         }
 
         private void assertStillRegisteredWithoutARequest() {

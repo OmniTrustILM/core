@@ -88,6 +88,7 @@ import com.otilm.core.logging.LoggerWrapper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.messaging.model.IssueActionData;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.AttributesWithOwner;
@@ -724,7 +725,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         actionMessage.setResource(Resource.CERTIFICATE);
         actionMessage.setResourceAction(ResourceAction.ISSUE);
         actionMessage.setResourceUuid(certificateUuid);
-        actionMessage.setCertificateRequestUuid(certificateRequestUuid);
+        actionMessage.setData(new IssueActionData(certificateRequestUuid));
         actionProducer.produceMessage(actionMessage);
     }
 
@@ -1375,7 +1376,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 .findAndLockWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
         if (actionMessage.getResourceAction() == ResourceAction.ISSUE
-                && !awaitsIssue(certificate, actionMessage.getCertificateRequestUuid())) {
+                && !awaitsIssue(certificate, IssueActionData.certificateRequestUuidOf(actionMessage.getData()))) {
             logger
                     .info("Requesting no approval for the issue of certificate {}: it holds nothing this issue can issue",
                             certificateUuid);
@@ -2355,7 +2356,18 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     @Override
     @Transactional
+    public void issueCertificateRejectedAction(final UUID certificateUuid, final UUID certificateRequestUuid)
+            throws NotFoundException {
+        rejectIssue(certificateUuid, certificateRequestUuid);
+    }
+
+    @Override
+    @Transactional
     public void issueCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException {
+        rejectIssue(certificateUuid, null);
+    }
+
+    private void rejectIssue(final UUID certificateUuid, final UUID certificateRequestUuid) throws NotFoundException {
         // Transactional so the reject transition and the fate-coupling auto-CLOSE (or the approval-reject
         // restore) commit atomically — this entry point (invoked by ActionsListener) has no ambient transaction
         // of its own, unlike the failClaimedCertificate / poll-listener FAILED paths. The pessimistic lock
@@ -2364,6 +2376,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         final Certificate certificate = certificateRepository
                 .findAndLockWithAssociationsByUuid(certificateUuid)
                 .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
+        // A rejection delivered again, after the holder completed the registration anew, names the earlier request.
+        if (!holdsQueuedRequest(certificate, certificateRequestUuid)) {
+            logger
+                    .info("Leaving certificate {} as it is: the rejected approval was for a request it no longer holds",
+                            certificateUuid);
+            return;
+        }
         // A pre-registered placeholder whose issuance approval was rejected is restored to REGISTERED so the holder
         // can retry, rather than terminally rejected. Every pre-registration — connector-backed or platform-level —
         // carries a register->issue binding, so that is the marker; any challenge authorization stays ACTIVE.

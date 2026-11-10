@@ -82,6 +82,14 @@ public interface ClientOperationInternalService {
 
     void issueCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException;
 
+    /**
+     * As {@link #issueCertificateRejectedAction(UUID)} for the rejection of an approval requested for one certificate
+     * request: a certificate that holds another request by then is left as it is.
+     *
+     * @param certificateRequestUuid the request the approval was requested for, or null when it names none
+     */
+    void issueCertificateRejectedAction(UUID certificateUuid, UUID certificateRequestUuid) throws NotFoundException;
+
     ClientCertificateDataResponseDto renewCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, ClientCertificateRenewRequestDto request)
             throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
