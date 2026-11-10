@@ -17,31 +17,27 @@ import com.otilm.core.util.PlatformX500NameStyle;
 import com.otilm.core.util.crl.CrlDownloadException;
 import com.otilm.core.util.crl.CrlDownloadGuard;
 import com.otilm.core.util.crl.CrlDownloader;
+import com.otilm.core.util.crl.EncodedCrl;
+import com.otilm.core.util.crl.RevokedCertificate;
 import jakarta.persistence.EntityManager;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigInteger;
-import java.security.GeneralSecurityException;
 import java.security.PublicKey;
-import java.security.cert.CRLException;
 import java.security.cert.CRLReason;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
 import java.security.cert.X509CRL;
-import java.security.cert.X509CRLEntry;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -252,15 +248,16 @@ public class CrlServiceImpl implements CrlService {
         String lastReasonToIgnore = null;
         for (String crlUrl : crlUrls) {
             DownloadedCrl downloaded = downloadCrl(crlUrl, false);
-            X509CRL x509CRL = downloaded.crl();
-            String reasonToIgnore = x509CRL == null
+            EncodedCrl downloadedCrl = downloaded.crl();
+            String reasonToIgnore = downloadedCrl == null
                     ? downloaded.reasonUnread()
-                    : findReasonToIgnore(x509CRL, false, issuer, oldCrl, lowestCrlNumber, crlUrl);
+                    : findReasonToIgnore(downloadedCrl, false, issuer, oldCrl, lowestCrlNumber, crlUrl);
             if (reasonToIgnore != null) {
                 lastReasonToIgnore = reasonToIgnore;
                 continue;
             }
 
+            X509CRL x509CRL = downloadedCrl.header();
             String crlNumber = readCrlNumber(x509CRL).toString();
 
             boolean isNewCrl = oldCrl == null;
@@ -286,8 +283,8 @@ public class CrlServiceImpl implements CrlService {
             crl.setNextUpdate(x509CRL.getNextUpdate());
             crl.setCrlNumber(crlNumber);
 
-            List<CrlEntryData> entries = new ArrayList<>();
-            Date lastRevocationDate = collectEntries(x509CRL, entries);
+            Iterable<CrlEntryData> entries = entryData(downloadedCrl, entry -> true);
+            Date lastRevocationDate = downloadedCrl.lastRevocationDate();
 
             CrlWrite write = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
             if (!write.written()) {
@@ -326,7 +323,7 @@ public class CrlServiceImpl implements CrlService {
 
     private DownloadedCrl downloadCrl(String crlUrl, boolean delta) {
         try {
-            return new DownloadedCrl(parseCrl(crlDownloader.download(crlUrl)), null);
+            return new DownloadedCrl(EncodedCrl.parse(crlDownloader.download(crlUrl)), null);
         } catch (CrlDownloadException e) {
             logger.warn("Ignoring the CRL from {}: {}", crlUrl, e.reason());
             return new DownloadedCrl(null, e.reason());
@@ -338,11 +335,6 @@ public class CrlServiceImpl implements CrlService {
             }
             return new DownloadedCrl(null, "it could not be read");
         }
-    }
-
-    private static X509CRL parseCrl(byte[] encoded) throws CertificateException, CRLException {
-        CertificateFactory certificateFactory = CertificateFactory.getInstance("X509");
-        return (X509CRL) certificateFactory.generateCRL(new ByteArrayInputStream(encoded));
     }
 
     /**
@@ -361,21 +353,6 @@ public class CrlServiceImpl implements CrlService {
         crl.setCrlNumberDelta(stored.getCrlNumberDelta());
         crl.setNextUpdateDelta(stored.getNextUpdateDelta());
         return crl;
-    }
-
-    private Date collectEntries(X509CRL x509CRL, List<CrlEntryData> sink) {
-        Set<? extends X509CRLEntry> crlCertificates = x509CRL.getRevokedCertificates();
-        if (crlCertificates == null) {
-            return null;
-        }
-        Date lastRevocationDate = new Date(0);
-        for (X509CRLEntry x509CRLEntry : crlCertificates) {
-            sink.add(toEntryData(x509CRLEntry));
-            if (x509CRLEntry.getRevocationDate().after(lastRevocationDate)) {
-                lastRevocationDate = x509CRLEntry.getRevocationDate();
-            }
-        }
-        return lastRevocationDate;
     }
 
     /**
@@ -397,16 +374,16 @@ public class CrlServiceImpl implements CrlService {
         String lastReasonToIgnore = null;
         for (String deltaCrlUrl : deltaCrlUrls) {
             DownloadedCrl downloaded = downloadCrl(deltaCrlUrl, true);
-            X509CRL deltaCrl = downloaded.crl();
+            EncodedCrl deltaCrl = downloaded.crl();
             String reasonToIgnore = deltaCrl == null
                     ? downloaded.reasonUnread()
                     : findReasonToIgnore(deltaCrl, true, issuer, crl, BigInteger.ZERO, deltaCrlUrl);
-            if (reasonToIgnore == null && extendsNewerBaseCrl(deltaCrl, crl)) {
+            if (reasonToIgnore == null && extendsNewerBaseCrl(deltaCrl.header(), crl)) {
                 refreshExistingCrl(crl, certificate.getExtensionValue(Extension.cRLDistributionPoints.getId()),
-                        issuerDn, issuerSerialNumber, caCertificateUuid, issuer, readBaseCrlNumber(deltaCrl));
+                        issuerDn, issuerSerialNumber, caCertificateUuid, issuer, readBaseCrlNumber(deltaCrl.header()));
             }
             if (reasonToIgnore == null) {
-                reasonToIgnore = findBaseCrlMismatch(deltaCrl, crl, deltaCrlUrl);
+                reasonToIgnore = findBaseCrlMismatch(deltaCrl.header(), crl, deltaCrlUrl);
             }
             if (reasonToIgnore == null) {
                 updateDeltaCrl(crl, deltaCrl);
@@ -421,43 +398,42 @@ public class CrlServiceImpl implements CrlService {
         throw failure;
     }
 
-    private void updateDeltaCrl(Crl crl, X509CRL deltaCrl) throws IOException {
-        BigInteger deltaCrlNumber = readCrlNumber(deltaCrl);
+    private void updateDeltaCrl(Crl crl, EncodedCrl deltaCrl) throws IOException {
+        BigInteger deltaCrlNumber = readCrlNumber(deltaCrl.header());
         // The stored delta CRL is applied already, and findReasonToIgnore refused older ones.
         if (crl.getCrlNumberDelta() != null && deltaCrlNumber.compareTo(new BigInteger(crl.getCrlNumberDelta())) <= 0) {
             return;
         }
 
-        List<CrlEntryData> upserts = new ArrayList<>();
-        List<String> removals = new ArrayList<>();
-        classifyDeltaEntries(deltaCrl, upserts, removals);
+        // A delta CRL lists every change since its base CRL, so each entry is applied, also one dated before a
+        // revocation already stored, and removeFromCRL only ever removes an entry.
+        Iterable<String> removals = () -> stream(deltaCrl)
+                .filter(CrlServiceImpl::removesFromCrl)
+                .map(entry -> entry.serialNumber().toString(16))
+                .iterator();
+        Iterable<CrlEntryData> upserts = entryData(deltaCrl, entry -> !removesFromCrl(entry));
         Date lastRevocationDate = Stream
                 .concat(Stream.ofNullable(crl.getLastRevocationDate()),
-                        upserts.stream().map(CrlEntryData::revocationDate))
+                        StreamSupport.stream(upserts.spliterator(), false).map(CrlEntryData::revocationDate))
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
         crlWriter
                 .applyDeltaCrl(crl.getUuid(), crl.getCrlNumber(), removals, upserts, deltaCrlNumber.toString(),
-                        deltaCrl.getNextUpdate(), lastRevocationDate);
+                        deltaCrl.header().getNextUpdate(), lastRevocationDate);
     }
 
-    /**
-     * A delta CRL lists every change since its base CRL, so each entry is applied, also one dated before a revocation
-     * already stored, and removeFromCRL only ever removes an entry.
-     */
-    private static void classifyDeltaEntries(X509CRL deltaCrl, List<CrlEntryData> upserts, List<String> removals) {
-        Set<? extends X509CRLEntry> deltaCrlEntries = deltaCrl.getRevokedCertificates();
-        if (deltaCrlEntries == null) {
-            return;
-        }
-        for (X509CRLEntry deltaCrlEntry : deltaCrlEntries) {
-            if (CRLReason.REMOVE_FROM_CRL.equals(deltaCrlEntry.getRevocationReason())) {
-                removals.add(deltaCrlEntry.getSerialNumber().toString(16));
-            } else {
-                upserts.add(toEntryData(deltaCrlEntry));
-            }
-        }
+    private static boolean removesFromCrl(RevokedCertificate entry) {
+        return CRLReason.REMOVE_FROM_CRL.equals(entry.reason());
+    }
+
+    /** The CRL's entries matching the filter, decoded as the writer takes them. */
+    private static Iterable<CrlEntryData> entryData(EncodedCrl crl, Predicate<RevokedCertificate> filter) {
+        return () -> stream(crl).filter(filter).map(CrlServiceImpl::toEntryData).iterator();
+    }
+
+    private static Stream<RevokedCertificate> stream(EncodedCrl crl) {
+        return StreamSupport.stream(crl.entries().spliterator(), false);
     }
 
     /**
@@ -465,12 +441,13 @@ public class CrlServiceImpl implements CrlService {
      * certificate's issuer, after logging it at WARN, or {@code null} when it can. A CRL that would replace or update
      * {@code storedCrl} must not be older than it, nor numbered below {@code lowestCrlNumber}.
      */
-    private static String findReasonToIgnore(X509CRL crl, boolean delta, CertificateIssuer issuer, Crl storedCrl,
-            BigInteger lowestCrlNumber, String crlUrl) throws IOException {
+    private static String findReasonToIgnore(EncodedCrl encodedCrl, boolean delta, CertificateIssuer issuer,
+            Crl storedCrl, BigInteger lowestCrlNumber, String crlUrl) throws IOException {
+        X509CRL crl = encodedCrl.header();
         String reason = null;
         if (!crl.getIssuerX500Principal().equals(issuer.name())) {
             reason = "it names another issuer (%s)".formatted(crl.getIssuerX500Principal().getName());
-        } else if (!isSignedBy(crl, issuer.publicKey())) {
+        } else if (!encodedCrl.isSignedBy(issuer.publicKey())) {
             reason = "its signature does not verify with the issuer's public key";
         } else if (isDeltaCrl(crl) != delta) {
             reason = delta ? "it is not a delta CRL" : "it is a delta CRL";
@@ -489,16 +466,6 @@ public class CrlServiceImpl implements CrlService {
             logger.warn("Ignoring the CRL from {}: {}", crlUrl, reason);
         }
         return reason;
-    }
-
-    private static boolean isSignedBy(X509CRL crl, PublicKey publicKey) {
-        try {
-            crl.verify(publicKey);
-            return true;
-        } catch (GeneralSecurityException e) {
-            logger.debug("CRL signature does not verify with the key: {}", e.getMessage());
-            return false;
-        }
     }
 
     /**
@@ -567,12 +534,12 @@ public class CrlServiceImpl implements CrlService {
         return ASN1Integer.getInstance(JcaX509ExtensionUtils.parseExtensionValue(extensionValue)).getValue();
     }
 
-    private static CrlEntryData toEntryData(X509CRLEntry x509CRLEntry) {
-        String serialNumber = x509CRLEntry.getSerialNumber().toString(16);
-        String reason = x509CRLEntry.getRevocationReason() == null
+    private static CrlEntryData toEntryData(RevokedCertificate entry) {
+        String serialNumber = entry.serialNumber().toString(16);
+        String reason = entry.reason() == null
                 ? CertificateRevocationReason.UNSPECIFIED.name()
-                : CertificateRevocationReason.fromCrlReason(x509CRLEntry.getRevocationReason()).name();
-        return new CrlEntryData(serialNumber, x509CRLEntry.getRevocationDate(), reason);
+                : CertificateRevocationReason.fromCrlReason(entry.reason()).name();
+        return new CrlEntryData(serialNumber, entry.revocationDate(), reason);
     }
 
     /** The name a CRL must carry and the key its signature must verify with to count for a certificate. */
@@ -580,6 +547,6 @@ public class CrlServiceImpl implements CrlService {
     }
 
     /** A downloaded CRL, or why none could be read, worded to follow "it was ignored because". */
-    private record DownloadedCrl(X509CRL crl, String reasonUnread) {
+    private record DownloadedCrl(EncodedCrl crl, String reasonUnread) {
     }
 }

@@ -15,6 +15,7 @@ import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.CRLNumber;
 import org.bouncycastle.asn1.x509.CRLReason;
 import org.bouncycastle.asn1.x509.Extension;
+import org.bouncycastle.asn1.x509.Extensions;
 import org.bouncycastle.asn1.x509.ExtensionsGenerator;
 import org.bouncycastle.cert.X509v2CRLBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CRLConverter;
@@ -24,8 +25,9 @@ import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
 /**
- * Builds a CRL that {@code signerKey}, an RSA key, signs under {@code issuerName}. By default it is a base CRL with CRL
- * number 1, issued an hour ago with its next update in a week, that lists no certificate.
+ * Builds a CRL that {@code signerKey} signs under {@code issuerName}. By default it is a base CRL with CRL number 1,
+ * issued an hour ago with its next update in a week, that lists no certificate and is signed with SHA-256 and RSA, so
+ * the key must be an RSA key unless {@link #withSignatureAlgorithm} names another algorithm.
  */
 public final class X509CrlBuilder {
 
@@ -40,6 +42,8 @@ public final class X509CrlBuilder {
     private Instant nextUpdate = Instant.now().plus(Duration.ofDays(7));
 
     private BigInteger deltaCrlIndicator;
+
+    private String signatureAlgorithm = "SHA256WithRSAEncryption";
 
     private final Map<BigInteger, Revocation> revocations = new LinkedHashMap<>();
 
@@ -77,7 +81,24 @@ public final class X509CrlBuilder {
 
     /** Lists the serial number as revoked at {@code revocationDate}, for a {@link CRLReason} code. */
     public X509CrlBuilder withRevocation(BigInteger serialNumber, int reason, Instant revocationDate) {
-        revocations.put(serialNumber, new Revocation(reason, revocationDate));
+        ExtensionsGenerator entryExtensions = new ExtensionsGenerator();
+        try {
+            entryExtensions.addExtension(Extension.reasonCode, false, CRLReason.lookup(reason));
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to encode the reason code", e);
+        }
+        return withRevocation(serialNumber, revocationDate, entryExtensions.generate());
+    }
+
+    /** Lists the serial number as revoked at {@code revocationDate} with these entry extensions, or none for null. */
+    public X509CrlBuilder withRevocation(BigInteger serialNumber, Instant revocationDate, Extensions extensions) {
+        revocations.put(serialNumber, new Revocation(extensions, revocationDate));
+        return this;
+    }
+
+    /** Signs with this JCA signature algorithm, which must suit the signer key. */
+    public X509CrlBuilder withSignatureAlgorithm(String signatureAlgorithm) {
+        this.signatureAlgorithm = signatureAlgorithm;
         return this;
     }
 
@@ -95,14 +116,11 @@ public final class X509CrlBuilder {
                 crlBuilder.addExtension(Extension.deltaCRLIndicator, true, new CRLNumber(deltaCrlIndicator));
             }
             for (Map.Entry<BigInteger, Revocation> revocation : revocations.entrySet()) {
-                ExtensionsGenerator entryExtensions = new ExtensionsGenerator();
-                entryExtensions
-                        .addExtension(Extension.reasonCode, false, CRLReason.lookup(revocation.getValue().reason()));
                 crlBuilder
                         .addCRLEntry(revocation.getKey(), Date.from(revocation.getValue().revocationDate()),
-                                entryExtensions.generate());
+                                revocation.getValue().extensions());
             }
-            ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption")
+            ContentSigner signer = new JcaContentSignerBuilder(signatureAlgorithm)
                     .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                     .build(signerKey);
             return new JcaX509CRLConverter()
@@ -113,6 +131,6 @@ public final class X509CrlBuilder {
         }
     }
 
-    private record Revocation(int reason, Instant revocationDate) {
+    private record Revocation(Extensions extensions, Instant revocationDate) {
     }
 }
