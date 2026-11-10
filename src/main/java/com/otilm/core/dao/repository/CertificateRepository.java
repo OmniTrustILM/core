@@ -140,8 +140,8 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
 
     /**
      * Sets or clears {@code pending_revoke_attributes} on a single certificate row by UUID, refreshing {@code i_upd}
-     * explicitly. The column is written here and not through the entity: a dynamic update of {@link Certificate} leaves
-     * a changed {@code pendingRevokeAttributes} out of its UPDATE statement.
+     * explicitly. The column is written here and not through the entity: it is not updatable through
+     * {@link Certificate}.
      */
     @Modifying
     @Query("UPDATE Certificate c SET c.pendingRevokeAttributes = :attributes, c.updated = CURRENT_TIMESTAMP "
