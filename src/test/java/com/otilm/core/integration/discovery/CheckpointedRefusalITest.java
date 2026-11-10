@@ -316,6 +316,28 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void defersOnlyForWhatIsLeftOfTheMaxWait_whenTheRetryAfterReachesPastIt() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
+        armRow(run, DiscoveryWorkType.DRAIN, 0);
+        OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
+        var busyFor = Duration.ofMinutes(25);
+        var leftOfTheMaxWait = Duration.ofMinutes(5);
+        markBusySince(run, before.minus(busyFor));
+        var retryAfterPastTheMaxWait = (int) Duration.ofMinutes(25).toSeconds();
+        when(client.results(any(), anyInt(), anyLong()))
+                .thenThrow(problem(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.SERVICE_UNAVAILABLE,
+                        retryAfterPastTheMaxWait));
+
+        // when
+        drainWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.DRAIN, 0));
+
+        // then
+        assertThat(row(run, DiscoveryWorkType.DRAIN).getNextDueAt())
+                .isCloseTo(before.plus(leftOfTheMaxWait), within(5, ChronoUnit.SECONDS));
+    }
+
+    @Test
     void keepsTheFirstBusyTime_whenTheConnectorIsBusyAgain() throws Exception {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);

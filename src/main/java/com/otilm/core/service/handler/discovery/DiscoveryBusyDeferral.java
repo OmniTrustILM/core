@@ -63,22 +63,26 @@ public class DiscoveryBusyDeferral {
                 tick.releaseOnly();
                 return true;
             }
-            Optional<OffsetDateTime> busySince = workRepository.findBusySince(discoveryUuid, tick.workType());
-            if (busySince.isPresent() && Duration.between(busySince.get(), now).compareTo(maxBusyWait) > 0) {
+            Duration busyFor = workRepository
+                    .findBusySince(discoveryUuid, tick.workType())
+                    .map(busySince -> Duration.between(busySince, now))
+                    .orElse(Duration.ZERO);
+            Duration leftOfTheMaxWait = maxBusyWait.minus(busyFor);
+            if (leftOfTheMaxWait.isNegative()) {
                 return false;
             }
-            tick.deferWhileBusy(now.plus(delay(retryAfter)));
+            tick.deferWhileBusy(now.plus(delay(retryAfter, leftOfTheMaxWait)));
             return true;
         }));
     }
 
     /**
-     * The connector's own hint, held to the maximum wait so a hint far in the future cannot park the run past it;
-     * otherwise the default with jitter, so runs deferred together do not all come back together.
+     * The connector's own hint, held to what is left of the maximum wait so a hint far in the future cannot park the
+     * run past it; otherwise the default with jitter, so runs deferred together do not all come back together.
      */
-    private Duration delay(Optional<Duration> retryAfter) {
+    private static Duration delay(Optional<Duration> retryAfter, Duration leftOfTheMaxWait) {
         return retryAfter
-                .map(hint -> hint.compareTo(maxBusyWait) > 0 ? maxBusyWait : hint)
+                .map(hint -> hint.compareTo(leftOfTheMaxWait) > 0 ? leftOfTheMaxWait : hint)
                 .orElseGet(() -> DEFAULT_DELAY
                         .plusMillis(ThreadLocalRandom.current().nextLong(-JITTER_MILLIS, JITTER_MILLIS + 1)));
     }
