@@ -142,7 +142,6 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Service
-@Transactional
 public class AcmeServiceImpl implements AcmeExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeServiceImpl.class);
@@ -244,6 +243,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Directory> getDirectory(String acmeProfileName, URI requestUri, boolean isRaProfileBased)
             throws AcmeProblemDocumentException {
         logger.debug("Gathering Directory information for ACME: {}", acmeProfileName);
@@ -279,6 +279,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<?> getNonce(String acmeProfileName, Boolean isHead, URI requestUri,
             boolean isRaProfileBased) {
         String nonce = generateNonce();
@@ -400,6 +401,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Account> updateAccount(String acmeProfileName, String accountId, String requestJson,
             URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
@@ -456,6 +458,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<?> keyRollover(String acmeProfileName, String requestJson, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
@@ -520,6 +523,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Order> newOrder(String acmeProfileName, String requestJson, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
@@ -563,6 +567,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<List<Order>> listOrders(String acmeProfileName, String accountId, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException {
         AcmeAccount acmeAccount;
@@ -592,6 +597,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Authorization> getAuthorization(String acmeProfileName, String authorizationId,
             String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
@@ -692,6 +698,13 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .body(challenge.mapToDto());
     }
 
+    /**
+     * Runs without a transaction, which is why the class declares none. One held across the submission keeps the
+     * request's connection idle in transaction for all of it while the submission works on a second connection. Not
+     * {@code NOT_SUPPORTED} either: once the request has read outside a transaction, the transactions started under it
+     * run on EntityManagers of their own, so the order {@code validateOrder} reconciles would come back detached. Each
+     * write here commits on the request's EntityManager, the order's move to processing before the submission starts.
+     */
     @Override
     @ProtocolEndpoint
     public ResponseEntity<Order> finalizeOrder(String acmeProfileName, String orderId, String requestJson,
@@ -769,6 +782,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Order> getOrder(String acmeProfileName, String orderId, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException {
         AcmeOrder order = validateOrder(orderId);
@@ -799,6 +813,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Resource> downloadCertificate(String acmeProfileName, String certificateId, URI requestUri,
             boolean isRaProfileBased) throws NotFoundException, CertificateException {
         logger.debug("Downloading the Certificate with ID: {}", certificateId);
@@ -814,6 +829,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<?> revokeCertificate(String acmeProfileName, String requestJson, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException, ConnectorException, CertificateException {
         if (requestJson.isEmpty()) {
