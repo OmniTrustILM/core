@@ -241,6 +241,27 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(stagedRefs(run)).isEmpty();
     }
 
+    /** The tick's own page raised the revision, so its ending must be judged against the raised one. */
+    @Test
+    void endsTheRun_whenACheckpointedConnectorRepeatsItsPositionOnTheLastAttempt() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        List<MetadataAttribute> storedPosition = position("cursor-120");
+        run.setCheckpoint(storedPosition);
+        discoveryRepository.saveAndFlush(run);
+        armDrainRow(run, 0);
+        var lastAllowedAttempt = 99;
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(checkpointedPage(storedPosition));
+
+        // when
+        worker.tick(admitTick(run, lastAllowedAttempt));
+
+        // then
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(reloaded.getMessage()).contains("never handed them all over");
+    }
+
     @Test
     void keepsTheSlowestRung_whenTheListenerRetriesATickThatRescheduledItself() throws Exception {
         // given
