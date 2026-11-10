@@ -303,8 +303,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
      */
     private void endUnofferedMode(Discovery run, DiscoveryInitiateResponseDto response) {
         logger
-                .error("Discovery {} was resumed by its connector in delivery mode {}, which was not offered; ending "
-                        + "the run", run.getUuid(), response.getDeliveryMode().getCode());
+                .error("Discovery {} answered resume in delivery mode {}, which was not offered; ending the run",
+                        run.getUuid(), response.getDeliveryMode().getCode());
         String reason = unofferedMode(response.getDeliveryMode());
         terminator
                 .end(run.getUuid(), DiscoveryStatus.FAILED,

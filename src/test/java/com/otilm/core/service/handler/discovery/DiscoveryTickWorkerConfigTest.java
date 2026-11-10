@@ -37,10 +37,6 @@ class DiscoveryTickWorkerConfigTest {
                 .withMessageContaining("discovery.drain.max-bytes");
     }
 
-    /**
-     * A checkpointed connector never splits one target's items across pages, so a page smaller than one target stalls
-     * the run.
-     */
     @ParameterizedTest
     @CsvSource({"99, 1048576, discovery.drain.max-items", "100, 1048575, discovery.drain.max-bytes"})
     void refusesToStart_whenAPageLimitIsBelowTheFloor(int maxItems, long maxBytes, String settingBelowTheFloor) {

@@ -6,8 +6,7 @@ import com.otilm.core.dao.entity.Discovery;
 /**
  * The fence on what a tick writes for a checkpointed run. A tick remembers the checkpoint revision of the run it built
  * its request from. Every applied page, stop and resume raises it, so a tick whose revision is no longer the run's was
- * overtaken and must not apply its page, spend the budget, end the run or reschedule its row. A run that was buffered
- * when the tick read it and still is is never fenced.
+ * overtaken and must not apply its page, spend the budget, end the run or reschedule its row.
  */
 final class CheckpointRevision {
 

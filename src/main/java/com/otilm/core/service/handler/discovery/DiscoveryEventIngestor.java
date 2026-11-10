@@ -82,10 +82,9 @@ public class DiscoveryEventIngestor {
      * produced but not yet handed over.
      *
      * <p>
-     * A checkpointed run is applied only from the position the page was asked from: {@code expectedRevision} and
-     * {@code modeTheTickRead} describe the run the tick built its request from, and a run that has moved on since drops
-     * the page as {@link DrainPageOutcome#STALE}, even when a resume has made it buffered. Its items, cursor,
-     * checkpoint and revision are written together. A run buffered both then and now ignores the revision.
+     * {@code expectedRevision} and {@code modeTheTickRead} describe the run the tick built its request from; a run that
+     * has moved on since, as {@link CheckpointRevision#movedOn} decides, drops the page as
+     * {@link DrainPageOutcome#STALE}. A checkpointed run's items, cursor, checkpoint and revision are written together.
      *
      * @throws NonConformantPageException when a checkpointed page carries no checkpoint
      */
@@ -129,7 +128,6 @@ public class DiscoveryEventIngestor {
         run.setCheckpoint(checkpoint);
         // Raised for a page that moved nothing too, so every other page asked from this position reads as stale.
         run.setCheckpointRevision(run.getCheckpointRevision() + 1);
-        // The connector answered, so a busy spell is over.
         workWriter.clearBusySince(run.getUuid(), DiscoveryWorkType.DRAIN);
         return cursorAdvanced || positionMoved ? DrainPageOutcome.ADVANCED : DrainPageOutcome.NOT_ADVANCED;
     }

@@ -133,11 +133,11 @@ public class DiscoveryStatusTickWorker {
     }
 
     /**
-     * For a checkpointed run, a status tick may end the run only while the run still has the status the tick read and
-     * the tick still holds its row: a stop changes the first and clears the second, a resume does both too. Not the
-     * checkpoint revision, which every drain page raises, so a status tick failing its last attempt while slices land
-     * could then never end the run. The fence holds when either the run as the tick read it or the run as it is now is
-     * checkpointed, so a resume that switches the mode still revokes the tick; a run buffered throughout is not fenced.
+     * For a checkpointed run, a status tick may end the run only while the run keeps the status the tick read and the
+     * tick still holds its row; a stop or a resume breaks both. Not the checkpoint revision: every drain page raises
+     * it, so a status tick failing its last attempt while slices land could never end the run. As in
+     * {@link CheckpointRevision#movedOn}, a run checkpointed when read or now is fenced, so a mode-switching resume
+     * still revokes the tick.
      */
     private static DiscoveryTickFence stillCurrent(DiscoveryWorkTick tick, Discovery runAsRead) {
         DiscoveryStatus polledAs = runAsRead.getStatus();

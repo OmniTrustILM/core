@@ -14,9 +14,8 @@ import org.springframework.stereotype.Component;
  * one at initiate and at resume.
  *
  * <p>
- * Configured as {@code discovery.delivery.modes}, a comma-separated list of wire codes. Dropping {@code checkpointed}
- * is the operator's switch for a broken release: a connector that supports only checkpointed delivery then refuses
- * every new run and every resume.
+ * Configured as {@code discovery.delivery.modes}, documented in application.yml. Dropping {@code checkpointed} there is
+ * the operator's switch for a broken release.
  */
 @Component
 public class DiscoveryDeliveryModeOffer {

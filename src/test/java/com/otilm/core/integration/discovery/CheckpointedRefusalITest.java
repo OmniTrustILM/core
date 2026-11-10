@@ -55,9 +55,8 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 /**
- * How a drain or status tick that the connector did not answer treats a checkpointed run: a refusal ends it, a busy
- * connector defers it without spending budget, and a failure that arrives after the run moved on ends nothing. The
- * connector and the broker are mocked as in {@link DiscoveryDrainTickWorkerITest}, whose context this shares.
+ * How drain and status ticks the connector did not answer treat a checkpointed run. The connector and the broker are
+ * mocked as in {@link DiscoveryDrainTickWorkerITest}, whose context this shares.
  */
 class CheckpointedRefusalITest extends BaseSpringBootTest {
 
@@ -211,7 +210,6 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         assertThat(reloaded.getDeliveryMode()).isEqualTo(DiscoveryDeliveryMode.BUFFERED);
     }
 
-    /** The reverse switch: the tick read a buffered run, and the resume that took its row made the run checkpointed. */
     @Test
     void endsNothing_whenABufferedStatusTickLosesItsRowToAResumeToCheckpointed() throws Exception {
         // given
@@ -509,7 +507,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     @Test
-    void spendsTheBudgetAsBefore_whenTheConnectorOfABufferedRunIsBusy() throws Exception {
+    void spendsTheBudget_whenTheConnectorOfABufferedRunIsBusy() throws Exception {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.BUFFERED);
         armRow(run, DiscoveryWorkType.DRAIN, LAST_ALLOWED_DRAIN_ATTEMPT);
@@ -629,10 +627,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         workWriter.expedite(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
-    /**
-     * A stop, which deletes the drain row, and a resume whose connector answered in checkpointed mode, which re-creates
-     * it: two raised revisions and a run that is checkpointed from now on.
-     */
+    /** A stop, which deletes the drain row, and a resume into checkpointed delivery, which re-creates it. */
     private void stopAndResumeAsCheckpointed(Discovery run) {
         workWriter.deleteForRun(run.getUuid(), DiscoveryWorkType.DRAIN);
         switchToCheckpointed(run);

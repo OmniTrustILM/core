@@ -136,8 +136,7 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     @Convert(converter = DiscoveryDeliveryModeConverter.class)
     private DiscoveryDeliveryMode deliveryMode;
 
-    // Raised by every applied checkpointed page and by every stop and resume. A tick remembers the revision its request
-    // was built from, and on a checkpointed run writes only while that revision is still current.
+    // Fences what a tick writes for a checkpointed run; CheckpointRevision says what raises it and what it blocks.
     @Column(name = "checkpoint_revision", nullable = false)
     private long checkpointRevision;
 

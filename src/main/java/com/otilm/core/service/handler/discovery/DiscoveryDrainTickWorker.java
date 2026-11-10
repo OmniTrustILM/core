@@ -105,8 +105,6 @@ public class DiscoveryDrainTickWorker {
             return;
         }
 
-        // The position this tick asks from: a checkpointed page applies, and a failure counts, only while the run is
-        // still there.
         long revision = run.getCheckpointRevision();
         DiscoveryTickFence fence = CheckpointRevision.fence(revision, run.getDeliveryMode());
         DiscoveryResultsResponseDto page;
@@ -153,8 +151,8 @@ public class DiscoveryDrainTickWorker {
             return;
         }
         if (outcome == DrainPageOutcome.STALE) {
-            // Whoever moved the run on scheduled what comes next; climbing the ladder over a duplicate could end a
-            // healthy run. The row is freed at the attempt the tick was claimed with, giving back the claim's charge.
+            // Climbing the ladder over a duplicate could end a healthy run; rescheduling at the claimed attempt gives
+            // back the claim's charge.
             tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC));
             return;
         }
