@@ -15,6 +15,7 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
@@ -164,6 +165,34 @@ class DiscoveryV2ClientTest {
         // Unclamped, a misconfigured value produces a request the connector rejects on every single drain --
         // and over MQ that rejection arrives as an unchecked exception.
         assertThat(capturedDrain().getMaxBytes()).isEqualTo(DiscoveryDrainRequestDto.MAX_BYTES_CAP);
+    }
+
+    @Test
+    void asksForTenMebibytesLessTheReserve_whenACheckpointedRunDrainsAtTheTransportCap() throws Exception {
+        // given
+        var tenMebibytes = 10_485_760L;
+        run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
+
+        // when
+        client.results(run, 500, tenMebibytes);
+
+        // then
+        assertThat(capturedDrain().getMaxBytes()).isEqualTo(10_354_688L);
+    }
+
+    @Test
+    void asksForTheConfiguredBytes_whenABufferedRunDrainsAtTheTransportCap() throws Exception {
+        // given
+        var tenMebibytes = 10_485_760L;
+        run.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+        when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
+
+        // when
+        client.results(run, 500, tenMebibytes);
+
+        // then
+        assertThat(capturedDrain().getMaxBytes()).isEqualTo(tenMebibytes);
     }
 
     @Test

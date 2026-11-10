@@ -41,6 +41,9 @@ public class DiscoveryDrainTickWorker {
 
     private static final Logger logger = LoggerFactory.getLogger(DiscoveryDrainTickWorker.class);
 
+    static final int MIN_PAGE_ITEMS = 100;
+    static final long MIN_PAGE_BYTES = 1_048_576L;
+
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryV2Client client;
     private final DiscoveryEventIngestor ingestor;
@@ -70,13 +73,14 @@ public class DiscoveryDrainTickWorker {
         this.budget = budget;
         this.workProperties = workProperties;
         this.transactionHandler = transactionHandler;
-        // Fail at startup rather than on every drain. A non-positive bound produces a request the connector
-        // rejects each time it is sent, so a typo here ends healthy runs once their budget is spent.
-        if (maxItems <= 0) {
-            throw new IllegalArgumentException("discovery.drain.max-items must be positive");
+        // Fail at startup rather than on every drain. A checkpointed connector never splits one target's items
+        // across pages, so a page smaller than one target stalls the run, and a non-positive bound produces a
+        // request the connector rejects each time it is sent.
+        if (maxItems < MIN_PAGE_ITEMS) {
+            throw new IllegalArgumentException("discovery.drain.max-items must be at least " + MIN_PAGE_ITEMS);
         }
-        if (maxBytes <= 0) {
-            throw new IllegalArgumentException("discovery.drain.max-bytes must be positive");
+        if (maxBytes < MIN_PAGE_BYTES) {
+            throw new IllegalArgumentException("discovery.drain.max-bytes must be at least " + MIN_PAGE_BYTES);
         }
         this.maxItems = maxItems;
         this.maxBytes = maxBytes;

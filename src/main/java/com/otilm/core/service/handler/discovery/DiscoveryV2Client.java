@@ -10,6 +10,7 @@ import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
@@ -206,11 +207,21 @@ public class DiscoveryV2Client {
         Set<String> sentSecrets = populate(request, run, connector);
         request.setAfterSequence(afterSequence);
         request.setMaxItems(maxItems);
-        // Clamped to the contract's cap: a configured value above it would produce a request the connector
-        // rejects on every single drain.
-        request.setMaxBytes(Math.min(maxBytes, DiscoveryDrainRequestDto.MAX_BYTES_CAP));
+        request.setMaxBytes(Math.min(maxBytes, pageCeiling(run)));
         return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).results(connector, request),
                 sentSecrets, "results");
+    }
+
+    /**
+     * The most item bytes a page may ask for. The contract's cap, since a configured value above it produces a request
+     * the connector rejects on every drain; for a checkpointed run less the room its response keeps for the page's
+     * checkpoint and the rest of the envelope, so a full page still fits the transport.
+     */
+    private static long pageCeiling(Discovery run) {
+        if (run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED) {
+            return DiscoveryDrainRequestDto.MAX_BYTES_CAP - DiscoveryDrainRequestDto.CHECKPOINTED_RESPONSE_RESERVE;
+        }
+        return DiscoveryDrainRequestDto.MAX_BYTES_CAP;
     }
 
     /**
