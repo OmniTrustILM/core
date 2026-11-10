@@ -42,13 +42,13 @@ class BatchAdmissionITest extends BaseSpringBootTest {
     void refusesTheNextRequest_whenAnOperatorLowersTheCapWithoutARestart() {
         // given
         List<String> threeItems = List.of("doc-1", "doc-2", "doc-3");
-        settingService.updatePlatformSettings(signingCap(3));
+        settingService.updatePlatformSettings(createSigningCapUpdate(3));
         ThrowingCallable admitThreeItems = () -> BatchAdmission.admit(threeItems);
         assertThatCode(admitThreeItems).doesNotThrowAnyException();
 
         // when
         var loweredCap = 2;
-        settingService.updatePlatformSettings(signingCap(loweredCap));
+        settingService.updatePlatformSettings(createSigningCapUpdate(loweredCap));
 
         // then
         assertThatThrownBy(admitThreeItems)
@@ -58,7 +58,7 @@ class BatchAdmissionITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static PlatformSettingsUpdateDto signingCap(int maxItemsPerRequest) {
+    private static PlatformSettingsUpdateDto createSigningCapUpdate(int maxItemsPerRequest) {
         SigningSettingsDto signing = new SigningSettingsDto();
         signing.setMaxItemsPerRequest(maxItemsPerRequest);
         PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();

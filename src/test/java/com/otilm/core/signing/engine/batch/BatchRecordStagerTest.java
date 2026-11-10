@@ -46,7 +46,7 @@ class BatchRecordStagerTest {
 
     @BeforeEach
     void stubTheProfileStrategy() {
-        batch = List.of(recordableSource(), recordableSource());
+        batch = List.of(createRecordableSource(), createRecordableSource());
         when(strategyFactory.strategyFor(PROFILE_MODE)).thenReturn(strategy);
     }
 
@@ -83,7 +83,7 @@ class BatchRecordStagerTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static SigningRecordInputSource recordableSource() {
+    private static SigningRecordInputSource createRecordableSource() {
         return SigningRecordInputSources.of(aSigningRecordInput().signingProfile(RECORDING_PROFILE).build());
     }
 }

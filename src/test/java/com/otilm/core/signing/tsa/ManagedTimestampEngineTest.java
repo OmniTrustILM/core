@@ -17,7 +17,6 @@ import com.otilm.core.signing.engine.certificate.SigningCertificateValidatorFact
 import com.otilm.core.signing.engine.certificate.ValidationResult;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
-import com.otilm.core.signing.record.SigningRecordInput;
 import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.signing.record.SigningRecordStrategy;
 import com.otilm.core.signing.record.SigningRecordStrategyFactory;
@@ -40,6 +39,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
 import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -315,7 +315,7 @@ class ManagedTimestampEngineTest {
     void recordsSigning_whenTokenIsGranted() throws Exception {
         // given — a token is produced; the engine must record the granted signing exactly once
         var timestampToken = aTokenEncodingTo(new byte[]{1, 2, 3}, BigInteger.ONE);
-        var recordInput = mock(SigningRecordInput.class);
+        var recordInput = aSigningRecordInput().signingProfile(signingProfile).build();
         var recordInputSource = SigningRecordInputSources.of(recordInput);
 
         when(timeQualityRegister.getStatus(any())).thenReturn(TimeQualityStatus.OK);

@@ -41,7 +41,7 @@ class SigningRecordMetricsTest {
         metrics.timed(mode, 1, () -> SUCCESSFUL_WRITE);
 
         // then
-        assertEquals(1, durationSampleCount(mode));
+        assertEquals(1, countDurationSamples(mode));
     }
 
     @Test
@@ -51,8 +51,8 @@ class SigningRecordMetricsTest {
         metrics.timed("DEFERRED_DURABLE", 1, () -> SUCCESSFUL_WRITE);
 
         // then
-        assertEquals(1, durationSampleCount("IMMEDIATE"));
-        assertEquals(1, durationSampleCount("DEFERRED_DURABLE"));
+        assertEquals(1, countDurationSamples("IMMEDIATE"));
+        assertEquals(1, countDurationSamples("DEFERRED_DURABLE"));
     }
 
     @Test
@@ -69,7 +69,7 @@ class SigningRecordMetricsTest {
         // then
         var thrown = assertThrows(RuntimeException.class, timed);
         assertEquals(failure, thrown); // original exception propagates unwrapped
-        assertEquals(1, durationSampleCount(mode)); // finally records the failed write too
+        assertEquals(1, countDurationSamples(mode)); // finally records the failed write too
     }
 
     @Test
@@ -84,7 +84,7 @@ class SigningRecordMetricsTest {
         assertThat(returned).isEqualTo(recordUuid);
     }
 
-    private long durationSampleCount(String mode) {
+    private long countDurationSamples(String mode) {
         Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).tag("batch", "false").timer();
         return timer == null ? 0L : timer.count();
     }

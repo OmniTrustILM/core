@@ -280,7 +280,7 @@ class NativeSigningExceptionHandlingAdviceTest {
 
         // then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
-        assertThat(response.getBody()).isEqualTo(List.of("Item 'doc-2': " + CLIENT));
+        assertThat(response.getBody()).isEqualTo(List.of("Item '" + failedItem + "': " + CLIENT));
     }
 
     @Test
@@ -297,7 +297,7 @@ class NativeSigningExceptionHandlingAdviceTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
         assertThat(response.getBody())
                 .isInstanceOfSatisfying(ErrorMessageDto.class,
-                        body -> assertThat(body.getMessage()).isEqualTo("Item 'doc-2': " + CLIENT));
+                        body -> assertThat(body.getMessage()).isEqualTo("Item '" + failedItem + "': " + CLIENT));
     }
 
     @Test
@@ -315,8 +315,8 @@ class NativeSigningExceptionHandlingAdviceTest {
         // then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(response.getBody())
-                .isInstanceOfSatisfying(ErrorMessageDto.class,
-                        body -> assertThat(body.getMessage()).isEqualTo("Item 'doc-2': The connector is unavailable."));
+                .isInstanceOfSatisfying(ErrorMessageDto.class, body -> assertThat(body.getMessage())
+                        .isEqualTo("Item '" + failedItem + "': The connector is unavailable."));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

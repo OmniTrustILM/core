@@ -41,7 +41,6 @@ import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningPr
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -157,8 +156,8 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
         // given
         SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("immediate-batch-profile");
         List<SigningRecordInputSource> batch = List
-                .of(recordableSource(recordingProfile), recordableSource(recordingProfile),
-                        recordableSource(recordingProfile));
+                .of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile),
+                        createRecordableSource(recordingProfile));
 
         // when
         List<UUID> references = strategy.recordSigning(recordingProfile, batch);
@@ -174,8 +173,8 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
         // given
         SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("immediate-violation-profile");
         List<SigningRecordInputSource> batch = List
-                .of(recordableSource(recordingProfile), recordableSource(recordingProfile),
-                        sourceWithoutSigningTime(recordingProfile));
+                .of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile),
+                        createSourceWithoutSigningTime(recordingProfile));
 
         // when
         ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
@@ -190,17 +189,20 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
         // given
         SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("immediate-caller-tx-profile");
         List<SigningRecordInputSource> batch = List
-                .of(recordableSource(recordingProfile), sourceWithoutSigningTime(recordingProfile));
+                .of(createRecordableSource(recordingProfile), createSourceWithoutSigningTime(recordingProfile));
 
         // when
-        Throwable raisedByTheBatch = new TransactionTemplate(transactionManager).execute(callersTransaction -> {
-            callersTransaction.setRollbackOnly();
-            return catchThrowable(() -> strategy.recordSigning(recordingProfile, batch));
-        });
+        ThrowingCallable recordBatchInCallersTransaction = () -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(callersTransaction -> {
+                    callersTransaction.setRollbackOnly();
+                    strategy.recordSigning(recordingProfile, batch);
+                });
 
         // then
-        assertThat(raisedByTheBatch).isNotNull();
+        assertThatThrownBy(recordBatchInCallersTransaction).isInstanceOf(RuntimeException.class);
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
      * Persists the {@code signing_profile} row referenced by a record's {@code signing_profile_uuid}. The profile's
@@ -233,11 +235,11 @@ class ImmediateSigningRecordStrategyITest extends BaseSpringBootTest {
                 .build();
     }
 
-    private static SigningRecordInputSource recordableSource(SigningProfileModel<?, ?> signingProfile) {
+    private static SigningRecordInputSource createRecordableSource(SigningProfileModel<?, ?> signingProfile) {
         return SigningRecordInputSources.of(aSigningRecordInput().signingProfile(signingProfile).build());
     }
 
-    private static SigningRecordInputSource sourceWithoutSigningTime(SigningProfileModel<?, ?> signingProfile) {
+    private static SigningRecordInputSource createSourceWithoutSigningTime(SigningProfileModel<?, ?> signingProfile) {
         Instant missingSigningTime = null;
         return SigningRecordInputSources
                 .of(aSigningRecordInput().signingProfile(signingProfile).signingTime(missingSigningTime).build());

@@ -102,36 +102,40 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         verify(writer).insertOutboxBatch(any());
         assertEquals(1, intakeCounter(MODE));
         assertEquals(0, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_SAVE_ERROR));
-        assertEquals(1, durationSampleCount(MODE));
+        assertEquals(1, countDurationSamples(MODE));
     }
 
     @Test
     void stagesTheBatchInOneWriteReturningUuidsInSourceOrder_whenRecordingABatch() {
         // given
-        List<SigningRecordInputSource> batch = recordableBatch(3);
+        List<String> sourceNames = List.of("first", "second", "third");
+        List<SigningRecordInputSource> batch = sourceNames.stream().map(this::createNamedSource).toList();
 
         // when
         List<UUID> references = strategy.recordSigning(recordingProfile, batch);
 
         // then
-        List<UUID> stagedUuids = captureStagedBatch().stream().map(SigningRecordOutbox::getUuid).toList();
-        assertThat(references).hasSize(batch.size()).containsExactlyElementsOf(stagedUuids);
+        List<SigningRecordOutbox> staged = captureStagedBatch();
+        assertThat(staged).extracting(SigningRecordOutbox::getName).containsExactlyElementsOf(sourceNames);
+        assertThat(references).containsExactlyElementsOf(staged.stream().map(SigningRecordOutbox::getUuid).toList());
         assertThat(intakeCounter(MODE)).isEqualTo(batch.size());
     }
 
     @Test
     void failsCountingEveryItem_whenStagingTheBatchFails() {
         // given
-        List<SigningRecordInputSource> batch = recordableBatch(3);
+        List<SigningRecordInputSource> batch = createRecordableBatch(3);
         doThrow(new RuntimeException("db down")).when(writer).insertOutboxBatch(any());
 
         // when
         ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
-        assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class).hasMessage("db down");
+        assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class).hasMessageContaining("db down");
         assertThat(intakeFailedCounter(MODE, SigningRecordMetrics.REASON_SAVE_ERROR)).isEqualTo(batch.size());
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private SigningRecordInput recordableInput() {
         return aSigningRecordInput()
@@ -139,12 +143,17 @@ class DeferredDurableSigningRecordStrategyUnitTest {
                 .build();
     }
 
-    private List<SigningRecordInputSource> recordableBatch(int size) {
+    private List<SigningRecordInputSource> createRecordableBatch(int size) {
         return IntStream
                 .range(0, size)
                 .mapToObj(i -> SigningRecordInputSources
                         .of(aSigningRecordInput().signingProfile(recordingProfile).build()))
                 .toList();
+    }
+
+    private SigningRecordInputSource createNamedSource(String displayName) {
+        return SigningRecordInputSources
+                .of(aSigningRecordInput().signingProfile(recordingProfile).displayName(displayName).build());
     }
 
     @SuppressWarnings("unchecked")
@@ -169,7 +178,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         return counter == null ? 0d : counter.count();
     }
 
-    private long durationSampleCount(String mode) {
+    private long countDurationSamples(String mode) {
         Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).tag("batch", "false").timer();
         return timer == null ? 0L : timer.count();
     }

@@ -577,10 +577,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
     }
 
-    private void createSigningRecordFor(SigningProfileDto profile) {
-        signingRecordWriter.insertBatch(List.of(aSigningRecord().withSigningProfile(profile).build()));
-    }
-
     @Test
     void deniedCert_throwsAccessDeniedException() {
         // given: OPA mock configured to deny certificate DETAIL access
@@ -4337,5 +4333,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         return signingProfileVersionRepository
                 .findBySigningProfileUuidAndVersion(UUID.fromString(profileUuid), version)
                 .orElseThrow();
+    }
+
+    private void createSigningRecordFor(SigningProfileDto profile) {
+        signingRecordWriter.insertBatch(List.of(aSigningRecord().withSigningProfile(profile).build()));
     }
 }

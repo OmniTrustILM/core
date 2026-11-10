@@ -1127,7 +1127,7 @@ class ManagedContentSigningEngineTest {
     class Recording {
 
         @Test
-        void recordsTheSigning_onceTheDocumentIsSigned() throws SigningEngineException {
+        void recordsTheSigning_whenTheDocumentIsSigned() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -1160,7 +1160,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void keepsTheSignedDocument_whenRecordingFails() throws SigningEngineException {
+        void keepsTheSignedDocument_whenRecordingFails() throws Exception {
             // given: the signature is already made, so a recording failure must not withdraw it
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -1176,6 +1176,8 @@ class ManagedContentSigningEngineTest {
             // then
             assertThat(signed.signedDocument()).isEqualTo("signed document".getBytes());
         }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
 
         private SigningRecordInputSource stubRecordSource() {
             var recordSource = mock(SigningRecordInputSource.class);

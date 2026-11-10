@@ -107,26 +107,28 @@ class ImmediateSigningRecordStrategyUnitTest {
         assertEquals(1, intakeCounter(MODE));
         assertEquals(1, persistCounter(MODE));
         assertEquals(0, persistFailedCounter(MODE));
-        assertEquals(1, durationSampleCount(MODE));
+        assertEquals(1, countDurationSamples(MODE));
     }
 
     @Test
     void returnsRecordUuidsInSourceOrder_whenRecordingABatch() {
         // given
-        List<SigningRecordInputSource> batch = recordableBatch(3);
+        List<String> sourceNames = List.of("first", "second", "third");
+        List<SigningRecordInputSource> batch = sourceNames.stream().map(this::createNamedSource).toList();
 
         // when
         List<UUID> references = strategy.recordSigning(recordingProfile, batch);
 
         // then
-        List<UUID> insertedUuids = captureInsertedBatch().stream().map(SigningRecord::getUuid).toList();
-        assertThat(references).hasSize(batch.size()).containsExactlyElementsOf(insertedUuids);
+        List<SigningRecord> inserted = captureInsertedBatch();
+        assertThat(inserted).extracting(SigningRecord::getName).containsExactlyElementsOf(sourceNames);
+        assertThat(references).containsExactlyElementsOf(inserted.stream().map(SigningRecord::getUuid).toList());
     }
 
     @Test
     void countsEveryItemThroughTheFunnel_whenRecordingABatch() {
         // given
-        List<SigningRecordInputSource> batch = recordableBatch(3);
+        List<SigningRecordInputSource> batch = createRecordableBatch(3);
 
         // when
         strategy.recordSigning(recordingProfile, batch);
@@ -139,27 +141,27 @@ class ImmediateSigningRecordStrategyUnitTest {
     @Test
     void timesTheBatchAsOneBatchWrite_whenRecordingABatch() {
         // given
-        List<SigningRecordInputSource> batch = recordableBatch(3);
+        List<SigningRecordInputSource> batch = createRecordableBatch(3);
 
         // when
         strategy.recordSigning(recordingProfile, batch);
 
         // then
-        assertThat(batchDurationSampleCount(MODE)).isEqualTo(1);
-        assertThat(durationSampleCount(MODE)).isZero();
+        assertThat(countBatchDurationSamples(MODE)).isEqualTo(1);
+        assertThat(countDurationSamples(MODE)).isZero();
     }
 
     @Test
     void timesASingleWrite_whenRecordingOneSource() {
         // given
-        List<SigningRecordInputSource> oneSource = recordableBatch(1);
+        List<SigningRecordInputSource> oneSource = createRecordableBatch(1);
 
         // when
         strategy.recordSigning(recordingProfile, oneSource);
 
         // then
-        assertThat(durationSampleCount(MODE)).isEqualTo(1);
-        assertThat(batchDurationSampleCount(MODE)).isZero();
+        assertThat(countDurationSamples(MODE)).isEqualTo(1);
+        assertThat(countBatchDurationSamples(MODE)).isZero();
     }
 
     @Test
@@ -216,14 +218,14 @@ class ImmediateSigningRecordStrategyUnitTest {
     @Test
     void failsCountingEveryItem_whenTheBatchWriteFails() {
         // given
-        List<SigningRecordInputSource> batch = recordableBatch(3);
+        List<SigningRecordInputSource> batch = createRecordableBatch(3);
         doThrow(new RuntimeException("db down")).when(writer).insertBatch(any());
 
         // when
         ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
 
         // then
-        assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class).hasMessage("db down");
+        assertThatThrownBy(recordBatch).isInstanceOf(RuntimeException.class).hasMessageContaining("db down");
         assertThat(persistCounter(MODE)).isEqualTo(batch.size());
         assertThat(persistFailedCounter(MODE)).isEqualTo(batch.size());
         assertThat(intakeFailedCounter(MODE, SigningRecordMetrics.REASON_PERSIST_ERROR)).isEqualTo(batch.size());
@@ -249,18 +251,25 @@ class ImmediateSigningRecordStrategyUnitTest {
         verifyNoInteractions(writer);
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
     private SigningRecordInput recordableInput() {
         return aSigningRecordInput()
                 .signingProfile(aSigningProfile().withRecordPolicy(recordingEverything().build()).build())
                 .build();
     }
 
-    private List<SigningRecordInputSource> recordableBatch(int size) {
+    private List<SigningRecordInputSource> createRecordableBatch(int size) {
         return IntStream
                 .range(0, size)
                 .mapToObj(i -> SigningRecordInputSources
                         .of(aSigningRecordInput().signingProfile(recordingProfile).build()))
                 .toList();
+    }
+
+    private SigningRecordInputSource createNamedSource(String displayName) {
+        return SigningRecordInputSources
+                .of(aSigningRecordInput().signingProfile(recordingProfile).displayName(displayName).build());
     }
 
     @SuppressWarnings("unchecked")
@@ -295,15 +304,15 @@ class ImmediateSigningRecordStrategyUnitTest {
         return counter == null ? 0d : counter.count();
     }
 
-    private long durationSampleCount(String mode) {
-        return writeDurationSampleCount(mode, "false");
+    private long countDurationSamples(String mode) {
+        return countWriteDurationSamples(mode, "false");
     }
 
-    private long batchDurationSampleCount(String mode) {
-        return writeDurationSampleCount(mode, "true");
+    private long countBatchDurationSamples(String mode) {
+        return countWriteDurationSamples(mode, "true");
     }
 
-    private long writeDurationSampleCount(String mode, String batch) {
+    private long countWriteDurationSamples(String mode, String batch) {
         Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).tag("batch", batch).timer();
         return timer == null ? 0L : timer.count();
     }

@@ -8,7 +8,6 @@ import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -106,7 +105,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         // then
         assertEquals(1, intakeCounter(MODE));
         assertEquals(0, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_INTERRUPTED));
-        assertEquals(1, durationSampleCount(MODE));
+        assertEquals(1, countDurationSamples(MODE));
         verify(queue).enqueueDropping(any(SigningRecord.class));
         verify(queue, never()).enqueueBlocking(any());
     }
@@ -223,10 +222,11 @@ class BestEffortSigningRecordStrategyUnitTest {
         // given
         var strategy = createStrategy(BestEffortBackpressurePolicy.DROP_OLDEST);
         var recordingProfile = aSigningProfile().withRecordPolicy(recordingEverything().build()).build();
-        List<SigningRecordInputSource> batch = IntStream
-                .range(0, 3)
-                .mapToObj(i -> SigningRecordInputSources
-                        .of(aSigningRecordInput().signingProfile(recordingProfile).build()))
+        List<String> sourceNames = List.of("first", "second", "third");
+        List<SigningRecordInputSource> batch = sourceNames
+                .stream()
+                .map(name -> SigningRecordInputSources
+                        .of(aSigningRecordInput().signingProfile(recordingProfile).displayName(name).build()))
                 .toList();
 
         // when
@@ -234,9 +234,10 @@ class BestEffortSigningRecordStrategyUnitTest {
 
         // then
         ArgumentCaptor<SigningRecord> queued = ArgumentCaptor.forClass(SigningRecord.class);
-        verify(queue, times(batch.size())).enqueueDropping(queued.capture());
-        List<UUID> queuedUuids = queued.getAllValues().stream().map(SigningRecord::getUuid).toList();
-        assertThat(references).hasSize(batch.size()).containsExactlyElementsOf(queuedUuids);
+        verify(queue, times(sourceNames.size())).enqueueDropping(queued.capture());
+        List<SigningRecord> queuedRecords = queued.getAllValues();
+        assertThat(queuedRecords).extracting(SigningRecord::getName).containsExactlyElementsOf(sourceNames);
+        assertThat(references).containsExactlyElementsOf(queuedRecords.stream().map(SigningRecord::getUuid).toList());
         verifyNoInteractions(writer);
     }
 
@@ -285,7 +286,7 @@ class BestEffortSigningRecordStrategyUnitTest {
         return counter == null ? 0d : counter.count();
     }
 
-    private long durationSampleCount(String mode) {
+    private long countDurationSamples(String mode) {
         Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).tag("batch", "false").timer();
         return timer == null ? 0L : timer.count();
     }

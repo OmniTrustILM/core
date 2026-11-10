@@ -37,7 +37,6 @@ import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningPr
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -170,8 +169,8 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
         // given
         SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("staged-batch-profile");
         List<SigningRecordInputSource> batch = List
-                .of(recordableSource(recordingProfile), recordableSource(recordingProfile),
-                        recordableSource(recordingProfile));
+                .of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile),
+                        createRecordableSource(recordingProfile));
 
         // when
         List<UUID> references = strategy.recordSigning(recordingProfile, batch);
@@ -188,8 +187,8 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
         // given
         SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("staged-violation-profile");
         List<SigningRecordInputSource> batch = List
-                .of(recordableSource(recordingProfile), recordableSource(recordingProfile),
-                        sourceWithoutSigningTime(recordingProfile));
+                .of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile),
+                        createSourceWithoutSigningTime(recordingProfile));
 
         // when
         ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
@@ -204,16 +203,17 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
         // given
         SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("staged-caller-tx-profile");
         List<SigningRecordInputSource> batch = List
-                .of(recordableSource(recordingProfile), sourceWithoutSigningTime(recordingProfile));
+                .of(createRecordableSource(recordingProfile), createSourceWithoutSigningTime(recordingProfile));
 
         // when
-        Throwable raisedByTheBatch = new TransactionTemplate(transactionManager).execute(callersTransaction -> {
-            callersTransaction.setRollbackOnly();
-            return catchThrowable(() -> strategy.recordSigning(recordingProfile, batch));
-        });
+        ThrowingCallable recordBatchInCallersTransaction = () -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(callersTransaction -> {
+                    callersTransaction.setRollbackOnly();
+                    strategy.recordSigning(recordingProfile, batch);
+                });
 
         // then
-        assertThat(raisedByTheBatch).isNotNull();
+        assertThatThrownBy(recordBatchInCallersTransaction).isInstanceOf(RuntimeException.class);
     }
 
     @Test
@@ -222,7 +222,7 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
         SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("drained-batch-profile");
         List<UUID> references = strategy
                 .recordSigning(recordingProfile,
-                        List.of(recordableSource(recordingProfile), recordableSource(recordingProfile)));
+                        List.of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile)));
 
         // when
         drainer.drainOnce();
@@ -232,6 +232,8 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
                 .extracting(SigningRecord::getUuid)
                 .containsExactlyInAnyOrderElementsOf(references);
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private SigningRecordOutbox singleStagedRow() {
         List<SigningRecordOutbox> staged = outboxRepo.findAll();
@@ -267,11 +269,11 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
                 .build();
     }
 
-    private static SigningRecordInputSource recordableSource(SigningProfileModel<?, ?> signingProfile) {
+    private static SigningRecordInputSource createRecordableSource(SigningProfileModel<?, ?> signingProfile) {
         return SigningRecordInputSources.of(aSigningRecordInput().signingProfile(signingProfile).build());
     }
 
-    private static SigningRecordInputSource sourceWithoutSigningTime(SigningProfileModel<?, ?> signingProfile) {
+    private static SigningRecordInputSource createSourceWithoutSigningTime(SigningProfileModel<?, ?> signingProfile) {
         Instant missingSigningTime = null;
         return SigningRecordInputSources
                 .of(aSigningRecordInput().signingProfile(signingProfile).signingTime(missingSigningTime).build());
