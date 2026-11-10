@@ -53,6 +53,15 @@ public class LdapUtils {
     }
 
     public static byte[] downloadFromLdap(String ldapUrl) throws Exception {
+        return downloadFromLdap(ldapUrl, 0, 0);
+    }
+
+    /**
+     * Reads the attribute the LDAP URL names. A timeout of zero or less waits as long as the network allows; the read
+     * timeout bounds the wait for each LDAP response.
+     */
+    public static byte[] downloadFromLdap(String ldapUrl, int connectTimeoutMillis, int readTimeoutMillis)
+            throws Exception {
         // Compile the regex pattern
         Pattern pattern = Pattern.compile(LDAP_URL_REGEX);
 
@@ -88,6 +97,12 @@ public class LdapUtils {
         Hashtable<String, String> env = new Hashtable<>();
         env.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory");
         env.put(Context.PROVIDER_URL, ldapUrl);
+        if (connectTimeoutMillis > 0) {
+            env.put("com.sun.jndi.ldap.connect.timeout", Integer.toString(connectTimeoutMillis));
+        }
+        if (readTimeoutMillis > 0) {
+            env.put("com.sun.jndi.ldap.read.timeout", Integer.toString(readTimeoutMillis));
+        }
 
         // Set security properties for LDAPS
         if (ldapUrl.startsWith("ldaps://")) {

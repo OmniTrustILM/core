@@ -10,6 +10,7 @@ import com.otilm.core.service.CrlService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.PlatformX500NameStyle;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -24,6 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.CRLDistPoint;
@@ -47,6 +49,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CrlInsertVsValidateITest extends BaseSpringBootTest {
 
@@ -136,6 +139,48 @@ class CrlInsertVsValidateITest extends BaseSpringBootTest {
         Crl winningRow = crlRepository.findByIssuerDnAndSerialNumber(issuerDn, issuerSerial).orElseThrow();
         assertThat(winningRow.getCrlNumber()).as("crl_number must be set on the winning row").isNotNull();
         assertThat(winningRow.getNextUpdate()).as("next_update must be set on the winning row").isNotNull();
+    }
+
+    @Test
+    void downloadsCrlOnce_whenValidationsOfOneIssuerRunTogether() throws Exception {
+        // given
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch fire = new CountDownLatch(1);
+        ExecutorService exec = Executors.newFixedThreadPool(2);
+        AtomicReference<Throwable> err = new AtomicReference<>();
+        Future<?> first = exec.submit(() -> raceWorker(ready, fire, err));
+        Future<?> second = exec.submit(() -> raceWorker(ready, fire, err));
+        assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // when
+        fire.countDown();
+        first.get(20, TimeUnit.SECONDS);
+        second.get(20, TimeUnit.SECONDS);
+        exec.shutdownNow();
+
+        // then
+        assertThat(err.get()).isNull();
+        crlServer.verify(1, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/crl/ca.crl")));
+    }
+
+    @Test
+    void failsWithoutDownloadingAgain_whenCrlOfIssuerFailedJustBefore() {
+        // given
+        crlServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathEqualTo("/crl/ca.crl"))
+                        .willReturn(WireMock.aResponse().withStatus(404)));
+        ThrowingCallable firstCheck = () -> crlService.getCurrentCrl(eeCert, caCert);
+        assertThatThrownBy(firstCheck).isInstanceOf(IOException.class);
+
+        // when
+        ThrowingCallable secondCheck = () -> crlService.getCurrentCrl(eeCert, caCert);
+
+        // then
+        assertThatThrownBy(secondCheck)
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("the last one was ignored because it could not be read");
+        crlServer.verify(1, WireMock.getRequestedFor(WireMock.urlPathEqualTo("/crl/ca.crl")));
     }
 
     private void raceWorker(CountDownLatch ready, CountDownLatch fire, AtomicReference<Throwable> err) {

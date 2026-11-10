@@ -1,7 +1,15 @@
 package com.otilm.core.util;
 
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import javax.naming.NamingException;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class LdapUtilsTest {
 
@@ -141,4 +149,30 @@ public class LdapUtilsTest {
         });
     }
 
+    @Test
+    @Timeout(20)
+    void failsWithinReadTimeout_whenServerNeverAnswers() throws Exception {
+        // given
+        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread.ofVirtual().start(() -> holdConnectionOpen(silentServer));
+            String ldapUrl = "ldap://127.0.0.1:%d/cn=CA?certificateRevocationList;binary?base"
+                    .formatted(silentServer.getLocalPort());
+
+            // when
+            ThrowingCallable download = () -> LdapUtils.downloadFromLdap(ldapUrl, 500, 500);
+
+            // then
+            assertThatThrownBy(download).isInstanceOf(NamingException.class);
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static void holdConnectionOpen(ServerSocket server) {
+        try (Socket ignored = server.accept()) {
+            Thread.sleep(60_000);
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 }
