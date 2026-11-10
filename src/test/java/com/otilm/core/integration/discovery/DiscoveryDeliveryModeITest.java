@@ -12,6 +12,7 @@ import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryDeliveryModeOffer;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderV2Adapter;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
@@ -23,6 +24,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +32,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -175,6 +180,25 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
 
         // then
         assertThat(handleNameOf(reload(run))).isEqualTo(RETURNED_HANDLE);
+    }
+
+    @Test
+    void keepsTheRunStopped_whenTheResumeCannotScheduleItsWork() throws Exception {
+        // given
+        offerCheckpointedAndBuffered();
+        Discovery run = stoppableV2Run(DiscoveryStatus.STOPPED, DiscoveryDeliveryMode.CHECKPOINTED);
+        when(client.resume(any())).thenReturn(resumeAnswering(DiscoveryDeliveryMode.CHECKPOINTED));
+        var agendaUnavailable = new IllegalStateException("the drain row could not be written");
+        doThrow(agendaUnavailable).when(workWriter).expedite(any(), eq(DiscoveryWorkType.DRAIN), any());
+
+        // when
+        ThrowingCallable resume = () -> adapter.resume(run);
+
+        // then
+        assertThatThrownBy(resume).isSameAs(agendaUnavailable);
+        Discovery persisted = reload(run);
+        assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
+        assertThat(persisted.getCheckpointRevision()).isEqualTo(run.getCheckpointRevision());
     }
 
     @Test

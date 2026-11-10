@@ -486,10 +486,14 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             locked.setStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setStoppedAt(null);
-            return discoveryRepository.save(locked);
+            Discovery resumed = discoveryRepository.save(locked);
+            // In the same commit as the status: the stop deleted the drain row, and a run resumed without it would stay
+            // in progress for good, since a checkpointed connector scans only when it is drained.
+            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+            workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, now);
+            workWriter.expedite(discoveryUuid, DiscoveryWorkType.DRAIN, now);
+            return resumed;
         });
-        workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
-        workWriter.expedite(discoveryUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     @Override

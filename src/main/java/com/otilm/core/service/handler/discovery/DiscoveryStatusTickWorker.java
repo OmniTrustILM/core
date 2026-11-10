@@ -97,7 +97,8 @@ public class DiscoveryStatusTickWorker {
         }
         if (run.getStatus() == DiscoveryStatus.STOPPED && run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED) {
             // A checkpoint does not record the stop, so the connector would answer RUNNING and show a divergence that
-            // is not there. A resume frees the row before it expedites it, so this park cannot land over that.
+            // is not there. A resume's expedite frees the row and this park applies only while the tick holds it, so
+            // it cannot land over the resume.
             tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC).plus(stoppedPollInterval));
             return;
         }
