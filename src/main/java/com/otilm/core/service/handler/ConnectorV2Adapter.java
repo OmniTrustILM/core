@@ -82,14 +82,12 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
         return connectInfo;
     }
 
+    /**
+     * Requires the info, health and metrics interfaces and at least one functional interface. Refuses an interface
+     * entry that has no code.
+     */
     @Override
-    public ConnectInfo validateConnection(ApiClientConnectorInfo connectorInfo) throws ConnectorException {
-        ConnectInfoV2 connectInfo = checkConnection(connectorInfo);
-        return validateConnection(connectInfo);
-    }
-
-    @Override
-    public ConnectInfo validateConnection(ConnectInfo connectInfoV2) throws ConnectorException {
+    public void validateConnection(ConnectInfo connectInfoV2) {
         ConnectInfoV2 connectInfo = (ConnectInfoV2) connectInfoV2;
 
         // Validate that mandatory interfaces are present in list of interfaces provided by the Connector and also at
@@ -120,8 +118,6 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
             throw new ValidationException(
                     "Connector is missing any functional interface. At least one functional interface must be implemented in addition to mandatory interfaces.");
         }
-
-        return connectInfo;
     }
 
     @Override

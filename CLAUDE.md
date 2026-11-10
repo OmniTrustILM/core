@@ -77,6 +77,10 @@ public ... someMethod(...) {
 
 Symmetrically: when the external call comes AFTER the local commit, commit first then call externally.
 
+Under open-in-view, the request's EntityManager keeps the connection of the first transaction that runs on it. A method
+that calls out between short transactions therefore carries `@OutsideTransaction`, which runs it with `NOT_SUPPORTED`
+and sets that EntityManager aside.
+
 ## State divergence on post-external-commitment failures
 
 When an external system has acknowledged the work — DB committed, connector returned 200 or 202, queue accepted the message — do **not** roll back local state on a post-acknowledgment failure. Surface the local failure as a clear error to the caller, but leave local state aligned with the external commitment. Otherwise the platform DB drifts out of sync with reality and the only path back is manual reconciliation.

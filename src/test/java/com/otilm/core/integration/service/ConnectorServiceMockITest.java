@@ -21,6 +21,7 @@ import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.ProxyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.service.ConnectorAuthInternalService;
 import com.otilm.core.service.handler.ConnectorAdapter;
 import com.otilm.core.service.handler.ConnectorV1Adapter;
@@ -140,6 +141,7 @@ class ConnectorServiceMockITest {
                 .setConnectorAdapters(Map
                         .of(ConnectorVersion.V1.getCode(), connectorAdapter, ConnectorVersion.V2.getCode(),
                                 connectorAdapter));
+        connectorService.setTransactionHandler(new TransactionHandler());
 
         when(functionGroupRepository.findByCode(any())).thenReturn(Optional.empty());
         when(functionGroupRepository.findByCode(FunctionGroupCode.CREDENTIAL_PROVIDER))
