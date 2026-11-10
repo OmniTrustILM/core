@@ -1,8 +1,10 @@
 package com.otilm.core.util.builders;
 
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import java.util.List;
 
 /**
  * Builds an in-memory {@link CryptographicKeyItem}; tests override only the fields whose values drive the assertion
@@ -15,6 +17,7 @@ public class CryptographicKeyItemBuilder {
     private String name;
     private KeyType type;
     private KeyState state;
+    private List<MetadataAttribute> keyMeta;
 
     public static CryptographicKeyItemBuilder aKeyItem() {
         return new CryptographicKeyItemBuilder();
@@ -35,6 +38,11 @@ public class CryptographicKeyItemBuilder {
         return this;
     }
 
+    public CryptographicKeyItemBuilder withKeyMeta(List<MetadataAttribute> keyMeta) {
+        this.keyMeta = keyMeta;
+        return this;
+    }
+
     public CryptographicKeyItem build() {
         CryptographicKeyItem item = new CryptographicKeyItem();
         if (name != null) {
@@ -45,6 +53,9 @@ public class CryptographicKeyItemBuilder {
         }
         if (state != null) {
             item.setState(state);
+        }
+        if (keyMeta != null) {
+            item.setKeyMeta(keyMeta);
         }
         return item;
     }
