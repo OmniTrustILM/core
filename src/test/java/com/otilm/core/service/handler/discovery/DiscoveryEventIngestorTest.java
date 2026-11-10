@@ -1,9 +1,11 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.Discovery;
@@ -15,11 +17,14 @@ import com.otilm.core.model.discovery.DiscoveryMessageDraft;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
+import com.otilm.core.util.DiscoveryCheckpointFixture;
 import jakarta.validation.Validation;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +36,7 @@ import static com.otilm.core.util.TestPublicKeys.rsaPublicKey;
 import static com.otilm.core.util.TestPublicKeys.spkiBase64;
 import static com.otilm.core.util.builders.DiscoveredKeyDtoBuilder.aPublicKey;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
@@ -61,13 +67,18 @@ class DiscoveryEventIngestorTest {
     private DiscoveryCertificateRepository certificateRepository;
     @Mock
     private DiscoveryMessageWriter messageWriter;
+    @Mock
+    private DiscoveryRunTerminator terminator;
+    @Mock
+    private DiscoveryWorkWriter workWriter;
 
     private DiscoveryEventIngestor ingestor;
 
     @BeforeEach
     void setUp() {
         ingestor = new DiscoveryEventIngestor(discoveryRepository, itemWriter, certificateHandler, keyItemRepository,
-                certificateRepository, messageWriter, Validation.buildDefaultValidatorFactory().getValidator());
+                certificateRepository, messageWriter, Validation.buildDefaultValidatorFactory().getValidator(),
+                terminator, workWriter);
     }
 
     @Test
@@ -77,7 +88,7 @@ class DiscoveryEventIngestorTest {
 
         // The agenda row cascaded away with the run, so this is a redelivered obsolete tick, not a fault:
         // throwing would send it round the broker's redelivery loop forever.
-        ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", null)));
+        ingestor.applyDrainPage(gone, page(keyItem(1, "key-a", null)), 0L);
 
         verifyNoInteractions(itemWriter, certificateHandler);
     }
@@ -89,7 +100,7 @@ class DiscoveryEventIngestorTest {
         String identity = DiscoveredKeyIdentity.of((DiscoveredKeyDto) known.getPayload());
         when(keyItemRepository.findKnownFingerprints(Set.of(identity))).thenReturn(List.of(identity));
 
-        ingestor.applyDrainPage(run.getUuid(), page(known));
+        ingestor.applyDrainPage(run.getUuid(), page(known), 0L);
 
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(false));
     }
@@ -99,7 +110,7 @@ class DiscoveryEventIngestorTest {
         Discovery run = run();
         when(keyItemRepository.findKnownFingerprints(any())).thenReturn(List.of());
 
-        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", SPKI)));
+        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", SPKI)), 0L);
 
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(true));
     }
@@ -108,7 +119,7 @@ class DiscoveryEventIngestorTest {
     void keyWithoutAPublicPart_isStagedAsNewlyDiscoveredWithoutAnInventoryLookup() {
         Discovery run = run();
 
-        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)));
+        ingestor.applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)), 0L);
 
         verify(keyItemRepository, never()).findKnownFingerprints(any());
         verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), eq(true));
@@ -128,7 +139,7 @@ class DiscoveryEventIngestorTest {
         payload.setPublicKeyFormat(KeyFormat.PRKI);
         payload.setPublicKey("MIIBOgIBAAJBAK...");
 
-        boolean advanced = ingestor.applyDrainPage(run.getUuid(), page(leaked));
+        DrainPageOutcome outcome = ingestor.applyDrainPage(run.getUuid(), page(leaked), 0L);
 
         verify(itemWriter, never()).stage(any(), any(), anyBoolean());
         ArgumentCaptor<List<DiscoveryMessageDraft>> filed = ArgumentCaptor.captor();
@@ -136,7 +147,65 @@ class DiscoveryEventIngestorTest {
         assertThat(filed.getAllValues().stream().flatMap(List::stream))
                 .extracting(DiscoveryMessageDraft::code)
                 .contains(DiscoveryMessageCode.ITEM_INVALID.code());
-        assertThat(advanced).as("re-sending the same item cannot make it valid, so the cursor steps over it").isTrue();
+        assertThat(outcome)
+                .as("re-sending the same item cannot make it valid, so the cursor steps over it")
+                .isEqualTo(DrainPageOutcome.ADVANCED);
+    }
+
+    @Test
+    void dropsThePageAsStale_whenTheCheckpointedRunsRevisionMovedOn() {
+        // given
+        Discovery run = run();
+        run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        run.setCheckpointRevision(5);
+        List<MetadataAttribute> storedPosition = DiscoveryCheckpointFixture.checkpoint("position", "stored");
+        run.setCheckpoint(storedPosition);
+        var revisionTheTickRead = 4L;
+
+        // when
+        DrainPageOutcome outcome = ingestor
+                .applyDrainPage(run.getUuid(), checkpointedPage(keyItem(1, "key-a", null)), revisionTheTickRead);
+
+        // then
+        assertThat(outcome).isEqualTo(DrainPageOutcome.STALE);
+        verifyNoInteractions(itemWriter, certificateHandler);
+        assertThat(run.getCheckpoint()).isSameAs(storedPosition);
+        assertThat(run.getCheckpointRevision()).isEqualTo(5);
+        assertThat(run.getLastAppliedSequence()).isZero();
+    }
+
+    @Test
+    void appliesTheBufferedPage_whenTheRevisionItCarriesIsStale() {
+        // given
+        Discovery run = run();
+        run.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+        run.setCheckpointRevision(5);
+        var revisionTheTickRead = 4L;
+
+        // when
+        DrainPageOutcome outcome = ingestor
+                .applyDrainPage(run.getUuid(), page(keyItem(1, "key-a", null)), revisionTheTickRead);
+
+        // then
+        assertThat(outcome).isEqualTo(DrainPageOutcome.ADVANCED);
+        verify(itemWriter).stage(eq(run.getUuid()), any(DiscoveredItemDto.class), anyBoolean());
+        assertThat(run.getCheckpointRevision()).isEqualTo(5);
+    }
+
+    @Test
+    void throwsNonConformant_whenACheckpointedPageCarriesNoCheckpoint() {
+        // given
+        Discovery run = run();
+        run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        DiscoveryResultsResponseDto noCheckpoint = page(keyItem(1, "key-a", null));
+
+        // when
+        ThrowingCallable apply = () -> ingestor.applyDrainPage(run.getUuid(), noCheckpoint, 0L);
+
+        // then
+        assertThatThrownBy(apply).isInstanceOf(NonConformantPageException.class);
+        verifyNoInteractions(itemWriter);
+        assertThat(run.getCheckpointRevision()).isZero();
     }
 
     private Discovery run() {
@@ -152,6 +221,12 @@ class DiscoveryEventIngestorTest {
         page.setItems(List.of(items));
         page.setHighestSequence(1L);
         page.setMore(false);
+        return page;
+    }
+
+    private DiscoveryResultsResponseDto checkpointedPage(DiscoveredItemDto... items) {
+        DiscoveryResultsResponseDto page = page(items);
+        page.setCheckpoint(DiscoveryCheckpointFixture.checkpoint("position", "after this page"));
         return page;
     }
 

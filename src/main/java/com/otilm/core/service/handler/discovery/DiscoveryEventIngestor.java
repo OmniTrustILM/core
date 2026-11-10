@@ -6,9 +6,11 @@ import com.otilm.api.model.connector.discovery.DiscoveryProviderCertificateDataD
 import com.otilm.api.model.connector.discovery.v2.DiscoveredCertificateDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryMessageSeverity;
+import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.DiscoveryCertificateRepository;
@@ -19,6 +21,7 @@ import com.otilm.core.model.discovery.DiscoveryRunLifecycle;
 import com.otilm.core.service.handler.CertificateHandler;
 import com.otilm.core.service.writer.discovery.DiscoveryItemWriter;
 import com.otilm.core.service.writer.discovery.DiscoveryMessageWriter;
+import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import java.util.ArrayList;
@@ -53,11 +56,14 @@ public class DiscoveryEventIngestor {
     private final DiscoveryCertificateRepository certificateRepository;
     private final DiscoveryMessageWriter messageWriter;
     private final Validator validator;
+    private final DiscoveryRunTerminator terminator;
+    private final DiscoveryWorkWriter workWriter;
 
+    @SuppressWarnings("java:S107")
     public DiscoveryEventIngestor(DiscoveryRepository discoveryRepository, DiscoveryItemWriter itemWriter,
             CertificateHandler certificateHandler, CryptographicKeyItemRepository keyItemRepository,
             DiscoveryCertificateRepository certificateRepository, DiscoveryMessageWriter messageWriter,
-            Validator validator) {
+            Validator validator, DiscoveryRunTerminator terminator, DiscoveryWorkWriter workWriter) {
         this.discoveryRepository = discoveryRepository;
         this.itemWriter = itemWriter;
         this.certificateHandler = certificateHandler;
@@ -65,6 +71,8 @@ public class DiscoveryEventIngestor {
         this.certificateRepository = certificateRepository;
         this.messageWriter = messageWriter;
         this.validator = validator;
+        this.terminator = terminator;
+        this.workWriter = workWriter;
     }
 
     /**
@@ -72,21 +80,75 @@ public class DiscoveryEventIngestor {
      * carried — never by the response's {@code highestSequence}, which is run-wide and counts items the connector has
      * produced but not yet handed over.
      *
-     * @return whether the cursor advanced
+     * <p>
+     * A checkpointed run is applied only from the position the page was asked from: {@code expectedRevision} is the
+     * checkpoint revision of the run the tick built its request from, and a run that has moved on since drops the page
+     * as {@link DrainPageOutcome#STALE}. Its items, cursor, checkpoint and revision are written together. A buffered
+     * run ignores the revision.
+     *
+     * @throws NonConformantPageException when a checkpointed page carries no checkpoint
      */
     @Transactional
-    public boolean applyDrainPage(UUID discoveryUuid, DiscoveryResultsResponseDto page) {
+    public DrainPageOutcome applyDrainPage(UUID discoveryUuid, DiscoveryResultsResponseDto page,
+            long expectedRevision) {
         Optional<Discovery> located = lockRun(discoveryUuid, "drain page");
         if (located.isEmpty()) {
-            return false;
+            return DrainPageOutcome.NOT_ADVANCED;
         }
         Discovery run = located.get();
         if (DiscoveryRunLifecycle.isTerminal(run.getStatus())) {
             // Terminal only, not hasLeftTheConnector: the row lock ensures a page still in flight during the
             // handover either lands before PROCESSING ends or finds the run already terminal.
             logger.warn("Dropping drain page for discovery {}: the run ended as {}", discoveryUuid, run.getStatus());
-            return false;
+            return DrainPageOutcome.NOT_ADVANCED;
         }
+        if (run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED) {
+            return applyCheckpointedPage(run, page, expectedRevision);
+        }
+        return stageItems(run, page) ? DrainPageOutcome.ADVANCED : DrainPageOutcome.NOT_ADVANCED;
+    }
+
+    private DrainPageOutcome applyCheckpointedPage(Discovery run, DiscoveryResultsResponseDto page,
+            long expectedRevision) {
+        if (run.getCheckpointRevision() != expectedRevision) {
+            logger
+                    .debug("Dropping a stale drain page for discovery {}: asked from revision {}, the run is at {}",
+                            run.getUuid(), expectedRevision, run.getCheckpointRevision());
+            return DrainPageOutcome.STALE;
+        }
+        List<MetadataAttribute> checkpoint = page.getCheckpoint();
+        if (checkpoint == null) {
+            throw new NonConformantPageException("A checkpointed results page carried no checkpoint");
+        }
+        if (DiscoveryProviderV2Adapter.serializedSize(checkpoint) > DiscoveryProviderV2Adapter.MAX_META_BYTES) {
+            endUndriveable(run, checkpoint);
+            return DrainPageOutcome.NOT_ADVANCED;
+        }
+        boolean itemsApplied = stageItems(run, page);
+        boolean positionMoved = !CheckpointComparison.same(run.getCheckpoint(), checkpoint);
+        run.setCheckpoint(checkpoint);
+        run.setCheckpointRevision(run.getCheckpointRevision() + 1);
+        return itemsApplied || positionMoved ? DrainPageOutcome.ADVANCED : DrainPageOutcome.NOT_ADVANCED;
+    }
+
+    /**
+     * Ends a run whose connector answered with a checkpoint too large to replay, as initiate, stop and resume do: every
+     * later call would carry it. The lock is already held here, so the ending is applied in this transaction.
+     */
+    private void endUndriveable(Discovery run, List<MetadataAttribute> checkpoint) {
+        logger
+                .error("Discovery {} answered results with a checkpoint of {} bytes, over the {} byte cap; ending the run",
+                        run.getUuid(), DiscoveryProviderV2Adapter.serializedSize(checkpoint),
+                        DiscoveryProviderV2Adapter.MAX_META_BYTES);
+        terminator
+                .applyTerminalState(run, DiscoveryStatus.FAILED,
+                        "The connector's run handle is too large to replay, so the run cannot be driven further");
+        workWriter.deleteForRun(run.getUuid());
+    }
+
+    /** @return whether the cursor advanced */
+    private boolean stageItems(Discovery run, DiscoveryResultsResponseDto page) {
+        UUID discoveryUuid = run.getUuid();
         List<DiscoveredItemDto> items = page.getItems() == null ? List.of() : page.getItems();
         if (items.isEmpty()) {
             return false;

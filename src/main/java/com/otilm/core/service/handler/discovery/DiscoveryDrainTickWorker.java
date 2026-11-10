@@ -103,6 +103,8 @@ public class DiscoveryDrainTickWorker {
             return;
         }
 
+        // The position this tick asks from; a checkpointed page applies only while the run is still there.
+        long revision = run.getCheckpointRevision();
         DiscoveryResultsResponseDto page;
         try {
             // Outside any transaction, by the platform's connector-call rule.
@@ -132,9 +134,12 @@ public class DiscoveryDrainTickWorker {
             logger.debug("Dropping a drained page for discovery {}: another tick holds its row now", discoveryUuid);
             return;
         }
-        boolean advanced;
+        DrainPageOutcome outcome;
         try {
-            advanced = ingestor.applyDrainPage(discoveryUuid, page);
+            outcome = ingestor.applyDrainPage(discoveryUuid, page, revision);
+        } catch (NonConformantPageException e) {
+            handleNonConformant(discoveryUuid, attempt);
+            return;
         } catch (RuntimeException e) {
             // Staging sits outside the connector-call catch, so without this a deterministic page failure -- a
             // payload that will not serialize, a constraint violation -- escapes to the listener's
@@ -143,12 +148,19 @@ public class DiscoveryDrainTickWorker {
             handleUnstageable(discoveryUuid, attempt, e);
             return;
         }
-        continueAfter(tick, run, page, advanced);
+        if (outcome == DrainPageOutcome.STALE) {
+            // Whoever moved the run on scheduled what comes next; climbing the ladder over a duplicate could end a
+            // healthy run.
+            tick.releaseOnly();
+            return;
+        }
+        continueAfter(tick, run, page, outcome == DrainPageOutcome.ADVANCED);
     }
 
     /**
-     * A page Core cannot act on. Counted against the drain budget like any other unanswered tick, so a connector that
-     * keeps omitting required fields ends the run rather than stalling it forever.
+     * A page Core cannot act on: a field the contract requires is missing, such as the checkpoint on a checkpointed
+     * run's page. Counted against the drain budget like any other unanswered tick, so a connector that keeps omitting
+     * required fields ends the run rather than stalling it forever.
      */
     private void handleNonConformant(UUID discoveryUuid, int attempt) {
         if (!budget
