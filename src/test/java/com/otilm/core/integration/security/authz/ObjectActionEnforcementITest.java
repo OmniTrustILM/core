@@ -293,9 +293,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
                         List
                                 .of(endpoint(() -> certificateService.getCertificate(certificate),
                                         check(Resource.CERTIFICATE, ResourceAction.DETAIL),
-                                        check(Resource.RA_PROFILE, ResourceAction.MEMBERS)),
-                                        endpoint(() -> certificateService.listLocations(certificate),
-                                                check(Resource.CERTIFICATE, ResourceAction.DETAIL))));
+                                        check(Resource.RA_PROFILE, ResourceAction.MEMBERS))));
         endpoints
                 .put(ResourceAction.UPDATE, List
                         .of(endpoint(() -> certificateService

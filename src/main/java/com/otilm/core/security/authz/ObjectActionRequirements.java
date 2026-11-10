@@ -352,8 +352,9 @@ public final class ObjectActionRequirements {
                         basicCredential.actions().get(ResourceAction.DETAIL), basicCredential.actions(), Map.of()));
 
         // Certificate detail, update and delete also check members on the RA profile, and bulk delete detail on it.
-        // Detail includes the certificate's locations, read through the location list, and delete removes the
-        // certificate from its locations through a location update check asked against the certificate's UUID.
+        // Detail follows the endpoints loading the certificate; tabs such as its locations, read through the location
+        // list, are left to their own actions. Delete removes the certificate from its locations through a location
+        // update check asked against the certificate's UUID.
         // Renew, issue and revoke check the resource and the RA profile and authority they run under, and issue loads
         // the certificate through its detail check. Rekey checks renew, so it has no entry.
         OnObjectUnder inRaProfile = new OnObjectUnder(ResourceAction.DETAIL, Resource.RA_PROFILE, RA_PROFILE_UUID,
@@ -361,11 +362,7 @@ public final class ObjectActionRequirements {
         OnAncestor raProfileDetail = new OnAncestor(Resource.RA_PROFILE, ResourceAction.DETAIL);
         OnAncestor authorityDetail = new OnAncestor(Resource.AUTHORITY, ResourceAction.DETAIL);
         Map<ResourceAction, List<Requirement>> certificate = new LinkedHashMap<>();
-        certificate
-                .put(ResourceAction.DETAIL,
-                        List
-                                .of(new OnObject(ResourceAction.DETAIL), inRaProfile,
-                                        new OnResource(Resource.LOCATION, ResourceAction.LIST)));
+        certificate.put(ResourceAction.DETAIL, List.of(new OnObject(ResourceAction.DETAIL), inRaProfile));
         certificate.put(ResourceAction.UPDATE, List.of(new OnObject(ResourceAction.UPDATE), inRaProfile));
         certificate
                 .put(ResourceAction.DELETE,

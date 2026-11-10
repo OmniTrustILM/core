@@ -611,7 +611,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     @Test
-    void leavesOutCertificateDetail_whenLocationsCannotBeListed() {
+    void reportsCertificateDetail_whenLocationsCannotBeListed() {
         // given
         UUID certificate = saveCertificate(saveRaProfile());
         denyResourceAccess(Resource.LOCATION, ResourceAction.LIST);
@@ -621,9 +621,8 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
         // then
         assertThat(allowed)
-                .as("the certificate's locations are read through the location list")
-                .contains(ResourceAction.UPDATE)
-                .doesNotContain(ResourceAction.DETAIL);
+                .as("the locations tab is left to the location list action")
+                .contains(ResourceAction.DETAIL, ResourceAction.UPDATE);
     }
 
     @Test
