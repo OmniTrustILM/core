@@ -95,7 +95,6 @@ class ConnectorServiceMockITest {
     @Mock
     private ProxyRepository proxyRepository;
 
-    @InjectMocks
     private ConnectorServiceImpl connectorService;
 
     @InjectMocks
@@ -137,11 +136,24 @@ class ConnectorServiceMockITest {
         functionGroup.getEndpoints().add(endpoint3);
 
         ((ConnectorV1Adapter) connectorAdapter).setConnectorApiFactory(connectorApiFactory);
-        ((ConnectorServiceImpl) connectorService)
+        connectorService = new ConnectorServiceImpl();
+        connectorService
                 .setConnectorAdapters(Map
                         .of(ConnectorVersion.V1.getCode(), connectorAdapter, ConnectorVersion.V2.getCode(),
                                 connectorAdapter));
         connectorService.setTransactionHandler(new TransactionHandler());
+        connectorService.setConnectorRepository(connectorRepository);
+        connectorService.setConnector2FunctionGroupRepository(connector2FunctionGroupRepository);
+        connectorService.setCredentialRepository(credentialRepository);
+        connectorService.setAuthorityInstanceReferenceRepository(authorityInstanceReferenceRepository);
+        connectorService.setEntityInstanceReferenceRepository(entityInstanceReferenceRepository);
+        connectorService.setTokenInstanceReferenceRepository(tokenInstanceReferenceRepository);
+        connectorService.setVaultInstanceRepository(vaultInstanceRepository);
+        connectorService.setComplianceProfileRepository(complianceProfileRepository);
+        connectorService.setComplianceProfileRuleRepository(complianceProfileRuleRepository);
+        connectorService.setProxyRepository(proxyRepository);
+        connectorService.setConnectorAuthService(connectorAuthService);
+        connectorService.setAttributeEngine(attributeEngine);
 
         when(functionGroupRepository.findByCode(any())).thenReturn(Optional.empty());
         when(functionGroupRepository.findByCode(FunctionGroupCode.CREDENTIAL_PROVIDER))
