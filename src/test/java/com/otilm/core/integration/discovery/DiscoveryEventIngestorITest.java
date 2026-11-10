@@ -259,12 +259,12 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     }
 
     @Test
-    void appliesOnlyTheFirst_whenTwoDarkPagesArriveFromOneRevision() {
+    void appliesOnlyTheFirst_whenTwoItemlessPagesArriveFromOneRevision() {
         // given
         Discovery run = checkpointedRun();
         long revisionBothTicksRead = run.getCheckpointRevision();
-        var firstPosition = position("cursor-120");
-        var secondPosition = position("cursor-140");
+        List<MetadataAttribute> firstPosition = position("cursor-120");
+        List<MetadataAttribute> secondPosition = position("cursor-140");
 
         // when
         DrainPageOutcome first = ingestor
@@ -284,7 +284,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
         // given
         Discovery run = checkpointedRun();
         long revisionBothTicksRead = run.getCheckpointRevision();
-        var firstPosition = position("cursor-2");
+        List<MetadataAttribute> firstPosition = position("cursor-2");
 
         // when
         DrainPageOutcome first = ingestor
@@ -325,11 +325,11 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     }
 
     @Test
-    void advances_whenADarkPageMovesTheCheckpoint() {
+    void advances_whenAnItemlessPageMovesTheCheckpoint() {
         // given
         Discovery run = checkpointedRun();
         long revision = run.getCheckpointRevision();
-        var movedPosition = position("cursor-240");
+        List<MetadataAttribute> movedPosition = position("cursor-240");
 
         // when
         DrainPageOutcome outcome = ingestor.applyDrainPage(run.getUuid(), checkpointedPage(movedPosition), revision);
@@ -343,7 +343,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     }
 
     @Test
-    void doesNotAdvance_whenADarkPageRepeatsTheStoredCheckpoint() {
+    void doesNotAdvance_whenAnItemlessPageRepeatsTheStoredCheckpoint() {
         // given
         Discovery run = checkpointedRun();
         ingestor.applyDrainPage(run.getUuid(), checkpointedPage(position("cursor-240")), run.getCheckpointRevision());
@@ -361,7 +361,7 @@ class DiscoveryEventIngestorITest extends BaseSpringBootTest {
     void endsTheRun_whenACheckpointedPageCarriesAnOversizedCheckpoint() {
         // given
         Discovery run = checkpointedRun();
-        var overTheCap = position("x".repeat(70 * 1024));
+        List<MetadataAttribute> overTheCap = position("x".repeat(70 * 1024));
 
         // when
         DrainPageOutcome outcome = ingestor

@@ -204,7 +204,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         Discovery run = checkpointedRunStillScanning();
         armDrainRow(run, 0);
         DiscoveryWorkTick tick = admitTick(run, 0);
-        long revisionAfterTheStop = run.getCheckpointRevision() + 1;
+        long revisionRaisedBehindTheTick = run.getCheckpointRevision() + 1;
         when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
             raiseTheRevisionBehindTheTick(run);
             return checkpointedPage(position("cursor-1"), keyItem(1, "key-a"));
@@ -215,7 +215,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
 
         // then
         assertThat(stagedRefs(run)).isEmpty();
-        assertThat(reload(run).getCheckpointRevision()).isEqualTo(revisionAfterTheStop);
+        assertThat(reload(run).getCheckpointRevision()).isEqualTo(revisionRaisedBehindTheTick);
         DiscoveryWork row = drainRow(run);
         assertThat(row.getLeaseToken()).as("a stale tick frees its row for the sweep at once").isNull();
         assertThat(row.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));

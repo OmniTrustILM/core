@@ -16,14 +16,15 @@ import org.springframework.stereotype.Component;
 
 /**
  * Defers a checkpointed drain whose connector answered that it is busy, without spending the drain budget: the
- * connector is at its slice limit, or a drain reached it from an older Core. A connector that stays busy for longer
- * than {@code discovery.slice.max-busy-wait} falls back to the budget, so one that is broken still fails its runs.
+ * connector is at its slice limit, or this Core's offer no longer includes checkpointed, which the contract also
+ * answers with 503. A connector that stays busy for longer than {@code discovery.slice.max-busy-wait} falls back to the
+ * budget, so one that is broken still fails its runs.
  */
 @Component
 public class DiscoveryBusyDeferral {
 
-    static final Duration DEFAULT_DELAY = Duration.ofSeconds(5);
-    static final long JITTER_MILLIS = 1000;
+    private static final Duration DEFAULT_DELAY = Duration.ofSeconds(5);
+    private static final long JITTER_MILLIS = 1000;
 
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryWorkRepository workRepository;
@@ -43,9 +44,8 @@ public class DiscoveryBusyDeferral {
     }
 
     /**
-     * Makes the tick's row due again after the connector's {@code Retry-After}, or after about five seconds, at the
-     * attempt the tick was claimed with. Fenced by the checkpoint revision: a tick another tick, a stop or a resume
-     * overtook only frees its row.
+     * Makes the tick's row due again after the connector's {@code Retry-After}, or after {@link #DEFAULT_DELAY} with
+     * jitter, at the attempt the tick was claimed with. A tick that was overtaken only frees its row.
      *
      * @param fence whether the tick still speaks for the run, checked under the run's row lock
      * @return false once the connector has been busy for longer than the maximum wait, leaving the caller to charge the

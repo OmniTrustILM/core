@@ -62,6 +62,8 @@ class DiscoveryDeliveryModeOfferTest {
     @ParameterizedTest
     @ValueSource(strings = {"", " ", ", ,"})
     void refusesToStart_whenNoModeIsConfigured(String nothingOffered) {
+        // given — a mode list naming nothing
+
         // when
         ThrowingCallable parse = () -> new DiscoveryDeliveryModeOffer(nothingOffered);
 

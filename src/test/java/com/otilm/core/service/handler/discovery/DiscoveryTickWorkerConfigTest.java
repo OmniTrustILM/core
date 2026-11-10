@@ -44,6 +44,8 @@ class DiscoveryTickWorkerConfigTest {
     @ParameterizedTest
     @CsvSource({"99, 1048576, discovery.drain.max-items", "100, 1048575, discovery.drain.max-bytes"})
     void refusesToStart_whenAPageLimitIsBelowTheFloor(int maxItems, long maxBytes, String settingBelowTheFloor) {
+        // given — one page limit just below its floor
+
         // when
         ThrowingCallable construct = () -> drainWorkerWith(maxItems, maxBytes);
 

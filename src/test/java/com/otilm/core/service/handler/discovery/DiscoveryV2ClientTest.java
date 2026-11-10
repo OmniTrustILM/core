@@ -45,6 +45,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -135,29 +137,17 @@ class DiscoveryV2ClientTest {
                 .isEqualTo(run.getCheckpoint());
     }
 
-    @Test
-    void offersTheConfiguredModes_onEveryRequest() throws Exception {
-        // given
-        when(apiClient.initiate(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
-        when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
-        when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
-        when(apiClient.stop(any(), any())).thenReturn(new DiscoveryStopResponseDto());
-        when(apiClient.resume(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+    @ParameterizedTest
+    @ValueSource(strings = {"initiate", "status", "results", "stop", "resume", "cancel"})
+    void offersTheConfiguredModes_onEveryRequest(String operation) throws Exception {
+        // given — the client offers checkpointed, then buffered
 
         // when
-        client.initiate(run);
-        client.status(run);
-        client.results(run, 500, 5_242_880L);
-        client.stop(run);
-        client.resume(run);
-        client.cancel(run);
+        DiscoveryV2ScopedRequestDto sent = sendAndCapture(operation);
 
         // then
-        List<DiscoveryV2ScopedRequestDto> sent = capturedRequestsOfEveryCall();
-        assertThat(sent)
-                .hasSize(6)
-                .allSatisfy(request -> assertThat(request.getDeliveryModes())
-                        .containsExactly(DiscoveryDeliveryMode.CHECKPOINTED, DiscoveryDeliveryMode.BUFFERED));
+        assertThat(sent.getDeliveryModes())
+                .containsExactly(DiscoveryDeliveryMode.CHECKPOINTED, DiscoveryDeliveryMode.BUFFERED);
     }
 
     @Test
@@ -463,23 +453,45 @@ class DiscoveryV2ClientTest {
         return sent.getValue();
     }
 
-    private List<DiscoveryV2ScopedRequestDto> capturedRequestsOfEveryCall() throws Exception {
-        ArgumentCaptor<DiscoveryInitiateRequestDto> initiate = ArgumentCaptor
-                .forClass(DiscoveryInitiateRequestDto.class);
-        ArgumentCaptor<DiscoveryRunRequestDto> status = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
-        ArgumentCaptor<DiscoveryDrainRequestDto> drain = ArgumentCaptor.forClass(DiscoveryDrainRequestDto.class);
-        ArgumentCaptor<DiscoveryRunRequestDto> stop = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
-        ArgumentCaptor<DiscoveryRunRequestDto> resume = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
-        ArgumentCaptor<DiscoveryRunRequestDto> cancel = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
-        verify(apiClient).initiate(any(ConnectorDto.class), initiate.capture());
-        verify(apiClient).status(any(ConnectorDto.class), status.capture());
-        verify(apiClient).results(any(ConnectorDto.class), drain.capture());
-        verify(apiClient).stop(any(ConnectorDto.class), stop.capture());
-        verify(apiClient).resume(any(ConnectorDto.class), resume.capture());
-        verify(apiClient).cancel(any(ConnectorDto.class), cancel.capture());
-        return List
-                .of(initiate.getValue(), status.getValue(), drain.getValue(), stop.getValue(), resume.getValue(),
-                        cancel.getValue());
+    /** Sends the named call for the run and returns the request the connector received. */
+    private DiscoveryV2ScopedRequestDto sendAndCapture(String operation) throws Exception {
+        ArgumentCaptor<DiscoveryRunRequestDto> runRequest = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
+        switch (operation) {
+            case "initiate" -> {
+                ArgumentCaptor<DiscoveryInitiateRequestDto> sent = ArgumentCaptor
+                        .forClass(DiscoveryInitiateRequestDto.class);
+                when(apiClient.initiate(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+                client.initiate(run);
+                verify(apiClient).initiate(any(ConnectorDto.class), sent.capture());
+                return sent.getValue();
+            }
+            case "results" -> {
+                when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
+                client.results(run, 500, 5_242_880L);
+                return capturedDrain();
+            }
+            case "status" -> {
+                when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
+                client.status(run);
+                verify(apiClient).status(any(ConnectorDto.class), runRequest.capture());
+            }
+            case "stop" -> {
+                when(apiClient.stop(any(), any())).thenReturn(new DiscoveryStopResponseDto());
+                client.stop(run);
+                verify(apiClient).stop(any(ConnectorDto.class), runRequest.capture());
+            }
+            case "resume" -> {
+                when(apiClient.resume(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+                client.resume(run);
+                verify(apiClient).resume(any(ConnectorDto.class), runRequest.capture());
+            }
+            case "cancel" -> {
+                client.cancel(run);
+                verify(apiClient).cancel(any(ConnectorDto.class), runRequest.capture());
+            }
+            default -> throw new IllegalArgumentException("No such call: " + operation);
+        }
+        return runRequest.getValue();
     }
 
     private DiscoveryDrainRequestDto capturedDrain() throws Exception {

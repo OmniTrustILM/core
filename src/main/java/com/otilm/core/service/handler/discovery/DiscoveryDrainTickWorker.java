@@ -42,8 +42,8 @@ public class DiscoveryDrainTickWorker {
 
     private static final Logger logger = LoggerFactory.getLogger(DiscoveryDrainTickWorker.class);
 
-    static final int MIN_PAGE_ITEMS = 100;
-    static final long MIN_PAGE_BYTES = 1_048_576L;
+    private static final int MIN_PAGE_ITEMS = 100;
+    private static final long MIN_PAGE_BYTES = 1_048_576L;
 
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryV2Client client;
@@ -77,8 +77,7 @@ public class DiscoveryDrainTickWorker {
         this.workProperties = workProperties;
         this.transactionHandler = transactionHandler;
         // Fail at startup rather than on every drain. A checkpointed connector never splits one target's items
-        // across pages, so a page smaller than one target stalls the run, and a non-positive bound produces a
-        // request the connector rejects each time it is sent.
+        // across pages, so a page smaller than one target stalls the run.
         if (maxItems < MIN_PAGE_ITEMS) {
             throw new IllegalArgumentException("discovery.drain.max-items must be at least " + MIN_PAGE_ITEMS);
         }
@@ -330,7 +329,7 @@ public class DiscoveryDrainTickWorker {
      * <p>
      * A checkpointed run's connector holds nothing between calls, so a refusal is final — an oversized target or a
      * checkpoint it cannot read — and ends the run at once, while a busy answer only defers the drain. A buffered run
-     * charges both to the budget, as it always has.
+     * charges both to the budget.
      */
     private void handleUnanswered(DiscoveryWorkTick tick, Discovery run, DiscoveryTickFence fence, Throwable e) {
         UUID discoveryUuid = tick.discoveryUuid();

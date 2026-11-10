@@ -62,8 +62,10 @@ public final class DiscoveryConnectorErrors {
 
     /**
      * True when the connector answered 422: it cannot do what was asked, and asking again repeats the answer. Over REST
-     * the answer is a problem document, or a plain client error without one; the AMQP proxy turns a 422 into a
-     * {@link ValidationException}.
+     * a 422 arrives as a problem document, as a {@link ValidationException} when its body is plain, or as a client
+     * error when its problem body is empty. Over the AMQP proxy only a problem document carries the 422: the proxy
+     * files a plain 422 as an unknown error, and a plain 400 as a {@link ValidationException}, which reads as a refusal
+     * too.
      */
     public static boolean isRefusal(Throwable e) {
         if (e instanceof ValidationException) {

@@ -63,8 +63,9 @@ class CheckpointedDrainRaceITest extends BaseSpringBootTest {
         // given
         Discovery run = checkpointedRun();
         long revisionBothTicksRead = run.getCheckpointRevision();
-        var firstPage = page(position("cursor-2"), keyItem(1, "key-a"), keyItem(2, "key-b"));
-        var secondPage = page(position("cursor-3"), keyItem(1, "key-a"), keyItem(2, "key-b"), keyItem(3, "key-c"));
+        DiscoveryResultsResponseDto firstPage = page(position("cursor-2"), keyItem(1, "key-a"), keyItem(2, "key-b"));
+        DiscoveryResultsResponseDto secondPage = page(position("cursor-3"), keyItem(1, "key-a"), keyItem(2, "key-b"),
+                keyItem(3, "key-c"));
         ExecutorService ticks = Executors.newFixedThreadPool(2);
 
         // when

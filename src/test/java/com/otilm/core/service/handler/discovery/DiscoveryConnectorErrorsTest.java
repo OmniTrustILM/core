@@ -126,6 +126,8 @@ class DiscoveryConnectorErrorsTest {
     @ParameterizedTest
     @MethodSource("refusals")
     void readsARefusal_whenTheConnectorAnswered422(Exception refusal) {
+        // given — a 422 in the shape its transport delivers it
+
         // when
         boolean isRefusal = DiscoveryConnectorErrors.isRefusal(refusal);
 
@@ -136,6 +138,8 @@ class DiscoveryConnectorErrorsTest {
     @ParameterizedTest
     @MethodSource("busyAnswers")
     void readsNoRefusal_whenTheConnectorWasBusy(Exception busy) {
+        // given — a 503 in the shape its transport delivers it
+
         // when
         boolean isRefusal = DiscoveryConnectorErrors.isRefusal(busy);
 
@@ -146,6 +150,8 @@ class DiscoveryConnectorErrorsTest {
     @ParameterizedTest
     @MethodSource("busyAnswers")
     void readsBusy_whenTheConnectorAnswered503(Exception busy) {
+        // given — a 503 in the shape its transport delivers it
+
         // when
         boolean isBusy = DiscoveryConnectorErrors.isBusy(busy);
 
@@ -156,6 +162,8 @@ class DiscoveryConnectorErrorsTest {
     @ParameterizedTest
     @MethodSource("notBusyFailures")
     void readsNotBusy_whenTheFailureWasSomethingElse(Exception failure) {
+        // given — a failure that is not a 503
+
         // when
         boolean isBusy = DiscoveryConnectorErrors.isBusy(failure);
 
@@ -210,7 +218,7 @@ class DiscoveryConnectorErrorsTest {
                 .of(named("a problem document over REST", problem(ErrorCode.VALIDATION_FAILED)),
                         named("a 422 with an empty problem body over REST",
                                 new ConnectorClientException("HTTP 422", HttpStatus.valueOf(422))),
-                        named("a validation failure over the proxy", new ValidationException("HTTP 422")));
+                        named("a 422 with a plain body over REST", new ValidationException("HTTP 422")));
     }
 
     static Stream<Named<Exception>> busyAnswers() {

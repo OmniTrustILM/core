@@ -63,6 +63,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
 
     private static final int LAST_ALLOWED_DRAIN_ATTEMPT = 99;
     private static final int LAST_ALLOWED_STATUS_ATTEMPT = 719;
+    private static final Duration MAX_BUSY_WAIT = Duration.ofMinutes(30);
 
     @MockitoBean
     private DiscoveryV2Client client;
@@ -92,7 +93,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
         armRow(run, DiscoveryWorkType.DRAIN, LAST_ALLOWED_DRAIN_ATTEMPT);
         when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
-            applyAnotherTicksPage(run);
+            raiseTheRevisionBehindTheTick(run);
             throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
         });
 
@@ -110,7 +111,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
         armRow(run, DiscoveryWorkType.DRAIN, 0);
         when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
-            applyAnotherTicksPage(run);
+            raiseTheRevisionBehindTheTick(run);
             throw notTracked();
         });
 
@@ -128,7 +129,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
         armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
         when(client.status(any())).thenAnswer(call -> {
-            applyAnotherTicksPage(run);
+            raiseTheRevisionBehindTheTick(run);
             throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
         });
 
@@ -178,7 +179,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     @Test
     void endsNothing_whenAResumeCommitsWhileTheLastStatusAttemptOfTheStoppedRunFails() throws Exception {
         // given
-        Discovery run = stopped(runIn(DiscoveryDeliveryMode.CHECKPOINTED));
+        Discovery run = persistAsStopped(runIn(DiscoveryDeliveryMode.CHECKPOINTED));
         armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
         when(client.status(any())).thenAnswer(call -> {
             commitTheResume(run);
@@ -207,7 +208,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     @ParameterizedTest
-    @MethodSource("refusalsOnEitherTransport")
+    @MethodSource("refusalsOverRest")
     void endsACheckpointedRunAtOnce_whenTheConnectorRefusesItsDrain(Exception refusal) throws Exception {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
@@ -229,7 +230,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
         armRow(run, DiscoveryWorkType.DRAIN, 0);
         when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
-            applyAnotherTicksPage(run);
+            raiseTheRevisionBehindTheTick(run);
             throw problem(HttpStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_FAILED, null);
         });
 
@@ -322,9 +323,9 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         armRow(run, DiscoveryWorkType.DRAIN, 0);
         OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
         var busyFor = Duration.ofMinutes(25);
-        var leftOfTheMaxWait = Duration.ofMinutes(5);
+        Duration leftOfTheMaxWait = MAX_BUSY_WAIT.minus(busyFor);
         markBusySince(run, before.minus(busyFor));
-        var retryAfterPastTheMaxWait = (int) Duration.ofMinutes(25).toSeconds();
+        var retryAfterPastTheMaxWait = (int) leftOfTheMaxWait.plusMinutes(20).toSeconds();
         when(client.results(any(), anyInt(), anyLong()))
                 .thenThrow(problem(HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.SERVICE_UNAVAILABLE,
                         retryAfterPastTheMaxWait));
@@ -358,7 +359,8 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
         armRow(run, DiscoveryWorkType.DRAIN, LAST_ALLOWED_DRAIN_ATTEMPT);
-        markBusySince(run, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(31));
+        OffsetDateTime busyPastTheMaxWait = OffsetDateTime.now(ZoneOffset.UTC).minus(MAX_BUSY_WAIT).minusMinutes(1);
+        markBusySince(run, busyPastTheMaxWait);
         when(client.results(any(), anyInt(), anyLong())).thenThrow(serverFailure(HttpStatus.SERVICE_UNAVAILABLE));
 
         // when
@@ -374,17 +376,20 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     void leavesTheRowToTheBudget_whenTheConnectorStaysBusyPastTheMaxWait() throws Exception {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
-        armRow(run, DiscoveryWorkType.DRAIN, 6);
-        markBusySince(run, OffsetDateTime.now(ZoneOffset.UTC).minusMinutes(31));
+        var attemptTheTickCarries = 5;
+        var attemptTheClaimCharged = attemptTheTickCarries + 1;
+        armRow(run, DiscoveryWorkType.DRAIN, attemptTheClaimCharged);
+        OffsetDateTime busyPastTheMaxWait = OffsetDateTime.now(ZoneOffset.UTC).minus(MAX_BUSY_WAIT).minusMinutes(1);
+        markBusySince(run, busyPastTheMaxWait);
         when(client.results(any(), anyInt(), anyLong())).thenThrow(serverFailure(HttpStatus.SERVICE_UNAVAILABLE));
 
         // when
-        drainWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.DRAIN, 5));
+        drainWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.DRAIN, attemptTheTickCarries));
 
         // then
         DiscoveryWork row = row(run, DiscoveryWorkType.DRAIN);
         assertThat(row.getLeaseToken()).as("not deferred: the listener's retry moves it up a rung").isNotNull();
-        assertThat(row.getAttempt()).isEqualTo(6);
+        assertThat(row.getAttempt()).isEqualTo(attemptTheClaimCharged);
     }
 
     @Test
@@ -420,11 +425,11 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Named<Exception>> refusalsOnEitherTransport() {
+    static Stream<Named<Exception>> refusalsOverRest() {
         return Stream
                 .of(named("a problem document over REST",
                         problem(HttpStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_FAILED, null)),
-                        named("a validation failure over the proxy", new ValidationException("HTTP 422")));
+                        named("a 422 with a plain body", new ValidationException("HTTP 422")));
     }
 
     static Stream<Named<Exception>> busyAnswersOnEitherTransport() {
@@ -478,7 +483,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     /** What another tick applying its page, a stop or a resume does to the run while this tick is at the connector. */
-    private void applyAnotherTicksPage(Discovery run) {
+    private void raiseTheRevisionBehindTheTick(Discovery run) {
         Discovery current = reload(run);
         current.setCheckpointRevision(current.getCheckpointRevision() + 1);
         discoveryRepository.saveAndFlush(current);
@@ -495,7 +500,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         workWriter.resetAttempt(run.getUuid(), DiscoveryWorkType.STATUS, 0);
     }
 
-    private Discovery stopped(Discovery run) {
+    private Discovery persistAsStopped(Discovery run) {
         run.setStatus(DiscoveryStatus.STOPPED);
         run.setConnectorStatus(DiscoveryStatus.STOPPED);
         run.setStoppedAt(OffsetDateTime.now(ZoneOffset.UTC));

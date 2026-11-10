@@ -51,8 +51,7 @@ public class DiscoveryTickBudget {
     }
 
     /**
-     * Charges one unanswered tick. The ending is fenced, so a late failure of a tick that another tick, a stop or a
-     * resume overtook ends nothing.
+     * Charges one unanswered tick. The ending is fenced: a late failure of an overtaken tick ends nothing.
      *
      * @param fence whether the tick still speaks for the run, checked under the run's row lock
      * @param terminalReason Core-authored text for the run's ending, used only once the budget is spent

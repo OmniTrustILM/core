@@ -409,7 +409,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             // The status checked before the connector call was a snapshot; the call can take tens of seconds, and a
             // tick worker or the reaper may have ended the run since. Writing STOPPED over that would resurrect it.
             requireStatus(locked, "stopped", DiscoveryStatus.IN_PROGRESS);
-            // Omitted keeps the handle from the response that last carried one; only a present list replaces it.
+            // A null handle keeps the stored one: the connector omitted it, or the run is checkpointed.
             List<MetadataAttribute> handle = handleToStore(locked.getDeliveryMode(), returnedHandle);
             if (handle != null) {
                 locked.setCheckpoint(handle);
@@ -475,7 +475,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             Discovery locked = lock(discoveryUuid);
             // Same reason as stop: the legality check ran against a snapshot taken before the connector call.
             requireStatus(locked, "resumed", DiscoveryStatus.STOPPED);
-            // As in stop: an omitted checkpoint keeps the stored handle.
+            // As in stop: a null handle keeps the stored one.
             if (returnedHandle != null) {
                 locked.setCheckpoint(returnedHandle);
             }
