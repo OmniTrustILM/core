@@ -12,6 +12,7 @@ import com.otilm.api.model.core.cryptography.key.KeyItemDetailDto;
 import com.otilm.api.model.core.cryptography.key.KeyItemDto;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import com.otilm.core.model.NamedModel;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.util.DtoMapper;
@@ -40,6 +41,7 @@ import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.type.SqlTypes;
 import org.springframework.data.annotation.CreatedDate;
@@ -86,9 +88,14 @@ public class CryptographicKeyItem extends UniquelyIdentified
     @Column(name = "key_reference_uuid")
     private UUID keyReferenceUuid;
 
-    /** Opaque provider handle returned unchanged in subsequent v2 key operations. */
+    /**
+     * Opaque provider handle returned unchanged in subsequent v2 key operations. Replace it through the setter and
+     * never change the list in place: {@link ReplaceOnlyMutability} compares the value against itself, so an in-place
+     * change is never written.
+     */
     @Column(name = "key_meta", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(ReplaceOnlyMutability.class)
     @ToString.Exclude
     private List<MetadataAttribute> keyMeta;
 
