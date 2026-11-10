@@ -64,8 +64,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 // noRollbackFor keeps Spring's default (no rollback on checked exceptions): CMP surfaces
-// CmpBaseException as a protocol error response, and this validator shares the caller's
-// transaction, so rolling back on it would mark that transaction rollback-only.
+// CmpBaseException as a protocol error response, and a rollback here would clear the request's
+// EntityManager, detaching the profiles the configuration context holds.
 @Transactional(noRollbackFor = CmpBaseException.class)
 public class ProtectionValidator implements BiValidator<Void, Void> {
 

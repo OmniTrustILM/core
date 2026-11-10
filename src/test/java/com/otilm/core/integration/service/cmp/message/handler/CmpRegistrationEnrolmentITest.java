@@ -66,6 +66,7 @@ import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderConnectorMock;
 import com.otilm.core.util.seeders.CryptographicKeySeeder;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -95,8 +96,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -174,6 +177,8 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     private ConnectorMockFactory connectorMockFactory;
     @PersistenceContext
     private EntityManager entityManager;
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private WireMockServer mockServer;
     private CryptographyProviderConnectorMock cryptographyProvider;
@@ -259,12 +264,6 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         registrationChallengeStore.store(authorization, CHALLENGE);
         authorizationRepository.saveAndFlush(authorization);
         return certificate;
-    }
-
-    private ResponseEntity<byte[]> post(PKIMessage message) throws Exception {
-        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/v1/protocols/cmp/" + PROFILE_NAME);
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
-        return cmpService.handlePost(PROFILE_NAME, message.getEncoded());
     }
 
     private PKIMessage irMessage(String subjectDn, List<String> dnsSans, String challenge, UUID senderKid)
@@ -434,13 +433,14 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     @Test
-    void matchingEnrolmentAnswersOverTheProtocolWhenThePollReadsTheDatabase() throws Exception {
+    void answersWaiting_whenARealPollFindsTheEnrolmentNotYetIssued() throws Exception {
+        // given — a real poll that nothing issues within its budget
         Certificate registration = seedRegistration(SUBJECT_DN, Map.of("dNSName", List.of("device-1.example")),
                 CertificateState.REGISTERED);
-        // A real poll re-reads the certificate inside the request transaction. Nothing issues it here, so the
-        // budget is short and the enrolment is expected to be accepted as pending, over the protocol.
         PollFeature realPoll = new PollFeature();
         realPoll.setCertificateService(certificateService);
+        realPoll.setCertificateRepository(certificateRepository);
+        realPoll.setTransactionManager(transactionManager);
         realPoll.setEntityManager(entityManager);
         realPoll.setPollFeatureTimeout(1);
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
@@ -448,30 +448,36 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
                         .pollCertificate(invocation.getArgument(0), invocation.getArgument(1),
                                 invocation.getArgument(2), invocation.getArgument(3)));
 
+        // when
         ResponseEntity<byte[]> response = post(
                 irMessage(SUBJECT_DN, List.of("device-1.example"), CHALLENGE, registration.getUuid()));
 
+        // then
         PKIMessage ip = PKIMessage.getInstance(response.getBody());
-        assertEquals(PKIBody.TYPE_INIT_REP, ip.getBody().getType());
+        assertThat(ip.getBody().getType()).isEqualTo(PKIBody.TYPE_INIT_REP);
         PKIStatusInfo certStatus = ((CertRepMessage) ip.getBody().getContent()).getResponse()[0].getStatus();
-        assertEquals(PKIStatus.WAITING, certStatus.getStatus().intValue(), "accepted as pending, not rejected");
+        assertThat(certStatus.getStatus().intValue())
+                .as("accepted as pending, not rejected")
+                .isEqualTo(PKIStatus.WAITING);
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             Certificate completed = certificateRepository.findByUuid(registration.getUuid()).orElseThrow();
-            assertNotNull(completed.getProtocolAssociation(), "the completion is attributed to CMP");
+            assertThat(completed.getProtocolAssociation()).as("the completion is attributed to CMP").isNotNull();
         });
     }
 
     @Test
-    void anUnexpectedHandlerFailureIsStillAnsweredAsACmpError() throws Exception {
+    void answersTheGenericCmpError_whenTheHandlerFailsUnexpectedly() throws Exception {
+        // given — an unexpected runtime failure from the handler
         Certificate registration = seedRegistration(SUBJECT_DN, null, CertificateState.REGISTERED);
-        // Thrown inside the handler's transaction, so the request transaction can only roll back.
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
                 .willThrow(new IllegalStateException("poll broke"));
 
+        // when
         ResponseEntity<byte[]> response = post(irMessage(SUBJECT_DN, null, CHALLENGE, registration.getUuid()));
 
-        assertEquals(PKIFailureInfo.systemFailure, failInfo(response.getBody()));
-        assertEquals("CMP request handling failed", failText(response.getBody()));
+        // then
+        assertThat(failInfo(response.getBody())).isEqualTo(PKIFailureInfo.systemFailure);
+        assertThat(failText(response.getBody())).isEqualTo("CMP request handling failed");
     }
 
     @Test
@@ -489,38 +495,42 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     @Test
-    void aDomainRejectionAfterACollaboratorDoomedTheTransactionIsStillAnsweredAsACmpError() throws Exception {
+    void answersARejection_whenACollaboratorRolledBackBeforeTheDomainFailure() throws Exception {
+        // given — a collaborator under rollbackFor = Exception rolls its transaction back on the request's
+        // EntityManager, which Spring then clears, and the handler turns the failure into a domain rejection
         Certificate registration = seedRegistration(SUBJECT_DN, null, CertificateState.REGISTERED);
-        // Stands in for a collaborator under rollbackFor = Exception failing with a checked exception that the
-        // handler then converts into a domain rejection.
+        String collaboratorFailure = "collaborator failed";
         given(pollFeature.pollCertificate(any(), any(), any(), any())).willAnswer(invocation -> {
-            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            new TransactionTemplate(transactionManager).executeWithoutResult(TransactionStatus::setRollbackOnly);
             throw new CmpProcessingException(invocation.getArgument(0), PKIFailureInfo.systemFailure,
-                    "collaborator failed");
+                    collaboratorFailure);
         });
 
+        // when
         ResponseEntity<byte[]> response = post(irMessage(SUBJECT_DN, null, CHALLENGE, registration.getUuid()));
 
-        // A CRMF rejection is answered as an ip whose single CertResponse carries the failure.
+        // then
         PKIMessage rejection = PKIMessage.getInstance(response.getBody());
-        assertEquals(PKIBody.TYPE_INIT_REP, rejection.getBody().getType());
+        assertThat(rejection.getBody().getType()).isEqualTo(PKIBody.TYPE_INIT_REP);
         PKIStatusInfo status = ((CertRepMessage) rejection.getBody().getContent()).getResponse()[0].getStatus();
-        assertEquals(PKIStatus.REJECTION, status.getStatus().intValue());
-        assertEquals(PKIFailureInfo.systemFailure, status.getFailInfo().intValue());
-        assertTrue(status.getStatusString().getStringAtUTF8(0).getString().contains("collaborator failed"));
+        assertThat(status.getStatus().intValue()).isEqualTo(PKIStatus.REJECTION);
+        assertThat(status.getFailInfo().intValue()).isEqualTo(PKIFailureInfo.systemFailure);
+        assertThat(status.getStatusString().getStringAtUTF8(0).getString()).contains(collaboratorFailure);
     }
 
     @Test
-    void aHandlerFailureThatAbortedTheDatabaseTransactionIsStillAnsweredAsACmpError() throws Exception {
+    void answersTheGenericCmpError_whenAStatementTheHandlerRunsFails() throws Exception {
+        // given — a statement the database rejects fails the handler
         Certificate registration = seedRegistration(SUBJECT_DN, null, CertificateState.REGISTERED);
-        // A statement the database rejects aborts the request transaction; every later statement in it fails too.
         given(pollFeature.pollCertificate(any(), any(), any(), any()))
                 .willAnswer(invocation -> entityManager.createNativeQuery("select 1/0").getSingleResult());
 
+        // when
         ResponseEntity<byte[]> response = post(irMessage(SUBJECT_DN, null, CHALLENGE, registration.getUuid()));
 
-        assertEquals(PKIFailureInfo.systemFailure, failInfo(response.getBody()));
-        assertEquals("CMP request handling failed", failText(response.getBody()));
+        // then
+        assertThat(failInfo(response.getBody())).isEqualTo(PKIFailureInfo.systemFailure);
+        assertThat(failText(response.getBody())).isEqualTo("CMP request handling failed");
     }
 
     @Test
@@ -639,6 +649,22 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Posts as one HTTP request does: an EntityManager stays bound to the thread throughout, as open-in-view binds. */
+    private ResponseEntity<byte[]> post(PKIMessage message) throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/v1/protocols/cmp/" + PROFILE_NAME);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+        try {
+            return cmpService.handlePost(PROFILE_NAME, message.getEncoded());
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
 
     /**
      * Switches the profile to signed responses, by a certificate whose EC key a cryptography provider holds and signs
