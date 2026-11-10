@@ -124,7 +124,6 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             X509Certificate signer = issuer == null ? subject : CertificateUtil.getX509Certificate(issuer.encoded());
             return new JcaX509CertificateHolder(subject)
                     .isAlternativeSignatureValid(new JcaContentVerifierProviderBuilder()
-                            .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                             .build(CertificateUtil
                                     .getAltPublicKey(
                                             signer.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()))));
@@ -196,6 +195,15 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     @Override
     public Optional<CertificateTypeDetails> describeDetails(ParsedCertificate certificate) {
         return Optional.empty();
+    }
+
+    /** Reads an already parsed X.509 certificate the way {@link #parseCertificate(byte[])} reads its encoding. */
+    public ParsedCertificate describe(X509Certificate certificate) throws CertificateException {
+        try {
+            return new ParsedCertificate(typeCode(), certificate.getEncoded(), propertiesOf(certificate));
+        } catch (NoSuchAlgorithmException e) {
+            throw new CertificateException(e);
+        }
     }
 
     private static CertificateProperties propertiesOf(X509Certificate certificate)
