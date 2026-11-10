@@ -51,7 +51,7 @@ public final class ObjectActionRequirements {
 
     /** A condition an action on the object requires. */
     public sealed interface Requirement permits OnObject, OnObjectUnder, OnResource, OnAncestor, OnLinked,
-            OnLinkedThrough, WhenEmpty, WhenEquals, OnEachChild {
+            OnLinkedThrough, WhenEmpty, WhenEquals, OnlyWhenEquals, OnEachChild {
     }
 
     /**
@@ -117,6 +117,10 @@ public final class ObjectActionRequirements {
     public record WhenEquals(String attribute, Object value, Requirement requirement) implements Requirement {
     }
 
+    /** Met only when the entity attribute holds the value, such as for actions on custom attribute definitions. */
+    public record OnlyWhenEquals(String attribute, Object value) implements Requirement {
+    }
+
     /**
      * The requirements evaluated against every object of the child resource whose entity attribute holds this object's
      * UUID, such as the basic credentials of a TSP profile. When there is none, the requirements for no child are
@@ -180,14 +184,21 @@ public final class ObjectActionRequirements {
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         also(Resource.ATTRIBUTE, ResourceAction.DETAIL, new OnObject(ResourceAction.DETAIL));
         admit(Resource.ATTRIBUTE, "type", AttributeType.CUSTOM, AttributeType.META);
-        // Only custom attributes are listed and looked up by object; the metadata endpoints check the resource.
+        // Deleting and enabling look the definition up among custom attributes only.
+        also(Resource.ATTRIBUTE, ResourceAction.DELETE, new OnlyWhenEquals("type", AttributeType.CUSTOM));
+        also(Resource.ATTRIBUTE, ResourceAction.ENABLE, new OnlyWhenEquals("type", AttributeType.CUSTOM));
+        // Only custom attributes are listed and looked up by object; the metadata endpoints check the resource, and
+        // those loading or editing metadata by its UUID find only global metadata. Promoting connector metadata takes
+        // the connector's attribute UUID, not the definition's.
         WhenEquals metadataViewed = new WhenEquals("type", AttributeType.META, new OnResource(ResourceAction.DETAIL));
-        also(Resource.ATTRIBUTE, ResourceAction.DETAIL, metadataViewed);
+        WhenEquals metadataGlobal = new WhenEquals("type", AttributeType.META, new OnlyWhenEquals("global", true));
+        also(Resource.ATTRIBUTE, ResourceAction.DETAIL, metadataViewed, metadataGlobal);
+        also(Resource.ATTRIBUTE, ResourceAction.UPDATE, metadataGlobal);
         listedAndViewed(Resource.ATTRIBUTE,
                 List
                         .of(new WhenEquals("type", AttributeType.META, new OnResource(ResourceAction.LIST)),
                                 new OnObject(ResourceAction.LIST)),
-                List.of(metadataViewed, new OnObject(ResourceAction.DETAIL)));
+                List.of(metadataViewed, metadataGlobal, new OnObject(ResourceAction.DETAIL)));
         onObject(Resource.PROXY, Proxy.class, ResourceAction.DETAIL, ResourceAction.UPDATE, ResourceAction.DELETE,
                 ResourceAction.GET_PROXY_INSTALLATION);
         // Deleting an ACME or CMP profile first lists the RA profiles using it. Force deleting an ACME profile also

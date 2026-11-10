@@ -12,6 +12,7 @@ import com.otilm.core.security.authz.ObjectActionRequirements.OnLinkedThrough;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObjectUnder;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnlyWhenEquals;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import com.otilm.core.security.authz.ObjectActionRequirements.WhenEmpty;
@@ -108,6 +109,7 @@ public class ObjectActionResolver {
             case OnLinkedThrough(var through, String attribute, var inner) -> Optional.of(attribute);
             case WhenEmpty(String attribute, var inner) -> Optional.of(attribute);
             case WhenEquals(String attribute, var value, var inner) -> Optional.of(attribute);
+            case OnlyWhenEquals(String attribute, var value) -> Optional.of(attribute);
             case OnObject onObject -> Optional.empty();
             case OnResource onResource -> Optional.empty();
             case OnAncestor onAncestor -> Optional.empty();
@@ -178,6 +180,8 @@ public class ObjectActionResolver {
                 case WhenEquals(String attribute, Object value, Requirement inner) ->
                     value(resource, attribute, objectUuid).filter(value::equals).isEmpty()
                             || isMet(inner, resource, objectUuid);
+                case OnlyWhenEquals(String attribute, Object value) ->
+                    value(resource, attribute, objectUuid).filter(value::equals).isPresent();
                 case OnEachChild(Resource child, String childAttribute, List<Requirement> inner, List<Requirement> whenNone) -> {
                     List<UUID> childUuids = children(child, childAttribute, objectUuid);
                     yield childUuids.isEmpty()

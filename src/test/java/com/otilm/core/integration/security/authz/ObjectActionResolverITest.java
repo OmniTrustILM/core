@@ -763,6 +763,53 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 .containsExactly(custom);
     }
 
+    @Test
+    void reportsDeleteAndEnableOnCustomAttributesOnly_whenEverythingIsAllowed() {
+        // given
+        UUID custom = saveAttributeDefinition(AttributeType.CUSTOM);
+        UUID metadata = saveMetadata(true);
+
+        // when
+        List<ResourceAction> onCustom = actionsOn(Resource.ATTRIBUTE, custom);
+        List<ResourceAction> onMetadata = actionsOn(Resource.ATTRIBUTE, metadata);
+
+        // then
+        assertThat(onCustom).contains(ResourceAction.DELETE, ResourceAction.ENABLE);
+        assertThat(onMetadata)
+                .as("deleting and enabling look the definition up among custom attributes only")
+                .contains(ResourceAction.DETAIL)
+                .doesNotContain(ResourceAction.DELETE, ResourceAction.ENABLE);
+    }
+
+    @Test
+    void reportsNoActionOnConnectorMetadata_whenEverythingIsAllowed() {
+        // given
+        UUID connectorMetadata = saveMetadata(false);
+
+        // when
+        List<ResourceAction> allowed = actionsOn(Resource.ATTRIBUTE, connectorMetadata);
+
+        // then
+        assertThat(allowed).as("the endpoints taking a metadata definition UUID find only global metadata").isEmpty();
+    }
+
+    @Test
+    void leavesOutConnectorMetadata_whenOnlyDetailIsAllowed() {
+        // given
+        UUID global = saveMetadata(true);
+        UUID connectorMetadata = saveMetadata(false);
+        denyOnTheResourceAsAWhole(Resource.ATTRIBUTE, ResourceAction.LIST);
+
+        // when
+        List<ObjectAllowedActionsDto> items = report(Resource.ATTRIBUTE, global, connectorMetadata);
+
+        // then
+        assertThat(items)
+                .as("loading metadata by its UUID finds only global metadata")
+                .extracting(ObjectAllowedActionsDto::getUuid)
+                .containsExactly(global);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private List<ObjectAllowedActionsDto> report(Resource resource, UUID... uuids) {
@@ -864,6 +911,14 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     private CryptographicKey saveKeyWithTokenProfile() {
         TokenProfile tokenProfile = tokenProfileSeeder.seedTokenProfile();
         return keySeeder.seedKey("key-" + UUID.randomUUID(), tokenProfile, tokenProfile.getTokenInstanceReference());
+    }
+
+    private UUID saveMetadata(boolean global) {
+        AttributeDefinition definition = attributeDefinitionRepository
+                .findByUuid(saveAttributeDefinition(AttributeType.META))
+                .orElseThrow();
+        definition.setGlobal(global);
+        return attributeDefinitionRepository.save(definition).getUuid();
     }
 
     private UUID saveAttributeDefinition(AttributeType type) {
