@@ -122,7 +122,7 @@ public class CryptographicOperationServiceSigner implements Signer {
         return requestItems;
     }
 
-    // A wrong input is the caller's to fix, so it is refused here rather than left to the provider as a fault.
+    // Refused here so a caller's mistake is INVALID_INPUT, not a provider fault.
     private void checkDigests(List<byte[]> digests) throws SigningEngineException {
         if (!PrehashedSigning.admits(signatureAlgorithm)) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,

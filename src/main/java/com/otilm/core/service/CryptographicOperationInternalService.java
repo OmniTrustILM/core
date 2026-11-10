@@ -77,8 +77,8 @@ public interface CryptographicOperationInternalService {
             UUID uuid, UUID keyItemUuid, SignDataRequestDto request) throws ConnectorException, NotFoundException;
 
     /**
-     * Same as the overload without an input mode, but states what the submitted data is. With
-     * {@link SignatureInputMode#PREHASHED_DIGEST} each item is a digest the provider signs as is.
+     * Same as the overload without an input mode, but with {@link SignatureInputMode#PREHASHED_DIGEST} each item is a
+     * digest the provider signs as is.
      *
      * @param inputMode what the submitted data is; {@code null} means {@link SignatureInputMode#DATA}
      * @throws ValidationException when the mode is a prehashed digest and the key is served by a version 1 provider or

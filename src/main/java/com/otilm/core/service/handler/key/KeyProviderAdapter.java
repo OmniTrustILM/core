@@ -122,8 +122,8 @@ public interface KeyProviderAdapter {
             throws ConnectorException, NotFoundException;
 
     /**
-     * Signs with the stated input mode. A provider that cannot sign a digest as is refuses it here, so an override is
-     * what makes a provider capable of it.
+     * Signs with the stated input mode. This default refuses every mode except {@link SignatureInputMode#DATA}; an
+     * adapter that can sign a digest as is overrides it.
      *
      * @throws ValidationException when the mode is not {@link SignatureInputMode#DATA} and the provider cannot honor it
      */

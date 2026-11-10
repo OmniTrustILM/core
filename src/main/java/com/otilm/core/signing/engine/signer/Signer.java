@@ -47,8 +47,7 @@ public interface Signer {
     }
 
     /**
-     * Signs every item in one provider call. The mode states what each item is: data the provider hashes and signs, or
-     * a digest it signs as is.
+     * Signs every item in one provider call, in the stated input mode.
      *
      * @param items the items to sign; must not be null or empty, and no item may be null or empty
      * @param inputMode what each item is; null means {@link SignatureInputMode#DATA}

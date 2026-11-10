@@ -63,8 +63,8 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     }
 
     /**
-     * Stubs {@code GET /v2/info}, which Core reads when it connects to, edits or reconnects the connector, so the
-     * cryptography interface advertises the given features beside {@code stateless}.
+     * Stubs {@code GET /v2/info}, which Core reads on connect, edit and reconnect, so the cryptography interface
+     * advertises the given features beside {@code stateless}.
      */
     public CryptographyProviderV2ConnectorMock stubInfoAdvertising(FeatureFlag... extraFeatures) {
         stubInfoWithCryptographyFeatures(extraFeatures);
@@ -73,7 +73,7 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
     /**
      * The JSON bodies Core posted to {@code /v2/cryptographyProvider/operations/<operation>}, so a test can assert
-     * which keys went on the wire, including ones the request omits.
+     * which keys went on the wire and which were left out.
      */
     public List<JsonNode> operationRequestBodies(String operation) throws JsonProcessingException {
         List<JsonNode> bodies = new ArrayList<>();

@@ -25,9 +25,8 @@ import org.bouncycastle.crypto.util.DigestFactory;
 import org.bouncycastle.crypto.util.PublicKeyFactory;
 
 /**
- * Checks a signature against the digest it was asked to sign, with the signing key's public key. A provider that
- * ignored the prehashed mode and hashed the digest again produces a signature that fails this check, so the mistake
- * surfaces before anything is recorded.
+ * Checks a signature against the digest it was asked to sign, with the signing key's public key, so a provider that
+ * hashed the digest again is caught before anything is recorded.
  */
 final class PrehashedSignatureVerifier {
 
@@ -63,8 +62,8 @@ final class PrehashedSignatureVerifier {
         return verifier.verify(signature);
     }
 
-    // SunEC computes only on P-256, P-384 and P-521, while providers also offer keys on other named curves such as
-    // P-224 and brainpool. ECDSASigner truncates a digest longer than the curve order, as FIPS 186 requires.
+    // SunEC computes only on P-256, P-384 and P-521; providers also offer P-224, brainpool and other curves.
+    // ECDSASigner truncates a digest longer than the curve order (FIPS 186).
     private static boolean verifyEcdsa(PublicKey publicKey, byte[] digest, byte[] signature) throws IOException {
         AsymmetricKeyParameter key = PublicKeyFactory.createKey(publicKey.getEncoded());
         if (!(key instanceof ECPublicKeyParameters ecKey)) {
