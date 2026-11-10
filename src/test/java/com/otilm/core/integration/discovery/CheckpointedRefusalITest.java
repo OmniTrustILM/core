@@ -241,6 +241,25 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     }
 
     @Test
+    void endsNothing_whenAResumeTurnsTheRunBufferedWhileACheckpointedDrainIsRefused() throws Exception {
+        // given
+        Discovery run = runIn(DiscoveryDeliveryMode.CHECKPOINTED);
+        armRow(run, DiscoveryWorkType.DRAIN, 0);
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            stopAndResumeAsBuffered(run);
+            throw problem(HttpStatus.UNPROCESSABLE_ENTITY, ErrorCode.VALIDATION_FAILED, null);
+        });
+
+        // when
+        drainWorker.tick(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.DRAIN, 0));
+
+        // then
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        assertThat(reloaded.getDeliveryMode()).isEqualTo(DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    @Test
     void keepsABufferedRunRunning_whenTheConnectorRefusesItsDrain() throws Exception {
         // given
         Discovery run = runIn(DiscoveryDeliveryMode.BUFFERED);
@@ -474,6 +493,19 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
     private void resumeAndExpediteStatus(Discovery run) {
         commitTheResume(run);
         workWriter.expedite(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    /**
+     * A stop, which deletes the drain row, and a resume whose connector answered in buffered mode, which re-creates it:
+     * two raised revisions and a run that is no longer checkpointed.
+     */
+    private void stopAndResumeAsBuffered(Discovery run) {
+        workWriter.deleteForRun(run.getUuid(), DiscoveryWorkType.DRAIN);
+        Discovery current = reload(run);
+        current.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+        current.setCheckpointRevision(current.getCheckpointRevision() + 2);
+        discoveryRepository.saveAndFlush(current);
+        workWriter.expedite(run.getUuid(), DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     private void markBusySince(Discovery run, OffsetDateTime busySince) {

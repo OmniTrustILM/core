@@ -47,11 +47,11 @@ public class DiscoveryBusyDeferral {
      * attempt the tick was claimed with. Fenced by the checkpoint revision: a tick another tick, a stop or a resume
      * overtook only frees its row.
      *
-     * @param expectedRevision the checkpoint revision of the run the tick read
+     * @param fence whether the tick still speaks for the run, checked under the run's row lock
      * @return false once the connector has been busy for longer than the maximum wait, leaving the caller to charge the
      * tick to the budget like any other unanswered one
      */
-    public boolean defer(DiscoveryWorkTick tick, long expectedRevision, Optional<Duration> retryAfter) {
+    public boolean defer(DiscoveryWorkTick tick, DiscoveryTickFence fence, Optional<Duration> retryAfter) {
         UUID discoveryUuid = tick.discoveryUuid();
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         return Boolean.TRUE.equals(transactionHandler.runInNewTransaction(() -> {
@@ -59,7 +59,7 @@ public class DiscoveryBusyDeferral {
             if (locked == null) {
                 return true;
             }
-            if (CheckpointRevision.movedOn(locked, expectedRevision)) {
+            if (!fence.admits(locked)) {
                 tick.releaseOnly();
                 return true;
             }

@@ -72,17 +72,6 @@ public class DiscoveryRunTerminator {
     }
 
     /**
-     * Ends a run like {@link #endConnectorOwned}, unless it is a checkpointed run that has moved past
-     * {@code expectedRevision}: a tick built from an older position must not end a run another tick, a stop or a resume
-     * has since moved on.
-     *
-     * @return whether this call was the one that ended the run
-     */
-    public boolean endIfRevision(UUID discoveryUuid, long expectedRevision, DiscoveryStatus status, String reason) {
-        return endIfAdmitted(discoveryUuid, CheckpointRevision.fence(expectedRevision), status, reason);
-    }
-
-    /**
      * Ends a run like {@link #endConnectorOwned}, unless the tick asking for it no longer speaks for the run.
      *
      * @param fence checked under the run's row lock

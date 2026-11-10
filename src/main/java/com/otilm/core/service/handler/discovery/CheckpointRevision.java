@@ -5,23 +5,30 @@ import com.otilm.core.dao.entity.Discovery;
 
 /**
  * The fence on what a tick writes for a checkpointed run. A tick remembers the checkpoint revision of the run it built
- * its request from; every applied page, stop and resume raises it, so a tick whose revision is no longer the run's was
- * overtaken and must not apply its page, spend the budget, end the run or reschedule its row. Buffered runs are never
- * fenced.
+ * its request from. Every applied page, stop and resume raises it, so a tick whose revision is no longer the run's was
+ * overtaken and must not apply its page, spend the budget, end the run or reschedule its row. A run that was buffered
+ * when the tick read it and still is is never fenced.
  */
 final class CheckpointRevision {
 
     private CheckpointRevision() {
     }
 
-    /** A drain tick's fence: the checkpointed run is still at the revision the tick read. */
-    static DiscoveryTickFence fence(long revisionTheTickRead) {
-        return lockedRun -> !movedOn(lockedRun, revisionTheTickRead);
+    /**
+     * A drain tick's fence: the run is still at the revision the tick read. It holds a tick that read a checkpointed
+     * run even once a resume has made the run buffered, so nothing built for the old mode lands after it.
+     */
+    static DiscoveryTickFence fence(long revisionTheTickRead, DiscoveryDeliveryMode modeTheTickRead) {
+        return lockedRun -> !(isCheckpointed(modeTheTickRead) || isCheckpointed(lockedRun.getDeliveryMode()))
+                || lockedRun.getCheckpointRevision() == revisionTheTickRead;
     }
 
     /** Whether {@code run}, read under its row lock, is a checkpointed run that has moved past the tick's revision. */
     static boolean movedOn(Discovery run, long revisionTheTickRead) {
-        return run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED
-                && run.getCheckpointRevision() != revisionTheTickRead;
+        return isCheckpointed(run.getDeliveryMode()) && run.getCheckpointRevision() != revisionTheTickRead;
+    }
+
+    private static boolean isCheckpointed(DiscoveryDeliveryMode mode) {
+        return mode == DiscoveryDeliveryMode.CHECKPOINTED;
     }
 }
