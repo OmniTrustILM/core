@@ -8,6 +8,7 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateInternalService;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -31,6 +32,9 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -80,6 +84,7 @@ class PollFeatureTest {
         assertThat(result).isEqualTo(new PollResult.Reached(issued));
         verify(entityManager).refresh(issued);
         verify(transactionManager).commit(loadTransaction);
+        verify(transactionManager, never()).rollback(any());
     }
 
     @Test
@@ -229,6 +234,25 @@ class PollFeatureTest {
     }
 
     @Test
+    void rollsTheLoadBack_whenTheRefreshFails() throws Exception {
+        // given
+        Certificate issued = certificateInState(CertificateState.ISSUED);
+        stubStates(CertificateState.ISSUED);
+        TransactionStatus loadTransaction = stubLoadOf(issued);
+        PersistenceException refreshFailure = new PersistenceException("refresh failed");
+        doThrow(refreshFailure).when(entityManager).refresh(issued);
+
+        // when
+        ThrowingCallable poll = () -> pollFeature
+                .pollCertificate(TID, "01", certUuid.toString(), CertificateState.ISSUED);
+
+        // then
+        assertThatThrownBy(poll).isSameAs(refreshFailure);
+        verify(transactionManager).rollback(loadTransaction);
+        verify(transactionManager, never()).commit(any());
+    }
+
+    @Test
     void restoresTheInterruptFlagWhenThrowing_whenInterruptedWhileWaiting() {
         // given
         pollFeature.setPollFeatureTimeout(1);
@@ -260,10 +284,15 @@ class PollFeatureTest {
         }
     }
 
+    /** Stubs the load; a commit completes the transaction, as the real transaction manager's does. */
     private TransactionStatus stubLoadOf(Certificate certificate) throws NotFoundException {
-        TransactionStatus loadTransaction = new SimpleTransactionStatus();
+        SimpleTransactionStatus loadTransaction = new SimpleTransactionStatus();
         when(transactionManager.getTransaction(any())).thenReturn(loadTransaction);
         when(certificateService.getCertificateEntity(any(SecuredUUID.class))).thenReturn(certificate);
+        lenient().doAnswer(invocation -> {
+            loadTransaction.setCompleted();
+            return null;
+        }).when(transactionManager).commit(loadTransaction);
         return loadTransaction;
     }
 

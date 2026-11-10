@@ -202,17 +202,18 @@ public class PollFeature {
      */
     private Certificate loadFresh(SecuredUUID certUUID) throws NotFoundException {
         TransactionStatus transaction = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        Certificate certificate;
         try {
-            certificate = certificateService.getCertificateEntity(certUUID);
+            Certificate certificate = certificateService.getCertificateEntity(certUUID);
             entityManager.refresh(certificate);
             Hibernate.initialize(certificate.getCertificateContent());
-        } catch (NotFoundException | RuntimeException e) {
-            transactionManager.rollback(transaction);
-            throw e;
+            transactionManager.commit(transaction);
+            return certificate;
+        } finally {
+            // Not in a catch: a failed commit has already completed the transaction, and an Error must roll back too.
+            if (!transaction.isCompleted()) {
+                transactionManager.rollback(transaction);
+            }
         }
-        transactionManager.commit(transaction);
-        return certificate;
     }
 
     private static boolean isTerminal(CertificateState state) {

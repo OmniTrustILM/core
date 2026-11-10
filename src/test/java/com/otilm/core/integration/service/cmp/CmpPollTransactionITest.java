@@ -21,7 +21,6 @@ import com.otilm.core.dao.repository.CertificateContentRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.Connector2FunctionGroupRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
@@ -35,6 +34,7 @@ import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.mockbeans.ProducerMocks;
+import com.otilm.core.util.seeders.FunctionGroupSeeder;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
@@ -87,6 +87,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -107,6 +108,7 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     private static final int POLL_BUDGET_SECONDS = 2;
     private static final Duration COMPLETION_DELAY = Duration.ofMillis(1_200);
     private static final BigInteger ISSUED_SERIAL = BigInteger.valueOf(0x2720L);
+    private static final String REVOKE_ATTRIBUTES_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes";
     /** The poll budget sampled every 100 ms gives about 20 samples; fewer than this means the watch did not run. */
     private static final int MIN_SAMPLES = 10;
 
@@ -140,7 +142,7 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     @Autowired
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     @Autowired
-    private FunctionGroupRepository functionGroupRepository;
+    private FunctionGroupSeeder functionGroupSeeder;
     @Autowired
     private Connector2FunctionGroupRepository connector2FunctionGroupRepository;
     @Autowired
@@ -313,6 +315,8 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
         assertThat(response.getBody().getType()).isEqualTo(PKIBody.TYPE_REVOCATION_REP);
         PKIStatusInfo status = ((RevRepContent) response.getBody().getContent()).getStatus()[0];
         assertThat(status.getStatus().intValue()).isEqualTo(PKIStatus.REJECTION);
+        assertThat(status.getStatusString().getStringAtUTF8(0).getString()).doesNotContain("polling timed out");
+        mockServer.verify(WireMock.getRequestedFor(WireMock.urlPathMatching(REVOKE_ATTRIBUTES_PATH)));
     }
 
     /**
@@ -420,10 +424,7 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
                         .withGeneratedUuid()
                         .build());
 
-        FunctionGroup functionGroup = new FunctionGroup();
-        functionGroup.setCode(FunctionGroupCode.AUTHORITY_PROVIDER);
-        functionGroup.setName(FunctionGroupCode.AUTHORITY_PROVIDER.getCode());
-        functionGroupRepository.save(functionGroup);
+        FunctionGroup functionGroup = functionGroupSeeder.seed(FunctionGroupCode.AUTHORITY_PROVIDER, List.of());
 
         Connector2FunctionGroup c2fg = new Connector2FunctionGroup();
         c2fg.setConnector(connector);
@@ -449,9 +450,7 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     private static void stubRevokeAttributes(WireMockServer connectorServer) {
         connectorServer
                 .stubFor(WireMock
-                        .get(WireMock
-                                .urlPathMatching(
-                                        "/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes"))
+                        .get(WireMock.urlPathMatching(REVOKE_ATTRIBUTES_PATH))
                         .willReturn(WireMock.okJson("[]")));
         connectorServer
                 .stubFor(WireMock
@@ -464,9 +463,7 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     private static void failRevokeAttributes(WireMockServer connectorServer) {
         connectorServer
                 .stubFor(WireMock
-                        .get(WireMock
-                                .urlPathMatching(
-                                        "/v2/authorityProvider/authorities/[^/]+/certificates/revoke/attributes"))
+                        .get(WireMock.urlPathMatching(REVOKE_ATTRIBUTES_PATH))
                         .willReturn(WireMock.serverError()));
     }
 
@@ -494,9 +491,10 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     private static CertificateContent contentOf(X509CertificateHolder certificate) {
         try {
             byte[] encoded = certificate.getEncoded();
-            return CmpEntityUtil
-                    .createCertContent(CertificateUtil.getThumbprint(encoded),
-                            Base64.getEncoder().encodeToString(encoded));
+            return aCertificateContent()
+                    .withFingerprint(CertificateUtil.getThumbprint(encoded))
+                    .withContent(Base64.getEncoder().encodeToString(encoded))
+                    .build();
         } catch (Exception e) {
             throw new IllegalStateException("cannot encode the issued certificate", e);
         }
