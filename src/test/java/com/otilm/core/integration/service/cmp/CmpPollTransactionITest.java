@@ -7,7 +7,6 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.cmp.CmpProfileVariant;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
-import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -88,6 +87,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -413,12 +413,13 @@ class CmpPollTransactionITest extends BaseSpringBootTest {
     }
 
     private AuthorityInstanceReference seedAuthority(WireMockServer connectorServer) {
-        Connector connector = new Connector();
-        connector.setName("cmpPollConnector");
-        connector.setUrl(LoopbackWireMock.url(connectorServer));
-        connector.setVersion(ConnectorVersion.V1);
-        connector.setStatus(ConnectorStatus.CONNECTED);
-        connector = connectorRepository.save(connector);
+        Connector connector = connectorRepository
+                .save(aConnector()
+                        .withName("cmpPollConnector")
+                        .withUrl(LoopbackWireMock.url(connectorServer))
+                        .withVersion(ConnectorVersion.V1)
+                        .withGeneratedUuid()
+                        .build());
 
         FunctionGroup functionGroup = new FunctionGroup();
         functionGroup.setCode(FunctionGroupCode.AUTHORITY_PROVIDER);

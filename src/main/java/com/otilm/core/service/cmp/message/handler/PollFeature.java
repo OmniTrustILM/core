@@ -152,16 +152,7 @@ public class PollFeature {
                     return new PollResult.Diverted(current);
                 }
                 if (System.currentTimeMillis() - startRequest >= timeoutMs) {
-                    if (current == CertificateState.PENDING_ISSUE || current == CertificateState.PENDING_REVOKE
-                            || current == CertificateState.REGISTERED || current == CertificateState.REQUESTED) {
-                        log
-                                .debug("TID={}, SN={} | certificate uuid={} still in asynchronous state {} after {} ms — caller will signal client to retry",
-                                        tid, serialNumber, certUUID, current, timeoutMs);
-                        return new PollResult.StillPending(current);
-                    }
-                    throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure, String
-                            .format("SN=%s | polling timed out after %d ms — cert is in transitional state %s, expected %s",
-                                    serialNumber, timeoutMs, current, expectedState));
+                    return resultAtBudgetEnd(tid, serialNumber, certUUID, current, expectedState, timeoutMs);
                 }
                 // Clamp to the remaining budget so the loop never overshoots timeoutMs by up to a
                 // full interval (matches CertificateValidationStatusPoller). Positive here: the
@@ -179,6 +170,29 @@ public class PollFeature {
         } finally {
             log.trace("<<<<< CERT polling (  end) <<<<< ");
         }
+    }
+
+    /**
+     * The outcome once the budget is spent: {@link PollResult.StillPending} for a certificate still in an asynchronous
+     * state, otherwise a timeout.
+     */
+    private static PollResult resultAtBudgetEnd(ASN1OctetString tid, String serialNumber, SecuredUUID certUUID,
+            CertificateState current, CertificateState expectedState, long timeoutMs) throws CmpProcessingException {
+        if (isStillPending(current)) {
+            log
+                    .debug("TID={}, SN={} | certificate uuid={} still in asynchronous state {} after {} ms — caller will signal client to retry",
+                            tid, serialNumber, certUUID, current, timeoutMs);
+            return new PollResult.StillPending(current);
+        }
+        throw new CmpProcessingException(tid, PKIFailureInfo.systemFailure,
+                String
+                        .format("SN=%s | polling timed out after %d ms — cert is in transitional state %s, expected %s",
+                                serialNumber, timeoutMs, current, expectedState));
+    }
+
+    private static boolean isStillPending(CertificateState state) {
+        return state == CertificateState.PENDING_ISSUE || state == CertificateState.PENDING_REVOKE
+                || state == CertificateState.REGISTERED || state == CertificateState.REQUESTED;
     }
 
     /**

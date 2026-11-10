@@ -265,22 +265,6 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
         return certificate;
     }
 
-    /** Posts as one HTTP request does: an EntityManager stays bound to the thread throughout, as open-in-view binds. */
-    private ResponseEntity<byte[]> post(PKIMessage message) throws Exception {
-        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/v1/protocols/cmp/" + PROFILE_NAME);
-        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
-        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
-        TransactionSynchronizationManager
-                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
-        try {
-            return cmpService.handlePost(PROFILE_NAME, message.getEncoded());
-        } finally {
-            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
-            requestEntityManager.close();
-            RequestContextHolder.resetRequestAttributes();
-        }
-    }
-
     private PKIMessage irMessage(String subjectDn, List<String> dnsSans, String challenge, UUID senderKid)
             throws Exception {
         KeyPair keyPair = CmpTestUtil.generateKeyPairEC();
@@ -665,6 +649,22 @@ class CmpRegistrationEnrolmentITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Posts as one HTTP request does: an EntityManager stays bound to the thread throughout, as open-in-view binds. */
+    private ResponseEntity<byte[]> post(PKIMessage message) throws Exception {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("POST", "/v1/protocols/cmp/" + PROFILE_NAME);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(servletRequest));
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+        try {
+            return cmpService.handlePost(PROFILE_NAME, message.getEncoded());
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+            RequestContextHolder.resetRequestAttributes();
+        }
+    }
 
     /**
      * Switches the profile to signed responses, by a certificate whose EC key a cryptography provider holds and signs
