@@ -2355,14 +2355,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void issueCertificateRejectedAction(final UUID certificateUuid, final UUID certificateRequestUuid)
             throws NotFoundException {
         rejectIssue(certificateUuid, certificateRequestUuid);
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void issueCertificateRejectedAction(final UUID certificateUuid) throws NotFoundException {
         rejectIssue(certificateUuid, null);
     }
