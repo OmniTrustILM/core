@@ -102,6 +102,23 @@ class ActionsListenerTest {
     }
 
     @Test
+    void dropsTheIssue_whenTheCertificateHoldsNothingToIssue() throws Exception {
+        // given — an issue that reached the broker although queuing it failed and its registration completion was
+        // undone
+        UUID registrationUuid = UUID.randomUUID();
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, registrationUuid, UUID.randomUUID(),
+                null, null, null);
+        when(clientOperationService.hasNothingToIssue(registrationUuid)).thenReturn(true);
+
+        // when
+        listener.processMessage(msg);
+
+        // then
+        verify(clientOperationService, never()).issueCertificateAction(any(), anyBoolean());
+        verifyNoInteractions(approvalProfileRelationRepository, approvalInternalService, notificationProducer);
+    }
+
+    @Test
     void processMessage_secretResource_alreadyApproved_callsSecretServiceProcessAction() throws Exception {
         UUID resourceUuid = UUID.randomUUID();
         UUID userUuid = UUID.randomUUID();

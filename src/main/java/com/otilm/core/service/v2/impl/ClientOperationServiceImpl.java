@@ -152,9 +152,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 import javax.security.auth.x500.X500Principal;
 import org.apache.commons.lang3.StringUtils;
@@ -574,8 +576,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /**
      * Runs the request submission and shapes its failures into the protocol-facing contract: a client-facing
-     * {@link RequestAttributePolicyViolationException} passes through unchanged; any other failure is logged with its
-     * cause and surfaced as a {@link CertificateOperationException}.
+     * {@link RequestAttributePolicyViolationException} passes through unchanged; any other failure is logged by its
+     * class and surfaced as the cause of a {@link CertificateOperationException}, so a caller can classify it. Its
+     * message stays out of the log: a connector's or a validation's message can repeat what the request sent.
      * <p>
      * Exposure of the underlying reason is gated on the exception type. A {@link ValidationException} or
      * {@link NotFoundException} carries a platform-authored, client-actionable message (an unavailable connector, a
@@ -590,11 +593,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         } catch (RequestAttributePolicyViolationException e) {
             throw e;
         } catch (Exception e) {
-            logger.error(failureMessage, e);
+            logger.error("{}: {}", failureMessage, e.getClass().getName());
             boolean detailIsSafeToExpose = (e instanceof ValidationException || e instanceof NotFoundException)
                     && e.getMessage() != null;
-            throw new CertificateOperationException(
+            CertificateOperationException shapedFailure = new CertificateOperationException(
                     detailIsSafeToExpose ? failureMessage + ": " + e.getMessage() : failureMessage);
+            shapedFailure.initCause(e);
+            throw shapedFailure;
         }
     }
 
@@ -658,46 +663,59 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         response.setUuid(certificate.getUuid());
         response.setRequestAttributeWarnings(submitted.requestAttributeWarnings());
 
-        // check for compliance of certificate request
-        if (isRequestNotCompliant(UUID.fromString(certificate.getUuid()), certificate.getCertificateRequest().getUuid(),
-                CertificateEvent.ISSUE)) {
-            logger.warn("Certificate request is not compliant, not issuing certificate {}", certificate.getUuid());
-            return response;
-        }
-
-        if (beforeDispatch != null) {
-            final UUID certificateUuid = UUID.fromString(certificate.getUuid());
-            try {
-                beforeDispatch.accept(certificateUuid);
-            } catch (RuntimeException e) {
-                logger
-                        .warn("Step before queuing the issue of certificate {} failed; not issuing it", certificateUuid,
-                                e);
-                failClaimedCertificate(certificateUuid, e, "preparing the certificate for issuance failed");
-                throw new CertificateOperationException(
-                        "Failed to prepare certificate %s for issuance: ".formatted(certificateUuid)
-                                + safeMessage(e, INTERNAL_ERROR));
+        final UUID certificateUuid = UUID.fromString(certificate.getUuid());
+        try {
+            if (isRequestNotCompliant(certificateUuid, certificate.getCertificateRequest().getUuid(),
+                    CertificateEvent.ISSUE)) {
+                logger.warn("Certificate request is not compliant, not issuing certificate {}", certificateUuid);
+                return response;
             }
+            runBeforeDispatch(beforeDispatch, certificateUuid);
+            queueIssue(raProfileUuid.getValue(), certificateUuid);
+        } catch (NotFoundException | RuntimeException e) {
+            // Nothing would ever issue a certificate whose issue was not queued, so it is failed. A publish that threw
+            // may still have reached the broker, though: once its action has picked the certificate up, it is queued.
+            boolean pickedUp = failUnlessPickedUp(certificateUuid, e);
+            if (!pickedUp) {
+                throw e;
+            }
+            logger
+                    .warn("Queuing the issue of certificate {} reported a failure, but its issue action has picked it up",
+                            certificateUuid);
         }
+        return response;
+    }
 
+    /**
+     * Runs the caller's step before the issue is queued. A failure fails the certificate, as the step may have prepared
+     * state that only the queued action would finish.
+     */
+    private void runBeforeDispatch(Consumer<UUID> beforeDispatch, UUID certificateUuid)
+            throws CertificateOperationException {
+        if (beforeDispatch == null) {
+            return;
+        }
+        try {
+            beforeDispatch.accept(certificateUuid);
+        } catch (RuntimeException e) {
+            logger.warn("Step before queuing the issue of certificate {} failed; not issuing it", certificateUuid, e);
+            failClaimedCertificate(certificateUuid, e, "preparing the certificate for issuance failed");
+            throw new CertificateOperationException(
+                    "Failed to prepare certificate %s for issuance: ".formatted(certificateUuid)
+                            + safeMessage(e, INTERNAL_ERROR));
+        }
+    }
+
+    /** Queues the issue of the certificate on behalf of the caller, subject to the RA profile's approval profile. */
+    private void queueIssue(UUID raProfileUuid, UUID certificateUuid) {
         final ActionMessage actionMessage = new ActionMessage();
         actionMessage.setApprovalProfileResource(Resource.RA_PROFILE);
-        actionMessage.setApprovalProfileResourceUuid(raProfileUuid.getValue());
+        actionMessage.setApprovalProfileResourceUuid(raProfileUuid);
         actionMessage.setUserUuid(UUID.fromString(AuthHelper.getUserIdentification().getUuid()));
         actionMessage.setResource(Resource.CERTIFICATE);
         actionMessage.setResourceAction(ResourceAction.ISSUE);
-        actionMessage.setResourceUuid(UUID.fromString(certificate.getUuid()));
-        try {
-            actionProducer.produceMessage(actionMessage);
-        } catch (RuntimeException e) {
-            if (beforeDispatch != null) {
-                // The step before queuing may have prepared state that only the queued action would finish.
-                failClaimedCertificate(UUID.fromString(certificate.getUuid()), e, "queuing the issue failed");
-            }
-            throw e;
-        }
-
-        return response;
+        actionMessage.setResourceUuid(certificateUuid);
+        actionProducer.produceMessage(actionMessage);
     }
 
     @Override
@@ -1340,6 +1358,21 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Override
+    public boolean hasNothingToIssue(UUID certificateUuid) {
+        return certificateRepository
+                .findByUuid(certificateUuid)
+                .map(certificate -> !awaitsIssue(certificate))
+                .orElse(true);
+    }
+
+    /** A submitted request, or a registration holding the request of a completion. */
+    private static boolean awaitsIssue(Certificate certificate) {
+        return certificate.getState() == CertificateState.REQUESTED
+                || (certificate.getState() == CertificateState.REGISTERED
+                        && certificate.getCertificateRequestUuid() != null);
+    }
+
+    @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void issueCertificateAction(final UUID certificateUuid, boolean isApproved)
             throws CertificateOperationException, NotFoundException {
@@ -1519,7 +1552,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         return true;
     }
 
-    /** Re-reads the claimed cert under a short row lock and transitions PENDING_ISSUE -> FAILED. */
+    /**
+     * Re-reads the certificate under a short row lock and transitions it to FAILED: a claimed one in PENDING_ISSUE, or
+     * a REQUESTED one whose issue was never queued.
+     */
     private void failClaimedCertificate(final UUID certificateUuid, Exception cause) {
         failClaimedCertificate(certificateUuid, cause, "issuance failed");
     }
@@ -1529,19 +1565,47 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * not one of our shaped domain exceptions (so its raw message must not be exposed).
      */
     private void failClaimedCertificate(final UUID certificateUuid, Exception cause, String fallbackReason) {
+        failCertificate(certificateUuid, cause, fallbackReason, claimed -> true);
+    }
+
+    /**
+     * Fails a certificate whose issue was not queued, unless its issue action has picked it up from REQUESTED: a
+     * publish that threw may still have reached the broker.
+     *
+     * @return whether the issue action had picked the certificate up, so that the issue was queued after all
+     */
+    private boolean failUnlessPickedUp(final UUID certificateUuid, Exception cause) {
+        boolean failable = failCertificate(certificateUuid, cause, "queuing the issue failed",
+                unqueued -> unqueued.getState() == CertificateState.REQUESTED);
+        return !failable;
+    }
+
+    /**
+     * Re-reads the certificate under a short row lock and transitions it to FAILED when it is still {@code failable},
+     * recording the fallback reason when {@code cause} is not one of our shaped domain exceptions.
+     *
+     * @return false only when the certificate was read and found not failable
+     */
+    private boolean failCertificate(final UUID certificateUuid, Exception cause, String fallbackReason,
+            Predicate<Certificate> failable) {
         TransactionStatus failTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             Certificate managed = certificateRepository
                     .findAndLockWithAssociationsByUuid(certificateUuid)
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
-            handleFailedOrRejectedEvent(managed, null, CertificateState.FAILED, CertificateEvent.ISSUE, new HashMap<>(),
-                    safeMessage(cause, fallbackReason));
+            boolean isFailable = failable.test(managed);
+            if (isFailable) {
+                handleFailedOrRejectedEvent(managed, null, CertificateState.FAILED, CertificateEvent.ISSUE,
+                        new HashMap<>(), safeMessage(cause, fallbackReason));
+            }
             transactionManager.commit(failTx);
+            return isFailable;
         } catch (Exception failEx) {
             transactionManager.rollback(failTx);
             logger
                     .error("Failed to record issuance failure for certificate {}: {}", certificateUuid,
                             failEx.getMessage(), failEx);
+            return true;
         }
     }
 
@@ -1591,6 +1655,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 throw new CertificateOperationException(
                         "Register-bound issue for certificate %s raced with another operation; state is now %s."
                                 .formatted(certUuid, state.getLabel()));
+            }
+            // The connector is sent the request this action read before the lock. An undone completion's late action
+            // read none, or another completion attached its own since; the registration waits for its current issue.
+            if (managed.getCertificateRequest() == null
+                    || !Objects.equals(managed.getCertificateRequestUuid(), certificate.getCertificateRequestUuid())) {
+                throw new CertificateOperationException(
+                        "Register-bound issue for certificate %s has no current certificate signing request to issue."
+                                .formatted(certUuid));
             }
             List<MetadataAttribute> replayMeta = binding.getMeta() == null || binding.getMeta().isBlank()
                     ? List.of()
@@ -2069,43 +2141,154 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         List<String> requestAttributeWarnings = List.of();
         if (registered) {
-            // The CSR attach and completion attributes commit before the async ISSUE probe can deny, so gate here.
-            // A verified challenge is itself the holder's authorization; demanding the operator permission on top
-            // would make challenge-based self-service unusable for the identities it exists for.
-            if (!challengeAuthorized) {
-                certificateService.checkCreatePermissions();
-            }
-            // Runs after the challenge gate above, so a caller who cannot authorize cannot probe the policy, and
-            // before the attach below, so a strict violation rejects with nothing persisted.
-            requestAttributeWarnings = validateCompletionRequestAttributes(request, raProfile);
-            UUID certificateRequestUuid;
-            try {
-                certificateRequestUuid = certificateService
-                        .addCertificateRequestToExisting(certificate.getUuid(), request);
-            } catch (CertificateRequestException | NoSuchAlgorithmException e) {
-                throw new ValidationException(
-                        ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
-            }
-            // Persist the completion request-attribute values outside the CSR-attach transaction and its row lock
-            // (this method is NOT_SUPPORTED), so the resolve and the attribute-engine writes run in their own
-            // transactions and cannot mark the completed certificate's transaction rollback-only.
-            persistCompletionRequestValues(raProfile, certificateRequestUuid, request);
+            requestAttributeWarnings = completeRegistration(raProfile, certificate.getUuid(), request,
+                    challengeAuthorized);
+        } else {
+            queueIssue(raProfileUuid.getValue(), certificate.getUuid());
         }
-
-        final ActionMessage actionMessage = new ActionMessage();
-        actionMessage.setApprovalProfileResource(Resource.RA_PROFILE);
-        actionMessage.setApprovalProfileResourceUuid(raProfileUuid.getValue());
-        actionMessage.setUserUuid(UUID.fromString(AuthHelper.getUserIdentification().getUuid()));
-        actionMessage.setResource(Resource.CERTIFICATE);
-        actionMessage.setResourceAction(ResourceAction.ISSUE);
-        actionMessage.setResourceUuid(certificate.getUuid());
-        actionProducer.produceMessage(actionMessage);
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
         response.setCertificateData("");
         response.setUuid(certificateUuid);
         response.setRequestAttributeWarnings(requestAttributeWarnings);
         return response;
+    }
+
+    /**
+     * Completes a registered certificate with the caller's CSR and queues its issue. The CSR attach commits before the
+     * issue is queued, so the queued action finds it, and is undone when the issue is not queued, so the holder's retry
+     * can complete the registration, as after a refused issuance approval.
+     *
+     * @return the request-attribute warnings of the completion CSR
+     */
+    private List<String> completeRegistration(RaProfile raProfile, UUID certificateUuid,
+            ClientCertificateIssueRequestDto request, boolean challengeAuthorized)
+            throws NotFoundException, CertificateException {
+        // The CSR attach and completion attributes commit before the async ISSUE probe can deny, so gate here.
+        // A verified challenge is itself the holder's authorization; demanding the operator permission on top
+        // would make challenge-based self-service unusable for the identities it exists for.
+        if (!challengeAuthorized) {
+            certificateService.checkCreatePermissions();
+        }
+        // Runs after the challenge gate above, so a caller who cannot authorize cannot probe the policy, and
+        // before the attach below, so a strict violation rejects with nothing persisted.
+        List<String> requestAttributeWarnings = validateCompletionRequestAttributes(request, raProfile);
+        mergeAndValidateCompletionIssueAttributes(raProfile.getUuid(), request.getAttributes());
+        UUID certificateRequestUuid = attachCompletionRequest(certificateUuid, request);
+        try {
+            // Persist the completion request-attribute values outside the CSR-attach transaction and its row lock
+            // (issueExistingCertificate is NOT_SUPPORTED), so the resolve and the attribute-engine writes run in their
+            // own transactions and cannot mark the completed certificate's transaction rollback-only.
+            persistCompletionRequestValues(raProfile, certificateRequestUuid, request);
+            queueIssue(raProfile.getUuid(), certificateUuid);
+        } catch (RuntimeException e) {
+            boolean pickedUp = undoCompletionUnlessPickedUp(certificateUuid, certificateRequestUuid);
+            if (!pickedUp) {
+                throw e;
+            }
+            logger
+                    .warn("Queuing the issue of registration {} reported a failure, but its issue action has picked it up",
+                            certificateUuid);
+        }
+        return requestAttributeWarnings;
+    }
+
+    /**
+     * Has the authority validate a completion's issue attributes outside any transaction, as
+     * {@link #submitCertificateRequestInternal} does for a new request. An operator's refused attributes are invalid
+     * input; a protocol's come from its profile, which its client cannot correct, so their refusal is the authority's
+     * failure, like a connector's.
+     */
+    private void mergeAndValidateCompletionIssueAttributes(UUID raProfileUuid, List<RequestAttribute> issueAttributes)
+            throws NotFoundException, CertificateException {
+        // The validation reads the authority and its connector outside any transaction.
+        RaProfile raProfile = raProfileRepository
+                .findWithAuthorityByUuid(raProfileUuid)
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        try {
+            extendedAttributeService.mergeAndValidateIssueAttributes(raProfile, issueAttributes);
+        } catch (ValidationException e) {
+            if (AuthHelper.isLoggedProtocolUser()) {
+                throw unvalidatedIssueAttributes(raProfile, e);
+            }
+            throw e;
+        } catch (AttributeException e) {
+            if (AuthHelper.isLoggedProtocolUser()) {
+                throw unvalidatedIssueAttributes(raProfile, e);
+            }
+            throw new ValidationException(ValidationError.create(e.getMessage()));
+        } catch (ConnectorException e) {
+            throw unvalidatedIssueAttributes(raProfile, e);
+        }
+    }
+
+    /**
+     * The failure is logged by its class and answered with a fixed message: a connector's message can repeat what the
+     * request sent, and the CertificateException advice appends a cause's message to the response.
+     */
+    private CertificateException unvalidatedIssueAttributes(RaProfile raProfile, Exception cause) {
+        logger
+                .error("The issue attributes of a registration completion could not be validated with the authority of RA profile {}: {}",
+                        raProfile.getName(), cause.getClass().getName());
+        return new CertificateException("The issue attributes could not be validated with the authority");
+    }
+
+    /** Attaches the completion CSR and its issue attributes to the registration in a transaction of their own. */
+    private UUID attachCompletionRequest(UUID certificateUuid, ClientCertificateIssueRequestDto request)
+            throws NotFoundException {
+        try {
+            return certificateService.addCertificateRequestToExisting(certificateUuid, request);
+        } catch (CertificateRequestException | NoSuchAlgorithmException e) {
+            throw new ValidationException(
+                    ValidationError.create("Invalid certificate signing request: " + e.getMessage()));
+        } catch (AttributeException e) {
+            throw new ValidationException(ValidationError.create(e.getMessage()));
+        }
+    }
+
+    /**
+     * Undoes the attach of a completion whose issue was not queued, leaving the registration REGISTERED without a
+     * request as a refused issuance approval does. A publish that threw may still have reached the broker, so a
+     * registration its issue action has picked up is left to that action. A failure of the undo itself is only logged.
+     *
+     * @return whether the issue action had picked the registration up, so that the issue was queued after all
+     */
+    private boolean undoCompletionUnlessPickedUp(UUID certificateUuid, UUID certificateRequestUuid) {
+        TransactionStatus undoTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
+        try {
+            Optional<Certificate> completed = certificateRepository
+                    .findAndLockWithAssociationsByUuid(certificateUuid)
+                    .filter(registration -> certificateRequestUuid.equals(registration.getCertificateRequestUuid()));
+            boolean pickedUp = completed.isPresent() && completed.get().getState() != CertificateState.REGISTERED;
+            if (!pickedUp) {
+                completed.ifPresent(ClientOperationServiceImpl::detachCertificateRequest);
+                certificateRequestWriter.deleteUnreferenced(List.of(certificateRequestUuid));
+            }
+            transactionManager.commit(undoTx);
+            return pickedUp;
+        } catch (RuntimeException undoFailure) {
+            if (!undoTx.isCompleted()) {
+                transactionManager.rollback(undoTx);
+            }
+            logger
+                    .error("Failed to undo the completion of registration {} whose issue was not queued",
+                            certificateUuid, undoFailure);
+            return false;
+        }
+    }
+
+    /**
+     * Clears the request and key a completion attached to a registration, so that "REGISTERED with a request attached"
+     * stays reserved for a completion in flight, the invariant addCertificateRequestToExisting relies on.
+     *
+     * @return the detached request, which no certificate refers to any more
+     */
+    private static UUID detachCertificateRequest(Certificate registration) {
+        UUID detachedRequestUuid = registration.getCertificateRequestUuid();
+        registration.setCertificateRequest(null);
+        registration.setCertificateRequestUuid(null);
+        registration.setKeyUuid(null);
+        return detachedRequestUuid;
     }
 
     @Override
@@ -2125,14 +2308,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // Non-registered certs (no binding) keep the terminal REJECTED behaviour.
         if (certificate.getState() == CertificateState.PENDING_APPROVAL
                 && certificateRegistrationRepository.findByCertificateUuid(certificateUuid).isPresent()) {
-            // Clear any attached CSR/key so the holder's retry re-attaches cleanly, and so "REGISTERED with a
-            // request attached" stays reserved for a completion in flight — the invariant
-            // addCertificateRequestToExisting
-            // relies on. A never-completed placeholder carries no request, so this is a no-op for it.
-            UUID detachedRequestUuid = certificate.getCertificateRequestUuid();
-            certificate.setCertificateRequest(null);
-            certificate.setCertificateRequestUuid(null);
-            certificate.setKeyUuid(null);
+            // The holder's retry re-attaches cleanly. A never-completed placeholder carries no request, so this is a
+            // no-op for it.
+            UUID detachedRequestUuid = detachCertificateRequest(certificate);
             stateMachine
                     .transition(certificate, CertificateState.REGISTERED, CertificateEvent.APPROVAL_CLOSE,
                             "Issuance approval was rejected; certificate restored to "

@@ -47,6 +47,13 @@ public interface ClientOperationInternalService {
 
     void approvalCreatedAction(final UUID certificateUuid) throws NotFoundException;
 
+    /**
+     * Whether an issue action not yet approved has nothing to issue: the certificate is gone, or is neither a submitted
+     * request nor a registration holding the request of a completion. Such an action arrives late after its queuing
+     * reported a failure, or is delivered again.
+     */
+    boolean hasNothingToIssue(UUID certificateUuid);
+
     void issueCertificateAction(final UUID certificateUuid, boolean isApproved)
             throws ConnectorException, CertificateException, NoSuchAlgorithmException, AlreadyExistException,
             CertificateOperationException, NotFoundException;

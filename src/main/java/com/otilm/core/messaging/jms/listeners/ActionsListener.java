@@ -22,6 +22,7 @@ import com.otilm.core.messaging.jms.configuration.MessagingProperties;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.messaging.model.NotificationRecipient;
+import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.service.ApprovalInternalService;
 import com.otilm.core.service.SecretInternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
@@ -61,6 +62,13 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
     public void processMessage(final ActionMessage actionMessage) throws MessageHandlingException {
         boolean hasApproval = actionMessage.getApprovalUuid() != null;
         boolean isApproved = hasApproval && actionMessage.getApprovalStatus().equals(ApprovalStatusEnum.APPROVED);
+
+        if (!hasApproval && isIssueWithNothingToIssue(actionMessage)) {
+            logger
+                    .info("Dropping the issue action of certificate {}: it holds no certificate signing request to issue",
+                            actionMessage.getResourceUuid());
+            return;
+        }
 
         if (!hasApproval) {
             final Optional<List<ApprovalProfileRelation>> approvalProfileRelationOptional = approvalProfileRelationRepository
@@ -115,6 +123,17 @@ public class ActionsListener implements MessageProcessor<ActionMessage> {
             throw new MessageHandlingException(messagingProperties.routingKey().actions(), actionMessage,
                     "Unable to process action: " + e.getMessage());
         }
+    }
+
+    /**
+     * An issue can reach the broker although queuing it reported a failure, after which the certificate was failed or
+     * its registration completion undone. It has nothing to issue, so it is dropped before an approval is requested for
+     * it: a pending approval would be left open, and would refuse the approval a registration's retry needs.
+     */
+    private boolean isIssueWithNothingToIssue(final ActionMessage actionMessage) {
+        return actionMessage.getResource() == Resource.CERTIFICATE
+                && actionMessage.getResourceAction() == ResourceAction.ISSUE
+                && clientOperationService.hasNothingToIssue(actionMessage.getResourceUuid());
     }
 
     private void processApprovalCreated(final ActionMessage actionMessage) throws NotFoundException {

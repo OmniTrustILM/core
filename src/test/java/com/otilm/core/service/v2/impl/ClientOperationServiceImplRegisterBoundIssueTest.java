@@ -637,6 +637,48 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         verify(claimWriter, never()).clear(ArgumentMatchers.any());
     }
 
+    @Test
+    void leavesTheRegistrationUnclaimed_whenItHasNoCertificateRequest() {
+        // given — a completion undone after its issue failed to queue, though the issue may have reached the broker
+        RegisterCapability adapter = registerCapableAdapter();
+        certificate.setCertificateRequest(null);
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(stateMachine, never())
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                        ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verifyNoInteractions(adapter);
+    }
+
+    @Test
+    void leavesTheRegistrationUnclaimed_whenAnotherCompletionAttachedItsRequestSinceTheIssueReadIt() {
+        // given — this issue read the registration without a request, and a later completion attached one before the
+        // lock
+        RegisterCapability adapter = registerCapableAdapter();
+        X509CertificateEntity readWithoutRequest = aCertificate().build();
+        readWithoutRequest.setUuid(certUuid);
+        readWithoutRequest.setState(CertificateState.REGISTERED);
+        readWithoutRequest.setRaProfile(raProfile);
+        readWithoutRequest.setSubjectDn(certificate.getSubjectDn());
+        when(certificateRepository.findWithAuthorityAssociationsByUuid(certUuid))
+                .thenReturn(Optional.of(readWithoutRequest));
+        certificate.setCertificateRequestUuid(UUID.randomUUID());
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(stateMachine, never())
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
+                        ArgumentMatchers.any(), ArgumentMatchers.any());
+        Mockito.verifyNoInteractions(adapter);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static MetadataAttribute caHandle(String name, String value) {
