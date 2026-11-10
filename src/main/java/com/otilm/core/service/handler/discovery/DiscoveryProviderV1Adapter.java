@@ -1,6 +1,5 @@
 package com.otilm.core.service.handler.discovery;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.DiscoveryException;
@@ -34,6 +33,7 @@ import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.events.data.DiscoveryResult;
 import com.otilm.core.events.handlers.CertificateDiscoveredEventHandler;
 import com.otilm.core.events.handlers.DiscoveryFinishedEventHandler;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.mapper.discovery.DiscoveryDtoMapper;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.model.discovery.DiscoveryContext;
@@ -65,7 +65,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -337,16 +336,9 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
         return finalizeDiscoveryInTx(context, null);
     }
 
-    /**
-     * Logs a failure with its stack. When a connector wrote part of its chain, the chain is logged without messages: a
-     * connector's error text, or Jackson's quote of an answer Core could not parse, can echo the secrets the request
-     * carried, so only types and frames are logged, as BaseApiClient logs only types.
-     */
+    /** Logs a failure with its stack, without its messages when a connector wrote part of its chain. */
     private static void logFailure(String message, Object subject, Throwable failure) {
-        boolean connectorWritten = ExceptionUtils.indexOfType(failure, JsonProcessingException.class) >= 0
-                || ExceptionUtils.indexOfType(failure, ConnectorException.class) >= 0
-                || ExceptionUtils.indexOfType(failure, ValidationException.class) >= 0;
-        logger.error(message, subject, connectorWritten ? RedactedFailure.of(failure) : failure);
+        logger.error(message, subject, RedactedFailure.forLog(failure));
     }
 
     /** The reason is shown to users, so it is the exception's own text only when that is safe to show. */
@@ -741,23 +733,6 @@ public class DiscoveryProviderV1Adapter implements DiscoveryProviderAdapter {
     private static final class MetadataNotStored extends RuntimeException implements PlatformException {
         private MetadataNotStored(Exception cause) {
             super(cause);
-        }
-    }
-
-    /** Stands in for each link of a failure's chain in the log: its type and frames, never its message. */
-    private static final class RedactedFailure extends RuntimeException implements PlatformException {
-        private RedactedFailure(Throwable original, RedactedFailure cause) {
-            super(original.getClass().getName(), cause, false, true);
-            setStackTrace(original.getStackTrace());
-        }
-
-        private static RedactedFailure of(Throwable failure) {
-            List<Throwable> chain = ExceptionUtils.getThrowableList(failure);
-            RedactedFailure redacted = null;
-            for (int i = chain.size() - 1; i >= 0; i--) {
-                redacted = new RedactedFailure(chain.get(i), redacted);
-            }
-            return redacted;
         }
     }
 

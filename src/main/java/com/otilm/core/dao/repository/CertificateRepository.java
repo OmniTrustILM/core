@@ -140,8 +140,8 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
 
     /**
      * Sets or clears {@code pending_revoke_attributes} on a single certificate row by UUID, refreshing {@code i_upd}
-     * explicitly. The column is written here and not through the entity: a dynamic update of {@link Certificate} leaves
-     * a changed {@code pendingRevokeAttributes} out of its UPDATE statement.
+     * explicitly. The column is written here and not through the entity: it is not updatable through
+     * {@link Certificate}.
      */
     @Modifying
     @Query("UPDATE Certificate c SET c.pendingRevokeAttributes = :attributes, c.updated = CURRENT_TIMESTAMP "
@@ -189,6 +189,13 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
      */
     @Query("SELECT c.state FROM Certificate c WHERE c.uuid = :uuid")
     Optional<CertificateState> findStateByUuid(@Param("uuid") UUID uuid);
+
+    /**
+     * Reads the current {@code validationStatus} of a certificate row by UUID. A scalar projection, so it reads the
+     * database even when the caller's persistence context already holds the certificate.
+     */
+    @Query("SELECT c.validationStatus FROM Certificate c WHERE c.uuid = :uuid")
+    Optional<CertificateValidationStatus> findValidationStatusByUuid(@Param("uuid") UUID uuid);
 
     /**
      * Scalar projection of the RA-profile UUID — authorize without managing the full entity (so a later locking read

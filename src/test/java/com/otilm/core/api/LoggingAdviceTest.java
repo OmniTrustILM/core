@@ -3,9 +3,15 @@ package com.otilm.core.api;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
+import com.otilm.api.exception.CertificateOperationException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.core.logging.Sensitive;
+import com.otilm.core.util.SecretLeakProbe;
 import java.lang.reflect.Method;
+import java.util.List;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.junit.jupiter.api.AfterEach;
@@ -14,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -61,6 +68,40 @@ class LoggingAdviceTest {
         assertThat(firstLine("result:")).endsWith("result: NoToString");
     }
 
+    @Test
+    void logsTheFailureWithoutTheConnectorsText_whenAConnectorWrotePartOfItsChain() throws Throwable {
+        // given
+        var echoedSecret = "passphrase-the-connector-echoed";
+        var shapedFailure = new CertificateOperationException("Failed to submit certificate request");
+        shapedFailure.initCause(new ConnectorException(echoedSecret));
+        ProceedingJoinPoint joinPoint = fixtureJoinPoint(new Object[]{"a", "b"}, null);
+        when(joinPoint.proceed()).thenThrow(shapedFailure);
+
+        // when
+        catchThrowable(() -> advice.logAround(joinPoint));
+
+        // then
+        List<String> lines = renderLogged();
+        SecretLeakProbe.assertNoneReveals(lines, echoedSecret);
+        assertThat(lines).anyMatch(line -> line.contains(ConnectorException.class.getName()));
+    }
+
+    @Test
+    void logsAValidationFailureWithoutItsText_whenAConnectorMayHaveWrittenIt() throws Throwable {
+        // given — a connector's refusal reaches the controller as a ValidationException carrying its own sentences
+        var echoedSecret = "passphrase-the-connector-echoed";
+        ProceedingJoinPoint joinPoint = fixtureJoinPoint(new Object[]{"a", "b"}, null);
+        when(joinPoint.proceed()).thenThrow(new ValidationException(echoedSecret));
+
+        // when
+        catchThrowable(() -> advice.logAround(joinPoint));
+
+        // then
+        List<String> lines = renderLogged();
+        SecretLeakProbe.assertNoneReveals(lines, echoedSecret);
+        assertThat(lines).anyMatch(line -> line.contains("ValidationException when calling"));
+    }
+
     // Invoked only reflectively as the traced-method fixture (the advice reads its parameter annotations).
     @SuppressWarnings("unused")
     private String sampleMethod(@Sensitive String secret, String visible) {
@@ -87,6 +128,16 @@ class LoggingAdviceTest {
                 .filter(message -> message.contains(containing))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    /** Every logged line, with the stack trace of any throwable it carried. */
+    private List<String> renderLogged() {
+        return logged.list
+                .stream()
+                .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
+                        ? ""
+                        : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
     }
 
     static final class NoToString {

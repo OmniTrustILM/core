@@ -16,6 +16,7 @@ import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.logging.LoggingHelper;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
@@ -43,7 +44,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * <p>
@@ -81,8 +81,9 @@ import org.springframework.transaction.annotation.Transactional;
  *      }
  * </pre>
  */
+// Neither @Transactional nor NOT_SUPPORTED, because each revocation is polled for up to the poll budget;
+// see CmpServiceImpl#handlePost.
 @Component
-@Transactional
 public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
 
     private static final Logger LOG = LoggerFactory.getLogger(RevocationMessageHandler.class.getName());
@@ -169,17 +170,16 @@ public class RevocationMessageHandler implements MessageHandler<PKIMessage> {
                                 getSerialNumber(revocation), --revocationCount);
             } catch (Exception e) {
                 LOG
-                        .error("TID={}, SN={} | revocation of certificate failed, reason={}", tid,
-                                getSerialNumber(revocation), e.getLocalizedMessage(), e);
-                // Only forward CmpProcessingException messages to the wire — those are
-                // shaped by this codebase (e.g. by rejectIfNotReached / revokeCertificate)
-                // and safe to expose. RuntimeException / generic Exception messages can
-                // contain DB SQL fragments, internal class references, or upstream stack
-                // detail that should not leak to a CMP client; fall back to the generic
-                // placeholder for those.
-                String freeText = e instanceof CmpProcessingException && e.getMessage() != null
-                        ? e.getMessage()
-                        : "problem with revocation";
+                        .error("TID={}, SN={} | revocation of certificate failed", tid, getSerialNumber(revocation),
+                                RedactedFailure.forLog(e));
+                // Only a CmpProcessingException's error details reach the wire: this codebase wrote them (e.g. in
+                // rejectIfNotReached / revokeCertificate). Its message repeats its cause's, which a connector may have
+                // written, and other exceptions' messages can carry SQL fragments, internal class references or
+                // upstream detail, so those get the generic placeholder.
+                String freeText = e instanceof CmpProcessingException processingException
+                        && processingException.getErrorDetails() != null
+                                ? processingException.getErrorDetails()
+                                : "problem with revocation";
                 int failInfo = e instanceof CmpProcessingException processingException
                         ? processingException.getFailureInfo()
                         : PKIFailureInfo.systemFailure;
