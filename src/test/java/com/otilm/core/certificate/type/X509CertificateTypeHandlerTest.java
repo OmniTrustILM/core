@@ -490,15 +490,17 @@ class X509CertificateTypeHandlerTest {
     @Test
     void showsTheDisplayNameOfTheOid_whenPresentingTheExtendedKeyUsages() {
         // given
-        String serverAuthOid = "1.3.6.1.5.5.7.3.1";
-        String unnamedOid = "1.2.3.4.5";
+        // an OID of no registered arc, so the entry cannot replace one the shared cache already holds
+        String namedOid = "2.999.1.1";
+        String unnamedOid = "2.999.1.2";
+        String displayName = "Handler Test Usage";
         OidHandler
-                .cacheOid(OidCategory.EXTENDED_KEY_USAGE, serverAuthOid,
-                        new OidRecord("TLS Web Server Authentication", null, null, null, null, null, true));
+                .cacheOid(OidCategory.EXTENDED_KEY_USAGE, namedOid,
+                        new OidRecord(displayName, null, null, null, null, null, true));
         CertificateDetailDto detail = new CertificateDetailDto();
-        detail.setExtendedKeyUsage(List.of(serverAuthOid, unnamedOid));
+        detail.setExtendedKeyUsage(List.of(namedOid, unnamedOid));
         X509CertificateTypeDetailsDto details = new X509CertificateTypeDetailsDto();
-        details.setExtendedKeyUsage(List.of(serverAuthOid, unnamedOid));
+        details.setExtendedKeyUsage(List.of(namedOid, unnamedOid));
         detail.setTypeDetails(details);
 
         // when
@@ -506,10 +508,10 @@ class X509CertificateTypeHandlerTest {
             handler.presentDetail(detail);
 
             // then
-            assertThat(detail.getExtendedKeyUsage()).containsExactly("TLS Web Server Authentication", unnamedOid);
-            assertThat(details.getExtendedKeyUsage()).containsExactly("TLS Web Server Authentication", unnamedOid);
+            assertThat(detail.getExtendedKeyUsage()).containsExactly(displayName, unnamedOid);
+            assertThat(details.getExtendedKeyUsage()).containsExactly(displayName, unnamedOid);
         } finally {
-            OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, serverAuthOid);
+            OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, namedOid);
         }
     }
 
