@@ -256,17 +256,15 @@ class AuditLogAspectTest {
     void recordsTheOperationTheBodyDiscovered_whenTheAnnotationLeavesItUnknown() throws Throwable {
         // given
         bindRequestScope();
-        when(joinPoint.proceed()).thenAnswer(invocation -> {
-            auditOperationOverride.set(Operation.ISSUE);
-            return "released";
-        });
+        var discoveredOperation = Operation.ISSUE;
+        stubBodySettingTheOverride(discoveredOperation);
 
         // when
         aspect.log(joinPointOn("unknownOperationProbe"));
 
         // then
         LogRecord recorded = recordWritten();
-        assertThat(recorded.operation()).isEqualTo(Operation.ISSUE);
+        assertThat(recorded.operation()).isEqualTo(discoveredOperation);
         assertThat(recorded.operationResult()).isEqualTo(OperationResult.SUCCESS);
     }
 
@@ -274,8 +272,9 @@ class AuditLogAspectTest {
     void recordsTheOperationTheBodyDiscovered_whenTheBodyThenFails() throws Throwable {
         // given
         bindRequestScope();
+        var operationDiscoveredBeforeTheFailure = Operation.REVOKE;
         when(joinPoint.proceed()).thenAnswer(invocation -> {
-            auditOperationOverride.set(Operation.REVOKE);
+            auditOperationOverride.set(operationDiscoveredBeforeTheFailure);
             throw new ValidationException("refused");
         });
         ProceedingJoinPoint call = joinPointOn("unknownOperationProbe");
@@ -286,7 +285,7 @@ class AuditLogAspectTest {
         // then
         assertThatThrownBy(audited).isInstanceOf(ValidationException.class);
         LogRecord recorded = recordWritten();
-        assertThat(recorded.operation()).isEqualTo(Operation.REVOKE);
+        assertThat(recorded.operation()).isEqualTo(operationDiscoveredBeforeTheFailure);
         assertThat(recorded.operationResult()).isEqualTo(OperationResult.FAILURE);
     }
 

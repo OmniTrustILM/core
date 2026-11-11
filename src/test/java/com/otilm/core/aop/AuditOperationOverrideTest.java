@@ -23,13 +23,14 @@ class AuditOperationOverrideTest {
     void returnsTheOperation_whenOneWasSet() {
         // given
         var auditOperationOverride = new AuditOperationOverride();
-        auditOperationOverride.set(Operation.ISSUE);
+        var discoveredOperation = Operation.ISSUE;
+        auditOperationOverride.set(discoveredOperation);
 
         // when
         Operation operation = auditOperationOverride.consume();
 
         // then
-        assertThat(operation).isEqualTo(Operation.ISSUE);
+        assertThat(operation).isEqualTo(discoveredOperation);
     }
 
     @Test
