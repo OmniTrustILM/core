@@ -206,7 +206,10 @@ class CredentialServiceITest extends BaseSpringBootTest {
         ThrowingCallable create = () -> credentialService.createCredential(request);
 
         // then
-        assertThatThrownBy(create).isInstanceOf(ValidationException.class).hasMessageContaining(attributeName);
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(attributeName)
+                .hasMessageContaining(staleUuid.toString());
         assertThat(credentialRepository.findByName("mismatchedCredential")).isEmpty();
     }
 

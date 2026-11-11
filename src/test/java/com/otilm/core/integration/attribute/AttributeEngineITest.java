@@ -3078,8 +3078,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
             // given
             DataAttributeV3 requiredDefinition = aDataAttribute().withName("identifiedAttribute").build();
             requiredDefinition.getProperties().setRequired(true);
+            var mismatchedUuid = UUID.randomUUID();
             var request = aCustomAttribute()
-                    .withUuid(UUID.randomUUID())
+                    .withUuid(mismatchedUuid)
                     .withName(requiredDefinition.getName())
                     .withStringContent("value")
                     .build();
@@ -3092,7 +3093,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(validate)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("which is not the uuid of its definition")
+                    .hasMessageContaining(mismatchedUuid.toString())
                     .hasMessageNotContaining("is not provided");
         }
 
