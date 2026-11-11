@@ -432,7 +432,8 @@ public class ProxyClientImpl implements ProxyClient {
                 throw sneakyThrow(clientException);
             }
 
-            case "not_found" -> sneakyThrow(new ConnectorEntityNotFoundException(errorMessage));
+            case "not_found" ->
+                sneakyThrow(aboutConnector(new ConnectorEntityNotFoundException(errorMessage), connector));
 
             // The proxy reports a transport failure only as a category; the cause records which one, so a
             // caller can tell an unreachable connector from one that answered with something unusable.
@@ -441,10 +442,12 @@ public class ProxyClientImpl implements ProxyClient {
             case "connection" -> sneakyThrow(
                     new ConnectorCommunicationException(errorMessage, new ConnectException(errorMessage), connector));
 
-            case "server_error" -> sneakyThrow(new ConnectorServerException(errorMessage,
-                    response.getStatusCode() > 0
-                            ? HttpStatus.valueOf(response.getStatusCode())
-                            : HttpStatus.INTERNAL_SERVER_ERROR));
+            case "server_error" -> {
+                HttpStatus status = response.getStatusCode() > 0
+                        ? HttpStatus.valueOf(response.getStatusCode())
+                        : HttpStatus.INTERNAL_SERVER_ERROR;
+                sneakyThrow(aboutConnector(new ConnectorServerException(errorMessage, status), connector));
+            }
 
             // The proxy files each 4xx it has no category for, a 422 among them, as unknown; the status says which.
             case "unknown" -> throwHttpError(response, connector);
@@ -471,16 +474,22 @@ public class ProxyClientImpl implements ProxyClient {
         }
 
         if (statusCode == 404) {
-            sneakyThrow(new ConnectorEntityNotFoundException(errorMessage));
+            sneakyThrow(aboutConnector(new ConnectorEntityNotFoundException(errorMessage), connector));
         } else if (statusCode == 422) {
             throw new ValidationException(errorMessage);
         } else if (httpStatus.is4xxClientError()) {
-            sneakyThrow(new ConnectorClientException(errorMessage, httpStatus));
+            sneakyThrow(aboutConnector(new ConnectorClientException(errorMessage, httpStatus), connector));
         } else if (httpStatus.is5xxServerError()) {
-            sneakyThrow(new ConnectorServerException(errorMessage, httpStatus));
+            sneakyThrow(aboutConnector(new ConnectorServerException(errorMessage, httpStatus), connector));
         } else {
             sneakyThrow(new ConnectorException(errorMessage, connector));
         }
+    }
+
+    /** The error handlers name the connector a failure carries. */
+    private static <E extends ConnectorException> E aboutConnector(E failure, ApiClientConnectorInfo connector) {
+        failure.setConnector(connector);
+        return failure;
     }
 
     /**
