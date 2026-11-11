@@ -3,6 +3,7 @@ package com.otilm.core.service.v2.impl;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
@@ -366,6 +367,56 @@ class ClientOperationServiceImplIssueDispatchTest {
     }
 
     @Test
+    void doesNotLogConnectorText_whenIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubIssueFailingWithConnectorText(connectorEcho);
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertThat(collectLoggedText(logged))
+                .isNotEmpty()
+                .noneSatisfy(line -> assertThat(line).contains(connectorEcho));
+    }
+
+    @Test
+    void throwsWithoutConnectorText_whenIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubIssueFailingWithConnectorText(connectorEcho);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(CertificateOperationException.class)
+                .hasMessageContaining(certUuid.toString())
+                .hasMessageNotContaining(connectorEcho);
+    }
+
+    @Test
+    void keepsConnectorTextInFailedReason_whenIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubIssueFailingWithConnectorText(connectorEcho);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(stateMachine)
+                .transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
+                        ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.contains(connectorEcho),
+                        ArgumentMatchers.any());
+    }
+
+    @Test
     void recordsEventHistoryButDoesNotFail_whenPostAcceptanceCompletionFails() throws Exception {
         // given — the connector delivered a real certificate synchronously (post-acceptance), but the local
         // completion step then throws with a leaky message
@@ -688,6 +739,22 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .supports(ArgumentMatchers.any(AuthorityInstanceReference.class),
                         ArgumentMatchers.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
                 .thenReturn(true);
+    }
+
+    private void stubIssueFailingWithConnectorText(String connectorText) throws Exception {
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(new ConnectorException("authority refused: " + connectorText));
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED)))
+                .thenReturn(true);
+    }
+
+    private static List<String> collectLoggedText(ListAppender<ILoggingEvent> logged) {
+        return logged.list
+                .stream()
+                .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
+                        ? ""
+                        : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
     }
 
     private static ListAppender<ILoggingEvent> captureServiceLogs() {

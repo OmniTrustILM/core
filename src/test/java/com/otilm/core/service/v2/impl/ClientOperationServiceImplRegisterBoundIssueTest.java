@@ -1,5 +1,9 @@
 package com.otilm.core.service.v2.impl;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
@@ -51,6 +55,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,6 +64,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
@@ -125,6 +131,11 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         OidHandler
                 .cacheOidCategory(OidCategory.RDN_ATTRIBUTE_TYPE,
                         savedRdnCache != null ? savedRdnCache : new HashMap<>());
+    }
+
+    @AfterEach
+    void releaseTheServiceLogger() {
+        ((Logger) LoggerFactory.getLogger(ClientOperationServiceImpl.class)).detachAndStopAllAppenders();
     }
 
     @BeforeEach
@@ -399,6 +410,74 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
                         ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.any(), ArgumentMatchers.any());
         // Pre-acceptance FAILED is terminal — the binding is dropped.
         verify(certificateRegistrationWriter).clear(certUuid);
+    }
+
+    @Test
+    void doesNotLogConnectorText_whenRegisterBoundIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubRegisterBoundIssueFailingWith(new ConnectorException("authority refused: " + connectorEcho));
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertThat(collectLoggedText(logged))
+                .isNotEmpty()
+                .noneSatisfy(line -> assertThat(line).contains(connectorEcho));
+    }
+
+    @Test
+    void doesNotLogConnectorText_whenConnectorAcceptsButALocalAdapterStepFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubRegisterBoundIssueFailingWith(new ConnectorAcceptedButLocalFailureException(
+                "accepted, then failed: " + connectorEcho, new IllegalStateException("local")));
+        ListAppender<ILoggingEvent> logged = captureServiceLogs();
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        assertThat(collectLoggedText(logged))
+                .isNotEmpty()
+                .noneSatisfy(line -> assertThat(line).contains(connectorEcho));
+    }
+
+    @Test
+    void throwsWithoutConnectorText_whenRegisterBoundIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubRegisterBoundIssueFailingWith(new ConnectorException("authority refused: " + connectorEcho));
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(CertificateOperationException.class)
+                .hasMessageContaining(certUuid.toString())
+                .hasMessageNotContaining(connectorEcho);
+    }
+
+    @Test
+    void keepsConnectorTextInFailedReason_whenRegisterBoundIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubRegisterBoundIssueFailingWith(new ConnectorException("authority refused: " + connectorEcho));
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(stateMachine)
+                .transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
+                        ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.contains(connectorEcho),
+                        ArgumentMatchers.any());
     }
 
     @Test
@@ -698,6 +777,31 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void stubRegisterBoundIssueFailingWith(ConnectorException failure) throws Exception {
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenThrow(failure);
+        when(stateMachine.canTransition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED)))
+                .thenReturn(true);
+        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+    }
+
+    private static ListAppender<ILoggingEvent> captureServiceLogs() {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ((Logger) LoggerFactory.getLogger(ClientOperationServiceImpl.class)).addAppender(appender);
+        return appender;
+    }
+
+    private static List<String> collectLoggedText(ListAppender<ILoggingEvent> logged) {
+        return logged.list
+                .stream()
+                .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
+                        ? ""
+                        : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
+    }
 
     private static MetadataAttribute caHandle(String name, String value) {
         MetadataAttributeV2 attribute = new MetadataAttributeV2();

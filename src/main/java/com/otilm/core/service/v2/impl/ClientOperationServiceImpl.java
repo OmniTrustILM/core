@@ -85,6 +85,7 @@ import com.otilm.core.events.handlers.CertificateActionPerformedEventHandler;
 import com.otilm.core.events.handlers.CertificateRegisteredEventHandler;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.logging.LoggerWrapper;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.messaging.model.ActionMessage;
@@ -1554,11 +1555,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         } catch (Exception e) {
             logger
                     .warn("Pre-acceptance issuance failure for certificate {}; failing the claimed placeholder",
-                            certificateUuid, e);
+                            certificateUuid, RedactedFailure.forLog(e));
             failClaimedCertificate(certificateUuid, e);
             throw new CertificateOperationException(
                     "Failed to issue certificate with UUID %s: ".formatted(certificateUuid)
-                            + safeMessage(e, "issuance failed"));
+                            + propagatedReason(e, "issuance failed"));
         }
 
         boolean issuedSynchronously;
@@ -1603,10 +1604,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         } catch (Exception e) {
             logger
                     .warn("Certificate {} was issued by the authority but completing local state failed; reconcile manually",
-                            certificateUuid, e);
+                            certificateUuid, RedactedFailure.forLog(e));
             throw new CertificateOperationException(
                     "Certificate %s was issued by the authority but completing local state failed; reconcile manually. Cause: "
-                            .formatted(certificateUuid) + safeMessage(e, "issuance completion failed"));
+                            .formatted(certificateUuid) + propagatedReason(e, "issuance completion failed"));
         }
         return true;
     }
@@ -1763,7 +1764,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             clearPendingIssueClaimBestEffort(certificate);
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but a local adapter step failed; "
-                            + "left {} for reconciliation", certUuid, pendingIssueLabel, e);
+                            + "left {} for reconciliation", certUuid, pendingIssueLabel, RedactedFailure.forLog(e));
             certificateEventHistoryService
                     .addEventHistory(certUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                             "Connector accepted the register-bound issue but a local step failed; left %s for reconciliation. Cause: %s"
@@ -1773,11 +1774,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Connector accepted the register-bound issue for certificate %s but a local step failed; left %s for reconciliation."
                             .formatted(certUuid, pendingIssueLabel));
         } catch (ConnectorException | RuntimeException e) {
-            String reason = safeMessage(e, "register-bound issuance failed");
             failClaimedCertificate(certUuid, e, "register-bound issuance failed");
             clearBindingBestEffort(certUuid);
-            throw new CertificateOperationException(
-                    "Failed to issue register-bound certificate %s: %s".formatted(certUuid, reason));
+            throw new CertificateOperationException("Failed to issue register-bound certificate %s: %s"
+                    .formatted(certUuid, propagatedReason(e, "register-bound issuance failed")));
         }
     }
 
@@ -1794,7 +1794,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             clearPendingIssueClaimBestEffort(certificate);
             logger
                     .warn("Connector accepted the register-bound issue for cert {} but completing local state failed; "
-                            + "reconcile manually", certUuid, e);
+                            + "reconcile manually", certUuid, RedactedFailure.forLog(e));
             certificateEventHistoryService
                     .addEventHistory(certUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                             "Connector accepted the register-bound issue but completing local state failed; reconcile manually. Cause: "
@@ -1841,7 +1841,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             try {
                 locationInternalService.pushRequestedCertificateToLocationAction(certificateLocation.getId(), false);
             } catch (Exception e) {
-                logger.error("Failed to push issued certificate to location: {}", e.getMessage());
+                logger.error("Failed to push issued certificate to location", RedactedFailure.forLog(e));
             }
         }
         eventProducer
@@ -1889,11 +1889,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                             safeMessage(e, INTERNAL_ERROR)),
                             "");
             logger
-                    .error("Failed to replace certificate in all locations during {} operation: {}", operation,
-                            e.getMessage(), e);
+                    .error("Failed to replace certificate in all locations during {} operation", operation,
+                            RedactedFailure.forLog(e));
             throw new CertificateOperationException(
                     "Failed to replace certificate in all locations during %s operation: %s"
-                            .formatted(operation, safeMessage(e, INTERNAL_ERROR)));
+                            .formatted(operation, propagatedReason(e, INTERNAL_ERROR)));
         }
     }
 
@@ -1904,6 +1904,15 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private static String safeMessage(Exception e, String fallback) {
         return (e instanceof ConnectorException || e instanceof CertificateOperationException
                 || e instanceof ValidationException) && e.getMessage() != null ? e.getMessage() : fallback;
+    }
+
+    /**
+     * The reason an exception carries out of the service: {@link #safeMessage}, except that a failure a connector wrote
+     * part of gives only {@code fallback}, since a connector's text can echo the secrets the request carried. The
+     * certificate's event history still records that text.
+     */
+    private static String propagatedReason(Exception e, String fallback) {
+        return RedactedFailure.isConnectorWritten(e) ? fallback : safeMessage(e, fallback);
     }
 
     private static ValidationException alreadyRevoked(Certificate certificate) {
@@ -2059,10 +2068,10 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         for (CertificateLocation location : certificate.getLocations()) {
             try {
                 locationInternalService.removeRejectedOrFailedCertificateFromLocationAction(location.getId());
-            } catch (ConnectorException | NotFoundException ex) {
+            } catch (ConnectorException | NotFoundException | ValidationException ex) {
                 logger
-                        .error("Failed to remove certificate with UUID {} from location with UUID {}: {}",
-                                certificate.getUuid(), location.getId().getLocationUuid(), ex.getMessage(), ex);
+                        .error("Failed to remove certificate with UUID {} from location with UUID {}",
+                                certificate.getUuid(), location.getId().getLocationUuid(), RedactedFailure.forLog(ex));
             }
         }
         CertificateState oldState = certificate.getState();
@@ -2565,7 +2574,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // local failure (mapping, persistence, event history) must NOT drive the successor to FAILED. Leave it
             // in PENDING_ISSUE so reconciliation/polling can resolve it against the authority that already accepted;
             // record the failure against the predecessor and surface it. (state-divergence rule)
-            logger.error("Failed to renew certificate {}", certificateUuid, e);
+            logger.error("Failed to renew certificate {}", certificateUuid, RedactedFailure.forLog(e));
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
                 clearPendingIssueClaimBestEffort(certificate);
                 certificateEventHistoryService
@@ -2575,13 +2584,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                 MetaDefinitions.serialize(additionalInformation));
                 throw new CertificateOperationException(
                         "Connector accepted renewal but local update failed for certificate %s: "
-                                .formatted(certificateUuid) + safeMessage(e, INTERNAL_ERROR));
+                                .formatted(certificateUuid) + propagatedReason(e, INTERNAL_ERROR));
             }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED,
                     CertificateEvent.RENEW, additionalInformation, safeMessage(e, "Renewal failed"));
             throw new CertificateOperationException(
                     "Failed to renew certificate with UUID %s: ".formatted(certificateUuid)
-                            + safeMessage(e, INTERNAL_ERROR));
+                            + propagatedReason(e, INTERNAL_ERROR));
         }
 
         if (request.isReplaceInLocations()) {
@@ -2592,7 +2601,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                 try {
                     locationInternalService.pushRequestedCertificateToLocationAction(cl.getId(), true);
                 } catch (Exception e) {
-                    logger.error("Failed to push renewed certificate to location: {}", e.getMessage());
+                    logger.error("Failed to push renewed certificate to location", RedactedFailure.forLog(e));
                 }
             }
         }
@@ -2830,7 +2839,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // local failure (mapping, persistence, event history) must NOT drive the successor to FAILED. Leave it
             // in PENDING_ISSUE so reconciliation/polling can resolve it against the authority that already accepted;
             // record the failure against the predecessor and surface it. (state-divergence rule)
-            logger.error("Failed to rekey certificate {}", certificateUuid, e);
+            logger.error("Failed to rekey certificate {}", certificateUuid, RedactedFailure.forLog(e));
             if (connectorAccepted || e instanceof ConnectorAcceptedButLocalFailureException) {
                 clearPendingIssueClaimBestEffort(certificate);
                 certificateEventHistoryService
@@ -2840,13 +2849,13 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                                 MetaDefinitions.serialize(additionalInformation));
                 throw new CertificateOperationException(
                         "Connector accepted rekey but local update failed for certificate %s: "
-                                .formatted(certificateUuid) + safeMessage(e, INTERNAL_ERROR));
+                                .formatted(certificateUuid) + propagatedReason(e, INTERNAL_ERROR));
             }
             handleFailedOrRejectedEvent(certificate, oldCertificate.getUuid(), CertificateState.FAILED,
                     CertificateEvent.REKEY, additionalInformation, safeMessage(e, "Rekey failed"));
             throw new CertificateOperationException(
                     "Failed to rekey certificate with UUID %s: ".formatted(certificateUuid)
-                            + safeMessage(e, INTERNAL_ERROR));
+                            + propagatedReason(e, INTERNAL_ERROR));
         }
 
         if (request.isReplaceInLocations()) {
