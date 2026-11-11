@@ -91,8 +91,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * The CRL check's decisions that need a state the integration tests cannot stage: a download permit held past the wait,
- * a write another Core instance overtook, and a write that fails.
+ * The CRL check's decisions that need a state the integration tests cannot stage, such as a download permit held past
+ * the wait, a write another Core instance overtook, or a store that outlasts the download timeout.
  */
 @ExtendWith(MockitoExtension.class)
 class CrlServiceImplTest {

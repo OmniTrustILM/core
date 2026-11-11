@@ -116,10 +116,9 @@ public class CrlServiceImpl implements CrlService {
      * those that waited find it stored.
      *
      * <p>
-     * When the stored base CRL is current and only its delta CRL is due, a certificate the stored CRL lists stays
-     * revoked even if the delta CRL cannot be read, as {@link #throwUnlessStoredCrlLists} decides; this holds also when
-     * the wait for the issuer or for a download permit ends first. After a failure the stored CRL is read again, so a
-     * CRL another validation stored meanwhile is used, unless it is older than a delta CRL this validation read.
+     * A certificate the stored base CRL lists stays revoked when only its delta CRL is due and cannot be read, also
+     * when a wait ends first ({@link #throwUnlessStoredCrlLists}). After a failure the stored CRL is read again, so one
+     * stored meanwhile is used unless it is older than a delta CRL this validation read.
      */
     @Override
     @OutsideTransaction
@@ -475,10 +474,9 @@ public class CrlServiceImpl implements CrlService {
     }
 
     /**
-     * A writer for another validation, possibly on another Core instance, changed the stored CRL first. Its entries
-     * answer the check only if they are at least as new as this delta CRL: a complete or delta CRL numbered at or above
-     * it, since both share one numbering sequence. An older base CRL without it would miss the revocations this delta
-     * CRL lists.
+     * Another writer, possibly on another Core instance, changed the stored CRL first. Its entries answer the check
+     * only if numbered at or above this delta CRL, since complete and delta CRLs share one numbering sequence; an older
+     * base CRL would miss what this delta CRL lists.
      */
     private void requireDeltaCrlStoredMeanwhile(Crl crl, BigInteger deltaCrlNumber) throws IOException {
         Crl stored = findStoredCrl(crl.getIssuerDn(), crl.getSerialNumber());
@@ -613,7 +611,7 @@ public class CrlServiceImpl implements CrlService {
         return new CrlEntryData(serialNumber, entry.revocationDate(), reason);
     }
 
-    /** Refuses a stored CRL older than the delta CRL in hand: its entries would miss what the delta CRL lists. */
+    /** A stored CRL older than the delta CRL in hand. */
     static final class StoredCrlOlderThanDeltaCrlException extends IOException implements PlatformException {
 
         StoredCrlOlderThanDeltaCrlException() {
@@ -622,16 +620,16 @@ public class CrlServiceImpl implements CrlService {
     }
 
     /**
-     * One read of an issuer's CRLs: the name a CRL must carry and the key its signature must verify with to count for a
-     * certificate, and the download time all its downloads share, so a permit is held for no more than one download
-     * timeout of downloading however many URLs the certificate names.
+     * One read of an issuer's CRLs: the name a CRL must carry, the key its signature must verify with, and the download
+     * budget its downloads share.
      */
     private record CrlRead(X500Principal issuerName, PublicKey issuerKey, DownloadBudget budget) {
     }
 
     /**
-     * The download time a read of an issuer's CRLs has left. Only downloads spend it: parsing and storing a large base
-     * CRL must not leave its delta CRL without time to be read.
+     * The download time a read of an issuer's CRLs has left. All its downloads share it, so a permit is held for at
+     * most one download timeout of downloading, however many URLs the certificate names. Parsing and storing do not
+     * spend it, so storing a large base CRL leaves its delta CRL time to be read.
      */
     static final class DownloadBudget {
 

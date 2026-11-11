@@ -45,24 +45,22 @@ import static java.nio.charset.StandardCharsets.US_ASCII;
  * A CRL read from its encoding without holding all its entries decoded at once.
  *
  * <p>
- * The JDK parser builds an object for every entry and keeps them all, about 400 bytes each, so a CRL listing hundreds
- * of thousands of certificates takes well over a hundred megabytes of heap while it is read. This keeps the encoding
- * and decodes the entries one at a time whenever they are iterated:
+ * The JDK parser keeps an object of about 400 bytes per entry, well over a hundred megabytes for a CRL of a few hundred
+ * thousand entries. This keeps the encoding and decodes the entries one at a time as they are iterated:
  * <ul>
- * <li>the JDK parses the header, everything but the entries, from a copy of the CRL without them, so it reads the
- * issuer, the dates and the extensions and refuses a CRL whose signed signature algorithm differs from the outer
- * one;</li>
+ * <li>the JDK parses a copy of the CRL without its entries, so it reads the issuer, dates and extensions and refuses a
+ * signed signature algorithm that differs from the outer one;</li>
  * <li>the signature is verified over the CRL's own signed part, as the JDK verifies it;</li>
- * <li>BouncyCastle decodes the entries, once while parsing, so a malformed entry refuses the whole CRL before anything
- * is stored, and again for each iteration.</li>
+ * <li>BouncyCastle decodes the entries once while parsing, so a malformed entry refuses the CRL before anything is
+ * stored, and again on each iteration.</li>
  * </ul>
  * A CRL that is not DER-encoded at the levels read here, such as one with an indefinite length, is parsed whole by the
  * JDK, up to {@value #MAX_WHOLE_PARSE_SIZE} bytes.
  *
  * <p>
- * Parsing happens before the signature is verified, so a CRL from an untrusted URL is read within limits: the header at
- * most {@value #MAX_WHOLE_PARSE_SIZE} bytes, each entry at most {@value #MAX_ENTRY_SIZE} bytes before BouncyCastle
- * decodes it, and the signed list at most the {@value #MAX_SIGNED_LIST_FIELDS} fields a CRL has.
+ * Parsing precedes signature verification, so it is bounded: the header at most {@value #MAX_WHOLE_PARSE_SIZE} bytes,
+ * each entry at most {@value #MAX_ENTRY_SIZE} bytes before BouncyCastle decodes it, and the signed list at most the
+ * {@value #MAX_SIGNED_LIST_FIELDS} fields a CRL has.
  */
 public final class EncodedCrl {
 
@@ -298,7 +296,7 @@ public final class EncodedCrl {
 
     /**
      * The parameters of the signature algorithm, read as the JDK reads them to verify a CRL: only those of RSASSA-PSS.
-     * ECDSA parameters are ignored, as the JDK ignores them.
+     * ECDSA parameters are ignored: RFC 3279 and RFC 5758 leave them absent, and the JDK ignores any present.
      */
     private static AlgorithmParameterSpec signatureParameters(X509CRL crl) throws GeneralSecurityException {
         byte[] encoded = crl.getSigAlgParams();
@@ -313,7 +311,6 @@ public final class EncodedCrl {
                 return parameters.getParameterSpec(PSSParameterSpec.class);
             }
             if (algorithm.contains("ECDSA")) {
-                // RFC 3279 and RFC 5758 leave ECDSA parameters absent, and the JDK ignores any that are present
                 return null;
             }
         } catch (IOException e) {

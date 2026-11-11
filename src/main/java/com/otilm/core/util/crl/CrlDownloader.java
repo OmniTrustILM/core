@@ -20,12 +20,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Downloads CRLs within a size limit and an overall deadline. A CRL is held whole in memory while it is checked and
- * stored, and the read timeout bounds each read only, so a server sending a byte now and then could otherwise keep a
- * download going for ever. Until the response headers have arrived, which includes connecting, the TLS handshake and
- * redirects, a watchdog closes the connection at the deadline; the body is read in a loop that checks the deadline
- * after each read. A body read blocked at the deadline still ends within one read timeout: closing the connection then
- * would not cut it short, since closing the body stream waits for a read in progress.
+ * Downloads CRLs within a size limit and a deadline, since a CRL is held whole in memory and the read timeout bounds
+ * each read only. Until the response headers arrive, which includes connecting, the TLS handshake and redirects, a
+ * watchdog closes the connection at the deadline; after that the deadline is checked after each read. A body read
+ * blocked at the deadline ends within one read timeout: closing the body stream would wait for that read.
  */
 @Component
 public class CrlDownloader {

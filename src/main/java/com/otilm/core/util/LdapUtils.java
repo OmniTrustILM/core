@@ -140,7 +140,6 @@ public class LdapUtils {
                 answer.close();
             }
         } finally {
-            // a failed or timed-out search would otherwise leave the connection open
             ctx.close();
         }
     }
