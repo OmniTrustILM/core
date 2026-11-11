@@ -2,7 +2,9 @@ package com.otilm.core.signing.contentsigning.formatting;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v1.signing.contentsigning.ContentSigningFormattingSyncApiClient;
+import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.EmbedSignatureValueRequestDto;
@@ -13,9 +15,13 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocu
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
 import com.otilm.core.client.ConnectorApiFactory;
+import com.otilm.core.config.ConnectorApiClientProperties;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
+import java.time.Duration;
+import java.util.Set;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,7 +31,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.unit.DataSize;
 
+import static com.otilm.core.util.ConnectorFailureFixtures.oversizedResponse;
+import static com.otilm.core.util.ConnectorFailureFixtures.problemRefusal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
@@ -40,6 +49,11 @@ class ContentSigningFormattingClientTest {
     private static final byte[] DTBS = {1, 2, 3};
     private static final byte[] SIGNED_DOCUMENT = {4, 5, 6};
     private static final byte[] IMPRINT = {7, 8, 9};
+    private static final DataSize READ_LIMIT = DataSize.ofMegabytes(16);
+    private static final Set<String> CONNECTOR_SIZED_STEPS = Set
+            .of("computeSignatureTimestampImprint", "extendToLevel", "computeArchiveTimestampImprint");
+    private static final ConnectorApiClientProperties CONNECTOR_API_CLIENT_PROPERTIES = new ConnectorApiClientProperties(
+            Duration.ofSeconds(3), Duration.ofSeconds(35), 20, Duration.ofSeconds(10), READ_LIMIT);
 
     @Mock
     private ConnectorApiFactory connectorApiFactory;
@@ -52,7 +66,7 @@ class ContentSigningFormattingClientTest {
 
     @BeforeEach
     void setUp() {
-        client = new ContentSigningFormattingClient(connectorApiFactory);
+        client = new ContentSigningFormattingClient(connectorApiFactory, CONNECTOR_API_CLIENT_PROPERTIES);
     }
 
     @Test
@@ -232,6 +246,78 @@ class ContentSigningFormattingClientTest {
                 });
     }
 
+    @Test
+    void reportsMalformedInput_whenTheConnectorRefusesTheDocumentAsMalformed() throws Exception {
+        // given
+        var malformedDocument = problemRefusal(ErrorCode.DOCUMENT_MALFORMED);
+        given(connectorApiFactory.getContentSigningFormattingApiClient(connector)).willReturn(apiClient);
+        given(apiClient.computeDtbs(any(), any())).willThrow(malformedDocument);
+
+        // when
+        ThrowingCallable computeDtbs = () -> client.computeDtbs(connector, new ComputeDtbsRequestDto());
+
+        // then
+        assertThatThrownBy(computeDtbs).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MALFORMED_INPUT);
+            assertThat(thrown.clientMessage()).isEqualTo(ErrorCode.DOCUMENT_MALFORMED.getTitle());
+        });
+    }
+
+    @Test
+    void reportsMisconfigured_whenTheConnectorAnswersALegacy422() throws Exception {
+        // given
+        var legacyRefusal = new ValidationException("Signature attribute is not supported");
+        given(connectorApiFactory.getContentSigningFormattingApiClient(connector)).willReturn(apiClient);
+        given(apiClient.computeDtbs(any(), any())).willThrow(legacyRefusal);
+
+        // when
+        ThrowingCallable computeDtbs = () -> client.computeDtbs(connector, new ComputeDtbsRequestDto());
+
+        // then
+        assertThatThrownBy(computeDtbs)
+                .isInstanceOfSatisfying(SigningEngineException.class,
+                        thrown -> assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("documentSizedOperations")
+    void reportsInvalidInputNamingTheLimit_whenADocumentSizedResponseExceedsTheReadLimit(String step,
+            ApiClientCall stubTarget, ClientCall operation) throws Exception {
+        // given
+        var oversizedResponse = oversizedResponse();
+        given(connectorApiFactory.getContentSigningFormattingApiClient(connector)).willReturn(apiClient);
+        given(stubTarget.execute(apiClient)).willThrow(oversizedResponse);
+
+        // when
+        ThrowingCallable callOperation = () -> operation.execute(client, connector);
+
+        // then
+        assertThatThrownBy(callOperation).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+            assertThat(thrown.step()).isEqualTo(step);
+            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            assertThat(thrown.clientMessage()).contains("16MB");
+        });
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("connectorSizedOperations")
+    void reportsConnectorFault_whenAConnectorSizedResponseExceedsTheReadLimit(String step, ApiClientCall stubTarget,
+            ClientCall operation) throws Exception {
+        // given — an imprint, or validation material the connector fetches, sizes the response
+        var oversizedResponse = oversizedResponse();
+        given(connectorApiFactory.getContentSigningFormattingApiClient(connector)).willReturn(apiClient);
+        given(stubTarget.execute(apiClient)).willThrow(oversizedResponse);
+
+        // when
+        ThrowingCallable callOperation = () -> operation.execute(client, connector);
+
+        // then
+        assertThatThrownBy(callOperation).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+            assertThat(thrown.step()).isEqualTo(step);
+            assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+        });
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("formattingOperations")
     void everyOperationReportsItsOwnStepName(String expectedStep, ApiClientCall stubTarget, ClientCall operation)
@@ -272,6 +358,14 @@ class ContentSigningFormattingClientTest {
                                 (ApiClientCall) api -> api.embedArchiveTimestamp(any(), any()),
                                 (ClientCall) (client, connector) -> client
                                         .embedArchiveTimestamp(connector, new EmbedTimestampRequestDto())));
+    }
+
+    private static Stream<Arguments> documentSizedOperations() {
+        return formattingOperations().filter(operation -> !CONNECTOR_SIZED_STEPS.contains(operation.get()[0]));
+    }
+
+    private static Stream<Arguments> connectorSizedOperations() {
+        return formattingOperations().filter(operation -> CONNECTOR_SIZED_STEPS.contains(operation.get()[0]));
     }
 
     /** Invokes one operation on the connector API mock, so the test can stub exactly that operation. */
