@@ -3,6 +3,7 @@ package com.otilm.core.service.scep.impl;
 import com.otilm.api.exception.ScepException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.scep.MessageType;
 import com.otilm.api.model.core.scep.PkiStatus;
 import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.dao.entity.Certificate;
@@ -10,6 +11,7 @@ import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
+import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.scep.message.ScepRequest;
 import com.otilm.core.service.scep.message.ScepResponse;
 import java.util.List;
@@ -28,6 +30,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 
 /**
  * Unit tests for {@link ScepServiceImpl} private polling methods (the kernels of the RFC 8894 §3.3 GetCertInitial /
@@ -117,20 +120,44 @@ class ScepServiceImplPollUnitTest {
         // given
         var auditOperationOverride = Mockito.mock(AuditOperationOverride.class);
         service.setAuditOperationOverride(auditOperationOverride);
+        var missingProfileName = "missing-profile";
         var missingProfileRepository = Mockito.mock(ScepProfileRepository.class);
-        Mockito.when(missingProfileRepository.findByName("missing-profile")).thenReturn(Optional.empty());
+        Mockito.when(missingProfileRepository.findByName(missingProfileName)).thenReturn(Optional.empty());
         service.setScepProfileRepository(missingProfileRepository);
         RequestContextHolder
-                .setRequestAttributes(new ServletRequestAttributes(
-                        new MockHttpServletRequest("GET", "/v1/protocols/scep/missing-profile/pkiclient.exe")));
+                .setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest("GET",
+                        "/v1/protocols/scep/" + missingProfileName + "/pkiclient.exe")));
 
         // when
         ThrowingCallable getCaCaps = () -> service
-                .handleGet("missing-profile", ScepServiceImpl.SCEP_OPERATION_GET_CA_CAPS, null);
+                .handleGet(missingProfileName, ScepServiceImpl.SCEP_OPERATION_GET_CA_CAPS, null);
 
         // then
         assertThatThrownBy(getCaCaps).isInstanceOf(ScepException.class);
         Mockito.verify(auditOperationOverride).set(Operation.SCEP_CA_CAPABILITIES);
+    }
+
+    @Test
+    void recordsIssueAsTheAuditOperation_whenAnAutoIssuingEnrolmentFailsBeforeAuthentication() {
+        // given
+        var auditOperationOverride = Mockito.mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        Mockito.when(profile.getRequireManualApproval()).thenReturn(false);
+        Mockito.when(profile.getCaCertificate()).thenReturn(aCertificate().build());
+        var unavailableCaKey = Mockito.mock(CryptographicKeyInternalService.class);
+        Mockito.when(unavailableCaKey.getKeyItemFromKey(any(), any())).thenThrow(new IllegalStateException("no key"));
+        service.setCryptographicKeyInternalService(unavailableCaKey);
+        ScepRequest enrolment = Mockito.mock(ScepRequest.class);
+        Mockito.when(enrolment.getMessageType()).thenReturn(MessageType.PKCS_REQ);
+
+        // when
+        ThrowingCallable processEnrolment = () -> ReflectionTestUtils
+                .invokeMethod(service, "processPkiOperation", enrolment);
+
+        // then
+        assertThatThrownBy(processEnrolment).isInstanceOf(IllegalStateException.class).hasMessage("no key");
+        Mockito.verify(auditOperationOverride).set(Operation.ISSUE);
     }
 
     // ==================== getExistingTransaction ====================

@@ -511,6 +511,9 @@ public class ScepServiceImpl implements ScepExternalService {
 
     private ResponseEntity<Object> processPkiOperation(ScepRequest scepRequest) throws ScepException {
         logger.debug("Processing SCEP request: transactionId={}", scepRequest.getTransactionId());
+        if (MessageType.PKCS_REQ.equals(scepRequest.getMessageType())) {
+            recordAuditOperation(enrollmentOperation(registrationMode()));
+        }
 
         try {
             decryptRequestData(scepRequest);
@@ -619,12 +622,7 @@ public class ScepServiceImpl implements ScepExternalService {
 
     private ScepResponse enrollmentResponse(ScepRequest scepRequest, IntuneScepServiceClient intuneClient,
             Certificate matchedRegistration) {
-        // Manual approval for the SCEP clients are configured in the SCEP Profile.
-        // If the SCEP Profile has the manual approval set to true, only the CSR will be generated
-        boolean issuesWithoutApproval = scepProfile.getRequireManualApproval() != null
-                && !scepProfile.getRequireManualApproval();
-        recordAuditOperation(
-                matchedRegistration != null || issuesWithoutApproval ? Operation.ISSUE : Operation.REQUEST);
+        recordAuditOperation(enrollmentOperation(matchedRegistration != null));
         try {
             // Reject before issuing when the response could never be delivered, so the platform
             // does not commit a certificate the client can never retrieve (RFC 8894 §3.2.2).
@@ -632,7 +630,7 @@ public class ScepServiceImpl implements ScepExternalService {
             if (matchedRegistration != null) {
                 return completeRegistration(scepRequest, matchedRegistration);
             }
-            if (issuesWithoutApproval) {
+            if (issuesWithoutApproval()) {
                 return issueCertificate(scepRequest, intuneClient);
             }
             return generateCsr(scepRequest, intuneClient);
@@ -649,6 +647,17 @@ public class ScepServiceImpl implements ScepExternalService {
             }
             return failureResponse;
         }
+    }
+
+    /** An enrolment issues at once when it completes a registration or its profile needs no manual approval. */
+    private Operation enrollmentOperation(boolean completesRegistration) {
+        return completesRegistration || issuesWithoutApproval() ? Operation.ISSUE : Operation.REQUEST;
+    }
+
+    // Manual approval for the SCEP clients are configured in the SCEP Profile.
+    // If the SCEP Profile has the manual approval set to true, only the CSR will be generated
+    private boolean issuesWithoutApproval() {
+        return scepProfile.getRequireManualApproval() != null && !scepProfile.getRequireManualApproval();
     }
 
     private ScepResponse buildFailedResponse(ScepException scepException, String transactionId) {
