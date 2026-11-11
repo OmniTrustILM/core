@@ -209,17 +209,18 @@ class PrehashedSignatureVerifierTest {
         assertThat(verified).isFalse();
     }
 
-    @Test
-    void returnsFalse_whenThePssSignatureIsShorterThanTheModulus() throws Exception {
+    @ParameterizedTest
+    @EnumSource(value = SignatureAlgorithm.class, names = {"SHA256_WITH_RSA", "SHA256_WITH_RSA_PSS"})
+    void returnsFalse_whenTheRsaSignatureIsShorterThanTheModulus(SignatureAlgorithm algorithm) throws Exception {
         // given
-        SignatureAlgorithm algorithm = SignatureAlgorithm.SHA256_WITH_RSA_PSS;
-        byte[] signatureWithLeadingZero = signWithJdkUntilTheFirstByteIsZero(algorithm);
-        byte[] strippedOfItsLeadingZero = Arrays
-                .copyOfRange(signatureWithLeadingZero, 1, signatureWithLeadingZero.length);
+        SignedMessage signedWithLeadingZero = signUntilTheSignatureStartsWithZero(algorithm);
+        byte[] signature = signedWithLeadingZero.signature();
+        byte[] strippedOfItsLeadingZero = Arrays.copyOfRange(signature, 1, signature.length);
 
         // when
         boolean verified = PrehashedSignatureVerifier
-                .verifies(algorithm, rsaKeys.getPublic(), computeDigest(algorithm, MESSAGE), strippedOfItsLeadingZero);
+                .verifies(algorithm, rsaKeys.getPublic(), computeDigest(algorithm, signedWithLeadingZero.message()),
+                        strippedOfItsLeadingZero);
 
         // then
         assertThat(verified).isFalse();
@@ -301,15 +302,20 @@ class PrehashedSignatureVerifierTest {
         return signature.sign();
     }
 
-    // PSS salts are random, so about one signature in 256 starts with a zero byte.
-    private static byte[] signWithJdkUntilTheFirstByteIsZero(SignatureAlgorithm algorithm)
+    // About one RSA signature in 256 starts with a zero byte. PKCS#1 v1.5 signatures are deterministic, so each
+    // attempt signs a different message.
+    private static SignedMessage signUntilTheSignatureStartsWithZero(SignatureAlgorithm algorithm)
             throws GeneralSecurityException {
         for (int attempt = 0; attempt < 10_000; attempt++) {
-            byte[] signature = signWithJdk(algorithm, rsaKeys.getPrivate(), MESSAGE);
+            byte[] message = ("message " + attempt).getBytes(StandardCharsets.UTF_8);
+            byte[] signature = signWithJdk(algorithm, rsaKeys.getPrivate(), message);
             if (signature[0] == 0) {
-                return signature;
+                return new SignedMessage(message, signature);
             }
         }
         throw new IllegalStateException("No signature started with a zero byte in 10000 attempts");
+    }
+
+    private record SignedMessage(byte[] message, byte[] signature) {
     }
 }

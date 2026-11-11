@@ -56,6 +56,9 @@ final class PrehashedSignatureVerifier {
 
     private static boolean verifyPkcs1(PublicKey publicKey, byte[] digestInfo, byte[] signature)
             throws GeneralSecurityException {
+        if (!hasModulusLength(publicKey, signature)) {
+            return false;
+        }
         Signature verifier = Signature.getInstance("NONEwithRSA");
         verifier.initVerify(publicKey);
         verifier.update(digestInfo);
@@ -77,12 +80,7 @@ final class PrehashedSignatureVerifier {
 
     private static boolean verifyPss(DigestAlgorithm digestAlgorithm, PublicKey publicKey, byte[] digest,
             byte[] signature) {
-        if (!(publicKey instanceof RSAPublicKey rsaKey)) {
-            return false;
-        }
-        // The raw signer reads the signature as an integer and would accept one shorter than the modulus, which
-        // RFC 8017 verifiers reject.
-        if (signature.length != (rsaKey.getModulus().bitLength() + 7) / 8) {
+        if (!(publicKey instanceof RSAPublicKey rsaKey) || !hasModulusLength(rsaKey, signature)) {
             return false;
         }
         PSSSigner verifier = PSSSigner
@@ -91,6 +89,13 @@ final class PrehashedSignatureVerifier {
         verifier.init(false, new RSAKeyParameters(false, rsaKey.getModulus(), rsaKey.getPublicExponent()));
         verifier.update(digest, 0, digest.length);
         return verifier.verifySignature(signature);
+    }
+
+    // Both RSA verifiers read the signature as an integer and would accept one shorter than the modulus, which
+    // RFC 8017 verifiers reject.
+    private static boolean hasModulusLength(PublicKey publicKey, byte[] signature) {
+        return publicKey instanceof RSAPublicKey rsaKey
+                && signature.length == (rsaKey.getModulus().bitLength() + 7) / 8;
     }
 
     /** The encoding carries explicit NULL parameters, which is what PKCS#1 v1.5 verifiers compare against. */
