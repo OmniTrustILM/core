@@ -21,6 +21,7 @@ import com.otilm.core.util.crl.CrlRefusedException;
 import com.otilm.core.util.crl.EncodedCrl;
 import com.otilm.core.util.crl.RevokedCertificate;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.security.PublicKey;
@@ -48,7 +49,9 @@ import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -111,6 +114,11 @@ public class CrlServiceImpl implements CrlService {
     /**
      * Returns the stored CRL while it is current. Otherwise one validation of the issuer at a time downloads it, and
      * those that waited find it stored.
+     *
+     * <p>
+     * When the stored base CRL is current and only its delta CRL is due, a certificate the stored CRL lists stays
+     * revoked even if the delta CRL cannot be read, as {@link #throwUnlessStoredCrlLists} decides; this holds also when
+     * the wait for the issuer or for a download permit ends first.
      */
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -122,20 +130,36 @@ public class CrlServiceImpl implements CrlService {
         if (storedCrl != null && !isDue(storedCrl, certificate)) {
             return storedCrl.getUuid();
         }
-        return crlDownloadGuard.underIssuerLock(issuerDn + "|" + issuerSerialNumber, () -> {
-            Crl crlStoredMeanwhile = findStoredCrl(issuerDn, issuerSerialNumber);
-            if (crlStoredMeanwhile != null && !isDue(crlStoredMeanwhile, certificate)) {
-                return crlStoredMeanwhile.getUuid();
+        try {
+            return crlDownloadGuard.underIssuerLock(issuerDn + "|" + issuerSerialNumber, () -> {
+                Crl crlStoredMeanwhile = findStoredCrl(issuerDn, issuerSerialNumber);
+                if (crlStoredMeanwhile != null && !isDue(crlStoredMeanwhile, certificate)) {
+                    return crlStoredMeanwhile.getUuid();
+                }
+                return crlDownloadGuard
+                        .withDownloadPermit(
+                                () -> readCurrentCrl(certificate, issuerCertificate, issuerDn, issuerSerialNumber));
+            });
+        } catch (IOException e) {
+            if (storedCrl == null || isBaseCrlDue(storedCrl)) {
+                throw e;
             }
-            return crlDownloadGuard
-                    .withDownloadPermit(
-                            () -> readCurrentCrl(certificate, issuerCertificate, issuerDn, issuerSerialNumber));
-        });
+            throwUnlessStoredCrlLists(certificate, storedCrl, e);
+            return storedCrl.getUuid();
+        }
     }
 
     private static boolean isDue(Crl crl, X509Certificate certificate) {
-        return crl.getNextUpdate().before(new Date())
+        return isBaseCrlDue(crl)
                 || (certificate.getExtensionValue(Extension.freshestCRL.getId()) != null && isDeltaCrlDue(crl));
+    }
+
+    /**
+     * A stored base CRL is due once its next update has passed by more than the clock skew a downloaded CRL is allowed,
+     * so a CA publishing a little late does not make every validation download the same CRL again.
+     */
+    private static boolean isBaseCrlDue(Crl crl) {
+        return crl.getNextUpdate().toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
     }
 
     private UUID readCurrentCrl(X509Certificate certificate, X509Certificate issuerCertificate, String issuerDn,
@@ -157,7 +181,7 @@ public class CrlServiceImpl implements CrlService {
             if (newCrl != null) {
                 crl = newCrl;
             }
-        } else if (crl.getNextUpdate().before(new Date())) {
+        } else if (isBaseCrlDue(crl)) {
             refreshExistingCrl(crl, crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid, issuer,
                     BigInteger.ZERO);
         }
@@ -287,7 +311,15 @@ public class CrlServiceImpl implements CrlService {
             Iterable<CrlEntryData> entries = entryData(downloadedCrl, entry -> true);
             Date lastRevocationDate = downloadedCrl.lastRevocationDate();
 
-            CrlWrite write = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
+            CrlWrite write;
+            try {
+                write = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
+            } catch (DataAccessException | TransactionException | PersistenceException e) {
+                logger.error("Failed to store the CRL from {}: {}", crlUrl, e.getMessage());
+                IOException failure = new IOException("The CRL could not be stored");
+                crlDownloadGuard.rememberFailure(downloadKey, failure);
+                throw failure;
+            }
             if (!write.written()) {
                 return adoptStoredState(crl, issuerDn, issuerSerialNumber);
             }
@@ -422,9 +454,26 @@ public class CrlServiceImpl implements CrlService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
-        crlWriter
+        boolean applied = crlWriter
                 .applyDeltaCrl(crl.getUuid(), crl.getCrlNumber(), removals, upserts, deltaCrlNumber.toString(),
                         deltaCrl.header().getNextUpdate(), lastRevocationDate);
+        if (!applied) {
+            requireDeltaCrlStoredMeanwhile(crl, deltaCrlNumber);
+        }
+    }
+
+    /**
+     * A writer for another validation, possibly on another Core instance, changed the stored CRL first. Its entries
+     * answer the check only if it applied this delta CRL or a newer one; a newer base CRL without it would miss the
+     * revocations this delta CRL lists.
+     */
+    private void requireDeltaCrlStoredMeanwhile(Crl crl, BigInteger deltaCrlNumber) throws IOException {
+        Crl stored = findStoredCrl(crl.getIssuerDn(), crl.getSerialNumber());
+        boolean storedDeltaCrlIsAsNew = stored != null && stored.getCrlNumberDelta() != null
+                && new BigInteger(stored.getCrlNumberDelta()).compareTo(deltaCrlNumber) >= 0;
+        if (!storedDeltaCrlIsAsNew) {
+            throw new IOException("The stored CRL changed while its delta CRL was applied");
+        }
     }
 
     private static boolean removesFromCrl(RevokedCertificate entry) {

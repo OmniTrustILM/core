@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
 /**
  * Bounds what CRL downloads cost this Core instance. Each downloaded CRL is held in memory until it is stored, so:
  * <ul>
- * <li>validations of one issuer read its CRL one at a time, and those that waited find it stored;</li>
+ * <li>work for one issuer runs one at a time;</li>
  * <li>at most {@code validation.crl.max-concurrent-downloads} CRLs are read at once;</li>
  * <li>a failed download is reported again for further certificates of the issuer until
  * {@code validation.crl.retry-after-failure} has passed, instead of being repeated for each of them.</li>
@@ -37,7 +37,7 @@ public class CrlDownloadGuard {
     private final Cache<String, String> recentFailures;
 
     @Autowired
-    public CrlDownloadGuard(@Value("${validation.crl.max-concurrent-downloads:4}") int maxConcurrentDownloads,
+    public CrlDownloadGuard(@Value("${validation.crl.max-concurrent-downloads:2}") int maxConcurrentDownloads,
             @Value("${validation.crl.download-timeout:60s}") Duration downloadTimeout,
             @Value("${validation.crl.retry-after-failure:60s}") Duration retryAfterFailure) {
         this(maxConcurrentDownloads, downloadTimeout.multipliedBy(2), retryAfterFailure, Ticker.systemTicker());
