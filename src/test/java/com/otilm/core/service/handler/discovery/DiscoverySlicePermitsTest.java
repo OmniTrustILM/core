@@ -11,8 +11,8 @@ class DiscoverySlicePermitsTest {
     @Test
     void refusesAPermit_whenTheCapIsTaken() {
         // given
-        var cap = 2;
-        var permits = new DiscoverySlicePermits(cap);
+        var twoSlots = 2;
+        var permits = new DiscoverySlicePermits(twoSlots);
         permits.tryAcquire();
         permits.tryAcquire();
 
@@ -26,7 +26,8 @@ class DiscoverySlicePermitsTest {
     @Test
     void grantsAPermitAgain_whenOneIsReleased() {
         // given
-        var permits = new DiscoverySlicePermits(1);
+        var singleSlot = 1;
+        var permits = new DiscoverySlicePermits(singleSlot);
         permits.tryAcquire();
         permits.release();
 
