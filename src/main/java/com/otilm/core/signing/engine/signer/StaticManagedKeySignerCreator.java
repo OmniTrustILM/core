@@ -68,7 +68,8 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
         return new CryptographicOperationServiceSigner(cryptographicOperationService,
                 SecuredParentUUID.fromUUID(certificate.tokenInstanceReferenceUuid()),
                 SecuredUUID.fromUUID(certificate.tokenProfileUuid()), certificate.keyUuid(),
-                privateKeyItem.keyItemUuid(), requestAttributes, signatureAlgorithm);
+                privateKeyItem.keyItemUuid(), requestAttributes, signatureAlgorithm,
+                signingScheme.chain().signingCertificate().getPublicKey());
     }
 
     private SignatureAlgorithm resolveSignatureAlgorithm(CryptographicKeyItemOperationModel privateKeyItem,
