@@ -966,10 +966,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setValidateTokenSignature(null);
 
         switch (workflow) {
-            case ContentSigningWorkflowRequestDto w -> {
-                if (signingScheme == SigningScheme.MANAGED) {
-                    applyManagedContentSigning(version, w);
-                }
+            case ContentSigningWorkflowRequestDto w when signingScheme == SigningScheme.MANAGED ->
+                applyManagedContentSigning(version, w);
+            case ContentSigningWorkflowRequestDto ignored -> {
+                // Delegated signing keeps the content-signing fields at the values reset above.
             }
             case RawSigningWorkflowRequestDto ignored -> {
                 // RawSigningWorkflowRequestDto has no signatureFormattingConnectorUuid field — no formatting is allowed

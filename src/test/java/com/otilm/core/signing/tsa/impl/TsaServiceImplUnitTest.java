@@ -567,7 +567,7 @@ class TsaServiceImplUnitTest {
         }
 
         @Test
-        void rejectsAProfileThatResolvesToANonTimestampingProfile() throws Exception {
+        void rejectsWithSystemFailure_whenProfileResolvesToNonTimestampingProfile() throws Exception {
             // given — resolver selection is supports()-driven, so a misconfigured resolver could claim this profile
             var signingProfile = aDefaultSigningProfile();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("signing-profile");
@@ -576,14 +576,13 @@ class TsaServiceImplUnitTest {
                     .thenReturn(aResolvedContentSigningProfile().build());
 
             // when
-            Executable call = () -> tsaService
+            ThrowingCallable processTspRequestForSigningProfile = () -> tsaService
                     .processTspRequestForSigningProfile("signing-profile", aTspRequest().build());
 
             // then
-            assertThatThrownBy(call::execute)
-                    .isInstanceOf(TspException.class)
-                    .satisfies(ex -> assertThat(((TspException) ex).getFailureInfo())
-                            .isEqualTo(TspFailureInfo.SYSTEM_FAILURE))
+            assertThatThrownBy(processTspRequestForSigningProfile)
+                    .isInstanceOfSatisfying(TspException.class,
+                            ex -> assertThat(ex.getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE))
                     .hasMessageContaining("resolved to ResolvedManagedContentSigningProfile");
         }
     }
