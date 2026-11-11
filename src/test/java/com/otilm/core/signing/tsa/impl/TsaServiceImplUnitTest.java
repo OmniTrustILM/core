@@ -8,7 +8,6 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningProfileModel;
-import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.workflow.DelegatedTimestampingWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
@@ -37,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
 import static com.otilm.core.signing.tsa.messages.TspRequestBuilder.aTspRequest;
+import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static com.otilm.core.util.builders.TspProfileModelBuilder.aTspProfile;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -87,11 +87,6 @@ class TsaServiceImplUnitTest {
                 .withWorkflow(new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null,
                         CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL))
                 .build();
-    }
-
-    private static ResolvedManagedContentSigningProfile aResolvedContentSigningProfile() {
-        return new ResolvedManagedContentSigningProfile(UUID.randomUUID(), "docs", null, 1, true, List.of(), List.of(),
-                null, null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL, null, null);
     }
 
     // ── processTspRequestForTspProfile ────────────────────────────────────────
@@ -490,7 +485,7 @@ class TsaServiceImplUnitTest {
         }
 
         @Test
-        void enforcesAuthorization_beforeRefusingAContentSigningProfileWithATspLink() throws Exception {
+        void enforcesAuthorizationBeforeRefusing_whenContentSigningProfileHasTspLink() throws Exception {
             // given — the misconfiguration a content-signing profile can only reach by being linked to a TSP profile
             var signingProfile = aSigningProfile()
                     .withName("content-signing-profile")
@@ -508,9 +503,9 @@ class TsaServiceImplUnitTest {
 
             // then — RFC 3161 processing stays confined to managed timestamping, but only after the caller is
             // authorized for the linked TSP profile
-            assertThatThrownBy(processTspRequestForSigningProfile).isInstanceOf(TspException.class).satisfies(ex -> {
-                assertThat(((TspException) ex).getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
-                assertThat(((TspException) ex).getClientMessage()).isEqualTo("The system is misconfigured.");
+            assertThatThrownBy(processTspRequestForSigningProfile).isInstanceOfSatisfying(TspException.class, ex -> {
+                assertThat(ex.getFailureInfo()).isEqualTo(TspFailureInfo.SYSTEM_FAILURE);
+                assertThat(ex.getClientMessage()).isEqualTo("The system is misconfigured.");
             });
             verify(authorizationEnforcer)
                     .enforce(eq(Resource.TSP_PROFILE), eq(ResourceAction.TIMESTAMP), securedUuid.capture());
@@ -577,7 +572,8 @@ class TsaServiceImplUnitTest {
             var signingProfile = aDefaultSigningProfile();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("signing-profile");
             when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());
-            when(signingProfileResolverFactory.resolve(signingProfile)).thenReturn(aResolvedContentSigningProfile());
+            when(signingProfileResolverFactory.resolve(signingProfile))
+                    .thenReturn(aResolvedContentSigningProfile().build());
 
             // when
             Executable call = () -> tsaService

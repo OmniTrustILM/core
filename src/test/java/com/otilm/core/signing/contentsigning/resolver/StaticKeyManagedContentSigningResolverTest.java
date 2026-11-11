@@ -188,7 +188,7 @@ class StaticKeyManagedContentSigningResolverTest {
         }
 
         @Test
-        void resolvesFamilyMaxLevelAndTimestampSource_forATimestampedProfile() throws Exception {
+        void resolvesFamilyMaxLevelAndTimestampSource_whenProfileIsTimestamped() throws Exception {
             // given
             UUID timestampSourceUuid = UUID.fromString("44444444-4444-4444-4444-444444444444");
             SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamily.PADES,
@@ -206,8 +206,7 @@ class StaticKeyManagedContentSigningResolverTest {
         }
 
         @Test
-        void leavesTimestampSourceProfileNameNull_forASignedOnlyProfile_withoutConsultingTheResolver()
-                throws Exception {
+        void leavesTimestampSourceUnresolved_whenProfileIsSignedOnly() throws Exception {
             // given
             SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamily.CADES,
                     SignatureLevel.SIGNED, null);

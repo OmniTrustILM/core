@@ -4,12 +4,9 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.core.signing.SigningProtocol;
-import com.otilm.core.model.signing.CertificatePurposeRequirements;
-import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModel;
-import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.model.signing.timequality.LocalClockTimeQualityConfiguration;
@@ -33,6 +30,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -256,20 +254,17 @@ class InternalTimestampSourceTest {
     }
 
     @Test
-    void refusesAProfileThatIsNotATimestampingOne() throws Exception {
+    void refusesAsMisconfigured_whenProfileIsNotTimestamping() throws Exception {
         // given a content-signing profile, which cannot issue timestamps
         doReturn(aSigningProfile().build()).when(signingProfileService).loadSigningProfileModel(PROFILE_NAME);
         when(signingProfileResolverFactory.resolve(any()))
-                .thenReturn(new ResolvedManagedContentSigningProfile(UUID.randomUUID(), PROFILE_NAME, null, 1, true,
-                        List.of(), List.of(), null, null, null, CertificatePurposeRequirements.NONE,
-                        SignatureParameterPolicy.DENY_ALL, null, null));
+                .thenReturn(aResolvedContentSigningProfile().withName(PROFILE_NAME).build());
 
         // when
         ThrowingCallable timestamp = () -> source.timestamp(IMPRINT, PROFILE_NAME, STEP);
 
         // then
-        assertThatThrownBy(timestamp).isInstanceOf(SigningEngineException.class).satisfies(thrown -> {
-            SigningEngineException exception = (SigningEngineException) thrown;
+        assertThatThrownBy(timestamp).isInstanceOfSatisfying(SigningEngineException.class, exception -> {
             assertThat(exception.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
             assertThat(exception.operatorMessage()).contains("not a managed timestamping profile");
         });

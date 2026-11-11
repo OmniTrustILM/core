@@ -30,7 +30,7 @@ class SigningWorkflowModelsTest {
     }
 
     @Test
-    void managedContentSigningWorkflow_reportsContentSigningType_andExposesFields() {
+    void reportsContentSigningTypeWithItsConnector_whenWorkflowIsManaged() {
         // given
         UUID connectorUuid = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         List<RequestAttribute> attrs = List.of();

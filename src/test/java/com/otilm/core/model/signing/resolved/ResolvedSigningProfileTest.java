@@ -3,8 +3,6 @@ package com.otilm.core.model.signing.resolved;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.core.signing.SigningProtocol;
-import com.otilm.core.model.signing.CertificatePurposeRequirements;
-import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningCertificate;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.signing.engine.CertificateChain;
@@ -12,6 +10,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
@@ -72,11 +71,9 @@ class ResolvedSigningProfileTest {
     }
 
     @Test
-    void contentSigningProfileReportsItsWorkflowType() {
+    void reportsContentSigningWorkflowType_whenProfileIsContentSigning() {
         // given
-        ResolvedManagedContentSigningProfile profile = new ResolvedManagedContentSigningProfile(UUID.randomUUID(),
-                "docs", null, 3, true, List.of(), List.of(), null, null, null, CertificatePurposeRequirements.NONE,
-                SignatureParameterPolicy.DENY_ALL, null, null);
+        ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile().build();
 
         // when
         SigningWorkflowType workflowType = profile.workflowType();

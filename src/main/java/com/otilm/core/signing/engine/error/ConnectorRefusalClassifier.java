@@ -23,7 +23,6 @@ public final class ConnectorRefusalClassifier {
 
     private static final Map<ErrorCode, SigningEngineFailure> FAILURE_BY_CODE = Map
             .ofEntries(entry(ErrorCode.DOCUMENT_MALFORMED, SigningEngineFailure.MALFORMED_INPUT),
-                    entry(ErrorCode.DOCUMENT_TOO_LARGE, SigningEngineFailure.INVALID_INPUT),
                     entry(ErrorCode.SIGNATURE_NOT_FOUND, SigningEngineFailure.INVALID_INPUT),
                     entry(ErrorCode.SIGNATURE_PLACEMENT_REJECTED, SigningEngineFailure.INVALID_INPUT),
                     entry(ErrorCode.DOCUMENT_SIGNING_FORBIDDEN, SigningEngineFailure.INVALID_INPUT),
