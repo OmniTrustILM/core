@@ -167,7 +167,8 @@ public final class EncodedCrl {
             throw new CRLException("The CRL is not a sequence of a signed list, an algorithm and a signature");
         }
         List<Tlv> fields = new ArrayList<>(MAX_SIGNED_LIST_FIELDS);
-        for (int at = signed.contentStart(); at < signed.end();) {
+        int at = signed.contentStart();
+        while (at < signed.end()) {
             if (fields.size() == MAX_SIGNED_LIST_FIELDS) {
                 throw new CRLException("The CRL's signed list has more fields than a CRL has");
             }
@@ -250,7 +251,8 @@ public final class EncodedCrl {
      * entry is measured first: BouncyCastle decodes all elements of a sequence before checking how many there may be.
      */
     private static Date checkEntries(byte[] der, Span entries) throws CRLException, NotDerException {
-        for (int at = entries.start(); at < entries.end();) {
+        int at = entries.start();
+        while (at < entries.end()) {
             Tlv entry = Tlv.read(der, at, entries.end());
             if (entry.end() - entry.start() > MAX_ENTRY_SIZE) {
                 throw new CrlRefusedException("one of its entries is larger than 64 KB");
@@ -321,28 +323,6 @@ public final class EncodedCrl {
         }
         throw new InvalidAlgorithmParameterException(
                 "Unrecognized algorithm for signature parameters " + crl.getSigAlgName());
-    }
-
-    /** Reads the reason code as the JDK does: a code it does not know reads as unspecified. */
-    private static CRLReason jdkReason(BigInteger code) {
-        CRLReason[] reasons = CRLReason.values();
-        if (code.signum() > 0 && code.compareTo(BigInteger.valueOf(reasons.length)) < 0) {
-            return reasons[code.intValue()];
-        }
-        return CRLReason.UNSPECIFIED;
-    }
-
-    private static RevokedCertificate decodeEntry(ASN1Primitive encoded) {
-        TBSCertList.CRLEntry entry = TBSCertList.CRLEntry.getInstance(encoded);
-        BigInteger serialNumber = entry.getUserCertificate().getValue();
-        Date revocationDate = entry.getRevocationDate().getDate();
-        CRLReason reason = null;
-        Extensions extensions = entry.getExtensions();
-        Extension reasonCode = extensions == null ? null : extensions.getExtension(Extension.reasonCode);
-        if (reasonCode != null) {
-            reason = jdkReason(ASN1Enumerated.getInstance(reasonCode.getParsedValue()).getValue());
-        }
-        return new RevokedCertificate(serialNumber, revocationDate, reason);
     }
 
     /**
@@ -467,6 +447,28 @@ public final class EncodedCrl {
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
+        }
+
+        /** Reads the reason code as the JDK does: a code it does not know reads as unspecified. */
+        private static CRLReason jdkReason(BigInteger code) {
+            CRLReason[] reasons = CRLReason.values();
+            if (code.signum() > 0 && code.compareTo(BigInteger.valueOf(reasons.length)) < 0) {
+                return reasons[code.intValue()];
+            }
+            return CRLReason.UNSPECIFIED;
+        }
+
+        private static RevokedCertificate decodeEntry(ASN1Primitive encoded) {
+            TBSCertList.CRLEntry entry = TBSCertList.CRLEntry.getInstance(encoded);
+            BigInteger serialNumber = entry.getUserCertificate().getValue();
+            Date revocationDate = entry.getRevocationDate().getDate();
+            CRLReason reason = null;
+            Extensions extensions = entry.getExtensions();
+            Extension reasonCode = extensions == null ? null : extensions.getExtension(Extension.reasonCode);
+            if (reasonCode != null) {
+                reason = jdkReason(ASN1Enumerated.getInstance(reasonCode.getParsedValue()).getValue());
+            }
+            return new RevokedCertificate(serialNumber, revocationDate, reason);
         }
     }
 }

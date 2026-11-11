@@ -509,7 +509,7 @@ class EncodedCrlTest {
             ThrowingCallable parse = () -> EncodedCrl.parse(largeIndefiniteLength);
 
             // then
-            assertThat(largeIndefiniteLength.length).isGreaterThan(EncodedCrl.MAX_WHOLE_PARSE_SIZE);
+            assertThat(largeIndefiniteLength).hasSizeGreaterThan(EncodedCrl.MAX_WHOLE_PARSE_SIZE);
             assertThatThrownBy(parse)
                     .isInstanceOfSatisfying(CrlRefusedException.class, e -> assertThat(e.reason())
                             .isEqualTo("it is not DER-encoded and larger than 1 MB, the most read whole"));
@@ -563,7 +563,7 @@ class EncodedCrlTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Named<SignatureAlgorithm>> signatureAlgorithms() throws Exception {
+    private static Stream<Named<SignatureAlgorithm>> signatureAlgorithms() throws Exception {
         return Stream
                 .of(named("RSA PKCS#1", new SignatureAlgorithm("SHA256WithRSAEncryption", keyPair("RSA", null))),
                         named("RSASSA-PSS", new SignatureAlgorithm("SHA256withRSAandMGF1", keyPair("RSA", null))),
@@ -574,7 +574,7 @@ class EncodedCrlTest {
                         named("ML-DSA-65", new SignatureAlgorithm("ML-DSA-65", keyPair("ML-DSA-65", null))));
     }
 
-    static Stream<Integer> reasonCodes() {
+    private static Stream<Integer> reasonCodes() {
         return Stream.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
     }
 

@@ -11,6 +11,7 @@ import com.otilm.core.service.writer.CrlWriter;
 import com.otilm.core.service.writer.CrlWriter.CrlWrite;
 import com.otilm.core.util.BaseSpringBootTest;
 import jakarta.persistence.EntityManagerFactory;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
@@ -36,6 +37,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CrlBuilder.aCrl;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 class CrlWriterITest extends BaseSpringBootTest {
 
@@ -341,22 +343,20 @@ class CrlWriterITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private void awaitABackendWaitingForALock() {
+        await()
+                .alias("a database backend waiting for a lock")
+                .atMost(Duration.ofSeconds(10))
+                .pollInterval(Duration.ofMillis(50))
+                .until(this::aBackendWaitsForALock);
+    }
+
     /** Each query runs in its own transaction, so it sees the activity of the moment. */
-    private void awaitABackendWaitingForALock() throws InterruptedException {
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        while (System.nanoTime() < deadline) {
-            Integer waiting = jdbc
-                    .queryForObject(
-                            "SELECT count(*) FROM pg_stat_activity"
-                                    + " WHERE wait_event_type = 'Lock' AND datname = current_database()",
-                            Integer.class);
-            if (waiting != null && waiting > 0) {
-                return;
-            }
-            Thread.sleep(50);
-        }
-        throw new AssertionError("No database backend started waiting for a lock");
+    private boolean aBackendWaitsForALock() {
+        Integer waiting = new JdbcTemplate(dataSource)
+                .queryForObject("SELECT count(*) FROM pg_stat_activity"
+                        + " WHERE wait_event_type = 'Lock' AND datname = current_database()", Integer.class);
+        return waiting != null && waiting > 0;
     }
 
     private static void awaitQuietly(CountDownLatch latch) {
