@@ -492,6 +492,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(actualDto.getUuid()).isEqualTo(expectedCertificate.getUuid().toString());
             assertThat(actualDto.getCommonName())
                     .isEqualTo(CertificateUtil.formatCommonName(expectedCertificate.getCommonName()));
+            assertThat(actualDto.getDisplayName())
+                    .isEqualTo(CertificateUtil.formatCommonName(expectedCertificate.getCommonName()));
             assertThat(actualDto.getSerialNumber()).isEqualTo(expectedCertificate.getSerialNumber());
             assertThat(actualDto.getIssuerCommonName()).isEqualTo(expectedCertificate.getIssuerCommonName());
             assertThat(actualDto.getIssuerDn()).isEqualTo(expectedCertificate.getIssuerDn());
@@ -3016,6 +3018,21 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // when / then
             assertThatThrownBy(() -> certificateService.associateCertificates(ownedUuid, notOwnedUuid))
                     .isInstanceOf(AccessDeniedException.class);
+        }
+
+        @Test
+        void showsTheCommonNameAsTheDisplayName_whenReadingTheContent() {
+            // given
+            makeCallerOwnerOf(certificate);
+
+            // when
+            List<CertificateContentDto> contents = certificateService
+                    .getCertificateContent(List.of(certificate.getSecuredUuid()));
+
+            // then
+            assertThat(contents)
+                    .extracting(CertificateContentDto::getDisplayName)
+                    .containsExactly(CertificateUtil.formatCommonName(certificate.getCommonName()));
         }
 
         @Test

@@ -664,6 +664,7 @@ public class CertificateServiceImpl
                                     Collectors.mapping(ga -> ga.getGroup().mapToDto(), Collectors.toList())));
             certificates.forEach(c -> {
                 c.setCommonName(CertificateUtil.formatCommonName(c.getCommonName()));
+                c.setDisplayName(c.getCommonName());
                 c.setGroups(groupsByCert.getOrDefault(c.getUuid(), List.of()));
             });
         }
@@ -2453,6 +2454,7 @@ public class CertificateServiceImpl
                 CertificateContentDto dto = new CertificateContentDto();
                 dto.setUuid(uuid.toString());
                 dto.setCommonName(certificate.getCommonName());
+                dto.setDisplayName(CertificateUtil.formatCommonName(certificate.getCommonName()));
                 dto.setSerialNumber(certificate.getSerialNumber());
                 dto.setCertificateContent(certificate.getCertificateContent().getContent());
                 response.add(dto);

@@ -51,7 +51,9 @@ public class CertificateDetailDtoMapper {
      */
     private static CertificateDetailDto buildDetailDto(Certificate certificate, boolean chainContext) {
         final CertificateDetailDto dto = new CertificateDetailDto();
-        dto.setCommonName(CertificateUtil.formatCommonName(certificate.getCommonName()));
+        String commonName = CertificateUtil.formatCommonName(certificate.getCommonName());
+        dto.setCommonName(commonName);
+        dto.setDisplayName(commonName);
         dto.setIssuerCommonName(resolveIssuerCommonName(certificate));
         if (certificate.getCertificateContent() != null) {
             dto.setCertificateContent(certificate.getCertificateContent().getContent());
@@ -112,9 +114,10 @@ public class CertificateDetailDtoMapper {
             certificateRequestDto.setUuid(certificate.getCertificateRequestEntity().getUuid());
             certificateRequestDto.setContent(certificate.getCertificateRequestEntity().getContent());
             certificateRequestDto.setCertificateType(certificate.getCertificateRequestEntity().getCertificateType());
-            certificateRequestDto
-                    .setCommonName(CertificateUtil
-                            .formatCommonName(certificate.getCertificateRequestEntity().getCommonName()));
+            String requestCommonName = CertificateUtil
+                    .formatCommonName(certificate.getCertificateRequestEntity().getCommonName());
+            certificateRequestDto.setCommonName(requestCommonName);
+            certificateRequestDto.setDisplayName(requestCommonName);
             certificateRequestDto
                     .setSignatureAlgorithm(certificate.getCertificateRequestEntity().getSignatureAlgorithm());
             certificateRequestDto
@@ -222,6 +225,7 @@ public class CertificateDetailDtoMapper {
         dto.setState(certificate.getState());
         dto.setRelationType(relationType);
         dto.setCommonName(certificate.getCommonName());
+        dto.setDisplayName(CertificateUtil.formatCommonName(certificate.getCommonName()));
         dto.setIssuerCommonName(certificate.getIssuerCommonName());
         dto.setSerialNumber(certificate.getSerialNumber());
         dto.setFingerprint(certificate.getFingerprint());
@@ -240,7 +244,9 @@ public class CertificateDetailDtoMapper {
 
     public static CertificateDto toListDto(Certificate certificate) {
         CertificateDto dto = new CertificateDto();
-        dto.setCommonName(CertificateUtil.formatCommonName(certificate.getCommonName()));
+        String commonName = CertificateUtil.formatCommonName(certificate.getCommonName());
+        dto.setCommonName(commonName);
+        dto.setDisplayName(commonName);
         dto.setSerialNumber(certificate.getSerialNumber());
         dto.setIssuerCommonName(certificate.getIssuerCommonName());
         dto.setNotBefore(certificate.getNotBefore());
