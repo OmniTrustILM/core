@@ -44,6 +44,11 @@ import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
@@ -61,12 +66,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
@@ -93,6 +101,13 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     private static final String FINALIZE_PATH = "/acme/" + ACME_PROFILE_NAME + "/order/" + ORDER_ID + "/finalize";
 
     private static final String CONNECTION_STATE = "select state from pg_stat_activity where pid = ?";
+
+    private static final String ORDER_LOCK_WAITS = """
+            select count(*) from pg_stat_activity
+             where datname = current_database()
+               and wait_event_type = 'Lock'
+               and query ilike '%acme_order%'
+            """;
 
     @Autowired
     private AcmeExternalService acmeService;
@@ -124,6 +139,8 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     private EntityManagerFactory entityManagerFactory;
     @Autowired
     private DataSource dataSource;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private WireMockServer mockServer;
@@ -321,6 +338,44 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
         assertThat(readCommittedOrderStatus()).isEqualTo(OrderStatus.PROCESSING);
     }
 
+    /**
+     * The first claim holds the order lock in a transaction that has not committed, so the second has to wait for it
+     * and then finds the order taken. Claims that do not overlap pass without the lock too.
+     */
+    @Test
+    void grantsOneClaim_whenTwoFinalizeRequestsClaimTheOrderAtOnce() throws Exception {
+        ExecutorService requests = Executors.newFixedThreadPool(2);
+        CountDownLatch commitFirst = new CountDownLatch(1);
+        try {
+            // given
+            CountDownLatch firstClaimed = new CountDownLatch(1);
+            Future<Boolean> first = requests
+                    .submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                        boolean claimed = acmeChallengeWriter.claimForFinalize(orderUuid);
+                        firstClaimed.countDown();
+                        awaitRelease(commitFirst);
+                        return claimed;
+                    }));
+            boolean firstHoldsTheLock = firstClaimed.await(10, TimeUnit.SECONDS);
+
+            // when
+            Future<Boolean> second = requests.submit(() -> acmeChallengeWriter.claimForFinalize(orderUuid));
+            await("second claim waits for the order lock")
+                    .atMost(10, TimeUnit.SECONDS)
+                    .until(this::anyWaitsForOrderLock);
+            commitFirst.countDown();
+
+            // then
+            assertThat(firstHoldsTheLock).isTrue();
+            assertThat(first.get(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(second.get(10, TimeUnit.SECONDS)).isFalse();
+        } finally {
+            commitFirst.countDown();
+            requests.shutdownNow();
+            requests.awaitTermination(10, TimeUnit.SECONDS);
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
@@ -334,6 +389,22 @@ class AcmeFinalizeTransactionITest extends BaseSpringBootTest {
     /** Claims the order as a concurrent finalize request does, in a request of its own. */
     private void claimOrderOnAnotherThread() {
         CompletableFuture.runAsync(() -> acmeChallengeWriter.claimForFinalize(orderUuid)).join();
+    }
+
+    private boolean anyWaitsForOrderLock() {
+        Long waiting = new JdbcTemplate(dataSource).queryForObject(ORDER_LOCK_WAITS, Long.class);
+        return waiting != null && waiting > 0;
+    }
+
+    private static void awaitRelease(CountDownLatch release) {
+        try {
+            if (!release.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("The test never released the first claim");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 
     /**

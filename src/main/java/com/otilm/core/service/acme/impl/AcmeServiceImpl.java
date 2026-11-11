@@ -699,12 +699,21 @@ public class AcmeServiceImpl implements AcmeExternalService {
     }
 
     /**
-     * Runs without a transaction, which is why the class declares none. One held across the submission keeps the
-     * request's connection idle in transaction for all of it while the submission works on a second connection. Not
-     * {@code NOT_SUPPORTED} either: once the request has read outside a transaction, the transactions started under it
-     * run on EntityManagers of their own, so the order {@code validateOrder} reconciles would come back detached. The
-     * order is written only under its lock: claimed for processing before the submission, so a second finalize request
-     * submits nothing, and updated after it from its current state, which an account deactivation may have changed.
+     * Finalizes the order with no transaction around the submission of its certificate request.
+     *
+     * <p>
+     * <b>Transactions:</b> the class declares none. One held across the submission keeps the request's connection idle
+     * in transaction for all of it while the submission works on a second connection.
+     *
+     * <p>
+     * <b>EntityManager:</b> not {@code NOT_SUPPORTED} either. Once the request has read outside a transaction, the
+     * transactions started under it run on EntityManagers of their own, so the order {@code validateOrder} reconciles
+     * would come back detached.
+     *
+     * <p>
+     * <b>Order lock:</b> the order is written only under its lock. It is claimed for processing before the submission,
+     * so a second finalize request submits nothing. It is updated afterwards from its current state, which an account
+     * deactivation may have changed.
      */
     @Override
     @ProtocolEndpoint
