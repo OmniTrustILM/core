@@ -45,6 +45,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
+import org.bouncycastle.util.encoders.DecoderException;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemWriter;
 import org.slf4j.Logger;
@@ -67,6 +68,8 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
 
     private static final String PEM_MARKER = "-----BEGIN";
     private static final Set<String> REQUEST_PEM_TYPES = Set.of("CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST");
+    private static final Set<String> REQUEST_PEM_MARKERS = Set
+            .of("-----BEGIN CERTIFICATE REQUEST-----", "-----BEGIN NEW CERTIFICATE REQUEST-----");
 
     @Override
     public String typeCode() {
@@ -275,16 +278,21 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         if (!startsWithPemMarker(content)) {
             return content;
         }
-        try (PEMParser pemParser = new PEMParser(new StringReader(new String(content, StandardCharsets.UTF_8)))) {
+        String pem = new String(content, StandardCharsets.UTF_8);
+        if (REQUEST_PEM_MARKERS.stream().noneMatch(pem::contains)) {
+            return null;
+        }
+        try (PEMParser pemParser = new PEMParser(new StringReader(pem))) {
             PemObject pemObject = pemParser.readPemObject();
             if (pemObject != null && REQUEST_PEM_TYPES.contains(pemObject.getType())) {
                 return pemObject.getContent();
             }
-        } catch (IOException e) {
+            // header, body and footer that share a line are not a PEM object to the parser
+            return CertificateRequestUtils.normalizeAndDecodeCsr(pem);
+        } catch (IOException | IllegalArgumentException | DecoderException e) {
             throw new CertificateTypeHandlerException(
                     "The PEM encoded certificate request is malformed: " + e.getMessage());
         }
-        return null;
     }
 
     private static CertificateRequest readRequest(byte[] der) {

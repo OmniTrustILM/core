@@ -226,6 +226,33 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void readsTheRequest_whenTheHeaderBodyAndFooterShareALine() throws Exception {
+        // given
+        byte[] csr = pkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
+        String singleLinePem = "-----BEGIN CERTIFICATE REQUEST-----" + Base64.getEncoder().encodeToString(csr)
+                + "-----END CERTIFICATE REQUEST-----";
+
+        // when
+        ParsedRequest parsed = handler.parseRequest(singleLinePem.getBytes(StandardCharsets.UTF_8)).orElseThrow();
+
+        // then
+        assertThat(parsed.encoded()).isEqualTo(csr);
+    }
+
+    @Test
+    void throwsHandlerException_whenAPemRequestHasATruncatedBody() {
+        // given
+        byte[] truncatedPem = "-----BEGIN CERTIFICATE REQUEST-----\nAAA\n-----END CERTIFICATE REQUEST-----\n"
+                .getBytes(StandardCharsets.UTF_8);
+
+        // when
+        ThrowingCallable parse = () -> handler.parseRequest(truncatedPem);
+
+        // then
+        assertThatThrownBy(parse).isInstanceOf(CertificateTypeHandlerException.class);
+    }
+
+    @Test
     void throwsHandlerException_whenAPemRequestIsMalformed() {
         // given
         byte[] malformedPem = ("-----BEGIN CERTIFICATE REQUEST-----\n%%%not base64%%%\n"
