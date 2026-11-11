@@ -111,7 +111,6 @@ public class LdapUtils {
             env.put(Context.SECURITY_PROTOCOL, "ssl");
         }
 
-        LdapContext ctx = new InitialLdapContext(env, null);
         String[] attrIDs = {attributeName};
         SearchControls ctls = new SearchControls();
         ctls.setReturningAttributes(attrIDs);
@@ -127,15 +126,17 @@ public class LdapUtils {
             throw new IllegalArgumentException("Invalid LDAP URL search scope: " + ldapUrl);
         }
 
-        NamingEnumeration<SearchResult> answer = ctx.search(baseDn, filter, ctls);
-        if (answer.hasMore()) {
+        LdapContext ctx = new InitialLdapContext(env, null);
+        try {
+            NamingEnumeration<SearchResult> answer = ctx.search(baseDn, filter, ctls);
+            if (!answer.hasMore()) {
+                throw new NameNotFoundException("No data found for attribute in LDAP URL: " + ldapUrl);
+            }
             Attributes attrs = answer.next().getAttributes();
-            byte[] data = (byte[]) attrs.get(attributeName).get();
+            return (byte[]) attrs.get(attributeName).get();
+        } finally {
+            // a failed or timed-out search would otherwise leave the connection open
             ctx.close();
-            return data;
-        } else {
-            ctx.close();
-            throw new NameNotFoundException("No data found for attribute in LDAP URL: " + ldapUrl);
         }
     }
 

@@ -148,15 +148,18 @@ class CrlInsertVsValidateITest extends BaseSpringBootTest {
         CountDownLatch fire = new CountDownLatch(1);
         ExecutorService exec = Executors.newFixedThreadPool(2);
         AtomicReference<Throwable> err = new AtomicReference<>();
-        Future<?> first = exec.submit(() -> raceWorker(ready, fire, err));
-        Future<?> second = exec.submit(() -> raceWorker(ready, fire, err));
-        assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+        try {
+            Future<?> first = exec.submit(() -> raceWorker(ready, fire, err));
+            Future<?> second = exec.submit(() -> raceWorker(ready, fire, err));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
 
-        // when
-        fire.countDown();
-        first.get(20, TimeUnit.SECONDS);
-        second.get(20, TimeUnit.SECONDS);
-        exec.shutdownNow();
+            // when
+            fire.countDown();
+            first.get(20, TimeUnit.SECONDS);
+            second.get(20, TimeUnit.SECONDS);
+        } finally {
+            exec.shutdownNow();
+        }
 
         // then
         assertThat(err.get()).isNull();
