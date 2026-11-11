@@ -78,7 +78,7 @@ class ConnectorRefusalClassifierTest {
         }
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.signing.engine.error.ConnectorRefusalClassifierTest#refusalsWithoutACode")
+        @MethodSource("refusalsWithoutACode")
         void returnsMisconfigured_whenA422CarriesNoCode(Exception refusalWithoutACode) {
             // given — a refusal without an errorCode
 
@@ -106,7 +106,7 @@ class ConnectorRefusalClassifierTest {
         }
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.signing.engine.error.ConnectorRefusalClassifierTest#failuresWithoutAClassifyingCode")
+        @MethodSource("failuresWithoutAClassifyingCode")
         void returnsTheUnclassifiedFailure_whenNothingSaysWhoseMistakeItWas(Exception failure) {
             // given — a failure outside the code table
 
@@ -127,6 +127,28 @@ class ConnectorRefusalClassifierTest {
 
             // then
             assertThat(classification).isEqualTo(UNCLASSIFIED);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Named<Exception>> refusalsWithoutACode() {
+            return Stream
+                    .of(named("legacy 422 body", new ValidationException("Signature attribute is not supported")),
+                            named("problem document without a code",
+                                    problemRefusal(null, HttpStatus.UNPROCESSABLE_CONTENT.value())),
+                            named("empty problem document",
+                                    new ConnectorClientException(
+                                            "Connector returned 422 with an empty application/problem+json body",
+                                            HttpStatus.UNPROCESSABLE_CONTENT)));
+        }
+
+        private static Stream<Named<Exception>> failuresWithoutAClassifyingCode() {
+            return Stream
+                    .of(named("upstream error", problemRefusal(ErrorCode.UPSTREAM_ERROR)),
+                            named("status outside HttpStatus without a code", problemRefusal(null, 499)),
+                            named("400 without a body",
+                                    new ConnectorClientException("Bad request", HttpStatus.BAD_REQUEST)),
+                            named("body-less 2xx", new IllegalStateException("No response received from connector")));
         }
     }
 
@@ -161,27 +183,5 @@ class ConnectorRefusalClassifierTest {
             // then
             assertThat(classification.failure()).isEqualTo(SigningEngineFailure.MALFORMED_INPUT);
         }
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static Stream<Named<Exception>> refusalsWithoutACode() {
-        return Stream
-                .of(named("legacy 422 body", new ValidationException("Signature attribute is not supported")),
-                        named("problem document without a code",
-                                problemRefusal(null, HttpStatus.UNPROCESSABLE_CONTENT.value())),
-                        named("empty problem document",
-                                new ConnectorClientException(
-                                        "Connector returned 422 with an empty application/problem+json body",
-                                        HttpStatus.UNPROCESSABLE_CONTENT)));
-    }
-
-    private static Stream<Named<Exception>> failuresWithoutAClassifyingCode() {
-        return Stream
-                .of(named("upstream error", problemRefusal(ErrorCode.UPSTREAM_ERROR)),
-                        named("status outside HttpStatus without a code", problemRefusal(null, 499)),
-                        named("400 without a body",
-                                new ConnectorClientException("Bad request", HttpStatus.BAD_REQUEST)),
-                        named("body-less 2xx", new IllegalStateException("No response received from connector")));
     }
 }

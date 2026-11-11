@@ -504,6 +504,24 @@ class ProxyClientImplTest {
                 .isInstanceOf(ConnectorException.class);
     }
 
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void throwsClientErrorWithItsStatus_whenTheProxyCategoryIsUnknown() throws Exception {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        ConnectorResponse conflict = answeredError(HttpStatus.CONFLICT.value(), "unknown", "application/json", """
+                {"message":"key already exists"}""");
+        replyWith(conflict);
+
+        // when
+        ThrowingCallable send = () -> proxyClient.sendRequest(connector, "/v1/test", "POST", null, Map.class);
+
+        // then
+        assertThatThrownBy(send)
+                .isInstanceOfSatisfying(ConnectorClientException.class,
+                        clientError -> assertThat(clientError.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT));
+    }
+
     // ==================== Error Handling - HTTP Errors ====================
 
     @Test
@@ -691,13 +709,14 @@ class ProxyClientImplTest {
                 .errorCategory("unknown")
                 .build();
         return Stream
-                .of(Arguments.of("error body of another type", bodyOfAnotherType, ConnectorException.class, "HTTP 422"),
+                .of(Arguments
+                        .of("error body of another type", bodyOfAnotherType, ValidationException.class, "HTTP 422"),
                         Arguments
                                 .of("problem detail with an unknown error code", unknownErrorCode,
                                         ConnectorEntityNotFoundException.class, "HTTP 404"),
-                        Arguments.of("empty problem detail", emptyProblemDetail, ConnectorException.class, "HTTP 422"),
+                        Arguments.of("empty problem detail", emptyProblemDetail, ValidationException.class, "HTTP 422"),
                         Arguments
-                                .of("error body without headers", bodyWithoutHeaders, ConnectorException.class,
+                                .of("error body without headers", bodyWithoutHeaders, ValidationException.class,
                                         "HTTP 422"));
     }
 

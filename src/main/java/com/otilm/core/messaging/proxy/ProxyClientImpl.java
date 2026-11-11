@@ -446,6 +446,9 @@ public class ProxyClientImpl implements ProxyClient {
                             ? HttpStatus.valueOf(response.getStatusCode())
                             : HttpStatus.INTERNAL_SERVER_ERROR));
 
+            // The proxy files each 4xx it has no category for, a 422 among them, as unknown; the status says which.
+            case "unknown" -> throwHttpError(response, connector);
+
             default -> sneakyThrow(new ConnectorException(errorMessage, connector));
         }
     }
