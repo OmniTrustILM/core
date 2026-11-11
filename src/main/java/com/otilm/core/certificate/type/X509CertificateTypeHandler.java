@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.cert.jcajce.JcaCertStore;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
@@ -69,7 +70,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     private static final Logger logger = LoggerFactory.getLogger(X509CertificateTypeHandler.class);
 
     private static final byte[] NOT_THIS_TYPE = new byte[0];
-    private static final String PEM_MARKER = "-----BEGIN";
+    private static final Pattern PEM_HEADER_LINE = Pattern.compile("^[ \\t]*-----BEGIN ", Pattern.MULTILINE);
     private static final Set<String> REQUEST_PEM_TYPES = Set.of("CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST");
     private static final Set<String> REQUEST_PEM_MARKERS = Set
             .of("-----BEGIN CERTIFICATE REQUEST-----", "-----BEGIN NEW CERTIFICATE REQUEST-----");
@@ -325,8 +326,9 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         }
     }
 
+    // a PEM header starts a line, as the PEM reader requires, so binary content that merely holds the text is not PEM
     private static boolean containsPemMarker(byte[] content) {
-        return new String(content, StandardCharsets.ISO_8859_1).contains(PEM_MARKER);
+        return PEM_HEADER_LINE.matcher(new String(content, StandardCharsets.ISO_8859_1)).find();
     }
 
     private static byte[] toPem(X509Certificate certificate) throws IOException {

@@ -183,6 +183,33 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void readsTheDerCertificate_whenItsSubjectHoldsAPemHeaderText() throws Exception {
+        // given
+        KeyPair holderKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate leaf = CertificateGeneratorHelper
+                .generateEndEntityCertificate(chain.getCaCertificateKeyPair(), chain.getCaCertificate(), holderKeys,
+                        "CN=-----BEGIN CERTIFICATE-----", null);
+
+        // when
+        Optional<ParsedCertificate> parsed = handler.parseCertificate(leaf.getEncoded());
+
+        // then
+        assertThat(parsed).isPresent();
+    }
+
+    @Test
+    void readsTheDerRequest_whenItsSubjectHoldsAPemHeaderText() throws Exception {
+        // given
+        byte[] csr = pkcs10(chain.getEndEntityCertificateKeyPair(), "CN=-----BEGIN CERTIFICATE REQUEST-----");
+
+        // when
+        Optional<ParsedRequest> parsed = handler.parseRequest(csr);
+
+        // then
+        assertThat(parsed).isPresent();
+    }
+
+    @Test
     void readsTheCertificate_whenTextPrecedesItInPem() throws Exception {
         // given
         String withAttributes = "Bag Attributes\n    friendlyName: holder\n"
