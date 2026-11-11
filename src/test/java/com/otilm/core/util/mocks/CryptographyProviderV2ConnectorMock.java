@@ -59,11 +59,28 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private CryptographyProviderV2ConnectorMock(RealSignerTransformer realSignerTransformer) {
         super(realSignerTransformer);
         this.realSignerTransformer = realSignerTransformer;
-        stubV2InfoDetails(List
-                .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
-                        interfaceInfo(ConnectorInterface.HEALTH, List.of()),
-                        interfaceInfo(ConnectorInterface.METRICS, List.of()),
-                        interfaceInfo(ConnectorInterface.CRYPTOGRAPHY, List.of(FeatureFlag.STATELESS))));
+        stubInfoWithCryptographyFeatures();
+    }
+
+    /**
+     * Stubs {@code GET /v2/info}, which Core reads on connect, edit and reconnect, so the cryptography interface
+     * advertises the given features beside {@code stateless}.
+     */
+    public CryptographyProviderV2ConnectorMock stubInfoAdvertising(FeatureFlag... extraFeatures) {
+        stubInfoWithCryptographyFeatures(extraFeatures);
+        return this;
+    }
+
+    /**
+     * The JSON bodies Core posted to {@code /v2/cryptographyProvider/operations/<operation>}, so a test can assert
+     * which keys went on the wire and which were left out.
+     */
+    public List<JsonNode> operationRequestBodies(String operation) throws JsonProcessingException {
+        List<JsonNode> bodies = new ArrayList<>();
+        for (Request request : server.findAll(postRequestedFor(WireMock.urlPathEqualTo(OPERATIONS + operation)))) {
+            bodies.add(ObjectMapperFactory.wire().readTree(request.getBodyAsString()));
+        }
+        return bodies;
     }
 
     public CryptographyProviderV2ConnectorMock stubOperationAttributes(String operation, String responseJson) {
@@ -723,5 +740,15 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
     public void verifyCancelImportKeyRequests(int count) {
         server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(IMPORT_KEY_CANCEL)));
+    }
+
+    private void stubInfoWithCryptographyFeatures(FeatureFlag... extraFeatures) {
+        List<FeatureFlag> features = new ArrayList<>(List.of(FeatureFlag.STATELESS));
+        features.addAll(List.of(extraFeatures));
+        stubV2InfoDetails(List
+                .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
+                        interfaceInfo(ConnectorInterface.HEALTH, List.of()),
+                        interfaceInfo(ConnectorInterface.METRICS, List.of()),
+                        interfaceInfo(ConnectorInterface.CRYPTOGRAPHY, features)));
     }
 }

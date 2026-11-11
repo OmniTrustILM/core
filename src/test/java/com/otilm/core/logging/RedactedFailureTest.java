@@ -2,6 +2,7 @@ package com.otilm.core.logging;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.LocationException;
 import com.otilm.api.exception.ValidationException;
 import java.io.IOException;
 import java.util.stream.Stream;
@@ -56,6 +57,7 @@ class RedactedFailureTest {
         return Stream
                 .of(named("a connector's error", new ConnectorException(ECHOED_SECRET)),
                         named("a connector's refusal", new ValidationException(ECHOED_SECRET)),
+                        named("a location connector's refusal", new LocationException(ECHOED_SECRET)),
                         named("an answer Core could not parse", new JsonParseException(null, ECHOED_SECRET)));
     }
 }
