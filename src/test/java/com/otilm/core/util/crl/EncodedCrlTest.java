@@ -76,7 +76,7 @@ class EncodedCrlTest {
     class MatchingTheJdkParser {
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.util.crl.EncodedCrlTest#signatureAlgorithms")
+        @MethodSource("signatureAlgorithms")
         void readsHeaderLikeJdk_whenSignedWith(SignatureAlgorithm algorithm) throws Exception {
             // given
             byte[] crl = crlWithEntries(algorithm.keyPair(), algorithm.name());
@@ -95,7 +95,7 @@ class EncodedCrlTest {
         }
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.util.crl.EncodedCrlTest#signatureAlgorithms")
+        @MethodSource("signatureAlgorithms")
         void readsEntriesLikeJdk_whenSignedWith(SignatureAlgorithm algorithm) throws Exception {
             // given
             byte[] crl = crlWithEntries(algorithm.keyPair(), algorithm.name());
@@ -108,7 +108,7 @@ class EncodedCrlTest {
         }
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.util.crl.EncodedCrlTest#signatureAlgorithms")
+        @MethodSource("signatureAlgorithms")
         void verifiesSignature_whenSignedWith(SignatureAlgorithm algorithm) throws Exception {
             // given
             byte[] crl = crlWithEntries(algorithm.keyPair(), algorithm.name());
@@ -121,7 +121,7 @@ class EncodedCrlTest {
         }
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.util.crl.EncodedCrlTest#signatureAlgorithms")
+        @MethodSource("signatureAlgorithms")
         void refusesSignature_whenEntryWasAlteredAfterSigningWith(SignatureAlgorithm algorithm) throws Exception {
             // given
             byte[] crl = crlWithEntries(algorithm.keyPair(), algorithm.name());
@@ -149,6 +149,17 @@ class EncodedCrlTest {
 
         // ── Helpers ──────────────────────────────────────────────────────────
 
+        private static Stream<Named<SignatureAlgorithm>> signatureAlgorithms() throws Exception {
+            return Stream
+                    .of(named("RSA PKCS#1", new SignatureAlgorithm("SHA256WithRSAEncryption", keyPair("RSA", null))),
+                            named("RSASSA-PSS", new SignatureAlgorithm("SHA256withRSAandMGF1", keyPair("RSA", null))),
+                            named("ECDSA P-256",
+                                    new SignatureAlgorithm("SHA256withECDSA",
+                                            keyPair("EC", new ECGenParameterSpec("secp256r1")))),
+                            named("Ed25519", new SignatureAlgorithm("Ed25519", keyPair("Ed25519", null))),
+                            named("ML-DSA-65", new SignatureAlgorithm("ML-DSA-65", keyPair("ML-DSA-65", null))));
+        }
+
         /** Changes the last byte of the last entry's serial number, which the signature covers. */
         private static byte[] alterLastSerialNumber(byte[] der) throws Exception {
             byte[] altered = der.clone();
@@ -170,7 +181,7 @@ class EncodedCrlTest {
     class Entries {
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.util.crl.EncodedCrlTest#reasonCodes")
+        @MethodSource("reasonCodes")
         void readsReasonLikeJdk_whenEntryCarriesReasonCode(int reasonCode) throws Exception {
             // given
             byte[] crl = anX509Crl(ISSUER, rsaKeyPair.getPrivate())
@@ -313,6 +324,10 @@ class EncodedCrlTest {
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static Stream<Integer> reasonCodes() {
+            return Stream.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
+        }
 
         private static Extensions reasonCodeExtension(int reasonCode) throws Exception {
             ExtensionsGenerator extensions = new ExtensionsGenerator();
@@ -562,21 +577,6 @@ class EncodedCrlTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static Stream<Named<SignatureAlgorithm>> signatureAlgorithms() throws Exception {
-        return Stream
-                .of(named("RSA PKCS#1", new SignatureAlgorithm("SHA256WithRSAEncryption", keyPair("RSA", null))),
-                        named("RSASSA-PSS", new SignatureAlgorithm("SHA256withRSAandMGF1", keyPair("RSA", null))),
-                        named("ECDSA P-256",
-                                new SignatureAlgorithm("SHA256withECDSA",
-                                        keyPair("EC", new ECGenParameterSpec("secp256r1")))),
-                        named("Ed25519", new SignatureAlgorithm("Ed25519", keyPair("Ed25519", null))),
-                        named("ML-DSA-65", new SignatureAlgorithm("ML-DSA-65", keyPair("ML-DSA-65", null))));
-    }
-
-    private static Stream<Integer> reasonCodes() {
-        return Stream.of(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
-    }
 
     private static byte[] crlWithEntries(KeyPair keyPair, String signatureAlgorithm) throws Exception {
         var builder = anX509Crl(ISSUER, keyPair.getPrivate()).withSignatureAlgorithm(signatureAlgorithm);

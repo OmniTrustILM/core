@@ -1,5 +1,7 @@
 package com.otilm.core.util;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -12,6 +14,9 @@ import org.junit.jupiter.api.Timeout;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class LdapUtilsTest {
+
+    /** Bounds how long the silent server holds a connection its client never closes. */
+    private static final int HOLD_LIMIT_MILLIS = 20_000;
 
     private static final String VALID_URI_CERTIFICATE_HOST_BINARY = "ldap://ldap.example.com/cn=CA,dc=example,dc=com?cACertificate;binary";
     private static final String VALID_URI_CERTIFICATE_NO_HOST_BINARY = "ldap:///cn=CA,dc=example,dc=com?cACertificate;binary";
@@ -168,11 +173,13 @@ public class LdapUtilsTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /** Reads what the client sends and never answers, holding the connection until the client hangs up. */
     private static void holdConnectionOpen(ServerSocket server) {
-        try (Socket ignored = server.accept()) {
-            Thread.sleep(60_000);
-        } catch (Exception e) {
-            Thread.currentThread().interrupt();
+        try (Socket client = server.accept()) {
+            client.setSoTimeout(HOLD_LIMIT_MILLIS);
+            client.getInputStream().transferTo(OutputStream.nullOutputStream());
+        } catch (IOException connectionEnded) {
+            // the client hung up, or the hold limit passed
         }
     }
 }

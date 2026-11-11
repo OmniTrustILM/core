@@ -6,6 +6,7 @@ import com.otilm.core.util.LoopbackWireMock;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.SequenceInputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -24,6 +25,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 class CrlDownloaderTest {
 
@@ -32,6 +34,8 @@ class CrlDownloaderTest {
     private static final int CONNECT_TIMEOUT_MILLIS = 1_000;
     private static final int READ_TIMEOUT_MILLIS = 1_000;
     private static final String CRL_PATH = "/ca.crl";
+    /** Bounds how long a silent server holds a connection its client never closes. */
+    private static final int HOLD_LIMIT_MILLIS = 20_000;
 
     private WireMockServer crlServer;
 
@@ -134,9 +138,9 @@ class CrlDownloaderTest {
     void refusesCrl_whenEndOfDeclaredBodyArrivesAfterDeadline() {
         // given
         var downloadTimeout = Duration.ofMillis(200);
-        byte[] declaredBody = bytes(10);
-        InputStream bodyEndingLate = bodyThatEndsAfter(declaredBody, Duration.ofMillis(400));
         long deadline = System.nanoTime() + downloadTimeout.toNanos();
+        byte[] declaredBody = bytes(10);
+        InputStream bodyEndingLate = bodyEndingAfter(declaredBody, deadline);
 
         // when
         ThrowingCallable read = () -> downloader(downloadTimeout)
@@ -152,8 +156,8 @@ class CrlDownloaderTest {
     void refusesCrl_whenEndOfUndeclaredBodyArrivesAfterDeadline() {
         // given
         var downloadTimeout = Duration.ofMillis(200);
-        InputStream bodyEndingLate = bodyThatEndsAfter(bytes(10), Duration.ofMillis(400));
         long deadline = System.nanoTime() + downloadTimeout.toNanos();
+        InputStream bodyEndingLate = bodyEndingAfter(bytes(10), deadline);
 
         // when
         ThrowingCallable read = () -> downloader(downloadTimeout)
@@ -167,29 +171,29 @@ class CrlDownloaderTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /** Returns the bytes at once, then signals the end of the body only after the delay. */
-    private static InputStream bodyThatEndsAfter(byte[] body, Duration delay) {
+    /** Returns the bytes at once, then signals the end of the body only once the deadline has passed. */
+    private static InputStream bodyEndingAfter(byte[] body, long deadline) {
         return new SequenceInputStream(new ByteArrayInputStream(body), new InputStream() {
             @Override
-            public int read() throws IOException {
-                try {
-                    Thread.sleep(delay.toMillis());
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException(e);
-                }
+            public int read() {
+                await()
+                        .atMost(Duration.ofSeconds(5))
+                        .pollInterval(Duration.ofMillis(10))
+                        .until(() -> System.nanoTime() - deadline > 0);
                 return -1;
             }
         });
     }
 
-    /** Reads the request and keeps the connection open without answering, as a stalled server does. */
+    /**
+     * Reads the request and never answers, holding the connection until the client hangs up, as a stalled server does.
+     */
     private static void readRequestWithoutAnswering(ServerSocket server) {
         try (Socket client = server.accept()) {
-            client.getInputStream().read(new byte[4096]);
-            Thread.sleep(15_000);
-        } catch (Exception e) {
-            Thread.currentThread().interrupt();
+            client.setSoTimeout(HOLD_LIMIT_MILLIS);
+            client.getInputStream().transferTo(OutputStream.nullOutputStream());
+        } catch (IOException connectionEnded) {
+            // the client hung up, or the hold limit passed
         }
     }
 
