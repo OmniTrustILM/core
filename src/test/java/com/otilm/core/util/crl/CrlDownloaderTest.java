@@ -110,7 +110,7 @@ class CrlDownloaderTest {
         // given
         var deadlineShorterThanReadTimeout = Duration.ofMillis(800);
         var readTimeoutMillis = 5_000;
-        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
             Thread.ofVirtual().start(() -> readRequestWithoutAnswering(silentServer));
             String url = LoopbackWireMock.url(silentServer.getLocalPort()) + CRL_PATH;
             var downloader = new CrlDownloader(CONNECT_TIMEOUT_MILLIS, readTimeoutMillis, SIZE_LIMIT,

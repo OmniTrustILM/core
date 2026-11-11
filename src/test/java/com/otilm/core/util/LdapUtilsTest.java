@@ -153,16 +153,16 @@ public class LdapUtilsTest {
     @Timeout(20)
     void failsWithinReadTimeout_whenServerNeverAnswers() throws Exception {
         // given
-        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
             Thread.ofVirtual().start(() -> holdConnectionOpen(silentServer));
-            String ldapUrl = "ldap://127.0.0.1:%d/cn=CA?certificateRevocationList;binary?base"
-                    .formatted(silentServer.getLocalPort());
+            String ldapUrl = "ldap://%s:%d/cn=CA?certificateRevocationList;binary?base"
+                    .formatted(LoopbackWireMock.HOST, silentServer.getLocalPort());
 
             // when
             ThrowingCallable download = () -> LdapUtils.downloadFromLdap(ldapUrl, 500, 500);
 
             // then
-            assertThatThrownBy(download).isInstanceOf(NamingException.class);
+            assertThatThrownBy(download).isInstanceOf(NamingException.class).hasMessageContaining("read timed out");
         }
     }
 
