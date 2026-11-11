@@ -65,7 +65,7 @@ class ContentSigningFormattingClientTest {
     private ContentSigningFormattingClient client;
 
     @BeforeEach
-    void setUp() {
+    void createClient() {
         client = new ContentSigningFormattingClient(connectorApiFactory, CONNECTOR_API_CLIENT_PROPERTIES);
     }
 

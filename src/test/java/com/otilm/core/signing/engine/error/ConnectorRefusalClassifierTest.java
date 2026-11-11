@@ -165,7 +165,7 @@ class ConnectorRefusalClassifierTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Named<Exception>> refusalsWithoutACode() {
+    private static Stream<Named<Exception>> refusalsWithoutACode() {
         return Stream
                 .of(named("legacy 422 body", new ValidationException("Signature attribute is not supported")),
                         named("problem document without a code",
@@ -176,7 +176,7 @@ class ConnectorRefusalClassifierTest {
                                         HttpStatus.UNPROCESSABLE_CONTENT)));
     }
 
-    static Stream<Named<Exception>> failuresWithoutAClassifyingCode() {
+    private static Stream<Named<Exception>> failuresWithoutAClassifyingCode() {
         return Stream
                 .of(named("upstream error", problemRefusal(ErrorCode.UPSTREAM_ERROR)),
                         named("status outside HttpStatus without a code", problemRefusal(null, 499)),
