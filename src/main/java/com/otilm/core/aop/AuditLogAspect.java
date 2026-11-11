@@ -61,6 +61,8 @@ public class AuditLogAspect {
 
     private AuditOperationDataOverride auditOperationDataOverride;
 
+    private AuditOperationOverride auditOperationOverride;
+
     private AuditAffiliationOverride auditAffiliationOverride;
 
     private AuditLogInternalService auditLogInternalService;
@@ -83,6 +85,11 @@ public class AuditLogAspect {
     @Autowired
     public void setAuditOperationDataOverride(AuditOperationDataOverride auditOperationDataOverride) {
         this.auditOperationDataOverride = auditOperationDataOverride;
+    }
+
+    @Autowired
+    public void setAuditOperationOverride(AuditOperationOverride auditOperationOverride) {
+        this.auditOperationOverride = auditOperationOverride;
     }
 
     @Autowired
@@ -168,6 +175,7 @@ public class AuditLogAspect {
                         .affiliatedResource(constructResourceRecord(true, affiliation.resource(),
                                 List.of(affiliation.objectUuid()), null));
             }
+            applyOperationOverride(annotation, logBuilder);
             logBuilder.timestamp(OffsetDateTime.now());
             publish(annotation, logBuilder.build(), output, failure);
         }
@@ -226,6 +234,21 @@ public class AuditLogAspect {
             return null;
         }
         return auditAffiliationOverride.consume();
+    }
+
+    /**
+     * Fills in the operation a body discovered, for a method annotated with {@link Operation#UNKNOWN} only. A frame
+     * with a concrete operation leaves the override alone, so a nested audited call cannot take the value from the
+     * frame that is waiting for it.
+     */
+    private void applyOperationOverride(AuditLogged annotation, LogRecord.LogRecordBuilder logBuilder) {
+        if (annotation.operation() != Operation.UNKNOWN || RequestContextHolder.getRequestAttributes() == null) {
+            return;
+        }
+        Operation discovered = auditOperationOverride.consume();
+        if (discovered != null) {
+            logBuilder.operation(discovered);
+        }
     }
 
     private void setResourceRecords(LogData logData, boolean isDeleteOperation,
@@ -323,9 +346,7 @@ public class AuditLogAspect {
             affiliatedResource = annotation.affiliatedResource();
         }
 
-        Operation operation = annotation.operation() != Operation.UNKNOWN
-                ? annotation.operation()
-                : LoggingHelper.getAuditLogOperation();
+        Operation operation = annotation.operation();
         logBuilder.operation(operation);
         if (!data.isEmpty()) {
             logBuilder.additionalData(data);
