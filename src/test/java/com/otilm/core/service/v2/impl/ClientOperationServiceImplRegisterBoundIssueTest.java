@@ -25,10 +25,12 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
+import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.messaging.jms.producers.EventProducer;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
@@ -72,6 +74,7 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -159,6 +162,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
         service.setCertificateLocationRepository(mock(CertificateLocationRepository.class));
         service.setCertificateRegistrationWriter(certificateRegistrationWriter);
+        service.setRegistrationAuthorizationRepository(mock(CertificateRegistrationAuthorizationRepository.class));
         service.setAdapterFactory(adapterFactory);
         service.setCapabilityService(capabilityService);
         service.setCertificateService(certificateService);
@@ -413,7 +417,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     @Test
-    void doesNotLogConnectorText_whenRegisterBoundIssueFails() throws Exception {
+    void logsRedactedFailureWithoutConnectorText_whenRegisterBoundIssueFails() throws Exception {
         // given
         var connectorEcho = "connector-echo-7f3a";
         stubRegisterBoundIssueFailingWith(new ConnectorException("authority refused: " + connectorEcho));
@@ -424,9 +428,14 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
         // then
         assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
-        assertThat(collectLoggedText(logged))
-                .isNotEmpty()
-                .noneSatisfy(line -> assertThat(line).contains(connectorEcho));
+        assertThat(logged.list).anySatisfy(event -> {
+            assertThat(event.getFormattedMessage())
+                    .contains("failed before the connector accepted it")
+                    .contains(certUuid.toString());
+            assertThat(event.getThrowableProxy().getMessage()).isEqualTo(ConnectorException.class.getName());
+            assertThat(event.getThrowableProxy().getClassName()).isEqualTo(RedactedFailure.class.getName());
+        });
+        assertThat(collectLoggedText(logged)).noneSatisfy(line -> assertThat(line).contains(connectorEcho));
     }
 
     @Test
@@ -445,6 +454,30 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         assertThat(collectLoggedText(logged))
                 .isNotEmpty()
                 .noneSatisfy(line -> assertThat(line).contains(connectorEcho));
+    }
+
+    @Test
+    void keepsConnectorTextInHistory_whenCompletingTheRegisterBoundIssueFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        RegisterCapability adapter = registerCapableAdapter();
+        when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
+        doAnswer(invocation -> {
+            throw new ConnectorException("authority refused: " + connectorEcho);
+        }).when(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
+
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(CertificateOperationException.class)
+                .hasMessageNotContaining(connectorEcho);
+        verify(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED), ArgumentMatchers.contains(connectorEcho),
+                        ArgumentMatchers.eq(""));
     }
 
     @Test

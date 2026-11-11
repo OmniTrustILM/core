@@ -56,6 +56,7 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -447,6 +448,43 @@ class ClientOperationServiceImplIssueDispatchTest {
     }
 
     @Test
+    void keepsConnectorTextInHistory_whenCompletingTheIssuanceFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubSynchronousIssueFailingToCompleteWithConnectorText(connectorEcho);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
+        verify(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED),
+                        ArgumentMatchers.contains("completing local state failed"), ArgumentMatchers.eq(""));
+        verify(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED), ArgumentMatchers.contains(connectorEcho),
+                        ArgumentMatchers.eq(""));
+    }
+
+    @Test
+    void throwsWithoutConnectorText_whenCompletingTheIssuanceFails() throws Exception {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubSynchronousIssueFailingToCompleteWithConnectorText(connectorEcho);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(CertificateOperationException.class)
+                .hasMessageContaining("completing local state failed")
+                .hasMessageNotContaining(connectorEcho);
+    }
+
+    @Test
     void stampsClaim_whenClaimingTheCertificateForIssue() throws Exception {
         // given — the mocked state machine records the stamp the certificate carries at the moment it is claimed
         AtomicReference<OffsetDateTime> stampAtClaim = new AtomicReference<>();
@@ -739,6 +777,15 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .supports(ArgumentMatchers.any(AuthorityInstanceReference.class),
                         ArgumentMatchers.eq(FeatureFlag.CERTIFICATE_STATUS_POLLING)))
                 .thenReturn(true);
+    }
+
+    private void stubSynchronousIssueFailingToCompleteWithConnectorText(String connectorText) throws Exception {
+        var certificateData = "cert-data";
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk(certificateData, List.of(), CertificateType.X509));
+        doAnswer(invocation -> {
+            throw new ConnectorException("authority refused: " + connectorText);
+        }).when(certificateService).issueRequestedCertificate(certUuid, certificateData, List.of());
     }
 
     private void stubIssueFailingWithConnectorText(String connectorText) throws Exception {

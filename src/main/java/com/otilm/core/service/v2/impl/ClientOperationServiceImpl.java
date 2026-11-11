@@ -1570,7 +1570,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                             "Certificate was issued by the authority but completing local state failed; reconcile manually. Cause: "
-                                    + safeMessage(e, "issuance completion failed"),
+                                    + historyReason(e, "issuance completion failed"),
                             "");
             throw e;
         }
@@ -1605,11 +1605,36 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             logger
                     .warn("Certificate {} was issued by the authority but completing local state failed; reconcile manually",
                             certificateUuid, RedactedFailure.forLog(e));
-            throw new CertificateOperationException(
-                    "Certificate %s was issued by the authority but completing local state failed; reconcile manually. Cause: "
-                            .formatted(certificateUuid) + propagatedReason(e, "issuance completion failed"));
+            String failure = "Certificate %s was issued by the authority but completing local state failed; reconcile manually. Cause: "
+                    .formatted(certificateUuid);
+            throw new IssuanceCompletionException(failure + propagatedReason(e, "issuance completion failed"),
+                    failure + safeMessage(e, "issuance completion failed"));
         }
         return true;
+    }
+
+    /**
+     * A failed issuance completion whose message leaves out connector text, while {@code historyReason} keeps it for
+     * the certificate's event history.
+     */
+    private static final class IssuanceCompletionException extends CertificateOperationException {
+
+        private final String historyReason;
+
+        private IssuanceCompletionException(String message, String historyReason) {
+            super(message);
+            this.historyReason = historyReason;
+        }
+    }
+
+    /**
+     * The reason the certificate's event history records for {@code e}: an issuance completion keeps the connector text
+     * its message leaves out.
+     */
+    private static String historyReason(Exception e, String fallback) {
+        return e instanceof IssuanceCompletionException completion
+                ? completion.historyReason
+                : safeMessage(e, fallback);
     }
 
     /**
@@ -1774,6 +1799,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Connector accepted the register-bound issue for certificate %s but a local step failed; left %s for reconciliation."
                             .formatted(certUuid, pendingIssueLabel));
         } catch (ConnectorException | RuntimeException e) {
+            logger
+                    .warn("Register-bound issue for cert {} failed before the connector accepted it", certUuid,
+                            RedactedFailure.forLog(e));
             failClaimedCertificate(certUuid, e, "register-bound issuance failed");
             clearBindingBestEffort(certUuid);
             throw new CertificateOperationException("Failed to issue register-bound certificate %s: %s"
@@ -1798,7 +1826,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             certificateEventHistoryService
                     .addEventHistory(certUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                             "Connector accepted the register-bound issue but completing local state failed; reconcile manually. Cause: "
-                                    + safeMessage(e, "register-bound issuance failed"),
+                                    + historyReason(e, "register-bound issuance failed"),
                             "");
             throw new CertificateOperationException(
                     "Connector accepted the register-bound issue for certificate %s but completing local state failed; reconcile manually."

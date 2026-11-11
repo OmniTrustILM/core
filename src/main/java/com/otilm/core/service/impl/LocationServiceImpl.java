@@ -584,7 +584,12 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         }
     }
 
+    /**
+     * Runs in its own transaction: callers treat the removal as best effort, so a connector's refusal must not mark the
+     * transaction that fails or rejects the certificate rollback-only.
+     */
     @Override
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public void removeRejectedOrFailedCertificateFromLocationAction(CertificateLocationId certificateLocationId)
             throws ConnectorException, NotFoundException {
         CertificateLocation certificateLocation = certificateLocationRepository
