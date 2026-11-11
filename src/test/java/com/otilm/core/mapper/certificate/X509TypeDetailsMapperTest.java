@@ -46,6 +46,7 @@ class X509TypeDetailsMapperTest {
         // then
         assertThat(details.getIssuerDn()).isNull();
         assertThat(details.getKeyUsage()).isNull();
+        assertThat(details.getSubjectType()).isNull();
         assertThat(details.getSubjectDn()).isEqualTo("CN=holder");
     }
 

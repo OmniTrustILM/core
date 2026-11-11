@@ -68,7 +68,6 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(X509CertificateTypeHandler.class);
 
-    // the decoded content of something that is not a certificate or a request of this type
     private static final byte[] NOT_THIS_TYPE = new byte[0];
     private static final String PEM_MARKER = "-----BEGIN";
     private static final Set<String> REQUEST_PEM_TYPES = Set.of("CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST");
@@ -117,7 +116,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         CertificateRequest request = readRequest(der);
         if (request == null) {
             // a PEM that is labelled as a certificate request has been recognised, so a body that is none is invalid
-            if (startsWithPemMarker(content)) {
+            if (containsPemMarker(content)) {
                 throw new CertificateTypeHandlerException(
                         "The PEM encoded certificate request holds neither a PKCS#10 nor a CRMF request");
             }
@@ -277,9 +276,10 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     private static byte[] decodeCertificateContent(byte[] content) {
-        if (!startsWithPemMarker(content)) {
+        if (!containsPemMarker(content)) {
             return content;
         }
+        // the first PEM object decides, wherever it starts, as the parser of the upload has always read it
         try (PEMParser pemParser = new PEMParser(new StringReader(new String(content, StandardCharsets.UTF_8)))) {
             PemObject pemObject = pemParser.readPemObject();
             if (pemObject != null && (TYPE_CERTIFICATE.equals(pemObject.getType())
@@ -293,7 +293,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     private static byte[] decodeRequestContent(byte[] content) {
-        if (!startsWithPemMarker(content)) {
+        if (!containsPemMarker(content)) {
             return content;
         }
         String pem = new String(content, StandardCharsets.UTF_8);
@@ -325,10 +325,8 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         }
     }
 
-    private static boolean startsWithPemMarker(byte[] content) {
-        return new String(content, 0, Math.min(content.length, 64), StandardCharsets.ISO_8859_1)
-                .stripLeading()
-                .startsWith(PEM_MARKER);
+    private static boolean containsPemMarker(byte[] content) {
+        return new String(content, StandardCharsets.ISO_8859_1).contains(PEM_MARKER);
     }
 
     private static byte[] toPem(X509Certificate certificate) throws IOException {

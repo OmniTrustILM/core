@@ -29,11 +29,11 @@ public final class X509TypeDetailsMapper {
         if (certificate.getCertificateContent() != null) {
             details.setIssuerDn(certificate.getIssuerDn());
             details.setIssuerSerialNumber(certificate.getIssuerSerialNumber());
+            details.setSubjectType(certificate.getSubjectType());
             details.setExtendedKeyUsage(MetaDefinitions.deserializeArrayString(certificate.getExtendedKeyUsage()));
             details.setKeyUsage(certificate.getKeyUsage().stream().toList());
             details.setQcStatements(toQcStatements(certificate));
         }
-        details.setSubjectType(certificate.getSubjectType());
         details.setCommonName(CertificateUtil.formatCommonName(certificate.getCommonName()));
         details.setSubjectDn(certificate.getSubjectDn());
         details.setHybridCertificate(certificate.isHybridCertificate());

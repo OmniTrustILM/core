@@ -12,8 +12,11 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.RequestFormatResolver;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
@@ -22,8 +25,11 @@ import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.messaging.jms.producers.EventProducer;
+import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
@@ -63,6 +69,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Unit coverage for plain (non-register) issuance dispatched through {@link AuthorityProviderAdapterFactory}. */
@@ -81,6 +88,7 @@ class ClientOperationServiceImplIssueDispatchTest {
     private EventProducer eventProducer;
     private CertificateLocationRepository certificateLocationRepository;
     private CertificatePendingIssueClaimWriter claimWriter;
+    private RaProfileRepository raProfileRepository;
 
     private UUID certUuid;
     private Certificate certificate;
@@ -102,6 +110,8 @@ class ClientOperationServiceImplIssueDispatchTest {
 
         service = new ClientOperationServiceImpl();
         service.setCertificateRepository(certificateRepository);
+        raProfileRepository = mock(RaProfileRepository.class);
+        service.setRaProfileRepository(raProfileRepository);
         service
                 .setRequestFormatResolver(new RequestFormatResolver(
                         new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler()))));
@@ -144,6 +154,25 @@ class ClientOperationServiceImplIssueDispatchTest {
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
         when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
         when(certificateRepository.findWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+    }
+
+    @Test
+    void throwsUnsupportedNamingTheType_whenIssuingForATypeWithoutAHandlerThatNamesAFormat() {
+        // given — the request names pkcs10, so only the type can refuse it
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
+        request.setCertificateType(CertificateType.SSH);
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(UUID.randomUUID());
+        SecuredUUID raProfileUuid = SecuredUUID.fromUUID(UUID.randomUUID());
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificate(authorityUuid, raProfileUuid, request, null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(CertificateType.SSH.getCode());
+        verifyNoInteractions(raProfileRepository);
     }
 
     @Test

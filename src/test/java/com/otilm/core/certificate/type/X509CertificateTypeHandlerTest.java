@@ -165,6 +165,39 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void returnsEmpty_whenTheFirstPemObjectAfterLeadingTextIsAPrivateKey() throws Exception {
+        // given — a bundle as `openssl pkcs12 -nodes` writes it: attributes, then the key, then the certificate
+        String bundle = """
+                Bag Attributes
+                    friendlyName: holder
+                -----BEGIN PRIVATE KEY-----
+                AAAA
+                -----END PRIVATE KEY-----
+                """ + new String(toPem(chain.getEndEntityCertificate()), StandardCharsets.UTF_8);
+
+        // when
+        Optional<ParsedCertificate> parsed = handler.parseCertificate(bundle.getBytes(StandardCharsets.UTF_8));
+
+        // then
+        assertThat(parsed).isEmpty();
+    }
+
+    @Test
+    void readsTheCertificate_whenTextPrecedesItInPem() throws Exception {
+        // given
+        String withAttributes = "Bag Attributes\n    friendlyName: holder\n"
+                + new String(toPem(chain.getEndEntityCertificate()), StandardCharsets.UTF_8);
+
+        // when
+        ParsedCertificate parsed = handler
+                .parseCertificate(withAttributes.getBytes(StandardCharsets.UTF_8))
+                .orElseThrow();
+
+        // then
+        assertThat(parsed.encoded()).isEqualTo(chain.getEndEntityCertificate().getEncoded());
+    }
+
+    @Test
     void returnsEmpty_whenTheContentIsNotACertificate() {
         // given
         byte[] notACertificate = "not a certificate".getBytes(StandardCharsets.UTF_8);

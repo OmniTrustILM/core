@@ -3619,15 +3619,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * Validates the operator's completion CSR for a registered certificate against the resolved request-attribute set.
      *
      * <p>
-     * A null format is not validated: the parser selects on format, and the CSR attach rejects it with a clear message.
+     * The format is already resolved to the default of the type by {@code issueExistingCertificate}, the only caller.
      * Only the parse is a client fault — a strict profile whose attribute set cannot be resolved is a server-side
      * inability, so that {@link CertificateException} propagates to the caller unshaped.
      */
     private List<String> validateCompletionRequestAttributes(ClientCertificateIssueRequestDto request,
             RaProfile raProfile) throws CertificateException {
-        if (request.getFormat() == null) {
-            return List.of();
-        }
         CertificateRequest parsedRequest;
         try {
             parsedRequest = CertificateRequestUtils.createCertificateRequest(request.getRequest(), request.getFormat());
