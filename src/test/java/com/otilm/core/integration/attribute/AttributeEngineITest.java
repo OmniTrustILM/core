@@ -1997,7 +1997,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testAttributeEncryption() throws AttributeException, NotFoundException {
+    void testAttributeEncryption() throws AttributeException {
         testAttributeEncryption(AttributeContentType.STRING, new StringAttributeContentV3("sensitiveData"),
                 "sensitiveData");
         testAttributeEncryption(AttributeContentType.INTEGER, new IntegerAttributeContentV3(1), 1);
@@ -2026,7 +2026,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     private void testAttributeEncryption(AttributeContentType contentType, BaseAttributeContentV3<?> contentV3,
-            Object data) throws AttributeException, NotFoundException {
+            Object data) throws AttributeException {
         DataAttributeV3 secretAttribute = new DataAttributeV3();
         secretAttribute.setUuid(UUID.randomUUID().toString());
         secretAttribute.setName("secretAttribute");
