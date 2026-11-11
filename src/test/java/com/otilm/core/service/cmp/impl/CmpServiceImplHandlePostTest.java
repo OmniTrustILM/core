@@ -388,6 +388,30 @@ class CmpServiceImplHandlePostTest {
     }
 
     @Test
+    void recordsIssueAsTheAuditOperation_whenTheHandlerFails() throws Exception {
+        // given
+        var crmfMessageHandler = mock(CrmfMessageHandler.class);
+        var certificateRepository = mock(CertificateRepository.class);
+        CmpServiceImpl service = createSignatureProfileService(crmfMessageHandler, certificateRepository);
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        var signerKeys = CmpTestUtil.generateKeyPairEC();
+        var signerCertificate = createSelfSignedCertificate(signerKeys);
+        Certificate protectionCertificate = CmpEntityUtil
+                .createProtectionCertificate(signerCertificate, RA_PROFILE_UUID);
+        when(certificateRepository.findByFingerprint(protectionCertificate.getFingerprint()))
+                .thenReturn(Optional.of(protectionCertificate));
+        when(crmfMessageHandler.handle(any(), any())).thenThrow(new IllegalStateException("handler failed"));
+        byte[] initialRequest = createSignedInitialRequest(signerKeys, signerCertificate);
+
+        // when
+        service.handlePost(PROFILE_NAME, initialRequest);
+
+        // then
+        verify(auditOperationOverride).set(Operation.ISSUE);
+    }
+
+    @Test
     void rejectsInitialRequest_whenUnprotected() throws Exception {
         // given
         var crmfMessageHandler = mock(CrmfMessageHandler.class);
@@ -535,6 +559,7 @@ class CmpServiceImplHandlePostTest {
         CmpServiceImpl service = new CmpServiceImpl();
         service.setRaProfileRepository(raProfileRepository);
         service.setCmpProfileRepository(cmpProfileRepository);
+        service.setAuditOperationOverride(mock(AuditOperationOverride.class));
 
         CmpTransactionService cmpTransactionService = mock(CmpTransactionService.class);
         when(cmpTransactionService.findByTransactionId(anyString()))

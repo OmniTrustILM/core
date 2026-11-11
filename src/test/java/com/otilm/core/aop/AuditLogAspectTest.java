@@ -65,7 +65,7 @@ class AuditLogAspectTest {
     private SettingsDto previousLoggingSettings;
 
     @BeforeEach
-    void setUp() {
+    void wireAspectToAuditLogsInTheDatabase() {
         aspect.setAuditLogsProducer(auditLogsProducer);
         aspect.setAuditLogInternalService(auditLogInternalService);
         aspect.setAuditLogEnhancer(auditLogEnhancer);

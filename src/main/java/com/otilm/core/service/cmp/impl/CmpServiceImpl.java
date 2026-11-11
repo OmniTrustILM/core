@@ -276,24 +276,24 @@ public class CmpServiceImpl implements CmpExternalService {
                 case PKIBody.TYPE_INIT_REQ, // ( 1) ir, Initial Request; CertReqMessages
                         PKIBody.TYPE_CERT_REQ, // ( 2) cr, Certification Req; CertReqMessages
                         PKIBody.TYPE_KEY_UPDATE_REQ: // ( 7) kur, Key Update Request; CertReqMessages
+                    recordAuditOperation(bodyType == PKIBody.TYPE_KEY_UPDATE_REQ ? Operation.REKEY : Operation.ISSUE);
                     pkiResponse = crmfMessageHandler.handle(pkiRequest, configuration);
                     if (pkiResponse == null) {
                         throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure,
                                 String.format(" %s | general problem while handling crmf message", logPrefix));
                     }
-                    recordAuditOperation(bodyType == PKIBody.TYPE_KEY_UPDATE_REQ ? Operation.REKEY : Operation.ISSUE);
                     break;
                 case PKIBody.TYPE_REVOCATION_REQ: // (11) rr, Revocation Request; RevReqContent
-                    pkiResponse = revocationMessageHandler.handle(pkiRequest, configuration);
                     recordAuditOperation(Operation.REVOKE);
+                    pkiResponse = revocationMessageHandler.handle(pkiRequest, configuration);
                     break;
                 case PKIBody.TYPE_CERT_CONFIRM: // (24) certConf, Certificate confirm; CertConfirmContent
-                    pkiResponse = certConfirmMessageHandler.handle(pkiRequest, configuration);
                     recordAuditOperation(Operation.CMP_CONFIRM);
+                    pkiResponse = certConfirmMessageHandler.handle(pkiRequest, configuration);
                     break;
                 case PKIBody.TYPE_POLL_REQ: // (25) pollReq, Polling Request (RFC 4210 §5.2.6)
-                    pkiResponse = pollReqMessageHandler.handle(pkiRequest, configuration);
                     recordAuditOperation(Operation.GET_STATUS);
+                    pkiResponse = pollReqMessageHandler.handle(pkiRequest, configuration);
                     break;
                 case PKIBody.TYPE_CROSS_CERT_REQ, PKIBody.TYPE_KEY_RECOVERY_REQ, PKIBody.TYPE_GEN_MSG,
                         PKIBody.TYPE_NESTED, PKIBody.TYPE_P10_CERT_REQ, PKIBody.TYPE_REVOCATION_ANN,

@@ -70,11 +70,14 @@ class ScepServiceImplPollUnitTest {
         var auditOperationOverride = Mockito.mock(AuditOperationOverride.class);
         service.setAuditOperationOverride(auditOperationOverride);
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        var knownTransactionId = "tx-known";
         ScepRequest request = Mockito.mock(ScepRequest.class);
-        Mockito.when(request.getTransactionId()).thenReturn("tx-known");
-        Mockito.when(transactionRepository.existsByTransactionIdAndScepProfile("tx-known", profile)).thenReturn(true);
+        Mockito.when(request.getTransactionId()).thenReturn(knownTransactionId);
         Mockito
-                .when(transactionRepository.findByTransactionIdAndScepProfile("tx-known", profile))
+                .when(transactionRepository.existsByTransactionIdAndScepProfile(knownTransactionId, profile))
+                .thenReturn(true);
+        Mockito
+                .when(transactionRepository.findByTransactionIdAndScepProfile(knownTransactionId, profile))
                 .thenReturn(Optional.of(transactionWithCert(certificateInState(CertificateState.PENDING_ISSUE))));
 
         // when

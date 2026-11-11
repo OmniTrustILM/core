@@ -616,21 +616,22 @@ public class ScepServiceImpl implements ScepExternalService {
 
     private ScepResponse enrollmentResponse(ScepRequest scepRequest, IntuneScepServiceClient intuneClient,
             Certificate matchedRegistration) {
+        // Manual approval for the SCEP clients are configured in the SCEP Profile.
+        // If the SCEP Profile has the manual approval set to true, only the CSR will be generated
+        boolean issuesWithoutApproval = scepProfile.getRequireManualApproval() != null
+                && !scepProfile.getRequireManualApproval();
+        recordAuditOperation(
+                matchedRegistration != null || issuesWithoutApproval ? Operation.ISSUE : Operation.REQUEST);
         try {
             // Reject before issuing when the response could never be delivered, so the platform
             // does not commit a certificate the client can never retrieve (RFC 8894 §3.2.2).
             verifyResponseEnvelopable(scepRequest);
             if (matchedRegistration != null) {
-                recordAuditOperation(Operation.ISSUE);
                 return completeRegistration(scepRequest, matchedRegistration);
             }
-            // Manual approval for the SCEP clients are configured in the SCEP Profile.
-            // If the SCEP Profile has the manual approval set to true, only the CSR will be generated
-            if (scepProfile.getRequireManualApproval() != null && !scepProfile.getRequireManualApproval()) {
-                recordAuditOperation(Operation.ISSUE);
+            if (issuesWithoutApproval) {
                 return issueCertificate(scepRequest, intuneClient);
             }
-            recordAuditOperation(Operation.REQUEST);
             return generateCsr(scepRequest, intuneClient);
         } catch (ScepException e) {
             ScepResponse failureResponse = buildFailedResponse(e, scepRequest.getTransactionId());

@@ -1,7 +1,9 @@
 package com.otilm.core.service.scep.impl;
 
 import com.otilm.api.exception.ScepException;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.scep.FailInfo;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.service.scep.message.ScepRequest;
 import com.otilm.core.util.CertificateUtil;
@@ -17,14 +19,19 @@ import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -50,6 +57,11 @@ class ScepServiceImplEnvelopePreflightTest {
         service = new ScepServiceImpl();
         profile = mock(ScepProfile.class);
         ReflectionTestUtils.setField(service, "scepProfile", profile);
+    }
+
+    @AfterEach
+    void clearRequestContext() {
+        RequestContextHolder.resetRequestAttributes();
     }
 
     @Test
@@ -82,6 +94,23 @@ class ScepServiceImplEnvelopePreflightTest {
         ScepRequest request = requestSignedBy(null);
 
         assertDoesNotThrow(() -> service.verifyResponseEnvelopable(request));
+    }
+
+    @Test
+    void recordsIssueAsTheAuditOperation_whenTheResponseCouldNotBeEnveloped() throws Exception {
+        // given
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        when(profile.getRequireManualApproval()).thenReturn(false);
+        when(profile.getChallengePassword()).thenReturn(null);
+        ScepRequest ecRequestWithoutEnvelopePassword = requestSignedBy(CertificateUtil.parseCertificate(EC_CERT_B64));
+
+        // when
+        ReflectionTestUtils.invokeMethod(service, "enrollmentResponse", ecRequestWithoutEnvelopePassword, null, null);
+
+        // then
+        verify(auditOperationOverride).set(Operation.ISSUE);
     }
 
     private static ScepRequest requestSignedBy(X509Certificate signerCertificate) {
