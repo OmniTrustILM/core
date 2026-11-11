@@ -477,27 +477,35 @@ class IdentityKeyExposureFenceSelfTest {
     }
 
     /**
-     * The shape the code base actually uses: eighteen {@code MDC.put} sites sit behind {@code LoggingHelper}'s static
+     * The shape the code base actually uses: the {@code MDC.put} sites sit behind {@code LoggingHelper}'s static
      * methods, so a value handed to one of them is bound into every later log line while the disclosing line names no
      * logger and no MDC.
      */
     @Test
-    void aCallOnARegisteredLoggingFacadeIsALogLine() {
+    void reportsALogLine_whenARegisteredLoggingFacadeIsCalled() {
+        // given
         Path writer = Path.of("src/main/java/com/otilm/core/service/writer/cbom/CryptoAssetWriter.java");
+        var facadeCall = List.of("  LoggingHelper.putLogResourceInfo(Resource.CBOM, false, identityKey, name);");
 
-        assertThat(IdentityKeyExposureFence
-                .sourceFileViolations(writer,
-                        List.of("  LoggingHelper.putLogResourceInfo(Resource.CBOM, false, identityKey, name);")))
-                .singleElement()
-                .asString()
-                .contains("logs the crypto-asset identity key");
-        assertThat(IdentityKeyExposureFence
-                .sourceFileViolations(writer, List
-                        .of("  com.otilm.core.logging.LoggingHelper.putAuditLogOperation(", "          identityKey);")))
-                .describedAs("qualified, and wrapped across lines")
-                .singleElement()
-                .asString()
-                .contains("CryptoAssetWriter.java:2");
+        // when
+        List<String> violations = IdentityKeyExposureFence.sourceFileViolations(writer, facadeCall);
+
+        // then
+        assertThat(violations).singleElement().asString().contains("logs the crypto-asset identity key");
+    }
+
+    @Test
+    void reportsALogLine_whenTheFacadeCallIsQualifiedAndWrappedAcrossLines() {
+        // given
+        Path writer = Path.of("src/main/java/com/otilm/core/service/writer/cbom/CryptoAssetWriter.java");
+        var qualifiedWrappedFacadeCall = List
+                .of("  com.otilm.core.logging.LoggingHelper.putLogResourceInfo(", "          identityKey);");
+
+        // when
+        List<String> violations = IdentityKeyExposureFence.sourceFileViolations(writer, qualifiedWrappedFacadeCall);
+
+        // then
+        assertThat(violations).singleElement().asString().contains("CryptoAssetWriter.java:2");
     }
 
     /**
