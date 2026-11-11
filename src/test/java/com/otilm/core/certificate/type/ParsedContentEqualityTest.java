@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ParsedContentEqualityTest {
 
     @Test
-    void treatsCertificatesWithTheSameContentAsEqual() {
+    void treatsCertificatesAsEqual_whenTheirContentMatches() {
         // given
         var first = new ParsedCertificate("X.509", new byte[]{1, 2, 3}, null);
         var second = new ParsedCertificate("X.509", new byte[]{1, 2, 3}, null);
@@ -22,7 +22,7 @@ class ParsedContentEqualityTest {
     }
 
     @Test
-    void treatsCertificatesWithOtherContentAsDifferent() {
+    void treatsCertificatesAsDifferent_whenTheirContentDiffers() {
         // given
         var first = new ParsedCertificate("X.509", new byte[]{1, 2, 3}, null);
         var other = new ParsedCertificate("X.509", new byte[]{1, 2, 4}, null);
@@ -35,7 +35,7 @@ class ParsedContentEqualityTest {
     }
 
     @Test
-    void treatsRequestsWithTheSameContentAsEqual() {
+    void treatsRequestsAsEqual_whenTheirContentMatches() {
         // given
         var first = new ParsedRequest("X.509", CertificateRequestFormat.PKCS10, new byte[]{1, 2}, "holder", null);
         var second = new ParsedRequest("X.509", CertificateRequestFormat.PKCS10, new byte[]{1, 2}, "holder", null);

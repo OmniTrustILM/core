@@ -116,6 +116,11 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         }
         CertificateRequest request = readRequest(der);
         if (request == null) {
+            // a PEM that is labelled as a certificate request has been recognised, so a body that is none is invalid
+            if (startsWithPemMarker(content)) {
+                throw new CertificateTypeHandlerException(
+                        "The PEM encoded certificate request holds neither a PKCS#10 nor a CRMF request");
+            }
             return Optional.empty();
         }
         try {

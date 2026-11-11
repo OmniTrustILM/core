@@ -245,6 +245,19 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void throwsHandlerException_whenAPemRequestHoldsNoRequestStructure() {
+        // given — valid Base64 that decodes to an empty ASN.1 sequence
+        byte[] emptySequencePem = "-----BEGIN CERTIFICATE REQUEST-----\nMAA=\n-----END CERTIFICATE REQUEST-----\n"
+                .getBytes(StandardCharsets.UTF_8);
+
+        // when
+        ThrowingCallable parse = () -> handler.parseRequest(emptySequencePem);
+
+        // then
+        assertThatThrownBy(parse).isInstanceOf(CertificateTypeHandlerException.class);
+    }
+
+    @Test
     void throwsHandlerException_whenAPemRequestHasATruncatedBody() {
         // given
         byte[] truncatedPem = "-----BEGIN CERTIFICATE REQUEST-----\nAAA\n-----END CERTIFICATE REQUEST-----\n"
