@@ -200,6 +200,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
     private static final String INTERNAL_ERROR = "internal error";
+    private static final String ISSUANCE_COMPLETION_FAILED = "issuance completion failed";
 
     /**
      * Structured event-log surface for system-level state-transition events that are not directly user-triggered, per
@@ -1570,7 +1571,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             certificateEventHistoryService
                     .addEventHistory(certificateUuid, CertificateEvent.ISSUE, CertificateEventStatus.FAILED,
                             "Certificate was issued by the authority but completing local state failed; reconcile manually. Cause: "
-                                    + historyReason(e, "issuance completion failed"),
+                                    + historyReason(e, ISSUANCE_COMPLETION_FAILED),
                             "");
             throw e;
         }
@@ -1607,8 +1608,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             certificateUuid, RedactedFailure.forLog(e));
             String failure = "Certificate %s was issued by the authority but completing local state failed; reconcile manually. Cause: "
                     .formatted(certificateUuid);
-            throw new IssuanceCompletionException(failure + propagatedReason(e, "issuance completion failed"),
-                    failure + safeMessage(e, "issuance completion failed"));
+            throw new IssuanceCompletionException(failure + propagatedReason(e, ISSUANCE_COMPLETION_FAILED),
+                    failure + safeMessage(e, ISSUANCE_COMPLETION_FAILED));
         }
         return true;
     }

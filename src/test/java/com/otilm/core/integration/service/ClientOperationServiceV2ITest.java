@@ -5804,7 +5804,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class RenewCertificateAction {
 
         @Test
-        void doesNotLogConnectorText_whenTheAuthorityRefuses() throws Exception {
+        void doesNotLogConnectorText_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
             prepareCertificateForRenewal();
@@ -5822,7 +5822,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void throwsWithoutConnectorText_whenTheAuthorityRefuses() throws Exception {
+        void throwsWithoutConnectorText_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
             prepareCertificateForRenewal();
@@ -5842,7 +5842,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void keepsConnectorTextInHistory_whenTheAuthorityRefuses() throws Exception {
+        void keepsConnectorTextInHistory_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
             prepareCertificateForRenewal();
@@ -5908,7 +5908,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void doesNotLogConnectorText_whenTheLocationRefusesCleaningUpTheFailedSuccessor() throws Exception {
+        void doesNotLogConnectorText_whenTheLocationRefusesCleaningUpTheFailedSuccessor() {
             // given
             var locationEcho = "location-echo-4c1d";
             prepareCertificateForRenewal();
@@ -5930,7 +5930,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void failsTheSuccessorWithoutConnectorText_whenTheLocationRejectsCleaningItUp() throws Exception {
+        void failsTheSuccessorWithoutConnectorText_whenTheLocationRejectsCleaningItUp() {
             // given
             var locationEcho = "location-echo-4c1d";
             prepareCertificateForRenewal();
@@ -5960,7 +5960,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class RekeyCertificateAction {
 
         @Test
-        void doesNotLogConnectorText_whenTheAuthorityRefuses() throws Exception {
+        void doesNotLogConnectorText_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
             prepareCertificateForRenewal();
@@ -5978,7 +5978,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void throwsWithoutConnectorText_whenTheAuthorityRefuses() throws Exception {
+        void throwsWithoutConnectorText_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
             prepareCertificateForRenewal();
@@ -5998,7 +5998,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
-        void keepsConnectorTextInHistory_whenTheAuthorityRefuses() throws Exception {
+        void keepsConnectorTextInHistory_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
             prepareCertificateForRenewal();
@@ -6070,7 +6070,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class IssueCertificateAction {
 
         @Test
-        void failsTheCertificateWithoutConnectorText_whenTheLocationRejectsCleaningItUp() throws Exception {
+        void failsTheCertificateWithoutConnectorText_whenTheLocationRejectsCleaningItUp() {
             // given
             var locationEcho = "location-echo-4c1d";
             UUID certificateUuid = prepareCertificateForIssuance();
