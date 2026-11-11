@@ -749,7 +749,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     void leavesOutMetadata_whenOnlyListAndDetailOnTheObjectItselfAreAllowed() {
         // given
         UUID custom = saveAttributeDefinition(AttributeType.CUSTOM);
-        UUID metadata = saveAttributeDefinition(AttributeType.META);
+        UUID metadata = saveMetadata(true);
         denyOnTheResourceAsAWhole(Resource.ATTRIBUTE, ResourceAction.LIST);
         denyOnTheResourceAsAWhole(Resource.ATTRIBUTE, ResourceAction.DETAIL);
 
@@ -763,8 +763,9 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
                 .containsExactly(custom);
     }
 
-    @Test
-    void reportsDeleteAndEnableOnCustomAttributesOnly_whenEverythingIsAllowed() {
+    @ParameterizedTest
+    @EnumSource(value = ResourceAction.class, names = {"DELETE", "ENABLE"})
+    void reportsActionOnCustomAttributesOnly_whenEverythingIsAllowed(ResourceAction action) {
         // given
         UUID custom = saveAttributeDefinition(AttributeType.CUSTOM);
         UUID metadata = saveMetadata(true);
@@ -774,11 +775,11 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         List<ResourceAction> onMetadata = actionsOn(Resource.ATTRIBUTE, metadata);
 
         // then
-        assertThat(onCustom).contains(ResourceAction.DELETE, ResourceAction.ENABLE);
+        assertThat(onCustom).contains(action);
         assertThat(onMetadata)
-                .as("deleting and enabling look the definition up among custom attributes only")
+                .as("%s looks the definition up among custom attributes only", action)
                 .contains(ResourceAction.DETAIL)
-                .doesNotContain(ResourceAction.DELETE, ResourceAction.ENABLE);
+                .doesNotContain(action);
     }
 
     @Test
