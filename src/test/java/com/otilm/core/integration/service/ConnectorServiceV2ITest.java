@@ -4,13 +4,16 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.exception.AlreadyExistException;
 import com.otilm.api.exception.AttributeException;
+import com.otilm.api.exception.ConnectorCommunicationException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
+import com.otilm.api.model.client.connector.ConnectRequestDto;
 import com.otilm.api.model.client.connector.v2.ConnectorInfo;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
@@ -26,18 +29,22 @@ import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.connector.v2.ConnectInfo;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.connector.v2.ConnectorDto;
 import com.otilm.api.model.core.connector.v2.ConnectorRequestDto;
 import com.otilm.api.model.core.connector.v2.ConnectorUpdateRequestDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.api.model.core.proxy.ProxyStatus;
+import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Credential;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.EntityInstanceReference;
+import com.otilm.core.dao.entity.Proxy;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.repository.AuthorityInstanceReferenceRepository;
@@ -46,36 +53,76 @@ import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CredentialRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.ProxyRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.connector.ImmutableConnectorFullModel;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
+import com.otilm.core.service.ConnectorRegistrationExternalService;
+import com.otilm.core.service.handler.ConnectorAdapter;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
+import com.otilm.core.service.v2.impl.ConnectorServiceImpl;
 import com.otilm.core.service.writer.DiscoveryWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.seeders.FunctionGroupSeeder;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import javax.sql.DataSource;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.engine.spi.SharedSessionContractImplementor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
+import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.spy;
 
 class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
@@ -83,6 +130,18 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorExternalService connectorService;
+
+    @Autowired
+    private com.otilm.core.service.ConnectorExternalService connectorServiceV1;
+
+    @Autowired
+    private ConnectorRegistrationExternalService connectorRegistrationService;
+
+    @Autowired
+    private ConnectorApiFactory connectorApiFactory;
+
+    @Autowired
+    private FunctionGroupSeeder functionGroupSeeder;
 
     @Autowired
     private ConnectorInternalService connectorInternalService;
@@ -117,6 +176,21 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private Map<String, ConnectorAdapter> connectorAdapters;
+
+    @Autowired
+    private ProxyRepository proxyRepository;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private Connector connector;
     private WireMockServer mockServer;
@@ -476,16 +550,21 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testReconnectConnector_alreadyConnectedSkipsStatusWrite()
-            throws NotFoundException, ConnectorException, JsonProcessingException {
+    void leavesRowUntouched_whenReconnectingConnectedConnector() throws Exception {
+        // given
         mockInfoEndpoint();
-        clearInvocations(connectorRepositorySpy);
+        OffsetDateTime updatedBeforeReconnect = connectorRepository
+                .findByUuid(connector.getUuid())
+                .orElseThrow()
+                .getUpdated();
 
+        // when
         connectorService.reconnect(connector.getSecuredUuid());
 
-        verify(connectorRepositorySpy, never()).save(any());
+        // then
         Connector reconnected = connectorRepository.findByUuid(connector.getUuid()).orElseThrow();
-        Assertions.assertEquals(ConnectorStatus.CONNECTED, reconnected.getStatus());
+        assertThat(reconnected.getStatus()).isEqualTo(ConnectorStatus.CONNECTED);
+        assertThat(reconnected.getUpdated()).isEqualTo(updatedBeforeReconnect);
     }
 
     @Test
@@ -673,7 +752,7 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         infoResponse.setInterfaces(connectorInterfaceInfos);
         String jsonBody = objectMapper.writeValueAsString(infoResponse);
 
-        mockServer.stubFor(WireMock.get("/v2/info").willReturn(WireMock.okJson(jsonBody)));
+        mockServer.stubFor(WireMock.get(WireMock.urlPathMatching(".*/v2/info")).willReturn(WireMock.okJson(jsonBody)));
     }
 
     private List<ConnectorInterfaceInfo> createMockInterfaceInfos() {
@@ -808,5 +887,565 @@ class ConnectorServiceV2ITest extends BaseSpringBootTest {
         Assertions.assertEquals(connector.getUuid().toString(), messages.getFirst().getUuid());
         Assertions.assertEquals(connector.getName(), messages.getFirst().getName());
         Assertions.assertNotNull(messages.getFirst().getMessage());
+    }
+
+    // ── ConnectorCalls ────────────────────────────────────────────────────────
+
+    @Nested
+    class ConnectorCalls {
+
+        private final List<CallSeen> callsSeen = new CopyOnWriteArrayList<>();
+        private final ExecutorService background = new DelegatingSecurityContextExecutorService(
+                Executors.newSingleThreadExecutor());
+        private DuringCall duringCall = target -> {
+        };
+        private Consumer<Connector> whileStoring = stored -> {
+        };
+        private EntityManager requestEntityManager;
+        private ConnectorServiceImpl serviceTarget;
+        private com.otilm.core.service.impl.ConnectorServiceImpl serviceV1Target;
+        private Connector connectorV1;
+
+        @BeforeEach
+        void probeConnectorsOfBothVersions() throws JsonProcessingException {
+            serviceTarget = AopTestUtils.getUltimateTargetObject(connectorService);
+            serviceTarget.setConnectorAdapters(probing(connectorAdapters));
+            serviceV1Target = AopTestUtils.getUltimateTargetObject(connectorServiceV1);
+            serviceV1Target.setConnectorApiFactory(probing(connectorApiFactory));
+            mockInfoEndpoint();
+            mockServer.stubFor(WireMock.get("/v2/health").willReturn(WireMock.okJson("{ \"status\": \"UP\" }")));
+            mockServer.stubFor(WireMock.get("/v1").willReturn(WireMock.notFound()));
+            createConnectorV1();
+        }
+
+        @AfterEach
+        void stopProbing() {
+            serviceTarget.setConnectorAdapters(connectorAdapters);
+            serviceV1Target.setConnectorApiFactory(connectorApiFactory);
+            background.shutdownNow();
+        }
+
+        @ParameterizedTest
+        @EnumSource(ConnectorCall.class)
+        void holdsNoConnection_whenCallingConnector(ConnectorCall call) throws Exception {
+            // given — connectors of both versions that answer every call
+
+            // when
+            asRequest(() -> perform(call));
+
+            // then
+            assertThat(callsSeen).isNotEmpty().allSatisfy(seen -> {
+                assertThat(seen.transactionActive()).as("transaction active during the call").isFalse();
+                assertThat(seen.connectionHeld()).as("connection held during the call").isFalse();
+            });
+        }
+
+        @Test
+        void returnsHealth_whenCallerHoldsTransaction() throws Exception {
+            // given
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+
+            // when
+            HealthInfo health = insideCallersTransaction(() -> connectorService.checkHealth(connectorUuid));
+
+            // then
+            assertThat(health.getStatus()).isEqualTo(HealthStatus.UP);
+        }
+
+        @Test
+        void refusesReconnect_whenRouteEditCommitsWhileItWaits() throws Exception {
+            // given
+            String originalUrl = connector.getUrl();
+            String editedUrl = urlUnder("edited");
+            CountDownLatch editHoldsLock = new CountDownLatch(1);
+            duringCall = target -> {
+                if (target.getUrl().equals(originalUrl)) {
+                    awaitEditHoldingLock(editHoldsLock);
+                }
+            };
+            whileStoring = stored -> {
+                if (stored.getUrl().equals(editedUrl)) {
+                    editHoldsLock.countDown();
+                    awaitSessionWaitingOnLock();
+                }
+            };
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+            ConnectorUpdateRequestDto request = editRequest(editedUrl);
+            Future<ConnectorDetailDto> edit = background
+                    .submit(() -> connectorService.editConnector(connectorUuid, request));
+
+            // when
+            ThrowingCallable reconnect = () -> connectorService.reconnect(connectorUuid);
+
+            // then
+            assertThatThrownBy(reconnect)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Reconnect it again");
+            assertThat(edit.get(30, TimeUnit.SECONDS).getUrl()).isEqualTo(editedUrl);
+            assertThat(connectorRepository.findByUuid(connector.getUuid()).orElseThrow().getUrl()).isEqualTo(editedUrl);
+        }
+
+        @Test
+        void keepsRoute_whenConnectorRefusesEdit() {
+            // given
+            String originalUrl = connector.getUrl();
+            duringCall = target -> {
+                throw connectionRefused(target);
+            };
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+            ConnectorUpdateRequestDto request = editRequest(urlUnder("edited"));
+
+            // when
+            ThrowingCallable edit = () -> connectorService.editConnector(connectorUuid, request);
+
+            // then
+            assertThatThrownBy(edit).isInstanceOf(ConnectorCommunicationException.class);
+            assertThat(connectorRepository.findByUuid(connector.getUuid()).orElseThrow().getUrl())
+                    .isEqualTo(originalUrl);
+        }
+
+        @Test
+        void marksConnected_whenEditReachesOfflineConnector() throws Exception {
+            // given
+            connector.setStatus(ConnectorStatus.OFFLINE);
+            connectorRepository.save(connector);
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+            ConnectorUpdateRequestDto request = editRequest(urlUnder("edited"));
+
+            // when
+            connectorService.editConnector(connectorUuid, request);
+
+            // then
+            assertThat(connectorRepository.findByUuid(connector.getUuid()).orElseThrow().getStatus())
+                    .isEqualTo(ConnectorStatus.CONNECTED);
+        }
+
+        @Test
+        void leavesNoConnector_whenProxiedConnectorRefusesCreate() {
+            // given
+            Proxy proxy = persistProxy();
+            duringCall = target -> {
+                throw connectionRefused(target);
+            };
+            ConnectorRequestDto request = aV2ConnectorRequest()
+                    .withName("proxiedConnector")
+                    .withUrl(urlUnder("proxied"))
+                    .build();
+            request.setProxyUuid(proxy.getUuid().toString());
+
+            // when
+            ThrowingCallable create = () -> connectorService.createConnector(request);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ConnectorCommunicationException.class);
+            assertThat(connectorRepository.findByName(request.getName())).map(Connector::getUuid).isEmpty();
+        }
+
+        @Test
+        void leavesNoConnector_whenDirectConnectorRefusesCreate() {
+            // given
+            duringCall = target -> {
+                throw connectionRefused(target);
+            };
+            ConnectorRequestDto request = aV2ConnectorRequest()
+                    .withName("directConnector")
+                    .withUrl(urlUnder("direct"))
+                    .build();
+
+            // when
+            ThrowingCallable create = () -> connectorService.createConnector(request);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(ConnectorCommunicationException.class);
+            assertThat(connectorRepository.findByName(request.getName())).map(Connector::getUuid).isEmpty();
+        }
+
+        @Test
+        void refusesReconnect_whenRouteChangesDuringCall() {
+            // given
+            String editedUrl = urlUnder("edited");
+            duringCall = target -> changeUrlBehindTheCaller(editedUrl);
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+
+            // when
+            ThrowingCallable reconnect = () -> asRequest(() -> connectorService.reconnect(connectorUuid));
+
+            // then
+            assertThatThrownBy(reconnect)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Reconnect it again");
+            Connector stored = connectorRepository.findWithInterfacesByUuid(connector.getUuid()).orElseThrow();
+            assertThat(stored.getUrl()).isEqualTo(editedUrl);
+            assertThat(stored.getInterfaces())
+                    .extracting(ConnectorInterfaceEntity::getInterfaceCode)
+                    .containsExactly(ConnectorInterface.AUTHORITY);
+        }
+
+        @Test
+        void keepsStatus_whenRouteChangesDuringFailedReconnect() {
+            // given
+            String editedUrl = urlUnder("edited");
+            duringCall = target -> {
+                changeUrlBehindTheCaller(editedUrl);
+                throw connectionRefused(target);
+            };
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+
+            // when
+            ThrowingCallable reconnect = () -> asRequest(() -> connectorService.reconnect(connectorUuid));
+
+            // then
+            assertThatThrownBy(reconnect).isInstanceOf(ConnectorException.class);
+            Connector stored = connectorRepository.findByUuid(connector.getUuid()).orElseThrow();
+            assertThat(stored.getStatus()).isEqualTo(ConnectorStatus.CONNECTED);
+            assertThat(stored.getUrl()).isEqualTo(editedUrl);
+        }
+
+        @Test
+        void marksOffline_whenReconnectCannotReachConnector() {
+            // given
+            duringCall = target -> {
+                throw connectionRefused(target);
+            };
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+
+            // when
+            ThrowingCallable reconnect = () -> connectorService.reconnect(connectorUuid);
+
+            // then
+            assertThatThrownBy(reconnect).isInstanceOf(ConnectorException.class);
+            assertThat(connectorRepository.findByUuid(connector.getUuid()).orElseThrow().getStatus())
+                    .isEqualTo(ConnectorStatus.OFFLINE);
+        }
+
+        @Test
+        void reconnectsOthers_whenOneConnectorOfBulkCannotBeReached() {
+            // given
+            Connector unreachable = connectorRepository
+                    .save(connectorEntity("unreachableConnector", urlUnder("unreachable"), ConnectorVersion.V2));
+            duringCall = target -> {
+                if (target.getUrl().equals(unreachable.getUrl())) {
+                    throw connectionRefused(target);
+                }
+            };
+
+            // when
+            List<BulkActionMessageDto> messages = connectorService
+                    .bulkReconnect(List.of(unreachable.getSecuredUuid(), connector.getSecuredUuid()));
+
+            // then
+            assertThat(messages)
+                    .singleElement()
+                    .extracting(BulkActionMessageDto::getUuid)
+                    .isEqualTo(unreachable.getUuid().toString());
+            assertThat(connectorRepository.findWithInterfacesByUuid(connector.getUuid()).orElseThrow().getInterfaces())
+                    .extracting(ConnectorInterfaceEntity::getInterfaceCode)
+                    .containsExactlyInAnyOrder(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
+                            ConnectorInterface.METRICS, ConnectorInterface.AUTHORITY);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        enum ConnectorCall {
+            CONNECT,
+            CREATE,
+            EDIT,
+            RECONNECT,
+            BULK_RECONNECT,
+            CHECK_HEALTH,
+            GET_INFO,
+            V1_CONNECT,
+            V1_CREATE,
+            V1_EDIT,
+            V1_RECONNECT,
+            V1_BULK_RECONNECT,
+            V1_CHECK_HEALTH,
+            REGISTER,
+            REGISTER_V2
+        }
+
+        record CallSeen(boolean transactionActive, boolean connectionHeld) {
+        }
+
+        @FunctionalInterface
+        interface DuringCall {
+            void run(ApiClientConnectorInfo target) throws ConnectorException;
+        }
+
+        @FunctionalInterface
+        interface RequestWork {
+            void run() throws Exception;
+        }
+
+        private void perform(ConnectorCall call) throws Exception {
+            SecuredUUID connectorUuid = connector.getSecuredUuid();
+            SecuredUUID connectorV1Uuid = connectorV1.getSecuredUuid();
+            switch (call) {
+                case CONNECT -> connectorService.connect(connectRequest(LoopbackWireMock.url(mockServer)));
+                case CREATE -> connectorService
+                        .createConnector(aV2ConnectorRequest()
+                                .withName("createdConnector")
+                                .withUrl(urlUnder("created"))
+                                .build());
+                case EDIT -> connectorService.editConnector(connectorUuid, editRequest(urlUnder("edited")));
+                case RECONNECT -> connectorService.reconnect(connectorUuid);
+                case BULK_RECONNECT -> connectorService.bulkReconnect(List.of(connectorUuid));
+                case CHECK_HEALTH -> connectorService.checkHealth(connectorUuid);
+                case GET_INFO -> connectorService.getInfo(connectorUuid);
+                case V1_CONNECT -> connectorServiceV1.connect(connectRequest(urlUnder("connected-v1")));
+                case V1_CREATE ->
+                    connectorServiceV1.createConnector(createRequestV1("createdConnectorV1", urlUnder("created-v1")));
+                case V1_EDIT -> connectorServiceV1.editConnector(connectorV1Uuid, editRequestV1(urlUnder("edited-v1")));
+                case V1_RECONNECT -> connectorServiceV1.reconnect(connectorV1Uuid);
+                case V1_BULK_RECONNECT -> connectorServiceV1.reconnect(List.of(connectorV1Uuid));
+                case V1_CHECK_HEALTH -> connectorServiceV1.checkHealth(connectorV1Uuid);
+                case REGISTER -> connectorRegistrationService
+                        .registerConnector(createRequestV1("registeredConnector", urlUnder("registered")));
+                case REGISTER_V2 -> connectorRegistrationService
+                        .registerConnectorV2(aV2ConnectorRequest()
+                                .withName("registeredConnectorV2")
+                                .withUrl(urlUnder("registered-v2"))
+                                .build());
+            }
+        }
+
+        private Map<String, ConnectorAdapter> probing(Map<String, ConnectorAdapter> adapters) {
+            return adapters
+                    .entrySet()
+                    .stream()
+                    .collect(Collectors.toMap(Map.Entry::getKey, entry -> new ProbingAdapter(entry.getValue())));
+        }
+
+        /** Probes the v1 health check. That check calls the connector through the factory's client. */
+        private ConnectorApiFactory probing(ConnectorApiFactory factory) {
+            ConnectorApiFactory probingFactory = spy(factory);
+            doAnswer(invocation -> {
+                seeCall(invocation.getArgument(0));
+                return invocation.callRealMethod();
+            }).when(probingFactory).getHealthApiClient(any());
+            return probingFactory;
+        }
+
+        private void seeCall(ApiClientConnectorInfo target) throws ConnectorException {
+            callsSeen
+                    .add(new CallSeen(TransactionSynchronizationManager.isActualTransactionActive(),
+                            isConnectionHeld()));
+            duringCall.run(target);
+        }
+
+        /** Whether the thread holds a connection, through its transaction or a connected EntityManager. */
+        private boolean isConnectionHeld() {
+            boolean transactionConnectionBound = TransactionSynchronizationManager.hasResource(dataSource);
+            boolean boundEntityManagerConnected = TransactionSynchronizationManager
+                    .getResourceMap()
+                    .values()
+                    .stream()
+                    .filter(EntityManagerHolder.class::isInstance)
+                    .map(holder -> ((EntityManagerHolder) holder).getEntityManager())
+                    .anyMatch(ConnectorCalls::isPhysicallyConnected);
+            boolean requestEntityManagerConnected = requestEntityManager != null
+                    && isPhysicallyConnected(requestEntityManager);
+            return transactionConnectionBound || boundEntityManagerConnected || requestEntityManagerConnected;
+        }
+
+        private static boolean isPhysicallyConnected(EntityManager entityManager) {
+            return entityManager.isOpen() && entityManager
+                    .unwrap(SharedSessionContractImplementor.class)
+                    .getJdbcCoordinator()
+                    .getLogicalConnection()
+                    .isPhysicallyConnected();
+        }
+
+        /** Runs the work with an EntityManager bound to the thread. Open-in-view binds one to each request. */
+        private void asRequest(RequestWork work) throws Exception {
+            requestEntityManager = entityManagerFactory.createEntityManager();
+            TransactionSynchronizationManager
+                    .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+            try {
+                work.run();
+            } finally {
+                TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+                requestEntityManager.close();
+                requestEntityManager = null;
+            }
+        }
+
+        private <T> T insideCallersTransaction(Callable<T> work) throws Exception {
+            TransactionStatus callersTransaction = transactionManager
+                    .getTransaction(TransactionDefinition.withDefaults());
+            try {
+                return work.call();
+            } finally {
+                transactionManager.rollback(callersTransaction);
+            }
+        }
+
+        /** Commits the URL on a connection of its own. The caller's persistence context keeps its earlier copy. */
+        private void changeUrlBehindTheCaller(String url) {
+            try (Connection independent = dataSource.getConnection();
+                    PreparedStatement update = independent
+                            .prepareStatement("UPDATE " + dbSchema + ".connector SET url = ? WHERE uuid = ?")) {
+                update.setString(1, url);
+                update.setObject(2, connector.getUuid());
+                update.executeUpdate();
+                if (!independent.getAutoCommit()) {
+                    independent.commit();
+                }
+            } catch (SQLException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        private static void awaitEditHoldingLock(CountDownLatch editHoldsLock) {
+            try {
+                if (!editHoldsLock.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("The edit never took the connector's row lock");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        }
+
+        private void awaitSessionWaitingOnLock() {
+            await()
+                    .atMost(Duration.ofSeconds(10))
+                    .pollInterval(Duration.ofMillis(50))
+                    .until(this::aSessionWaitsOnConnectorLock);
+        }
+
+        private boolean aSessionWaitsOnConnectorLock() throws SQLException {
+            try (Connection connection = dataSource.getConnection();
+                    Statement statement = connection.createStatement();
+                    ResultSet rows = statement.executeQuery("""
+                            SELECT count(*) FROM pg_stat_activity
+                             WHERE wait_event_type = 'Lock' AND query ILIKE '%connector%'
+                            """)) {
+                rows.next();
+                return rows.getLong(1) > 0;
+            }
+        }
+
+        private void createConnectorV1() throws JsonProcessingException {
+            functionGroupSeeder.seed(FunctionGroupCode.CREDENTIAL_PROVIDER, List.of());
+            var credentialProvider = new com.otilm.api.model.client.connector.InfoResponse(List.of("Basic"),
+                    FunctionGroupCode.CREDENTIAL_PROVIDER, List.of());
+            String functionGroups = objectMapper.writeValueAsString(List.of(credentialProvider));
+            mockServer
+                    .stubFor(WireMock
+                            .get(WireMock.urlPathMatching(".+/v1"))
+                            .willReturn(WireMock.okJson(functionGroups)));
+            mockServer
+                    .stubFor(WireMock
+                            .get(WireMock.urlPathMatching(".+/v1/health"))
+                            .willReturn(WireMock.okJson("{ \"status\": \"ok\" }")));
+            connectorV1 = connectorRepository
+                    .save(connectorEntity("connectorV1", urlUnder("v1-connector"), ConnectorVersion.V1));
+        }
+
+        private Proxy persistProxy() {
+            Proxy proxy = new Proxy();
+            proxy.setName("testProxy");
+            proxy.setCode("TEST_PROXY");
+            proxy.setStatus(ProxyStatus.CONNECTED);
+            return proxyRepository.save(proxy);
+        }
+
+        private String urlUnder(String path) {
+            return LoopbackWireMock.url(mockServer) + "/" + path;
+        }
+
+        private static ConnectorCommunicationException connectionRefused(ApiClientConnectorInfo target) {
+            return new ConnectorCommunicationException("Connection refused", target);
+        }
+
+        private static Connector connectorEntity(String name, String url, ConnectorVersion version) {
+            Connector created = aConnector()
+                    .withGeneratedUuid()
+                    .withName(name)
+                    .withUrl(url)
+                    .withVersion(version)
+                    .build();
+            created.setAuthType(AuthType.NONE);
+            return created;
+        }
+
+        private static ConnectRequestDto connectRequest(String url) {
+            ConnectRequestDto request = new ConnectRequestDto();
+            request.setUrl(url);
+            request.setAuthType(AuthType.NONE);
+            return request;
+        }
+
+        private static com.otilm.api.model.client.connector.ConnectorRequestDto createRequestV1(String name,
+                String url) {
+            var request = new com.otilm.api.model.client.connector.ConnectorRequestDto();
+            request.setName(name);
+            request.setUrl(url);
+            request.setAuthType(AuthType.NONE);
+            return request;
+        }
+
+        private static ConnectorUpdateRequestDto editRequest(String url) {
+            ConnectorUpdateRequestDto request = new ConnectorUpdateRequestDto();
+            request.setUrl(url);
+            request.setAuthType(AuthType.NONE);
+            return request;
+        }
+
+        private static com.otilm.api.model.client.connector.ConnectorUpdateRequestDto editRequestV1(String url) {
+            var request = new com.otilm.api.model.client.connector.ConnectorUpdateRequestDto();
+            request.setUrl(url);
+            request.setAuthType(AuthType.NONE);
+            return request;
+        }
+
+        /**
+         * Records the connection state at each connector call. It runs what the test arranged for the call and for
+         * storing its answer.
+         */
+        private final class ProbingAdapter implements ConnectorAdapter {
+
+            private final ConnectorAdapter delegate;
+
+            private ProbingAdapter(ConnectorAdapter delegate) {
+                this.delegate = delegate;
+            }
+
+            @Override
+            public ConnectorVersion getVersion() {
+                return delegate.getVersion();
+            }
+
+            @Override
+            public ConnectorInfo getInfo(ApiClientConnectorInfo target) throws ConnectorException {
+                seeCall(target);
+                return delegate.getInfo(target);
+            }
+
+            @Override
+            public HealthInfo checkHealth(ApiClientConnectorInfo target) throws ConnectorException {
+                seeCall(target);
+                return delegate.checkHealth(target);
+            }
+
+            @Override
+            public ConnectInfo checkConnection(ApiClientConnectorInfo target) throws ConnectorException {
+                seeCall(target);
+                return delegate.checkConnection(target);
+            }
+
+            @Override
+            public void validateConnection(ConnectInfo connectInfo) {
+                delegate.validateConnection(connectInfo);
+            }
+
+            @Override
+            public void updateConnectorFunctions(Connector updated, ConnectInfo connectInfo)
+                    throws ConnectorException, NotFoundException {
+                whileStoring.accept(updated);
+                delegate.updateConnectorFunctions(updated, connectInfo);
+            }
+        }
     }
 }

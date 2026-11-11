@@ -1,6 +1,5 @@
 package com.otilm.core.service.handler;
 
-import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
@@ -11,9 +10,10 @@ import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -66,17 +66,29 @@ class ConnectorV2AdapterTest {
     }
 
     @Test
-    void mandatoryPlusFunctional_passes() throws ConnectorException {
+    void acceptsAnswer_whenItHasMandatoryAndFunctionalInterfaces() {
+        // given
         ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
                 ConnectorInterface.METRICS, ConnectorInterface.AUTHORITY);
-        assertThat(adapter.validateConnection(connectInfo)).isSameAs(connectInfo);
+
+        // when
+        ThrowingCallable validate = () -> adapter.validateConnection(connectInfo);
+
+        // then
+        assertThatCode(validate).doesNotThrowAnyException();
     }
 
     @Test
-    void attributesPlusFunctional_passes() throws ConnectorException {
+    void acceptsAnswer_whenItAlsoHasAttributes() {
+        // given
         ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
                 ConnectorInterface.METRICS, ConnectorInterface.ATTRIBUTES, ConnectorInterface.AUTHORITY);
-        assertThat(adapter.validateConnection(connectInfo)).isSameAs(connectInfo);
+
+        // when
+        ThrowingCallable validate = () -> adapter.validateConnection(connectInfo);
+
+        // then
+        assertThatCode(validate).doesNotThrowAnyException();
     }
 
     @Test

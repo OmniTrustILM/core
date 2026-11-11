@@ -28,18 +28,19 @@ import com.otilm.api.model.core.connector.v2.ConnectInfo;
 import com.otilm.api.model.core.connector.v2.ConnectInfoV1;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Connector2FunctionGroup;
 import com.otilm.core.dao.repository.ConnectorRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.ExternalAuthorization;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.ConnectorExternalService;
 import com.otilm.core.service.ConnectorInternalService;
-import jakarta.transaction.Transactional;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
@@ -50,6 +51,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service("connectorServiceV1")
 @Transactional
@@ -61,6 +63,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     private ConnectorRepository connectorRepository;
     private ConnectorApiFactory connectorApiFactory;
     private AttributeEngine attributeEngine;
+    private TransactionHandler transactionHandler;
 
     @Autowired
     public void setConnectorServiceV2(com.otilm.core.service.v2.ConnectorExternalService connectorServiceV2) {
@@ -86,6 +89,11 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
         this.attributeEngine = attributeEngine;
+    }
+
+    @Autowired
+    public void setTransactionHandler(TransactionHandler transactionHandler) {
+        this.transactionHandler = transactionHandler;
     }
 
     @Override
@@ -130,6 +138,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CREATE)
+    @OutsideTransaction
     public ConnectorDto createConnector(ConnectorRequestDto request)
             throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
         var requestV2 = new com.otilm.api.model.core.connector.v2.ConnectorRequestDto();
@@ -148,6 +157,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.UPDATE)
+    @OutsideTransaction
     public ConnectorDto editConnector(SecuredUUID uuid, ConnectorUpdateRequestDto request)
             throws ConnectorException, AttributeException, NotFoundException {
         var requestV2 = new com.otilm.api.model.core.connector.v2.ConnectorUpdateRequestDto();
@@ -183,6 +193,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
+    @OutsideTransaction
     public List<ConnectDto> connect(ConnectRequestDto request) throws ValidationException, ConnectorException {
         var connectInfos = connectorServiceV2.connect(request);
 
@@ -209,15 +220,16 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
+    @OutsideTransaction
     public List<ConnectDto> reconnect(SecuredUUID uuid)
             throws ValidationException, ConnectorException, NotFoundException {
-        var connector = connectorRepository
-                .findByUuid(uuid)
+        ConnectorVersion version = transactionHandler
+                .runInTransaction(() -> connectorRepository.findByUuid(uuid).map(Connector::getVersion))
                 .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
 
-        if (connector.getVersion() != ConnectorVersion.V1) {
-            throw new ValidationException("Expected connector version " + ConnectorVersion.V1.getLabel() + " but got "
-                    + connector.getVersion().getLabel());
+        if (version != ConnectorVersion.V1) {
+            throw new ValidationException(
+                    "Expected connector version " + ConnectorVersion.V1.getLabel() + " but got " + version.getLabel());
         }
 
         var connectInfo = connectorServiceV2.reconnect(uuid);
@@ -234,6 +246,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CONNECT)
+    @OutsideTransaction
     public void reconnect(List<SecuredUUID> uuids) throws ValidationException, ConnectorException {
         connectorServiceV2.bulkReconnect(uuids);
     }
@@ -252,6 +265,7 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
 
     @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.DETAIL)
+    @OutsideTransaction
     public HealthDto checkHealth(SecuredUUID uuid) throws ConnectorException, NotFoundException {
         ApiClientConnectorInfo connectorDto = getConnectorForApiClient(uuid.getValue());
         return connectorApiFactory.getHealthApiClient(connectorDto).checkHealth(connectorDto);
