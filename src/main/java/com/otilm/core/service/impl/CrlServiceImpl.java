@@ -1,5 +1,6 @@
 package com.otilm.core.service.impl;
 
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.dao.entity.Certificate;
@@ -118,7 +119,7 @@ public class CrlServiceImpl implements CrlService {
      * When the stored base CRL is current and only its delta CRL is due, a certificate the stored CRL lists stays
      * revoked even if the delta CRL cannot be read, as {@link #throwUnlessStoredCrlLists} decides; this holds also when
      * the wait for the issuer or for a download permit ends first. After a failure the stored CRL is read again, so a
-     * CRL another validation stored meanwhile is used.
+     * CRL another validation stored meanwhile is used, unless it is older than a delta CRL this validation read.
      */
     @Override
     @OutsideTransaction
@@ -145,7 +146,7 @@ public class CrlServiceImpl implements CrlService {
             if (crlStoredNow == null || isBaseCrlDue(crlStoredNow)) {
                 throw e;
             }
-            if (isDue(crlStoredNow, certificate)) {
+            if (isDue(crlStoredNow, certificate) || e instanceof StoredCrlOlderThanDeltaCrlException) {
                 throwUnlessStoredCrlLists(certificate, crlStoredNow, e);
             }
             return crlStoredNow.getUuid();
@@ -174,25 +175,25 @@ public class CrlServiceImpl implements CrlService {
         byte[] crlDistributionPoints = certificate.getExtensionValue(Extension.cRLDistributionPoints.getId());
 
         UUID caCertificateUuid = caCertificate != null ? caCertificate.getUuid() : null;
-        CertificateIssuer issuer = new CertificateIssuer(certificate.getIssuerX500Principal(),
-                issuerCertificate.getPublicKey());
+        CrlRead read = new CrlRead(certificate.getIssuerX500Principal(), issuerCertificate.getPublicKey(),
+                crlDownloader.deadline());
         // If CRL is not present or current UTC time is past its next_update timestamp, download the CRL and save the
         // CRL and its entries in database
         if (crl == null) {
             Crl newCrl = downloadAndPersistNewCrl(crlDistributionPoints, issuerDn, issuerSerialNumber,
-                    caCertificateUuid, issuer);
+                    caCertificateUuid, read);
             if (newCrl != null) {
                 crl = newCrl;
             }
         } else if (isBaseCrlDue(crl)) {
-            refreshExistingCrl(crl, crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid, issuer,
+            refreshExistingCrl(crl, crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid, read,
                     BigInteger.ZERO);
         }
 
         if (crl != null && certificate.getExtensionValue(Extension.freshestCRL.getId()) != null && isDeltaCrlDue(crl)) {
             try {
                 updateCrlAndCrlEntriesFromDeltaCrl(certificate, crl, issuerDn, issuerSerialNumber, caCertificateUuid,
-                        issuer);
+                        read);
             } catch (IOException e) {
                 throwUnlessStoredCrlLists(certificate, crl, e);
             }
@@ -249,8 +250,8 @@ public class CrlServiceImpl implements CrlService {
      * @return the freshly persisted entity, or {@code null} if no configured URL returned a usable CRL.
      */
     private Crl downloadAndPersistNewCrl(byte[] crlDistributionPointsEncoded, String issuerDn,
-            String issuerSerialNumber, UUID caCertificateUuid, CertificateIssuer issuer) throws IOException {
-        return downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, null, issuer,
+            String issuerSerialNumber, UUID caCertificateUuid, CrlRead read) throws IOException {
+        return downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, null, read,
                 BigInteger.ZERO);
     }
 
@@ -260,26 +261,25 @@ public class CrlServiceImpl implements CrlService {
      * delta CRL extending a base CRL with that number proves that a newer CRL exists.
      */
     private void refreshExistingCrl(Crl existing, byte[] crlDistributionPointsEncoded, String issuerDn,
-            String issuerSerialNumber, UUID caCertificateUuid, CertificateIssuer issuer, BigInteger lowestCrlNumber)
+            String issuerSerialNumber, UUID caCertificateUuid, CrlRead read, BigInteger lowestCrlNumber)
             throws IOException {
-        downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, existing, issuer,
+        downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, existing, read,
                 lowestCrlNumber);
     }
 
     private Crl downloadCrl(byte[] crlDistributionPointsEncoded, String issuerDn, String issuerSerialNumber,
-            UUID caCertificateUuid, Crl oldCrl, CertificateIssuer issuer, BigInteger lowestCrlNumber)
-            throws IOException {
+            UUID caCertificateUuid, Crl oldCrl, CrlRead read, BigInteger lowestCrlNumber) throws IOException {
         List<String> crlUrls = CrlUtil.getCDPFromCertificate(crlDistributionPointsEncoded, "cRLDistributionPoints");
         String downloadKey = downloadKey("base", issuerDn, issuerSerialNumber, crlDistributionPointsEncoded);
         crlDownloadGuard.rethrowRecentFailure(downloadKey);
 
         String lastReasonToIgnore = null;
         for (String crlUrl : crlUrls) {
-            DownloadedCrl downloaded = downloadCrl(crlUrl, false);
+            DownloadedCrl downloaded = downloadCrl(crlUrl, false, read.deadline());
             EncodedCrl downloadedCrl = downloaded.crl();
             String reasonToIgnore = downloadedCrl == null
                     ? downloaded.reasonUnread()
-                    : findReasonToIgnore(downloadedCrl, false, issuer, oldCrl, lowestCrlNumber, crlUrl);
+                    : findReasonToIgnore(downloadedCrl, false, read, oldCrl, lowestCrlNumber, crlUrl);
             if (reasonToIgnore != null) {
                 lastReasonToIgnore = reasonToIgnore;
                 continue;
@@ -357,9 +357,9 @@ public class CrlServiceImpl implements CrlService {
         return String.join("|", kind, issuerDn, issuerSerialNumber, distributionPoints);
     }
 
-    private DownloadedCrl downloadCrl(String crlUrl, boolean delta) {
+    private DownloadedCrl downloadCrl(String crlUrl, boolean delta, long deadline) {
         try {
-            return new DownloadedCrl(EncodedCrl.parse(crlDownloader.download(crlUrl)), null);
+            return new DownloadedCrl(EncodedCrl.parse(crlDownloader.download(crlUrl, deadline)), null);
         } catch (CrlDownloadException e) {
             logger.warn("Ignoring the CRL from {}: {}", crlUrl, e.reason());
             return new DownloadedCrl(null, e.reason());
@@ -402,7 +402,7 @@ public class CrlServiceImpl implements CrlService {
      * current one (RFC 5280 section 6.3.3)
      */
     private void updateCrlAndCrlEntriesFromDeltaCrl(X509Certificate certificate, Crl crl, String issuerDn,
-            String issuerSerialNumber, UUID caCertificateUuid, CertificateIssuer issuer) throws IOException {
+            String issuerSerialNumber, UUID caCertificateUuid, CrlRead read) throws IOException {
         byte[] freshestCrlEncoded = certificate.getExtensionValue(Extension.freshestCRL.getId());
         List<String> deltaCrlUrls = CrlUtil.getCDPFromCertificate(freshestCrlEncoded, "freshestCRL");
         if (deltaCrlUrls.isEmpty()) {
@@ -412,14 +412,14 @@ public class CrlServiceImpl implements CrlService {
         crlDownloadGuard.rethrowRecentFailure(downloadKey);
         String lastReasonToIgnore = null;
         for (String deltaCrlUrl : deltaCrlUrls) {
-            DownloadedCrl downloaded = downloadCrl(deltaCrlUrl, true);
+            DownloadedCrl downloaded = downloadCrl(deltaCrlUrl, true, read.deadline());
             EncodedCrl deltaCrl = downloaded.crl();
             String reasonToIgnore = deltaCrl == null
                     ? downloaded.reasonUnread()
-                    : findReasonToIgnore(deltaCrl, true, issuer, crl, BigInteger.ZERO, deltaCrlUrl);
+                    : findReasonToIgnore(deltaCrl, true, read, crl, BigInteger.ZERO, deltaCrlUrl);
             if (reasonToIgnore == null && extendsNewerBaseCrl(deltaCrl.header(), crl)) {
                 refreshExistingCrl(crl, certificate.getExtensionValue(Extension.cRLDistributionPoints.getId()),
-                        issuerDn, issuerSerialNumber, caCertificateUuid, issuer, readBaseCrlNumber(deltaCrl.header()));
+                        issuerDn, issuerSerialNumber, caCertificateUuid, read, readBaseCrlNumber(deltaCrl.header()));
             }
             if (reasonToIgnore == null) {
                 reasonToIgnore = findBaseCrlMismatch(deltaCrl.header(), crl, deltaCrlUrl);
@@ -483,7 +483,7 @@ public class CrlServiceImpl implements CrlService {
         Crl stored = findStoredCrl(crl.getIssuerDn(), crl.getSerialNumber());
         boolean storedCrlIsAsNew = stored != null && newestStoredCrlNumber(stored).compareTo(deltaCrlNumber) >= 0;
         if (!storedCrlIsAsNew) {
-            throw new IOException("The stored CRL changed while its delta CRL was applied");
+            throw new StoredCrlOlderThanDeltaCrlException();
         }
     }
 
@@ -505,13 +505,13 @@ public class CrlServiceImpl implements CrlService {
      * certificate's issuer, after logging it at WARN, or {@code null} when it can. A CRL that would replace or update
      * {@code storedCrl} must not be older than it, nor numbered below {@code lowestCrlNumber}.
      */
-    private static String findReasonToIgnore(EncodedCrl encodedCrl, boolean delta, CertificateIssuer issuer,
-            Crl storedCrl, BigInteger lowestCrlNumber, String crlUrl) throws IOException {
+    private static String findReasonToIgnore(EncodedCrl encodedCrl, boolean delta, CrlRead read, Crl storedCrl,
+            BigInteger lowestCrlNumber, String crlUrl) throws IOException {
         X509CRL crl = encodedCrl.header();
         String reason = null;
-        if (!crl.getIssuerX500Principal().equals(issuer.name())) {
+        if (!crl.getIssuerX500Principal().equals(read.issuerName())) {
             reason = "it names another issuer (%s)".formatted(crl.getIssuerX500Principal().getName());
-        } else if (!encodedCrl.isSignedBy(issuer.publicKey())) {
+        } else if (!encodedCrl.isSignedBy(read.issuerKey())) {
             reason = "its signature does not verify with the issuer's public key";
         } else if (isDeltaCrl(crl) != delta) {
             reason = delta ? "it is not a delta CRL" : "it is a delta CRL";
@@ -599,16 +599,33 @@ public class CrlServiceImpl implements CrlService {
         return ASN1Integer.getInstance(JcaX509ExtensionUtils.parseExtensionValue(extensionValue)).getValue();
     }
 
-    private static CrlEntryData toEntryData(RevokedCertificate entry) {
+    /**
+     * A reason the platform has no value for, such as aACompromise, or unused and removeFromCRL listed in a complete
+     * CRL, is stored as unspecified: the entry still revokes the certificate.
+     */
+    static CrlEntryData toEntryData(RevokedCertificate entry) {
         String serialNumber = entry.serialNumber().toString(16);
-        String reason = entry.reason() == null
-                ? CertificateRevocationReason.UNSPECIFIED.name()
-                : CertificateRevocationReason.fromCrlReason(entry.reason()).name();
+        CertificateRevocationReason platformReason = entry.reason() == null
+                ? null
+                : CertificateRevocationReason.fromCrlReason(entry.reason());
+        String reason = Objects.requireNonNullElse(platformReason, CertificateRevocationReason.UNSPECIFIED).name();
         return new CrlEntryData(serialNumber, entry.revocationDate(), reason);
     }
 
-    /** The name a CRL must carry and the key its signature must verify with to count for a certificate. */
-    private record CertificateIssuer(X500Principal name, PublicKey publicKey) {
+    /** Refuses a stored CRL older than the delta CRL in hand: its entries would miss what the delta CRL lists. */
+    static final class StoredCrlOlderThanDeltaCrlException extends IOException implements PlatformException {
+
+        StoredCrlOlderThanDeltaCrlException() {
+            super("The stored CRL changed while its delta CRL was applied");
+        }
+    }
+
+    /**
+     * One read of an issuer's CRLs: the name a CRL must carry and the key its signature must verify with to count for a
+     * certificate, and the deadline all its downloads share, so a permit is held no longer than one download timeout
+     * however many URLs the certificate names.
+     */
+    private record CrlRead(X500Principal issuerName, PublicKey issuerKey, long deadline) {
     }
 
     /** A downloaded CRL, or why none could be read, worded to follow "it was ignored because". */

@@ -5,9 +5,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URLConnection;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -53,31 +53,51 @@ public class CrlDownloader {
         this.downloadTimeout = downloadTimeout;
     }
 
+    /** One download timeout from now, as {@link System#nanoTime()}: the deadline several downloads may share. */
+    public long deadline() {
+        return System.nanoTime() + downloadTimeout.toNanos();
+    }
+
+    /** Returns the CRL the URL serves within one download timeout from now, as {@link #download(String, long)}. */
+    public byte[] download(String crlUrl) throws IOException {
+        return download(crlUrl, deadline());
+    }
+
     /**
-     * Returns the CRL the URL serves.
+     * Returns the CRL the URL serves, read before the deadline. Only http, https, ldap and ldaps URLs are read: the JDK
+     * opens other schemes, such as {@code jar:}, over connections that take none of the timeouts.
      *
-     * @throws CrlDownloadException when the CRL is larger than the size limit, or an HTTP download outlasts the
-     * deadline; an LDAP download outlasting it fails as unreadable
+     * @param deadline as {@link System#nanoTime()}, from {@link #deadline()}
+     * @throws CrlDownloadException when the URL's scheme is not read, the CRL is larger than the size limit, the
+     * deadline has passed before the download starts, or an HTTP download outlasts it; an LDAP download outlasting it
+     * fails as unreadable
      * @throws IOException when the CRL cannot be read
      */
-    public byte[] download(String crlUrl) throws IOException {
-        if (crlUrl.startsWith("ldap")) {
-            return downloadFromLdap(crlUrl);
+    public byte[] download(String crlUrl, long deadline) throws IOException {
+        String scheme = schemeOf(crlUrl);
+        boolean ldap = scheme.equals("ldap") || scheme.equals("ldaps");
+        if (!ldap && !scheme.equals("http") && !scheme.equals("https")) {
+            throw new CrlDownloadException(crlUrl, "its URL is not an http, https, ldap or ldaps URL");
         }
-        long deadline = System.nanoTime() + downloadTimeout.toNanos();
-        URLConnection connection = URI.create(crlUrl).toURL().openConnection();
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            throw new CrlDownloadException(crlUrl,
+                    "the " + describe(downloadTimeout) + " for reading the CRL had passed before it was requested");
+        }
+        if (ldap) {
+            return downloadFromLdap(crlUrl, remaining);
+        }
+        HttpURLConnection connection = (HttpURLConnection) URI.create(crlUrl).toURL().openConnection();
         connection.setConnectTimeout(connectTimeoutMillis);
         connection.setReadTimeout(readTimeoutMillis);
         AtomicBoolean timedOut = new AtomicBoolean();
-        ScheduledFuture<?> watchdog = connection instanceof HttpURLConnection httpConnection ? WATCHDOG.schedule(() -> {
+        ScheduledFuture<?> watchdog = WATCHDOG.schedule(() -> {
             timedOut.set(true);
-            httpConnection.disconnect();
-        }, downloadTimeout.toNanos(), TimeUnit.NANOSECONDS) : null;
+            connection.disconnect();
+        }, remaining, TimeUnit.NANOSECONDS);
         try {
             InputStream body = connection.getInputStream();
-            if (watchdog != null) {
-                watchdog.cancel(false);
-            }
+            watchdog.cancel(false);
             try (body) {
                 long declaredLength = connection.getContentLengthLong();
                 if (declaredLength > maxSize.toBytes()) {
@@ -91,12 +111,8 @@ public class CrlDownloader {
             }
             throw e;
         } finally {
-            if (watchdog != null) {
-                watchdog.cancel(false);
-            }
-            if (connection instanceof HttpURLConnection httpConnection) {
-                httpConnection.disconnect();
-            }
+            watchdog.cancel(false);
+            connection.disconnect();
         }
     }
 
@@ -140,11 +156,21 @@ public class CrlDownloader {
         }
     }
 
-    /** JNDI reads the whole attribute before returning it, so its size can be checked only afterwards. */
-    private byte[] downloadFromLdap(String crlUrl) throws IOException {
+    private static String schemeOf(String crlUrl) {
+        int colon = crlUrl.indexOf(':');
+        return colon < 0 ? "" : crlUrl.substring(0, colon).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * JNDI reads the whole attribute before returning it, so its size can be checked only afterwards. The time left
+     * bounds the wait for each LDAP response, as JNDI has no deadline for the whole exchange.
+     */
+    private byte[] downloadFromLdap(String crlUrl, long remainingNanos) throws IOException {
+        int remainingMillis = (int) Math
+                .max(1, Math.min(Integer.MAX_VALUE, TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
         byte[] crl;
         try {
-            crl = LdapUtils.downloadFromLdap(crlUrl, connectTimeoutMillis, (int) downloadTimeout.toMillis());
+            crl = LdapUtils.downloadFromLdap(crlUrl, Math.min(connectTimeoutMillis, remainingMillis), remainingMillis);
         } catch (NamingException | RuntimeException e) {
             throw new IOException("Failed to read the CRL from LDAP: " + e.getMessage(), e);
         }

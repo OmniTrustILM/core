@@ -13,15 +13,19 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Random;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.util.unit.DataSize;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +64,92 @@ class CrlDownloaderTest {
 
         // then
         assertThat(downloaded).isEqualTo(crlWithinLimit);
+    }
+
+    @Test
+    void returnsBody_whenDeclaredBodyOutgrowsTheInitialBuffer() throws Exception {
+        // given
+        byte[] crlLargerThanInitialBuffer = distinctBytes(200 * 1024);
+        stubCrl(aResponse().withBody(crlLargerThanInitialBuffer));
+
+        // when
+        byte[] downloaded = downloader(DOWNLOAD_TIMEOUT, DataSize.ofMegabytes(1)).download(crlUrl());
+
+        // then
+        assertThat(downloaded).isEqualTo(crlLargerThanInitialBuffer);
+    }
+
+    @Test
+    void returnsBody_whenUndeclaredBodyOutgrowsTheInitialBuffer() throws Exception {
+        // given
+        byte[] crlLargerThanInitialBuffer = distinctBytes(200 * 1024);
+        stubCrl(aResponse().withBody(crlLargerThanInitialBuffer).withChunkedDribbleDelay(8, 200));
+
+        // when
+        byte[] downloaded = downloader(DOWNLOAD_TIMEOUT, DataSize.ofMegabytes(1)).download(crlUrl());
+
+        // then
+        assertThat(downloaded).isEqualTo(crlLargerThanInitialBuffer);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"jar:http://%s:%d/x.jar!/ca.crl", "ftp://%s:%d/ca.crl", "file:///%s/%d/ca.crl"})
+    @Timeout(20)
+    void refusesCrl_whenUrlIsNotHttpOrLdap(String urlPattern) throws Exception {
+        // given
+        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
+            Thread.ofVirtual().start(() -> readRequestWithoutAnswering(silentServer));
+            String unreadScheme = urlPattern.formatted(LoopbackWireMock.HOST, silentServer.getLocalPort());
+
+            // when
+            ThrowingCallable download = () -> downloader(DOWNLOAD_TIMEOUT).download(unreadScheme);
+
+            // then
+            assertThatThrownBy(download)
+                    .isInstanceOfSatisfying(CrlDownloadException.class,
+                            e -> assertThat(e.reason()).isEqualTo("its URL is not an http, https, ldap or ldaps URL"));
+        }
+    }
+
+    @Test
+    void refusesCrlWithoutRequestingIt_whenSharedDeadlineHasPassed() {
+        // given
+        stubCrl(aResponse().withBody(bytes(10)));
+        long passedDeadline = System.nanoTime() - 1;
+
+        // when
+        ThrowingCallable download = () -> downloader(DOWNLOAD_TIMEOUT).download(crlUrl(), passedDeadline);
+
+        // then
+        assertThatThrownBy(download)
+                .isInstanceOfSatisfying(CrlDownloadException.class, e -> assertThat(e.reason())
+                        .isEqualTo("the 5 s for reading the CRL had passed before it was requested"));
+        crlServer.verify(0, getRequestedFor(urlPathEqualTo(CRL_PATH)));
+    }
+
+    @Test
+    @Timeout(20)
+    void failsWithinDeadline_whenLdapServerNeverAnswers() throws Exception {
+        // given
+        var deadlineShorterThanReadTimeout = Duration.ofMillis(800);
+        var readTimeoutMillis = 5_000;
+        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getByName(LoopbackWireMock.HOST))) {
+            Thread.ofVirtual().start(() -> readRequestWithoutAnswering(silentServer));
+            String ldapUrl = "ldap://%s:%d/cn=CA?certificateRevocationList;binary?base"
+                    .formatted(LoopbackWireMock.HOST, silentServer.getLocalPort());
+            var downloader = new CrlDownloader(CONNECT_TIMEOUT_MILLIS, readTimeoutMillis, SIZE_LIMIT,
+                    deadlineShorterThanReadTimeout);
+
+            // when
+            long start = System.nanoTime();
+            ThrowingCallable download = () -> downloader.download(ldapUrl);
+
+            // then
+            assertThatThrownBy(download).isInstanceOf(IOException.class).hasMessageContaining("read timed out");
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("stopped by the deadline, not by the 5 s read timeout")
+                    .isLessThan(Duration.ofSeconds(3));
+        }
     }
 
     @Test
@@ -206,7 +296,18 @@ class CrlDownloaderTest {
     }
 
     private static CrlDownloader downloader(Duration downloadTimeout) {
-        return new CrlDownloader(CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS, SIZE_LIMIT, downloadTimeout);
+        return downloader(downloadTimeout, SIZE_LIMIT);
+    }
+
+    private static CrlDownloader downloader(Duration downloadTimeout, DataSize sizeLimit) {
+        return new CrlDownloader(CONNECT_TIMEOUT_MILLIS, READ_TIMEOUT_MILLIS, sizeLimit, downloadTimeout);
+    }
+
+    /** Bytes that differ along the body, so a byte lost or repeated where the buffer grows shows. */
+    private static byte[] distinctBytes(int length) {
+        byte[] bytes = new byte[length];
+        new Random(length).nextBytes(bytes);
+        return bytes;
     }
 
     private static byte[] bytes(int length) {

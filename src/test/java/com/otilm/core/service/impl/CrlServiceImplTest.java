@@ -1,5 +1,6 @@
 package com.otilm.core.service.impl;
 
+import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Crl;
 import com.otilm.core.dao.entity.CrlEntry;
@@ -9,17 +10,25 @@ import com.otilm.core.dao.repository.CrlRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import com.otilm.core.service.writer.CrlEntryData;
 import com.otilm.core.service.writer.CrlWriter;
 import com.otilm.core.service.writer.CrlWriter.CrlWrite;
+import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.crl.CrlDownloadGuard;
 import com.otilm.core.util.crl.CrlDownloader;
+import com.otilm.core.util.crl.RevokedCertificate;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.QueryTimeoutException;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.math.BigInteger;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.Security;
+import java.security.cert.CRLReason;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
@@ -53,9 +62,13 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.util.unit.DataSize;
 
 import static com.otilm.core.util.builders.CrlBuilder.aCrl;
 import static com.otilm.core.util.builders.X509CrlBuilder.anX509Crl;
@@ -63,7 +76,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -145,7 +161,9 @@ class CrlServiceImplTest {
         crlService.setEntityManager(entityManager);
         crlService.setCrlDownloader(crlDownloader);
         crlService.setCrlDownloadGuard(crlDownloadGuard);
-        when(crlRepository.findByIssuerDnAndSerialNumber(anyString(), anyString()))
+        // stands in for the CRL table, which the tests of a static step never read
+        lenient()
+                .when(crlRepository.findByIssuerDnAndSerialNumber(anyString(), anyString()))
                 .thenAnswer(invocation -> readStoredRow());
     }
 
@@ -226,7 +244,7 @@ class CrlServiceImplTest {
         /** Holds the issuer lock and the only download permit in a download that lasts until the test ends. */
         private void startAnotherValidationDownloadingTheCrl(X509Certificate certificate) throws Exception {
             CountDownLatch downloading = new CountDownLatch(1);
-            when(crlDownloader.download(BASE_CRL_URL)).thenAnswer(invocation -> {
+            when(crlDownloader.download(eq(BASE_CRL_URL), anyLong())).thenAnswer(invocation -> {
                 downloading.countDown();
                 awaitRelease();
                 throw new IOException("The test ended");
@@ -266,7 +284,7 @@ class CrlServiceImplTest {
             Crl stored = currentBaseCrlWithDueDeltaCrl();
             storedRow.set(stored);
             byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
-            when(crlDownloader.download(DELTA_CRL_URL)).thenReturn(deltaCrlOfStoredBase);
+            when(crlDownloader.download(eq(DELTA_CRL_URL), anyLong())).thenReturn(deltaCrlOfStoredBase);
             Crl replacedByAnotherWriter = copyOf(stored);
             replacedByAnotherWriter.setCrlNumber("6");
             when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
@@ -290,7 +308,7 @@ class CrlServiceImplTest {
             Crl stored = currentBaseCrlWithDueDeltaCrl();
             storedRow.set(stored);
             byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
-            when(crlDownloader.download(DELTA_CRL_URL)).thenReturn(deltaCrlOfStoredBase);
+            when(crlDownloader.download(eq(DELTA_CRL_URL), anyLong())).thenReturn(deltaCrlOfStoredBase);
             Crl newerCompleteCrl = copyOf(stored);
             newerCompleteCrl.setCrlNumber("8");
             when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
@@ -303,6 +321,31 @@ class CrlServiceImplTest {
 
             // then
             assertThat(crlUuid).isEqualTo(newerCompleteCrl.getUuid());
+        }
+
+        @Test
+        void failsCrlCheck_whenAnotherWriterAppliedAnOlderDeltaCrlThatIsStillCurrent() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(true);
+            Crl stored = currentBaseCrlWithDueDeltaCrl();
+            storedRow.set(stored);
+            byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
+            when(crlDownloader.download(eq(DELTA_CRL_URL), anyLong())).thenReturn(deltaCrlOfStoredBase);
+            Crl olderCurrentDeltaCrlApplied = copyOf(stored);
+            olderCurrentDeltaCrlApplied.setCrlNumberDelta("6");
+            olderCurrentDeltaCrlApplied.setNextUpdateDelta(Date.from(Instant.now().plus(Duration.ofDays(1))));
+            when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+                storedRow.set(olderCurrentDeltaCrlApplied);
+                return false;
+            });
+
+            // when
+            ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThatThrownBy(check)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("changed while its delta CRL was applied");
         }
     }
 
@@ -318,7 +361,7 @@ class CrlServiceImplTest {
             Crl stored = currentBaseCrlWithDueDeltaCrl();
             storedRow.set(stored);
             byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
-            when(crlDownloader.download(DELTA_CRL_URL)).thenReturn(deltaCrlOfStoredBase);
+            when(crlDownloader.download(eq(DELTA_CRL_URL), anyLong())).thenReturn(deltaCrlOfStoredBase);
             when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any()))
                     .thenThrow(new QueryTimeoutException("canceling statement due to statement timeout"));
 
@@ -338,7 +381,7 @@ class CrlServiceImplTest {
             Crl stored = currentBaseCrlWithDueDeltaCrl();
             storedRow.set(stored);
             byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
-            when(crlDownloader.download(DELTA_CRL_URL)).thenReturn(deltaCrlOfStoredBase);
+            when(crlDownloader.download(eq(DELTA_CRL_URL), anyLong())).thenReturn(deltaCrlOfStoredBase);
             when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any()))
                     .thenThrow(new QueryTimeoutException("canceling statement due to statement timeout"));
             ThrowingCallable firstCheck = () -> crlService.getCurrentCrl(certificate, certificate);
@@ -351,7 +394,7 @@ class CrlServiceImplTest {
             assertThatThrownBy(secondCheck)
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("The delta CRL could not be stored");
-            verify(crlDownloader, times(1)).download(DELTA_CRL_URL);
+            verify(crlDownloader, times(1)).download(eq(DELTA_CRL_URL), anyLong());
         }
     }
 
@@ -365,7 +408,7 @@ class CrlServiceImplTest {
             // given
             X509Certificate certificate = selfSignedCertificate(false);
             byte[] baseCrl = baseCrl(certificate, 5);
-            when(crlDownloader.download(BASE_CRL_URL)).thenReturn(baseCrl);
+            when(crlDownloader.download(eq(BASE_CRL_URL), anyLong())).thenReturn(baseCrl);
             when(crlWriter.persistCrlAndEntries(any(), anyBoolean(), any(), any()))
                     .thenThrow(new QueryTimeoutException("canceling statement due to statement timeout"));
 
@@ -383,7 +426,7 @@ class CrlServiceImplTest {
             // given
             X509Certificate certificate = selfSignedCertificate(false);
             byte[] baseCrl = baseCrl(certificate, 5);
-            when(crlDownloader.download(BASE_CRL_URL)).thenReturn(baseCrl);
+            when(crlDownloader.download(eq(BASE_CRL_URL), anyLong())).thenReturn(baseCrl);
             when(crlWriter.persistCrlAndEntries(any(), anyBoolean(), any(), any()))
                     .thenThrow(new QueryTimeoutException("canceling statement due to statement timeout"));
             ThrowingCallable firstCheck = () -> crlService.getCurrentCrl(certificate, certificate);
@@ -396,7 +439,7 @@ class CrlServiceImplTest {
             assertThatThrownBy(secondCheck)
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("The CRL could not be stored");
-            verify(crlDownloader, times(1)).download(BASE_CRL_URL);
+            verify(crlDownloader, times(1)).download(eq(BASE_CRL_URL), anyLong());
         }
 
         @Test
@@ -404,7 +447,7 @@ class CrlServiceImplTest {
             // given
             X509Certificate certificate = selfSignedCertificate(false);
             byte[] baseCrl = baseCrl(certificate, 5);
-            when(crlDownloader.download(BASE_CRL_URL)).thenReturn(baseCrl);
+            when(crlDownloader.download(eq(BASE_CRL_URL), anyLong())).thenReturn(baseCrl);
             Crl storedByAnotherWriter = currentBaseCrl();
             when(crlWriter.persistCrlAndEntries(any(), anyBoolean(), any(), any())).thenAnswer(invocation -> {
                 storedRow.set(storedByAnotherWriter);
@@ -467,6 +510,81 @@ class CrlServiceImplTest {
         }
     }
 
+    // ── DownloadDeadline ─────────────────────────────────────────────────────
+
+    @Nested
+    class DownloadDeadline {
+
+        @Test
+        @Timeout(20)
+        void failsWithinOneDownloadTimeout_whenEveryDistributionPointStalls() throws Exception {
+            // given
+            var downloadTimeout = Duration.ofSeconds(1);
+            crlService.setCrlDownloader(new CrlDownloader(1_000, 10_000, DataSize.ofKilobytes(64), downloadTimeout));
+            try (ServerSocket silentServer = new ServerSocket(0, 10, InetAddress.getByName(LoopbackWireMock.HOST))) {
+                Thread.ofVirtual().start(() -> holdEveryConnectionOpen(silentServer));
+                String silentUrl = LoopbackWireMock.url(silentServer.getLocalPort()) + "/ca.crl";
+                X509Certificate namingThreeStallingUrls = selfSignedCertificateNaming(silentUrl + "?1",
+                        silentUrl + "?2", silentUrl + "?3");
+
+                // when
+                long start = System.nanoTime();
+                ThrowingCallable check = () -> crlService
+                        .getCurrentCrl(namingThreeStallingUrls, namingThreeStallingUrls);
+
+                // then
+                assertThatThrownBy(check)
+                        .isInstanceOf(IOException.class)
+                        .hasMessageContaining("the 1 s for reading the CRL had passed before it was requested");
+                assertThat(Duration.ofNanos(System.nanoTime() - start))
+                        .as("one deadline for all three URLs, not one each")
+                        .isLessThan(Duration.ofMillis(2_500));
+            }
+        }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        /** Accepts every connection and never answers, holding each until its client hangs up. */
+        private static void holdEveryConnectionOpen(ServerSocket server) {
+            while (!server.isClosed()) {
+                try {
+                    Socket client = server.accept();
+                    Thread.ofVirtual().start(() -> readUntilClientHangsUp(client));
+                } catch (IOException serverClosed) {
+                    return;
+                }
+            }
+        }
+
+        private static void readUntilClientHangsUp(Socket client) {
+            try (client) {
+                client.setSoTimeout(20_000);
+                client.getInputStream().transferTo(OutputStream.nullOutputStream());
+            } catch (IOException connectionEnded) {
+                // the client hung up, or the hold limit passed
+            }
+        }
+    }
+
+    // ── StoredRevocationReason ───────────────────────────────────────────────
+
+    @Nested
+    class StoredRevocationReason {
+
+        @ParameterizedTest
+        @EnumSource(value = CRLReason.class, names = {"UNUSED", "REMOVE_FROM_CRL"})
+        void storesUnspecified_whenThePlatformHasNoValueForTheReason(CRLReason reasonWithoutPlatformValue) {
+            // given
+            var entry = new RevokedCertificate(BigInteger.TEN, new Date(), reasonWithoutPlatformValue);
+
+            // when
+            CrlEntryData stored = CrlServiceImpl.toEntryData(entry);
+
+            // then
+            assertThat(stored.revocationReason()).isEqualTo(CertificateRevocationReason.UNSPECIFIED.name());
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** Reads the stored row, then stores the row a concurrent writer was set to store after that read. */
@@ -520,10 +638,18 @@ class CrlServiceImplTest {
     }
 
     private static X509Certificate selfSignedCertificate(boolean namingDeltaCrl) throws Exception {
+        return selfSignedCertificate(namingDeltaCrl, BASE_CRL_URL);
+    }
+
+    private static X509Certificate selfSignedCertificateNaming(String... crlUrls) throws Exception {
+        return selfSignedCertificate(false, crlUrls);
+    }
+
+    private static X509Certificate selfSignedCertificate(boolean namingDeltaCrl, String... crlUrls) throws Exception {
         X500Name name = new X500Name(ISSUER_DN);
         X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(name, BigInteger.ONE, new Date(0),
                 Date.from(Instant.parse("9999-12-31T23:59:59Z")), name, issuerKeyPair.getPublic());
-        builder.addExtension(Extension.cRLDistributionPoints, false, distributionPoints(BASE_CRL_URL));
+        builder.addExtension(Extension.cRLDistributionPoints, false, distributionPoints(crlUrls));
         if (namingDeltaCrl) {
             builder.addExtension(Extension.freshestCRL, false, distributionPoints(DELTA_CRL_URL));
         }
@@ -532,9 +658,12 @@ class CrlServiceImplTest {
                         builder.build(new JcaContentSignerBuilder("SHA256withRSA").build(issuerKeyPair.getPrivate())));
     }
 
-    private static CRLDistPoint distributionPoints(String url) {
-        GeneralName uri = new GeneralName(GeneralName.uniformResourceIdentifier, new DERIA5String(url));
-        DistributionPoint point = new DistributionPoint(new DistributionPointName(new GeneralNames(uri)), null, null);
-        return new CRLDistPoint(new DistributionPoint[]{point});
+    private static CRLDistPoint distributionPoints(String... urls) {
+        DistributionPoint[] points = new DistributionPoint[urls.length];
+        for (int i = 0; i < urls.length; i++) {
+            GeneralName uri = new GeneralName(GeneralName.uniformResourceIdentifier, new DERIA5String(urls[i]));
+            points[i] = new DistributionPoint(new DistributionPointName(new GeneralNames(uri)), null, null);
+        }
+        return new CRLDistPoint(points);
     }
 }
