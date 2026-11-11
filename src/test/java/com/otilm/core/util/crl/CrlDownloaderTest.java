@@ -3,12 +3,16 @@ package com.otilm.core.util.crl;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.otilm.core.util.LoopbackWireMock;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.time.Duration;
 import java.util.Arrays;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.util.unit.DataSize;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
@@ -96,7 +100,39 @@ class CrlDownloaderTest {
                         e -> assertThat(e.reason()).isEqualTo("its download took longer than 500 ms"));
     }
 
+    @Test
+    @Timeout(20)
+    void refusesCrl_whenNoResponseHeadersArriveBeforeDeadline() throws Exception {
+        // given
+        var deadlineShorterThanReadTimeout = Duration.ofMillis(800);
+        var readTimeoutMillis = 5_000;
+        try (ServerSocket silentServer = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread.ofVirtual().start(() -> readRequestWithoutAnswering(silentServer));
+            String url = LoopbackWireMock.url(silentServer.getLocalPort()) + CRL_PATH;
+            var downloader = new CrlDownloader(CONNECT_TIMEOUT_MILLIS, readTimeoutMillis, SIZE_LIMIT,
+                    deadlineShorterThanReadTimeout);
+
+            // when
+            ThrowingCallable download = () -> downloader.download(url);
+
+            // then
+            assertThatThrownBy(download)
+                    .isInstanceOfSatisfying(CrlDownloadException.class,
+                            e -> assertThat(e.reason()).isEqualTo("its download took longer than 800 ms"));
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Reads the request and keeps the connection open without answering, as a stalled server does. */
+    private static void readRequestWithoutAnswering(ServerSocket server) {
+        try (Socket client = server.accept()) {
+            client.getInputStream().read(new byte[4096]);
+            Thread.sleep(15_000);
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     private void stubCrl(ResponseDefinitionBuilder response) {
         crlServer.stubFor(get(urlPathEqualTo(CRL_PATH)).willReturn(response.withStatus(200)));

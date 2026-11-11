@@ -8,6 +8,11 @@ import java.net.URI;
 import java.net.URLConnection;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -16,12 +21,17 @@ import org.springframework.util.unit.DataSize;
 /**
  * Downloads CRLs within a size limit and an overall deadline. A CRL is held whole in memory while it is checked and
  * stored, and the read timeout bounds each read only, so a server sending a byte now and then could otherwise keep a
- * download going for ever.
+ * download going for ever. Until the response headers have arrived, which includes connecting, the TLS handshake and
+ * redirects, a watchdog closes the connection at the deadline; the body is read in a loop that checks the deadline
+ * after each read.
  */
 @Component
 public class CrlDownloader {
 
     private static final int INITIAL_BUFFER_SIZE = 64 * 1024;
+
+    private static final ScheduledExecutorService WATCHDOG = Executors
+            .newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().name("crl-download-watchdog").factory());
 
     private final int connectTimeoutMillis;
     private final int readTimeoutMillis;
@@ -45,7 +55,8 @@ public class CrlDownloader {
     /**
      * Returns the CRL the URL serves.
      *
-     * @throws CrlDownloadException when the CRL is larger than the size limit or its download outlasts the deadline
+     * @throws CrlDownloadException when the CRL is larger than the size limit, or an HTTP download outlasts the
+     * deadline; an LDAP download outlasting it fails as unreadable
      * @throws IOException when the CRL cannot be read
      */
     public byte[] download(String crlUrl) throws IOException {
@@ -56,15 +67,32 @@ public class CrlDownloader {
         URLConnection connection = URI.create(crlUrl).toURL().openConnection();
         connection.setConnectTimeout(connectTimeoutMillis);
         connection.setReadTimeout(readTimeoutMillis);
+        AtomicBoolean timedOut = new AtomicBoolean();
+        ScheduledFuture<?> watchdog = connection instanceof HttpURLConnection httpConnection ? WATCHDOG.schedule(() -> {
+            timedOut.set(true);
+            httpConnection.disconnect();
+        }, downloadTimeout.toNanos(), TimeUnit.NANOSECONDS) : null;
         try {
-            long declaredLength = connection.getContentLengthLong();
-            if (declaredLength > maxSize.toBytes()) {
-                throw tooLarge(crlUrl);
+            InputStream body = connection.getInputStream();
+            if (watchdog != null) {
+                watchdog.cancel(false);
             }
-            try (InputStream body = connection.getInputStream()) {
-                return readWithinLimits(crlUrl, body, (int) Math.max(declaredLength, 0), deadline);
+            try (body) {
+                long declaredLength = connection.getContentLengthLong();
+                if (declaredLength > maxSize.toBytes()) {
+                    throw tooLarge(crlUrl);
+                }
+                return readWithinLimits(crlUrl, body, declaredLength, deadline);
             }
+        } catch (IOException e) {
+            if (timedOut.get()) {
+                throw tooSlow(crlUrl);
+            }
+            throw e;
         } finally {
+            if (watchdog != null) {
+                watchdog.cancel(false);
+            }
             if (connection instanceof HttpURLConnection httpConnection) {
                 httpConnection.disconnect();
             }
@@ -72,12 +100,15 @@ public class CrlDownloader {
     }
 
     /**
-     * Reads the body into an array sized to the declared length, so a CRL that declares it is not copied, and grows the
-     * array only for a body longer than declared or without a declared length.
+     * Reads the body into an array that grows as bytes arrive, so a server cannot make Core hold memory it has not
+     * sent. Growth stops at the declared length, so a body that matches it ends in an array of its exact size, without
+     * a final copy; a body longer than declared, or without a declared length, grows up to the size limit.
      */
-    private byte[] readWithinLimits(String crlUrl, InputStream body, int declaredLength, long deadline)
+    private byte[] readWithinLimits(String crlUrl, InputStream body, long declaredLength, long deadline)
             throws IOException {
-        byte[] data = new byte[declaredLength > 0 ? declaredLength : INITIAL_BUFFER_SIZE];
+        long maxBytes = maxSize.toBytes();
+        long expected = declaredLength > 0 ? declaredLength : maxBytes;
+        byte[] data = new byte[(int) Math.min(expected, INITIAL_BUFFER_SIZE)];
         int size = 0;
         while (true) {
             if (size == data.length) {
@@ -85,10 +116,11 @@ public class CrlDownloader {
                 if (next == -1) {
                     return data;
                 }
-                if (size >= maxSize.toBytes()) {
+                if (size >= maxBytes) {
                     throw tooLarge(crlUrl);
                 }
-                data = Arrays.copyOf(data, (int) Math.min(maxSize.toBytes(), Math.max(INITIAL_BUFFER_SIZE, 2L * size)));
+                long grown = size < expected ? Math.min(expected, 2L * size) : 2L * size;
+                data = Arrays.copyOf(data, (int) Math.min(maxBytes, grown));
                 data[size++] = (byte) next;
             }
             int read = body.read(data, size, data.length - size);
@@ -97,7 +129,7 @@ public class CrlDownloader {
             }
             size += read;
             if (System.nanoTime() - deadline > 0) {
-                throw new CrlDownloadException(crlUrl, "its download took longer than " + describe(downloadTimeout));
+                throw tooSlow(crlUrl);
             }
         }
     }
@@ -119,6 +151,10 @@ public class CrlDownloader {
             throw tooLarge(crlUrl);
         }
         return crl;
+    }
+
+    private CrlDownloadException tooSlow(String crlUrl) {
+        return new CrlDownloadException(crlUrl, "its download took longer than " + describe(downloadTimeout));
     }
 
     private CrlDownloadException tooLarge(String crlUrl) {
