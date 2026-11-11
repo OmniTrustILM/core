@@ -33,6 +33,7 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.GeneralNameType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
@@ -656,17 +657,22 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void issueRegisteredCertificateWithNullCsrFormatIsRejected() throws Exception {
-        // An explicit null format must surface a clear validation error rather than an NPE inside the
-        // CSR parser's format-selection logic.
+    void attachesAPkcs10Request_whenTheFormatIsOmitted() throws Exception {
+        // given
         String certUuid = registerSyncRegistered();
         ClientCertificateIssueRequestDto noFormat = new ClientCertificateIssueRequestDto();
         noFormat.setRequest(generateCsrBase64());
-        noFormat.setFormat(null);
 
-        Assertions
-                .assertThrows(ValidationException.class, () -> clientOperationService
-                        .issueExistingCertificate(authorityParent, securedRaProfile, certUuid, noFormat));
+        // when
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, noFormat);
+
+        // then
+        UUID requestUuid = certificateRepository
+                .findByUuid(UUID.fromString(certUuid))
+                .orElseThrow()
+                .getCertificateRequestUuid();
+        CertificateRequestEntity request = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
+        Assertions.assertEquals(CertificateRequestFormat.PKCS10, request.getCertificateRequestFormat());
     }
 
     @Test
@@ -775,6 +781,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         UUID uuid = requested.getUuid();
         ClientCertificateIssueRequestDto req = new ClientCertificateIssueRequestDto();
         req.setRequest(generateCsrBase64());
+        req.setFormat(CertificateRequestFormat.PKCS10);
 
         Assertions
                 .assertThrows(ValidationException.class,
