@@ -117,7 +117,8 @@ public class CrlServiceImpl implements CrlService {
      * <p>
      * When the stored base CRL is current and only its delta CRL is due, a certificate the stored CRL lists stays
      * revoked even if the delta CRL cannot be read, as {@link #throwUnlessStoredCrlLists} decides; this holds also when
-     * the wait for the issuer or for a download permit ends first.
+     * the wait for the issuer or for a download permit ends first. After a failure the stored CRL is read again, so a
+     * CRL another validation stored meanwhile is used.
      */
     @Override
     @OutsideTransaction
@@ -140,11 +141,14 @@ public class CrlServiceImpl implements CrlService {
                                 () -> readCurrentCrl(certificate, issuerCertificate, issuerDn, issuerSerialNumber));
             });
         } catch (IOException e) {
-            if (storedCrl == null || isBaseCrlDue(storedCrl)) {
+            Crl crlStoredNow = findStoredCrl(issuerDn, issuerSerialNumber);
+            if (crlStoredNow == null || isBaseCrlDue(crlStoredNow)) {
                 throw e;
             }
-            throwUnlessStoredCrlLists(certificate, storedCrl, e);
-            return storedCrl.getUuid();
+            if (isDue(crlStoredNow, certificate)) {
+                throwUnlessStoredCrlLists(certificate, crlStoredNow, e);
+            }
+            return crlStoredNow.getUuid();
         }
     }
 

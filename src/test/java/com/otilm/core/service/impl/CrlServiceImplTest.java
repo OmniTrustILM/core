@@ -57,6 +57,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.CrlBuilder.aCrl;
 import static com.otilm.core.util.builders.X509CrlBuilder.anX509Crl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -75,6 +76,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CrlServiceImplTest {
 
+    private static final String ISSUER_DN = "CN=Crl Service Test CA";
     private static final String BASE_CRL_URL = "http://crl.test/base.crl";
     private static final String DELTA_CRL_URL = "http://crl.test/delta.crl";
     /** The guard waits twice this long for a lock or a permit. */
@@ -101,6 +103,7 @@ class CrlServiceImplTest {
     private CrlDownloader crlDownloader;
 
     private final AtomicReference<Crl> storedRow = new AtomicReference<>();
+    private final AtomicReference<Crl> rowStoredAfterNextRead = new AtomicReference<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final CountDownLatch releasePermit = new CountDownLatch(1);
     private CrlDownloadGuard crlDownloadGuard;
@@ -143,7 +146,7 @@ class CrlServiceImplTest {
         crlService.setCrlDownloader(crlDownloader);
         crlService.setCrlDownloadGuard(crlDownloadGuard);
         when(crlRepository.findByIssuerDnAndSerialNumber(anyString(), anyString()))
-                .thenAnswer(invocation -> Optional.ofNullable(storedRow.get()).map(CrlServiceImplTest::copyOf));
+                .thenAnswer(invocation -> readStoredRow());
     }
 
     @AfterEach
@@ -187,7 +190,50 @@ class CrlServiceImplTest {
             assertThatThrownBy(check).isInstanceOf(IOException.class).hasMessageContaining("Too many CRLs");
         }
 
+        @Test
+        void keepsCertificateRevoked_whenCrlStoredDuringIssuerWaitListsIt() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(true);
+            startAnotherValidationDownloadingTheCrl(certificate);
+            Crl storedByTheOtherValidation = currentBaseCrlWithDueDeltaCrl();
+            rowStoredAfterNextRead.set(storedByTheOtherValidation);
+            when(crlEntryRepository.findById(any(CrlEntryId.class))).thenReturn(Optional.of(new CrlEntry()));
+
+            // when
+            UUID crlUuid = crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThat(crlUuid).isEqualTo(storedByTheOtherValidation.getUuid());
+        }
+
+        @Test
+        void usesCrlStoredDuringIssuerWait_whenTheWaitRunsOut() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(false);
+            startAnotherValidationDownloadingTheCrl(certificate);
+            Crl storedByTheOtherValidation = currentBaseCrl();
+            rowStoredAfterNextRead.set(storedByTheOtherValidation);
+
+            // when
+            UUID crlUuid = crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThat(crlUuid).isEqualTo(storedByTheOtherValidation.getUuid());
+        }
+
         // ── Helpers ──────────────────────────────────────────────────────────
+
+        /** Holds the issuer lock and the only download permit in a download that lasts until the test ends. */
+        private void startAnotherValidationDownloadingTheCrl(X509Certificate certificate) throws Exception {
+            CountDownLatch downloading = new CountDownLatch(1);
+            when(crlDownloader.download(BASE_CRL_URL)).thenAnswer(invocation -> {
+                downloading.countDown();
+                awaitRelease();
+                throw new IOException("The test ended");
+            });
+            executor.submit(() -> crlService.getCurrentCrl(certificate, certificate));
+            assertThat(downloading.await(5, TimeUnit.SECONDS)).isTrue();
+        }
 
         private void holdTheOnlyDownloadPermit() throws InterruptedException {
             CountDownLatch permitHeld = new CountDownLatch(1);
@@ -423,14 +469,25 @@ class CrlServiceImplTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    /** Reads the stored row, then stores the row a concurrent writer was set to store after that read. */
+    private Optional<Crl> readStoredRow() {
+        Optional<Crl> read = Optional.ofNullable(storedRow.get()).map(CrlServiceImplTest::copyOf);
+        Crl storedByConcurrentWriter = rowStoredAfterNextRead.getAndSet(null);
+        if (storedByConcurrentWriter != null) {
+            storedRow.set(storedByConcurrentWriter);
+        }
+        return read;
+    }
+
     private static Crl currentBaseCrl() {
-        Crl crl = new Crl();
+        Crl crl = aCrl()
+                .withIssuerDn(ISSUER_DN)
+                .withSerialNumber("1")
+                .withCrlIssuerDn(ISSUER_DN)
+                .withCrlNumber("5")
+                .withNextUpdate(Date.from(Instant.now().plus(Duration.ofDays(1))))
+                .build();
         crl.setUuid(UUID.randomUUID());
-        crl.setIssuerDn("CN=Crl Service Test CA");
-        crl.setSerialNumber("1");
-        crl.setCrlIssuerDn("CN=Crl Service Test CA");
-        crl.setCrlNumber("5");
-        crl.setNextUpdate(Date.from(Instant.now().plus(Duration.ofDays(1))));
         return crl;
     }
 
@@ -463,7 +520,7 @@ class CrlServiceImplTest {
     }
 
     private static X509Certificate selfSignedCertificate(boolean namingDeltaCrl) throws Exception {
-        X500Name name = new X500Name("CN=Crl Service Test CA");
+        X500Name name = new X500Name(ISSUER_DN);
         X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(name, BigInteger.ONE, new Date(0),
                 Date.from(Instant.parse("9999-12-31T23:59:59Z")), name, issuerKeyPair.getPublic());
         builder.addExtension(Extension.cRLDistributionPoints, false, distributionPoints(BASE_CRL_URL));
