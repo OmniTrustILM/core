@@ -59,6 +59,30 @@ class ValidityTest {
     }
 
     @Test
+    void reportsExpired_whenTheMomentIsTheStartOfTheDayAfterADatePeriod() {
+        // given
+        var validity = new Validity(NOT_BEFORE, NOT_AFTER, ValidityPrecision.DATE);
+
+        // when
+        ValidityStatus status = validity.statusAt(Instant.parse("2027-01-01T00:00:00Z"));
+
+        // then
+        assertThat(status).isEqualTo(ValidityStatus.EXPIRED);
+    }
+
+    @Test
+    void reportsValid_whenTheMomentIsTheExactEndOfADateTimePeriod() {
+        // given
+        var validity = new Validity(NOT_BEFORE, NOT_AFTER, ValidityPrecision.DATE_TIME);
+
+        // when
+        ValidityStatus status = validity.statusAt(NOT_AFTER);
+
+        // then
+        assertThat(status).isEqualTo(ValidityStatus.VALID);
+    }
+
+    @Test
     void reportsExpired_whenTheMomentIsOnTheDayAfterADatePeriod() {
         // given
         var validity = new Validity(NOT_BEFORE, NOT_AFTER, ValidityPrecision.DATE);

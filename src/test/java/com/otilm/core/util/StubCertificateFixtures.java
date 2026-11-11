@@ -1,5 +1,6 @@
-package com.otilm.core.certificate.type.stub;
+package com.otilm.core.util;
 
+import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;

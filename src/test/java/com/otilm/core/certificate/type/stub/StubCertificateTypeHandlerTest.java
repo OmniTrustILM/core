@@ -8,14 +8,16 @@ import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.certificate.type.ValidityPrecision;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
-import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.STUB_NOT_AFTER;
-import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.STUB_NOT_BEFORE;
-import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.certificate;
-import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.keyPair;
-import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.request;
+import static com.otilm.core.util.StubCertificateFixtures.STUB_NOT_AFTER;
+import static com.otilm.core.util.StubCertificateFixtures.STUB_NOT_BEFORE;
+import static com.otilm.core.util.StubCertificateFixtures.certificate;
+import static com.otilm.core.util.StubCertificateFixtures.keyPair;
+import static com.otilm.core.util.StubCertificateFixtures.request;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -58,7 +60,7 @@ class StubCertificateTypeHandlerTest {
         byte[] otherContent = "-----BEGIN CERTIFICATE-----".getBytes(StandardCharsets.UTF_8);
 
         // when
-        var parsed = handler.parseCertificate(otherContent);
+        Optional<ParsedCertificate> parsed = handler.parseCertificate(otherContent);
 
         // then
         assertThat(parsed).isEmpty();
@@ -79,15 +81,24 @@ class StubCertificateTypeHandlerTest {
     }
 
     @Test
-    void doesNotSupportRevocationOrChainValidation() {
+    void doesNotSupportRevocation() {
         // given — the stub declares only renewal and compliance
 
         // when
         boolean revoke = handler.supports(CertificateOperation.REVOKE);
-        boolean chainValidation = handler.supports(CertificateOperation.VALIDATE_CHAIN);
 
         // then
         assertThat(revoke).isFalse();
+    }
+
+    @Test
+    void doesNotSupportChainValidation() {
+        // given — the stub declares only renewal and compliance
+
+        // when
+        boolean chainValidation = handler.supports(CertificateOperation.VALIDATE_CHAIN);
+
+        // then
         assertThat(chainValidation).isFalse();
     }
 
@@ -170,12 +181,25 @@ class StubCertificateTypeHandlerTest {
     }
 
     @Test
+    void rejectsTheRequest_whenItCarriesNoCountersignatureForTheCurrentCertificate() {
+        // given
+        ParsedCertificate current = handler.parseCertificate(certificate("42", "holder-one")).orElseThrow();
+        ParsedRequest renewal = handler.parseRequest(request("holder-one", true, "")).orElseThrow();
+
+        // when
+        boolean valid = handler.verifySignature(renewal, current);
+
+        // then
+        assertThat(valid).isFalse();
+    }
+
+    @Test
     void findsNoViolation_whenCheckingProfileLimitsByDefault() {
         // given
         ParsedRequest renewal = handler.parseRequest(request("holder-one", true, "")).orElseThrow();
 
         // when
-        var violations = handler.checkProfileLimits(renewal, null);
+        List<String> violations = handler.checkProfileLimits(renewal, null);
 
         // then
         assertThat(violations).isEmpty();

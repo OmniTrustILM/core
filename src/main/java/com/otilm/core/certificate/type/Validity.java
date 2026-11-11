@@ -15,7 +15,9 @@ public record Validity(Instant notBefore, Instant notAfter, ValidityPrecision pr
         if (moment.isBefore(notBefore)) {
             return ValidityStatus.NOT_YET_VALID;
         }
-        Instant end = precision == ValidityPrecision.DATE ? notAfter.plus(ONE_DAY) : notAfter;
-        return moment.isAfter(end) ? ValidityStatus.EXPIRED : ValidityStatus.VALID;
+        boolean expired = precision == ValidityPrecision.DATE
+                ? !moment.isBefore(notAfter.plus(ONE_DAY))
+                : moment.isAfter(notAfter);
+        return expired ? ValidityStatus.EXPIRED : ValidityStatus.VALID;
     }
 }

@@ -66,6 +66,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     private static final Logger logger = LoggerFactory.getLogger(X509CertificateTypeHandler.class);
 
     private static final String PEM_MARKER = "-----BEGIN";
+    private static final Set<String> REQUEST_PEM_TYPES = Set.of("CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST");
 
     @Override
     public String typeCode() {
@@ -271,9 +272,19 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     private static byte[] decodeRequestContent(byte[] content) {
-        return startsWithPemMarker(content)
-                ? CertificateRequestUtils.normalizeAndDecodeCsr(new String(content, StandardCharsets.UTF_8))
-                : content;
+        if (!startsWithPemMarker(content)) {
+            return content;
+        }
+        try (PEMParser pemParser = new PEMParser(new StringReader(new String(content, StandardCharsets.UTF_8)))) {
+            PemObject pemObject = pemParser.readPemObject();
+            if (pemObject != null && REQUEST_PEM_TYPES.contains(pemObject.getType())) {
+                return pemObject.getContent();
+            }
+        } catch (IOException e) {
+            throw new CertificateTypeHandlerException(
+                    "The PEM encoded certificate request is malformed: " + e.getMessage());
+        }
+        return null;
     }
 
     private static CertificateRequest readRequest(byte[] der) {

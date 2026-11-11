@@ -57,7 +57,7 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
         if (!text.startsWith(CERTIFICATE_PREFIX)) {
             return Optional.empty();
         }
-        String[] fields = text.split("\\|");
+        String[] fields = text.split("\\|", -1);
         if (fields.length != 6) {
             throw new CertificateTypeHandlerException("A stub certificate has six fields, found " + fields.length);
         }
@@ -73,7 +73,7 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
         if (!text.startsWith(REQUEST_PREFIX)) {
             return Optional.empty();
         }
-        String[] fields = text.split("\\|");
+        String[] fields = text.split("\\|", -1);
         return Optional
                 .of(new ParsedRequest(TYPE_CODE, CertificateRequestFormat.PKCS10, content, fields[1],
                         publicKey(fields[2])));
@@ -86,7 +86,7 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
 
     @Override
     public boolean verifySignature(ParsedRequest request, ParsedCertificate current) {
-        String[] fields = new String(request.encoded(), StandardCharsets.UTF_8).split("\\|");
+        String[] fields = new String(request.encoded(), StandardCharsets.UTF_8).split("\\|", -1);
         boolean signed = Boolean.parseBoolean(fields[3]);
         return signed && (current == null || fields[4].equals(current.properties().identifier()));
     }

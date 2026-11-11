@@ -28,6 +28,8 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.crmf.CertificateRequestMessageBuilder;
@@ -40,9 +42,10 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.certificate;
+import static com.otilm.core.util.StubCertificateFixtures.certificate;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class X509CertificateTypeHandlerTest {
 
@@ -62,7 +65,7 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
-    void declaresTypeCodeAndTheFullOperationSet() {
+    void declaresTheX509TypeCode() {
         // given — the X.509 handler as registered
 
         // when
@@ -70,7 +73,17 @@ class X509CertificateTypeHandlerTest {
 
         // then
         assertThat(typeCode).isEqualTo("X.509");
-        assertThat(handler.supportedOperations()).containsExactlyInAnyOrder(CertificateOperation.values());
+    }
+
+    @Test
+    void declaresTheFullOperationSet() {
+        // given — the X.509 handler as registered
+
+        // when
+        Set<CertificateOperation> operations = handler.supportedOperations();
+
+        // then
+        assertThat(operations).containsExactlyInAnyOrder(CertificateOperation.values());
     }
 
     @Test
@@ -198,6 +211,31 @@ class X509CertificateTypeHandlerTest {
 
         // then
         assertThat(parsed.encoded()).isEqualTo(csr);
+    }
+
+    @Test
+    void returnsEmpty_whenTheContentIsACertificateInPem() throws Exception {
+        // given
+        byte[] certificatePem = toPem(chain.getEndEntityCertificate());
+
+        // when
+        Optional<ParsedRequest> parsed = handler.parseRequest(certificatePem);
+
+        // then
+        assertThat(parsed).isEmpty();
+    }
+
+    @Test
+    void throwsHandlerException_whenAPemRequestIsMalformed() {
+        // given
+        byte[] malformedPem = ("-----BEGIN CERTIFICATE REQUEST-----\n%%%not base64%%%\n"
+                + "-----END CERTIFICATE REQUEST-----\n").getBytes(StandardCharsets.UTF_8);
+
+        // when
+        ThrowingCallable parse = () -> handler.parseRequest(malformedPem);
+
+        // then
+        assertThatThrownBy(parse).isInstanceOf(CertificateTypeHandlerException.class);
     }
 
     @Test
@@ -445,7 +483,8 @@ class X509CertificateTypeHandlerTest {
         var registry = new CertificateTypeHandlerRegistry(List.of(new StubCertificateTypeHandler(), handler));
 
         // when
-        var detected = registry.detectCertificate(chain.getEndEntityCertificate().getEncoded());
+        Optional<CertificateTypeHandlerRegistry.DetectedCertificate> detected = registry
+                .detectCertificate(chain.getEndEntityCertificate().getEncoded());
 
         // then
         assertThat(detected).isPresent();

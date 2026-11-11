@@ -1649,9 +1649,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         // then
         CertificateDetailDto detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
-        Assertions
-                .assertEquals(CertificateRequestFormat.PKCS10,
-                        detail.getCertificateRequest().getCertificateRequestFormat());
+        assertThat(detail.getCertificateRequest().getCertificateRequestFormat())
+                .isEqualTo(CertificateRequestFormat.PKCS10);
     }
 
     @Test

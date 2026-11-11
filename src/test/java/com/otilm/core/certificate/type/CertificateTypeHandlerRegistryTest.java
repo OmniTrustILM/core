@@ -9,8 +9,8 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
-import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.certificate;
-import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.request;
+import static com.otilm.core.util.StubCertificateFixtures.certificate;
+import static com.otilm.core.util.StubCertificateFixtures.request;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

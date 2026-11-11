@@ -126,6 +126,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.BasicConstraints;
@@ -151,6 +152,7 @@ import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute
 import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedDataAttribute;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -672,7 +674,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .orElseThrow()
                 .getCertificateRequestUuid();
         CertificateRequestEntity request = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
-        Assertions.assertEquals(CertificateRequestFormat.PKCS10, request.getCertificateRequestFormat());
+        assertThat(request.getCertificateRequestFormat()).isEqualTo(CertificateRequestFormat.PKCS10);
     }
 
     @Test
@@ -771,8 +773,8 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void addCertificateRequestToExistingRejectsNonRegisteredCertificate() throws Exception {
-        // Defense-in-depth: the public attach method must refuse a non-REGISTERED certificate.
+    void throwsValidation_whenCertificateIsNotRegistered() throws Exception {
+        // given — defense in depth: the public attach method refuses a certificate that is not REGISTERED
         X509CertificateEntity requested = aCertificate()
                 .withState(CertificateState.REQUESTED)
                 .withRaProfile(raProfile)
@@ -783,9 +785,11 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         req.setRequest(generateCsrBase64());
         req.setFormat(CertificateRequestFormat.PKCS10);
 
-        Assertions
-                .assertThrows(ValidationException.class,
-                        () -> certificateService.addCertificateRequestToExisting(uuid, req));
+        // when
+        ThrowingCallable attach = () -> certificateService.addCertificateRequestToExisting(uuid, req);
+
+        // then
+        assertThatThrownBy(attach).isInstanceOf(ValidationException.class);
     }
 
     @Test
