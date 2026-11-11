@@ -9,6 +9,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.credential.CredentialRequestDto;
 import com.otilm.api.model.client.credential.CredentialUpdateRequestDto;
@@ -24,6 +25,7 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.credential.CredentialDto;
@@ -50,11 +52,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CredentialServiceITest extends BaseSpringBootTest {
 
@@ -167,6 +173,38 @@ class CredentialServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
         Assertions.assertEquals(credential.getConnectorUuid().toString(), dto.getConnectorUuid());
+    }
+
+    @Test
+    void rejectsCreation_whenDataAttributeUuidIsNotTheDefinitionsUuid() {
+        // given
+        var definitionUuid = UUID.randomUUID();
+        var staleUuid = UUID.randomUUID();
+        var attributeName = "apiKeyAttribute";
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/credentialProvider/[^/]+/attributes"))
+                        .willReturn(
+                                WireMock.okJson("[" + stringAttributeDefinition(definitionUuid, attributeName) + "]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/credentialProvider/[^/]+/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
+        CredentialRequestDto request = new CredentialRequestDto();
+        request.setName("mismatchedCredential");
+        request.setConnectorUuid(connector.getUuid().toString());
+        request.setKind("ApiKey");
+        request
+                .setAttributes(List
+                        .of(new RequestAttributeV3(staleUuid, attributeName, AttributeContentType.STRING,
+                                List.of(new StringAttributeContentV3("secret")))));
+
+        // when
+        ThrowingCallable create = () -> credentialService.createCredential(request);
+
+        // then
+        assertThatThrownBy(create).isInstanceOf(ValidationException.class).hasMessageContaining(attributeName);
+        assertThat(credentialRepository.findByName("mismatchedCredential")).isEmpty();
     }
 
     @Test
@@ -432,5 +470,13 @@ class CredentialServiceITest extends BaseSpringBootTest {
         nameAndUuidDto = credentialInternalService.getResourceObjectExternal(credential.getSecuredUuid());
         Assertions.assertEquals(credential.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(credential.getName(), nameAndUuidDto.getName());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static String stringAttributeDefinition(UUID uuid, String name) {
+        return "{\"uuid\":\"" + uuid + "\",\"name\":\"" + name + "\",\"type\":\"data\",\"contentType\":\"string\","
+                + "\"version\":3,\"properties\":{\"label\":\"" + name + "\",\"visible\":true,\"required\":true,"
+                + "\"readOnly\":false,\"list\":false,\"multiSelect\":false}}";
     }
 }
