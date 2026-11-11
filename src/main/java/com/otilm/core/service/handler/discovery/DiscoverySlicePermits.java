@@ -5,9 +5,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Bounds how many checkpointed drains this node has at their connectors at once. A checkpointed connector scans while
- * it answers a drain, so the cap bounds the runs scanning at once per node and keeps discovery-work consumers free for
- * status, processing and buffered drains. Each Core node has its own permits.
+ * Bounds how many checkpointed drains this Core node has at their connectors at once, and so how many of its runs scan
+ * at once: a checkpointed connector scans while it answers a drain. Configured as
+ * {@code discovery.slice.max-concurrent-per-node}, documented in application.yml.
  */
 @Component
 public class DiscoverySlicePermits {
