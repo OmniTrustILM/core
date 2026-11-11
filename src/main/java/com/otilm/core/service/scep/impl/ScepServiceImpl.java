@@ -1309,6 +1309,7 @@ public class ScepServiceImpl implements ScepExternalService {
             // No known certificate behind the signer: an initial enrollment, not a renewal.
             return false;
         }
+        recordAuditOperation(enrollmentOperation(false));
         validateRenewal(scepRequest, renewedCertificate);
         // Waive the challenge password only for a certificate of this profile's RA profile: holding some
         // other RA profile's certificate does not entitle a client to enroll here.
