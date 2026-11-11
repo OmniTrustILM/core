@@ -9,7 +9,6 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
-import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.credential.CredentialRequestDto;
 import com.otilm.api.model.client.credential.CredentialUpdateRequestDto;
@@ -25,7 +24,6 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.content.data.CredentialAttributeContentData;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v2.content.CredentialAttributeContentV2;
-import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.credential.CredentialDto;
@@ -59,6 +57,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -184,8 +183,9 @@ class CredentialServiceITest extends BaseSpringBootTest {
         mockServer
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching("/v1/credentialProvider/[^/]+/attributes"))
-                        .willReturn(
-                                WireMock.okJson("[" + stringAttributeDefinition(definitionUuid, attributeName) + "]")));
+                        .willReturn(WireMock
+                                .okJson("[" + buildStringAttributeDefinitionJson(definitionUuid, attributeName)
+                                        + "]")));
         mockServer
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching("/v1/credentialProvider/[^/]+/attributes/validate"))
@@ -196,8 +196,11 @@ class CredentialServiceITest extends BaseSpringBootTest {
         request.setKind("ApiKey");
         request
                 .setAttributes(List
-                        .of(new RequestAttributeV3(staleUuid, attributeName, AttributeContentType.STRING,
-                                List.of(new StringAttributeContentV3("secret")))));
+                        .of(aCustomAttribute()
+                                .withUuid(staleUuid)
+                                .withName(attributeName)
+                                .withStringContent("secret")
+                                .build()));
 
         // when
         ThrowingCallable create = () -> credentialService.createCredential(request);
@@ -474,7 +477,7 @@ class CredentialServiceITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static String stringAttributeDefinition(UUID uuid, String name) {
+    private static String buildStringAttributeDefinitionJson(UUID uuid, String name) {
         return "{\"uuid\":\"" + uuid + "\",\"name\":\"" + name + "\",\"type\":\"data\",\"contentType\":\"string\","
                 + "\"version\":3,\"properties\":{\"label\":\"" + name + "\",\"visible\":true,\"required\":true,"
                 + "\"readOnly\":false,\"list\":false,\"multiSelect\":false}}";

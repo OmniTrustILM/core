@@ -3121,8 +3121,9 @@ class AttributeEngineITest extends BaseSpringBootTest {
         void throwsValidationException_whenCreatingContentWithAnotherUuid() {
             // given
             DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var mismatchedUuid = UUID.randomUUID();
             var request = aCustomAttribute()
-                    .withUuid(UUID.randomUUID())
+                    .withUuid(mismatchedUuid)
                     .withName(definition.getName())
                     .withStringContent("value")
                     .build();
@@ -3135,15 +3136,17 @@ class AttributeEngineITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("identifiedAttribute");
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(mismatchedUuid.toString());
         }
 
         @Test
         void throwsValidationException_whenUpdatingContentWithAnotherUuid() {
             // given
             DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var mismatchedUuid = UUID.randomUUID();
             var request = aCustomAttribute()
-                    .withUuid(UUID.randomUUID())
+                    .withUuid(mismatchedUuid)
                     .withName(definition.getName())
                     .withStringContent("value")
                     .build();
@@ -3156,7 +3159,8 @@ class AttributeEngineITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(update)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("identifiedAttribute");
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(mismatchedUuid.toString());
         }
     }
 
