@@ -17,6 +17,7 @@ import com.otilm.core.util.PlatformX500NameStyle;
 import com.otilm.core.util.crl.CrlDownloadException;
 import com.otilm.core.util.crl.CrlDownloadGuard;
 import com.otilm.core.util.crl.CrlDownloader;
+import com.otilm.core.util.crl.CrlRefusedException;
 import com.otilm.core.util.crl.EncodedCrl;
 import com.otilm.core.util.crl.RevokedCertificate;
 import jakarta.persistence.EntityManager;
@@ -325,6 +326,9 @@ public class CrlServiceImpl implements CrlService {
         try {
             return new DownloadedCrl(EncodedCrl.parse(crlDownloader.download(crlUrl)), null);
         } catch (CrlDownloadException e) {
+            logger.warn("Ignoring the CRL from {}: {}", crlUrl, e.reason());
+            return new DownloadedCrl(null, e.reason());
+        } catch (CrlRefusedException e) {
             logger.warn("Ignoring the CRL from {}: {}", crlUrl, e.reason());
             return new DownloadedCrl(null, e.reason());
         } catch (Exception e) {

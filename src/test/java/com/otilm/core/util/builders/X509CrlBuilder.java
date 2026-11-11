@@ -11,6 +11,8 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.security.auth.x500.X500Principal;
+import org.bouncycastle.asn1.ASN1Encodable;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.CRLNumber;
 import org.bouncycastle.asn1.x509.CRLReason;
@@ -46,6 +48,8 @@ public final class X509CrlBuilder {
     private String signatureAlgorithm = "SHA256WithRSAEncryption";
 
     private final Map<BigInteger, Revocation> revocations = new LinkedHashMap<>();
+
+    private final Map<ASN1ObjectIdentifier, ASN1Encodable> extraExtensions = new LinkedHashMap<>();
 
     private X509CrlBuilder(X500Principal issuerName, PrivateKey signerKey) {
         this.issuerName = issuerName;
@@ -96,6 +100,12 @@ public final class X509CrlBuilder {
         return this;
     }
 
+    /** Adds a non-critical CRL extension besides the CRL number and the delta CRL indicator. */
+    public X509CrlBuilder withExtension(ASN1ObjectIdentifier extensionId, ASN1Encodable value) {
+        extraExtensions.put(extensionId, value);
+        return this;
+    }
+
     /** Signs with this JCA signature algorithm, which must suit the signer key. */
     public X509CrlBuilder withSignatureAlgorithm(String signatureAlgorithm) {
         this.signatureAlgorithm = signatureAlgorithm;
@@ -114,6 +124,9 @@ public final class X509CrlBuilder {
             }
             if (deltaCrlIndicator != null) {
                 crlBuilder.addExtension(Extension.deltaCRLIndicator, true, new CRLNumber(deltaCrlIndicator));
+            }
+            for (Map.Entry<ASN1ObjectIdentifier, ASN1Encodable> extension : extraExtensions.entrySet()) {
+                crlBuilder.addExtension(extension.getKey(), false, extension.getValue());
             }
             for (Map.Entry<BigInteger, Revocation> revocation : revocations.entrySet()) {
                 crlBuilder

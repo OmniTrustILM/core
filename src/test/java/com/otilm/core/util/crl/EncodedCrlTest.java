@@ -26,7 +26,10 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1Enumerated;
 import org.bouncycastle.asn1.ASN1GeneralizedTime;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1Sequence;
+import org.bouncycastle.asn1.DERNull;
+import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERSequence;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
@@ -55,6 +58,7 @@ class EncodedCrlTest {
     private static final X500Principal ISSUER = new X500Principal("CN=Encoded CRL Test CA, O=OmniTrust");
     private static final Instant REVOKED_AT = Instant.parse("2026-03-04T05:06:07Z");
     private static final int ENTRY_COUNT = 250;
+    private static final ASN1ObjectIdentifier UNKNOWN_EXTENSION = new ASN1ObjectIdentifier("1.3.6.1.4.1.99999.1");
 
     private static KeyPair rsaKeyPair;
 
@@ -405,9 +409,95 @@ class EncodedCrlTest {
             // then
             assertThatThrownBy(parse).isInstanceOf(CRLException.class);
         }
+
+        @Test
+        void refusesCrl_whenSignedListHasMoreFieldsThanACrlHas() throws Exception {
+            // given
+            byte[] der = crlWithEntries(rsaKeyPair, "SHA256WithRSAEncryption");
+            byte[] extraSignedField = withExtraSignedListField(der);
+
+            // when
+            ThrowingCallable parse = () -> EncodedCrl.parse(extraSignedField);
+
+            // then
+            assertThatThrownBy(parse).isInstanceOf(CRLException.class).hasMessageContaining("more fields than a CRL");
+        }
+
+        @Test
+        void refusesCrlWithReason_whenAnEntryIsLargerThanTheEntryLimit() throws Exception {
+            // given
+            ExtensionsGenerator oversizedEntryExtensions = new ExtensionsGenerator();
+            oversizedEntryExtensions.addExtension(UNKNOWN_EXTENSION, false, new DEROctetString(new byte[70 * 1024]));
+            byte[] crl = anX509Crl(ISSUER, rsaKeyPair.getPrivate())
+                    .withRevocation(BigInteger.ONE, REVOKED_AT, oversizedEntryExtensions.generate())
+                    .build()
+                    .getEncoded();
+
+            // when
+            ThrowingCallable parse = () -> EncodedCrl.parse(crl);
+
+            // then
+            assertThatThrownBy(parse)
+                    .isInstanceOfSatisfying(CrlRefusedException.class,
+                            e -> assertThat(e.reason()).isEqualTo("one of its entries is larger than 64 KB"));
+        }
+
+        @Test
+        void refusesCrlWithReason_whenItsPartBesidesTheEntriesIsLargerThanTheHeaderLimit() throws Exception {
+            // given
+            var oversizedExtensionValue = new DEROctetString(new byte[EncodedCrl.MAX_WHOLE_PARSE_SIZE]);
+            byte[] crl = anX509Crl(ISSUER, rsaKeyPair.getPrivate())
+                    .withExtension(UNKNOWN_EXTENSION, oversizedExtensionValue)
+                    .build()
+                    .getEncoded();
+
+            // when
+            ThrowingCallable parse = () -> EncodedCrl.parse(crl);
+
+            // then
+            assertThatThrownBy(parse)
+                    .isInstanceOfSatisfying(CrlRefusedException.class,
+                            e -> assertThat(e.reason()).isEqualTo("everything but its entries is larger than 1 MB"));
+        }
+
+        @Test
+        void refusesCrlWithReason_whenItIsNotDerEncodedAndLargerThanTheWholeParseLimit() throws Exception {
+            // given
+            byte[] largeIndefiniteLength = withIndefiniteOuterLength(crlWithSerialNumbers(60_000));
+
+            // when
+            ThrowingCallable parse = () -> EncodedCrl.parse(largeIndefiniteLength);
+
+            // then
+            assertThat(largeIndefiniteLength.length).isGreaterThan(EncodedCrl.MAX_WHOLE_PARSE_SIZE);
+            assertThatThrownBy(parse)
+                    .isInstanceOfSatisfying(CrlRefusedException.class, e -> assertThat(e.reason())
+                            .isEqualTo("it is not DER-encoded and larger than 1 MB, the most read whole"));
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static byte[] crlWithSerialNumbers(int count) {
+        var builder = anX509Crl(ISSUER, rsaKeyPair.getPrivate());
+        for (int i = 0; i < count; i++) {
+            builder.withRevocation(BigInteger.valueOf(1_000_000L + i), REVOKED_AT, null);
+        }
+        try {
+            return builder.build().getEncoded();
+        } catch (CRLException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static byte[] withExtraSignedListField(byte[] der) throws Exception {
+        ASN1Sequence crl = ASN1Sequence.getInstance(der);
+        ASN1Sequence signedList = ASN1Sequence.getInstance(crl.getObjectAt(0));
+        ASN1Encodable[] fields = Arrays.copyOf(signedList.toArray(), signedList.size() + 1);
+        fields[signedList.size()] = DERNull.INSTANCE;
+        return new DERSequence(new ASN1Encodable[]{new DERSequence(fields), crl.getObjectAt(1), crl.getObjectAt(2)})
+                .getEncoded();
+    }
 
     static Stream<Named<SignatureAlgorithm>> signatureAlgorithms() throws Exception {
         return Stream

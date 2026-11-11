@@ -4,6 +4,7 @@ import com.otilm.api.exception.PlatformException;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.security.AlgorithmParameters;
@@ -22,6 +23,7 @@ import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.ECParameterSpec;
 import java.security.spec.PSSParameterSpec;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 import java.util.Iterator;
@@ -48,27 +50,34 @@ import static java.nio.charset.StandardCharsets.US_ASCII;
  * of thousands of certificates takes well over a hundred megabytes of heap while it is read. This keeps the encoding
  * and decodes the entries one at a time whenever they are iterated:
  * <ul>
- * <li>the JDK parses the header, everything but the entries, from a copy of the CRL without them, so the issuer, the
- * dates and the extensions read as before, and the JDK still refuses a CRL whose signed signature algorithm differs
- * from the outer one;</li>
+ * <li>the JDK parses the header, everything but the entries, from a copy of the CRL without them, so it reads the
+ * issuer, the dates and the extensions and refuses a CRL whose signed signature algorithm differs from the outer
+ * one;</li>
  * <li>the signature is verified over the CRL's own signed part, as the JDK verifies it;</li>
  * <li>BouncyCastle decodes the entries, once while parsing, so a malformed entry refuses the whole CRL before anything
  * is stored, and again for each iteration.</li>
  * </ul>
  * A CRL that is not DER-encoded at the levels read here, such as one with an indefinite length, is parsed whole by the
- * JDK, as before, but only up to {@value #MAX_WHOLE_PARSE_SIZE} bytes.
+ * JDK, up to {@value #MAX_WHOLE_PARSE_SIZE} bytes.
+ *
+ * <p>
+ * Parsing happens before the signature is verified, so a CRL from an untrusted URL is read within limits: the header at
+ * most {@value #MAX_WHOLE_PARSE_SIZE} bytes, each entry at most {@value #MAX_ENTRY_SIZE} bytes before BouncyCastle
+ * decodes it, and the signed list at most the {@value #MAX_SIGNED_LIST_FIELDS} fields a CRL has.
  */
 public final class EncodedCrl {
 
     static final int MAX_WHOLE_PARSE_SIZE = 1024 * 1024;
+    static final int MAX_ENTRY_SIZE = 64 * 1024;
+    static final int MAX_SIGNED_LIST_FIELDS = 7;
 
     private static final Logger logger = LoggerFactory.getLogger(EncodedCrl.class);
 
     private static final int TAG_SEQUENCE = 0x30;
     private static final int TAG_UTC_TIME = 0x17;
     private static final int TAG_GENERALIZED_TIME = 0x18;
-    private static final String PEM_BEGIN = "-----BEGIN ";
-    private static final String PEM_DASHES = "-----";
+    private static final byte[] PEM_BEGIN = "-----BEGIN ".getBytes(US_ASCII);
+    private static final byte[] PEM_DASHES = "-----".getBytes(US_ASCII);
 
     private final byte[] encoding;
     private final X509CRL header;
@@ -102,8 +111,7 @@ public final class EncodedCrl {
             return parseStreamed(der);
         } catch (NotDerException e) {
             if (der.length > MAX_WHOLE_PARSE_SIZE) {
-                throw new CRLException("The CRL is not DER-encoded and larger than " + MAX_WHOLE_PARSE_SIZE
-                        + " bytes, the most read whole");
+                throw new CrlRefusedException("it is not DER-encoded and larger than 1 MB, the most read whole");
             }
             return parseWhole(der);
         }
@@ -125,11 +133,12 @@ public final class EncodedCrl {
                 return true;
             }
             Signature verifier = Signature.getInstance(header.getSigAlgName());
-            verifier.initVerify(publicKey);
             AlgorithmParameterSpec parameters = signatureParameters(header);
             if (parameters != null) {
+                // set before the key, as the JDK does, so a key restricted to other parameters is refused
                 verifier.setParameter(parameters);
             }
+            verifier.initVerify(publicKey);
             verifier.update(encoding, signedStart, signedEnd - signedStart);
             return verifier.verify(header.getSignature());
         } catch (GeneralSecurityException | ProviderException e) {
@@ -157,17 +166,24 @@ public final class EncodedCrl {
         if (signed == null || signed.tag() != TAG_SEQUENCE) {
             throw new CRLException("The CRL is not a sequence of a signed list, an algorithm and a signature");
         }
-        List<Tlv> fields = new ArrayList<>();
+        List<Tlv> fields = new ArrayList<>(MAX_SIGNED_LIST_FIELDS);
         for (int at = signed.contentStart(); at < signed.end();) {
+            if (fields.size() == MAX_SIGNED_LIST_FIELDS) {
+                throw new CRLException("The CRL's signed list has more fields than a CRL has");
+            }
             Tlv field = Tlv.read(der, at, signed.end());
             fields.add(field);
             at = field.end();
         }
         int entriesField = indexOfRevokedCertificates(fields);
-        X509CRL header = parseJdk(headerOnly(der, crl, signed, fields, entriesField));
         Span entries = entriesField < 0
                 ? new Span(signed.end(), signed.end())
                 : new Span(fields.get(entriesField).contentStart(), fields.get(entriesField).end());
+        int entriesFieldSize = entriesField < 0 ? 0 : fields.get(entriesField).end() - fields.get(entriesField).start();
+        if (crl.end() - crl.contentStart() - entriesFieldSize > MAX_WHOLE_PARSE_SIZE) {
+            throw new CrlRefusedException("everything but its entries is larger than 1 MB");
+        }
+        X509CRL header = parseJdk(headerOnly(der, crl, signed, fields, entriesField));
         Date lastRevocationDate = checkEntries(der, entries);
         return new EncodedCrl(der, header, new Span(signed.start(), signed.end()), entries, lastRevocationDate, false);
     }
@@ -229,8 +245,18 @@ public final class EncodedCrl {
         out.write(content, 0, content.length);
     }
 
-    /** Decodes every entry once, so a malformed one refuses the CRL, and returns their latest revocation date. */
-    private static Date checkEntries(byte[] der, Span entries) throws CRLException {
+    /**
+     * Decodes every entry once, so a malformed one refuses the CRL, and returns their latest revocation date. Each
+     * entry is measured first: BouncyCastle decodes all elements of a sequence before checking how many there may be.
+     */
+    private static Date checkEntries(byte[] der, Span entries) throws CRLException, NotDerException {
+        for (int at = entries.start(); at < entries.end();) {
+            Tlv entry = Tlv.read(der, at, entries.end());
+            if (entry.end() - entry.start() > MAX_ENTRY_SIZE) {
+                throw new CrlRefusedException("one of its entries is larger than 64 KB");
+            }
+            at = entry.end();
+        }
         Date lastRevocationDate = null;
         try {
             Iterator<RevokedCertificate> iterator = new EntryIterator(der, entries.start(), entries.end());
@@ -319,28 +345,44 @@ public final class EncodedCrl {
         return new RevokedCertificate(serialNumber, revocationDate, reason);
     }
 
-    /** Takes the DER encoding out of PEM armour, which the JDK reads too; DER input starts with a sequence tag. */
+    /**
+     * Takes the DER encoding out of PEM armour, which the JDK reads too; DER input starts with a sequence tag. The
+     * markers are found in the bytes and only the armoured range is decoded, so the input is not copied as text.
+     */
     private static byte[] removePemArmour(byte[] input) throws CRLException {
         if (input.length > 0 && (input[0] & 0xff) == TAG_SEQUENCE) {
             return input;
         }
-        String text = new String(input, US_ASCII);
-        int begin = text.indexOf(PEM_BEGIN);
-        int labelEnd = begin < 0 ? -1 : text.indexOf(PEM_DASHES, begin + PEM_BEGIN.length());
+        int begin = indexOf(input, PEM_BEGIN, 0);
+        int labelStart = begin + PEM_BEGIN.length;
+        int labelEnd = begin < 0 ? -1 : indexOf(input, PEM_DASHES, labelStart);
         if (labelEnd < 0) {
             throw new CRLException("The CRL is neither DER- nor PEM-encoded");
         }
-        String label = text.substring(begin + PEM_BEGIN.length(), labelEnd);
-        int contentStart = labelEnd + PEM_DASHES.length();
-        int end = text.indexOf("-----END " + label + PEM_DASHES, contentStart);
+        String label = new String(input, labelStart, labelEnd - labelStart, US_ASCII);
+        int contentStart = labelEnd + PEM_DASHES.length;
+        int end = indexOf(input, ("-----END " + label + "-----").getBytes(US_ASCII), contentStart);
         if (end < 0) {
             throw new CRLException("The PEM-encoded CRL has no matching end line");
         }
-        try {
-            return Base64.getMimeDecoder().decode(text.substring(contentStart, end));
-        } catch (IllegalArgumentException e) {
+        byte[] decoded = new byte[(end - contentStart) / 4 * 3 + 3];
+        try (InputStream base64 = Base64
+                .getMimeDecoder()
+                .wrap(new ByteArrayInputStream(input, contentStart, end - contentStart))) {
+            int length = base64.readNBytes(decoded, 0, decoded.length);
+            return Arrays.copyOf(decoded, length);
+        } catch (IOException | IllegalArgumentException e) {
             throw new CRLException("The PEM-encoded CRL is not valid Base64", e);
         }
+    }
+
+    private static int indexOf(byte[] data, byte[] marker, int from) {
+        for (int i = Math.max(from, 0); i <= data.length - marker.length; i++) {
+            if (Arrays.equals(data, i, i + marker.length, marker, 0, marker.length)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private record Span(int start, int end) {
