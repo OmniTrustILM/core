@@ -4,6 +4,8 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
+import com.otilm.api.model.core.certificate.X509CertificateRequestTypeDetailsDto;
+import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.util.CertificateUtil;
@@ -14,7 +16,7 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class CertificateDetailDtoMapperDisplayNameTest {
+class CertificateDetailDtoMapperTypeFieldsTest {
 
     private static final String COMMON_NAME = "display.example.com";
 
@@ -90,5 +92,45 @@ class CertificateDetailDtoMapperDisplayNameTest {
 
         // then
         assertThat(dto.getCertificateRequest().getDisplayName()).isEqualTo(COMMON_NAME);
+    }
+
+    @Test
+    void fillsTheX509TypeDetailsBesideTheFlatFields_whenMappingTheDetail() {
+        // given
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withCommonName(COMMON_NAME)
+                .withSubjectDn("CN=" + COMMON_NAME)
+                .build();
+
+        // when
+        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getTypeDetails()).isInstanceOfSatisfying(X509CertificateTypeDetailsDto.class, details -> {
+            assertThat(details.getSubjectDn()).isEqualTo(dto.getSubjectDn());
+            assertThat(details.getCommonName()).isEqualTo(COMMON_NAME);
+        });
+    }
+
+    @Test
+    void fillsTheX509RequestDetails_whenTheDetailCarriesARequest() {
+        // given
+        X509CertificateRequestEntity request = aCertificateRequest()
+                .withContent("content")
+                .withSubjectDn("CN=request-holder")
+                .build();
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withCertificateRequest(request)
+                .build();
+
+        // when
+        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto.getCertificateRequest().getTypeDetails())
+                .isInstanceOfSatisfying(X509CertificateRequestTypeDetailsDto.class,
+                        details -> assertThat(details.getSubjectDn()).isEqualTo("CN=request-holder"));
     }
 }

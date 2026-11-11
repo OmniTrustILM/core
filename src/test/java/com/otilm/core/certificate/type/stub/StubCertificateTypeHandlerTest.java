@@ -1,6 +1,6 @@
 package com.otilm.core.certificate.type.stub;
 
-import com.otilm.core.certificate.type.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.core.certificate.type.CertificateTypeHandlerException;
 import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
@@ -84,7 +84,7 @@ class StubCertificateTypeHandlerTest {
 
         // when
         boolean revoke = handler.supports(CertificateOperation.REVOKE);
-        boolean chainValidation = handler.supports(CertificateOperation.CHAIN_VALIDATION);
+        boolean chainValidation = handler.supports(CertificateOperation.VALIDATE_CHAIN);
 
         // then
         assertThat(revoke).isFalse();

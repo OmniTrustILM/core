@@ -2,7 +2,10 @@ package com.otilm.core.certificate.type;
 
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
+import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import java.util.List;
 import java.util.Optional;
@@ -49,7 +52,7 @@ public interface CertificateTypeHandler {
     byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding);
 
     /** The details only this type has, or empty when everything it has is among the common properties. */
-    Optional<CertificateTypeDetails> describeDetails(ParsedCertificate certificate);
+    Optional<CertificateTypeDetailsDto> describeDetails(Certificate certificate);
 
     /** The reasons the request exceeds the limits of the RA profile for this type; empty when it is within them. */
     default List<String> checkProfileLimits(ParsedRequest request, RaProfile raProfile) {

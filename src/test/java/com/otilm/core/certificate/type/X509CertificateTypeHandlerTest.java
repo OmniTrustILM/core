@@ -3,8 +3,12 @@ package com.otilm.core.certificate.type;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
+import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
+import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.util.CertificateUtil;
@@ -32,6 +36,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.certificate.type.stub.StubCertificateFixtures.certificate;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class X509CertificateTypeHandlerTest {
@@ -346,15 +351,21 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
-    void describesNoTypeSpecificDetails_whenTheCertificateIsX509() throws Exception {
+    void describesTheX509Details_whenTheCertificateIsX509() {
         // given
-        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        X509CertificateEntity certificate = aCertificate()
+                .withCommonName("details.example.com")
+                .withSubjectDn("CN=details.example.com")
+                .build();
 
         // when
-        Optional<CertificateTypeDetails> details = handler.describeDetails(leaf);
+        Optional<CertificateTypeDetailsDto> details = handler.describeDetails(certificate);
 
         // then
-        assertThat(details).isEmpty();
+        assertThat(details.orElseThrow()).isInstanceOfSatisfying(X509CertificateTypeDetailsDto.class, x509Details -> {
+            assertThat(x509Details.getCommonName()).isEqualTo("details.example.com");
+            assertThat(x509Details.getSubjectDn()).isEqualTo("CN=details.example.com");
+        });
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.otilm.core.certificate.type;
 
+import com.otilm.api.model.core.certificate.CertificateOperation;
+
 /** No handler is registered for a certificate type, or a type does not support an operation. */
 public class UnsupportedCertificateTypeException extends CertificateTypeHandlerException {
 

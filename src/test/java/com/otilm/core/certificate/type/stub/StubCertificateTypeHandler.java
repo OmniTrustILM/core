@@ -2,16 +2,17 @@ package com.otilm.core.certificate.type.stub;
 
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
+import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.core.certificate.type.CertificateOperation;
 import com.otilm.core.certificate.type.CertificateProperties;
-import com.otilm.core.certificate.type.CertificateTypeDetails;
 import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerException;
 import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
+import com.otilm.core.dao.entity.Certificate;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.PublicKey;
@@ -21,7 +22,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.EnumSet;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -43,7 +43,7 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
 
     @Override
     public Set<CertificateOperation> supportedOperations() {
-        return EnumSet.of(CertificateOperation.RENEW, CertificateOperation.COMPLIANCE);
+        return EnumSet.of(CertificateOperation.RENEW, CertificateOperation.CHECK_COMPLIANCE);
     }
 
     @Override
@@ -107,8 +107,12 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
-    public Optional<CertificateTypeDetails> describeDetails(ParsedCertificate certificate) {
-        return Optional.of(new CertificateTypeDetails(TYPE_CODE, Map.of("holder", certificate.properties().holder())));
+    public Optional<CertificateTypeDetailsDto> describeDetails(Certificate certificate) {
+        return Optional.of(new StubCertificateTypeDetails(certificate.getCommonName()));
+    }
+
+    /** The details of a stub certificate: its holder. */
+    public record StubCertificateTypeDetails(String holder) implements CertificateTypeDetailsDto {
     }
 
     private static Instant startOfDay(String date) {

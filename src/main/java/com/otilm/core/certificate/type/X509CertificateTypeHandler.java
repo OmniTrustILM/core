@@ -3,9 +3,14 @@ package com.otilm.core.certificate.type;
 import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
+import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.container.KeystoreDetection;
+import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
+import com.otilm.core.mapper.certificate.X509TypeDetailsMapper;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
@@ -199,8 +204,8 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
-    public Optional<CertificateTypeDetails> describeDetails(ParsedCertificate certificate) {
-        return Optional.empty();
+    public Optional<CertificateTypeDetailsDto> describeDetails(Certificate certificate) {
+        return Optional.ofNullable(X509CertificateEntity.fromOrNull(certificate)).map(X509TypeDetailsMapper::toDetails);
     }
 
     /** Reads an already parsed X.509 certificate the way {@link #parseCertificate(byte[])} reads its encoding. */
