@@ -3,18 +3,14 @@ package com.otilm.core.certificate.type;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
-import com.otilm.api.model.core.certificate.CertificateRequestDto;
-import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
-import com.otilm.api.model.core.certificate.X509CertificateRequestTypeDetailsDto;
-import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
+import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
-import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.oid.OidHandler;
@@ -47,7 +43,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.StubCertificateFixtures.certificate;
-import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -557,24 +552,6 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
-    void describesTheX509Details_whenTheCertificateIsX509() {
-        // given
-        X509CertificateEntity certificate = aCertificate()
-                .withCommonName("details.example.com")
-                .withSubjectDn("CN=details.example.com")
-                .build();
-
-        // when
-        Optional<CertificateTypeDetailsDto> details = handler.describeDetails(certificate);
-
-        // then
-        assertThat(details.orElseThrow()).isInstanceOfSatisfying(X509CertificateTypeDetailsDto.class, x509Details -> {
-            assertThat(x509Details.getCommonName()).isEqualTo("details.example.com");
-            assertThat(x509Details.getSubjectDn()).isEqualTo("CN=details.example.com");
-        });
-    }
-
-    @Test
     void showsTheDisplayNameOfTheOid_whenPresentingTheExtendedKeyUsages() {
         // given
         // an OID of no registered arc, so the entry cannot replace one the shared cache already holds
@@ -584,11 +561,8 @@ class X509CertificateTypeHandlerTest {
         OidHandler
                 .cacheOid(OidCategory.EXTENDED_KEY_USAGE, namedOid,
                         new OidRecord(displayName, null, null, null, null, null, true));
-        CertificateDetailDto detail = new CertificateDetailDto();
+        X509CertificateDetail detail = new X509CertificateDetail();
         detail.setExtendedKeyUsage(List.of(namedOid, unnamedOid));
-        X509CertificateTypeDetailsDto details = new X509CertificateTypeDetailsDto();
-        details.setExtendedKeyUsage(List.of(namedOid, unnamedOid));
-        detail.setTypeDetails(details);
 
         // when
         try {
@@ -596,32 +570,28 @@ class X509CertificateTypeHandlerTest {
 
             // then
             assertThat(detail.getExtendedKeyUsage()).containsExactly(displayName, unnamedOid);
-            assertThat(details.getExtendedKeyUsage()).containsExactly(displayName, unnamedOid);
         } finally {
             OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, namedOid);
         }
     }
 
     @Test
-    void givesTheRequestDetailsTheAlternativeSignatureAttributes_whenPresentingTheRequest() {
+    void givesTheX509RequestTheAlternativeSignatureAttributes_whenSettingThem() {
         // given
         ResponseAttribute altSignatureAttribute = new ResponseAttributeV3();
-        CertificateRequestDto request = new CertificateRequestDto();
-        request.setAltSignatureAttributes(List.of(altSignatureAttribute));
-        X509CertificateRequestTypeDetailsDto details = new X509CertificateRequestTypeDetailsDto();
-        request.setTypeDetails(details);
+        X509CertificateRequestDetail request = new X509CertificateRequestDetail();
 
         // when
-        handler.presentRequest(request);
+        handler.setAlternativeSignatureAttributes(request, List.of(altSignatureAttribute));
 
         // then
-        assertThat(details.getAltSignatureAttributes()).containsExactly(altSignatureAttribute);
+        assertThat(request.getAltSignatureAttributes()).containsExactly(altSignatureAttribute);
     }
 
     @Test
     void leavesTheDetailAsItIs_whenItHasNoExtendedKeyUsages() {
         // given
-        CertificateDetailDto detail = new CertificateDetailDto();
+        X509CertificateDetail detail = new X509CertificateDetail();
 
         // when
         handler.presentDetail(detail);

@@ -1,21 +1,18 @@
 package com.otilm.core.certificate.type;
 
 import com.otilm.api.exception.CertificateRequestException;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
-import com.otilm.api.model.core.certificate.CertificateRequestDto;
+import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.certificate.CertificateType;
-import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
-import com.otilm.api.model.core.certificate.X509CertificateRequestTypeDetailsDto;
-import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
+import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.container.KeystoreDetection;
-import com.otilm.core.dao.entity.Certificate;
-import com.otilm.core.dao.entity.X509CertificateEntity;
-import com.otilm.core.mapper.certificate.X509TypeDetailsMapper;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
@@ -224,9 +221,30 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         }
     }
 
+    /** Shows the extended key usages by the display names of their OIDs, where a name is known. */
     @Override
-    public Optional<CertificateTypeDetailsDto> describeDetails(Certificate certificate) {
-        return Optional.ofNullable(X509CertificateEntity.fromOrNull(certificate)).map(X509TypeDetailsMapper::toDetails);
+    public void presentDetail(CertificateDetail detail) {
+        if (!(detail instanceof X509CertificateDetail x509Detail) || x509Detail.getExtendedKeyUsage() == null) {
+            return;
+        }
+        Map<String, OidRecord> oidToName = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
+        if (oidToName == null) {
+            return;
+        }
+        x509Detail
+                .setExtendedKeyUsage(x509Detail
+                        .getExtendedKeyUsage()
+                        .stream()
+                        .map(oid -> oidToName.get(oid) != null ? oidToName.get(oid).displayName() : oid)
+                        .toList());
+    }
+
+    @Override
+    public void setAlternativeSignatureAttributes(CertificateRequestDetail request,
+            List<ResponseAttribute> attributes) {
+        if (request instanceof X509CertificateRequestDetail x509Request) {
+            x509Request.setAltSignatureAttributes(attributes);
+        }
     }
 
     /** Reads an already parsed X.509 certificate the way {@link #parseCertificate(byte[])} reads its encoding. */
@@ -235,37 +253,6 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             return new ParsedCertificate(typeCode(), certificate.getEncoded(), propertiesOf(certificate));
         } catch (NoSuchAlgorithmException e) {
             throw new CertificateException(e);
-        }
-    }
-
-    /** Shows the extended key usages by the display names of their OIDs, where a name is known. */
-    @Override
-    @SuppressWarnings("deprecation")
-    public void presentDetail(CertificateDetailDto detail) {
-        if (detail.getExtendedKeyUsage() == null) {
-            return;
-        }
-        Map<String, OidRecord> oidToName = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
-        if (oidToName == null) {
-            return;
-        }
-        List<String> names = detail
-                .getExtendedKeyUsage()
-                .stream()
-                .map(oid -> oidToName.get(oid) != null ? oidToName.get(oid).displayName() : oid)
-                .toList();
-        detail.setExtendedKeyUsage(names);
-        if (detail.getTypeDetails() instanceof X509CertificateTypeDetailsDto x509Details) {
-            x509Details.setExtendedKeyUsage(names);
-        }
-    }
-
-    /** Gives the request details the alternative signature attributes that were read into the flat field. */
-    @Override
-    @SuppressWarnings("deprecation")
-    public void presentRequest(CertificateRequestDto request) {
-        if (request.getTypeDetails() instanceof X509CertificateRequestTypeDetailsDto details) {
-            details.setAltSignatureAttributes(request.getAltSignatureAttributes());
         }
     }
 

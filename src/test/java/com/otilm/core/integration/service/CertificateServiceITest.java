@@ -33,7 +33,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateContentDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
@@ -51,6 +51,8 @@ import com.otilm.api.model.core.certificate.CertificateSubjectType;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.certificate.QcType;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
+import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.certificate.group.GroupDto;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -800,7 +802,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void returnsCertificateDetail_whenFound() throws NotFoundException, CertificateException, IOException {
             // when
-            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+            CertificateDetail dto = certificateService.getCertificate(certificate.getSecuredUuid());
 
             // then
             assertThat(dto).isNotNull();
@@ -820,7 +822,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             storeCommonNameCsrAttribute(csrEntity.getUuid());
 
             // when
-            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+            CertificateDetail dto = certificateService.getCertificate(certificate.getSecuredUuid());
 
             // then
             assertThat(dto.getCertificateRequest()).isNotNull();
@@ -830,7 +832,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .isEqualTo(CsrAttributes.COMMON_NAME_ATTRIBUTE_NAME);
             // no bleeding into the operation-scoped slots
             assertThat(dto.getCertificateRequest().getSignatureAttributes()).isEmpty();
-            assertThat(dto.getCertificateRequest().getAltSignatureAttributes()).isEmpty();
+            assertThat(((X509CertificateRequestDetail) dto.getCertificateRequest()).getAltSignatureAttributes())
+                    .isEmpty();
         }
 
         @Test
@@ -854,7 +857,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             authorizationRepository.save(auth);
 
             // when
-            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+            CertificateDetail dto = certificateService.getCertificate(certificate.getSecuredUuid());
 
             // then: the read-only block surfaces state, deadline and attempt count — never the challenge
             assertThat(dto.getRegistration()).isNotNull();
@@ -876,7 +879,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             auth.setChallenge("challenge");
             authorizationRepository.save(auth);
 
-            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+            CertificateDetail dto = certificateService.getCertificate(certificate.getSecuredUuid());
 
             assertThat(dto.getRegistration()).isNotNull();
             assertThat(dto.getRegistration().getState()).isEqualTo(CertificateRegistrationState.valueOf(state.name()));
@@ -885,7 +888,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void omitsRegistrationBlock_whenNotPreRegistered() throws NotFoundException, CertificateException, IOException {
             // The default fixture certificate carries no authorization row.
-            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+            CertificateDetail dto = certificateService.getCertificate(certificate.getSecuredUuid());
             assertThat(dto.getRegistration()).isNull();
         }
 
@@ -1005,7 +1008,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
             // when
             UuidDto uuidDto = certificateService.uploadSync(request);
-            CertificateDetailDto certificateNew = certificateService
+            CertificateDetail certificateNew = certificateService
                     .getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
 
             // then
@@ -1057,7 +1060,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // then
             assertThat(uuidDto).isNotNull();
 
-            CertificateDetailDto dto = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
+            X509CertificateDetail dto = (X509CertificateDetail) certificateService
+                    .getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
             CertificateQcStatementsDto qc = dto.getQcStatements();
             assertThat(qc).as("qcStatements should be present in the DTO").isNotNull();
             assertThat(qc.getQcCompliance()).as("qcCompliance should be true").isEqualTo(Boolean.TRUE);
@@ -1083,7 +1087,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // then
             assertThat(uuidDto).isNotNull();
 
-            CertificateDetailDto dto = certificateService.getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
+            X509CertificateDetail dto = (X509CertificateDetail) certificateService
+                    .getCertificate(SecuredUUID.fromString(uuidDto.getUuid()));
             assertThat(dto.getQcStatements()).as("qcStatements should be null for a plain certificate").isNull();
         }
 
@@ -1516,7 +1521,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             protocolInfo.setProtocolProfileUuid(acmeProfile.getUuid());
 
             // when
-            CertificateDetailDto certificateDetailDto = certificateService
+            CertificateDetail certificateDetailDto = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
                             List.of(), List.of(), null, null, raProfile.getUuid(), null, protocolInfo);
             Certificate certificateToBeIssued = certificateRepository
@@ -1534,12 +1539,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
         @Test
         void storesARequestOfItsOwn_whenSubmittingAnIdenticalCsrAgain() throws Exception {
             // given
-            CertificateDetailDto first = certificateService
+            CertificateDetail first = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
                             List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
 
             // when
-            CertificateDetailDto second = certificateService
+            CertificateDetail second = certificateService
                     .submitCertificateRequest(SAMPLE_PKCS10, CertificateRequestFormat.PKCS10, List.of(), List.of(),
                             List.of(), List.of(), null, null, raProfile.getUuid(), null, null);
 
@@ -1618,7 +1623,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             certificateService.updateCertificateObjects(certificateSecuredUuid, request);
 
             // then - the connector's metadata is attached to the certificate
-            CertificateDetailDto detail = certificateService.getCertificate(certificateSecuredUuid);
+            CertificateDetail detail = certificateService.getCertificate(certificateSecuredUuid);
             assertThat(detail.getMetadata()).hasSize(1);
             assertThat(detail.getMetadata().getFirst().getConnectorName()).isEqualTo(connector.getName());
             assertThat(detail.getMetadata().getFirst().getItems()).hasSize(1);
@@ -1866,7 +1871,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             request.setGroupUuids(List.of(group.getUuid().toString()));
             certificateService.bulkUpdateCertificatesObjects(SecurityFilter.create(), request);
 
-            CertificateDetailDto detailDto = certificateService.getCertificate(certificateNew.getSecuredUuid());
+            CertificateDetail detailDto = certificateService.getCertificate(certificateNew.getSecuredUuid());
 
             // then
             assertThat(detailDto.getGroups()).hasSize(1);
@@ -2077,7 +2082,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
             // when
             certificateService.revokeCertificate(certificate.getSerialNumber());
 
-            CertificateDetailDto dto = certificateService.getCertificate(certificate.getSecuredUuid());
+            CertificateDetail dto = certificateService.getCertificate(certificate.getSecuredUuid());
 
             // then
             assertThat(dto).isNotNull();

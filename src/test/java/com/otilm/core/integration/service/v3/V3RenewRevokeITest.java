@@ -7,7 +7,7 @@ import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -306,7 +306,7 @@ class V3RenewRevokeITest extends BaseSpringBootTest {
                                 true));
 
         // The persisted values surface on the successor's detail, like issue/revoke/register values do.
-        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromUUID(successorUuid));
+        CertificateDetail detail = certificateExternalService.getCertificate(SecuredUUID.fromUUID(successorUuid));
         Assertions
                 .assertEquals(1, detail.getRenewAttributes().size(),
                         "renew attributes must surface on the successor certificate detail");

@@ -5,7 +5,7 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -142,7 +142,7 @@ class V3IdentifyITest extends BaseSpringBootTest {
                         .withRequestBody(matchingJsonPath("$.attributes[0].content[0].data", equalTo("agent-42"))));
 
         // The submitted values surface on the certificate detail, keyed to the new authority's connector.
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
         Assertions
                 .assertEquals(1, detail.getIdentifyAttributes().size(),

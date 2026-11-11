@@ -19,7 +19,7 @@ import com.otilm.api.model.client.raprofile.RaProfileScepDetailResponseDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.logging.enums.Module;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
@@ -315,7 +315,7 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, affiliatedResource = Resource.AUTHORITY,
             operation = Operation.GET_CHAIN)
-    public List<CertificateDetailDto> getAuthorityCertificateChain(
+    public List<CertificateDetail> getAuthorityCertificateChain(
             @LogResource(uuid = true, affiliated = true) String authorityUuid,
             @LogResource(uuid = true) String raProfileUuid) throws ConnectorException, NotFoundException {
         return raProfileService

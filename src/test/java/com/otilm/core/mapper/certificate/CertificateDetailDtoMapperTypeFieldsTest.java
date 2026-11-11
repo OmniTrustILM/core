@@ -1,11 +1,13 @@
 package com.otilm.core.mapper.certificate;
 
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
+import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
-import com.otilm.api.model.core.certificate.X509CertificateRequestTypeDetailsDto;
-import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
+import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
+import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.util.CertificateUtil;
@@ -29,7 +31,7 @@ class CertificateDetailDtoMapperTypeFieldsTest {
                 .build();
 
         // when
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
 
         // then
         assertThat(dto.getDisplayName()).isEqualTo(COMMON_NAME);
@@ -41,7 +43,7 @@ class CertificateDetailDtoMapperTypeFieldsTest {
         X509CertificateEntity certificate = aCertificate().withUuid(UUID.randomUUID()).withCommonName("").build();
 
         // when
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
 
         // then
         assertThat(dto.getDisplayName()).isEqualTo(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
@@ -88,14 +90,14 @@ class CertificateDetailDtoMapperTypeFieldsTest {
                 .build();
 
         // when
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
 
         // then
         assertThat(dto.getCertificateRequest().getDisplayName()).isEqualTo(COMMON_NAME);
     }
 
     @Test
-    void fillsTheX509TypeDetailsBesideTheFlatFields_whenMappingTheDetail() {
+    void buildsTheX509Subclass_whenTheCertificateIsX509() {
         // given
         X509CertificateEntity certificate = aCertificate()
                 .withUuid(UUID.randomUUID())
@@ -104,17 +106,94 @@ class CertificateDetailDtoMapperTypeFieldsTest {
                 .build();
 
         // when
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
 
         // then
-        assertThat(dto.getTypeDetails()).isInstanceOfSatisfying(X509CertificateTypeDetailsDto.class, details -> {
-            assertThat(details.getSubjectDn()).isEqualTo(dto.getSubjectDn());
-            assertThat(details.getCommonName()).isEqualTo(COMMON_NAME);
+        assertThat(dto)
+                .isInstanceOfSatisfying(X509CertificateDetail.class,
+                        x509 -> assertThat(x509.getSubjectDn()).isEqualTo("CN=" + COMMON_NAME));
+    }
+
+    @Test
+    void carriesTheContentOfTheIssuedCertificate_whenItHasBeenIssued() {
+        // given
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withCertificateContent(new CertificateContent())
+                .withIssuerDn("CN=Details CA")
+                .withKeyUsage(CertificateKeyUsage.DIGITAL_SIGNATURE)
+                .withExtendedKeyUsage("1.3.6.1.5.5.7.3.1")
+                .build();
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto).isInstanceOfSatisfying(X509CertificateDetail.class, x509 -> {
+            assertThat(x509.getIssuerDn()).isEqualTo("CN=Details CA");
+            assertThat(x509.getKeyUsage()).containsExactly(CertificateKeyUsage.DIGITAL_SIGNATURE);
+            assertThat(x509.getExtendedKeyUsage()).containsExactly("1.3.6.1.5.5.7.3.1");
         });
     }
 
     @Test
-    void fillsTheX509RequestDetails_whenTheDetailCarriesARequest() {
+    void leavesTheIssuedContentEmpty_whenTheCertificateHasNoContentYet() {
+        // given
+        X509CertificateEntity registration = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withIssuerDn("CN=Details CA")
+                .withSubjectDn("CN=holder")
+                .build();
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(registration);
+
+        // then
+        assertThat(dto).isInstanceOfSatisfying(X509CertificateDetail.class, x509 -> {
+            assertThat(x509.getIssuerDn()).isNull();
+            assertThat(x509.getKeyUsage()).isNull();
+            assertThat(x509.getSubjectType()).isNull();
+            assertThat(x509.getSubjectDn()).isEqualTo("CN=holder");
+        });
+    }
+
+    @Test
+    void leavesQcStatementsEmpty_whenNoQcFieldIsSet() {
+        // given
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withCertificateContent(new CertificateContent())
+                .build();
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto)
+                .isInstanceOfSatisfying(X509CertificateDetail.class,
+                        x509 -> assertThat(x509.getQcStatements()).isNull());
+    }
+
+    @Test
+    void carriesQcStatements_whenAQcFieldIsSet() {
+        // given
+        X509CertificateEntity certificate = aCertificate()
+                .withUuid(UUID.randomUUID())
+                .withCertificateContent(new CertificateContent())
+                .withQcCompliance(true)
+                .build();
+
+        // when
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+
+        // then
+        assertThat(dto)
+                .isInstanceOfSatisfying(X509CertificateDetail.class,
+                        x509 -> assertThat(x509.getQcStatements().getQcCompliance()).isTrue());
+    }
+
+    @Test
+    void buildsTheX509RequestSubclass_whenTheDetailCarriesARequest() {
         // given
         X509CertificateRequestEntity request = aCertificateRequest()
                 .withContent("content")
@@ -126,11 +205,11 @@ class CertificateDetailDtoMapperTypeFieldsTest {
                 .build();
 
         // when
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        CertificateDetail dto = CertificateDetailDtoMapper.toDetailDto(certificate);
 
         // then
-        assertThat(dto.getCertificateRequest().getTypeDetails())
-                .isInstanceOfSatisfying(X509CertificateRequestTypeDetailsDto.class,
-                        details -> assertThat(details.getSubjectDn()).isEqualTo("CN=request-holder"));
+        assertThat(dto.getCertificateRequest())
+                .isInstanceOfSatisfying(X509CertificateRequestDetail.class,
+                        x509 -> assertThat(x509.getSubjectDn()).isEqualTo("CN=request-holder"));
     }
 }

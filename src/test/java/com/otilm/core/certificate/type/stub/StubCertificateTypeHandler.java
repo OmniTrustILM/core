@@ -3,7 +3,6 @@ package com.otilm.core.certificate.type.stub;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
-import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.certificate.type.CertificateProperties;
 import com.otilm.core.certificate.type.CertificateTypeHandler;
@@ -12,7 +11,6 @@ import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
-import com.otilm.core.dao.entity.Certificate;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.PublicKey;
@@ -104,15 +102,6 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
     @Override
     public byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding) {
         return certificate.encoded();
-    }
-
-    @Override
-    public Optional<CertificateTypeDetailsDto> describeDetails(Certificate certificate) {
-        return Optional.of(new StubCertificateTypeDetails(certificate.getCommonName()));
-    }
-
-    /** The details of a stub certificate: its holder. */
-    public record StubCertificateTypeDetails(String holder) implements CertificateTypeDetailsDto {
     }
 
     private static Instant startOfDay(String date) {

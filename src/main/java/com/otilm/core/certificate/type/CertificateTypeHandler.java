@@ -1,13 +1,12 @@
 package com.otilm.core.certificate.type;
 
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
-import com.otilm.api.model.core.certificate.CertificateRequestDto;
-import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
+import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
-import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import java.util.List;
 import java.util.Optional;
@@ -53,21 +52,19 @@ public interface CertificateTypeHandler {
 
     byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding);
 
-    /** The details only this type has, or empty when everything it has is among the common properties. */
-    Optional<CertificateTypeDetailsDto> describeDetails(Certificate certificate);
-
     /**
      * Adjusts the certificate detail for the client, where what the type stores differs from what is shown, such as
      * codes that have display names. By default nothing changes.
      */
-    default void presentDetail(CertificateDetailDto detail) {
+    default void presentDetail(CertificateDetail detail) {
     }
 
     /**
-     * Adjusts the certificate request of a detail once its attributes are in, so that the type details agree with the
-     * fields they replace. By default nothing changes.
+     * Gives the request the attributes that signed with its alternative key, for a type whose requests have one. By
+     * default nothing changes.
      */
-    default void presentRequest(CertificateRequestDto request) {
+    default void setAlternativeSignatureAttributes(CertificateRequestDetail request,
+            List<ResponseAttribute> attributes) {
     }
 
     /** The reasons the request exceeds the limits of the RA profile for this type; empty when it is within them. */

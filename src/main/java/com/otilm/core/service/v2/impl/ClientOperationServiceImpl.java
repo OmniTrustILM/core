@@ -26,7 +26,7 @@ import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -508,7 +508,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     @Transactional(propagation = Propagation.SUPPORTS, rollbackFor = Exception.class)
-    public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
+    public CertificateDetail submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException {
         return submitCertificateRequestInternal(request, protocolInfo).certificate();
@@ -563,7 +563,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
 
         TransactionStatus status = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        CertificateDetailDto certificate;
+        CertificateDetail certificate;
         try {
             certificate = certificateService
                     .submitCertificateRequest(certificateRequest, request.getFormat(), request.getSignatureAttributes(),
@@ -591,7 +591,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private record PreparedRequest(String csr, List<String> requestAttributeWarnings) {
     }
 
-    private record SubmittedRequest(CertificateDetailDto certificate, List<String> requestAttributeWarnings) {
+    private record SubmittedRequest(CertificateDetail certificate, List<String> requestAttributeWarnings) {
     }
 
     /**
@@ -679,7 +679,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, protocolInfo,
                 "Failed to submit certificate request");
-        CertificateDetailDto certificate = submitted.certificate();
+        CertificateDetail certificate = submitted.certificate();
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
         response.setCertificateData("");
@@ -2471,7 +2471,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, null,
                 "Failed to submit certificate request for certificate renewal");
-        CertificateDetailDto newCertificate = submitted.certificate();
+        CertificateDetail newCertificate = submitted.certificate();
         persistRenewAttributes(oldCertificate.getRaProfile(), UUID.fromString(newCertificate.getUuid()),
                 request.getAttributes());
 
@@ -2570,7 +2570,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             logger.info("Certificate {} was renewed by authority", certificateUuid);
 
-            CertificateDetailDto certificateDetailDto = certificateService
+            CertificateDetail certificateDetailDto = certificateService
                     .issueRequestedCertificate(certificateUuid, renewResult.certificateData(), renewResult.meta());
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
@@ -2675,7 +2675,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, null,
                 "Failed to submit certificate request for certificate rekey");
-        CertificateDetailDto newCertificate = submitted.certificate();
+        CertificateDetail newCertificate = submitted.certificate();
         persistRenewAttributes(oldCertificate.getRaProfile(), UUID.fromString(newCertificate.getUuid()),
                 request.getAttributes());
 
@@ -2838,7 +2838,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             logger.info("Certificate {} was rekeyed by authority", certificateUuid);
 
-            CertificateDetailDto certificateDetailDto = certificateService
+            CertificateDetail certificateDetailDto = certificateService
                     .issueRequestedCertificate(certificateUuid, rekeyResult.certificateData(), rekeyResult.meta());
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
@@ -3740,7 +3740,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public CertificateDetailDto manuallyIssueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+    public CertificateDetail manuallyIssueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, ManuallyIssueCertificateRequestDto request) throws NotFoundException,
             CertificateException, AlreadyExistException, ConnectorException, AttributeException {
         certificateService.checkIssuePermissions();
@@ -4011,7 +4011,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public CertificateDetailDto cancelPendingCertificateOperation(SecuredParentUUID authorityUuid,
+    public CertificateDetail cancelPendingCertificateOperation(SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid, String certificateUuid, CancelPendingCertificateRequestDto request)
             throws NotFoundException {
         Certificate cert = certificateRepository
@@ -4023,7 +4023,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         String reason = request != null && request.getReason() != null ? request.getReason() : "";
 
         invokeConnectorCancelOrThrow(cert, target);
-        CertificateDetailDto result = commitLocalCancel(cert, target, reason);
+        CertificateDetail result = commitLocalCancel(cert, target, reason);
 
         eventProducer
                 .produceMessage(CertificateActionPerformedEventHandler
@@ -4237,7 +4237,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * successor.
      * </p>
      */
-    private CertificateDetailDto commitLocalCancel(Certificate cert, CancelTarget target, String reason) {
+    private CertificateDetail commitLocalCancel(Certificate cert, CancelTarget target, String reason) {
         TransactionStatus cleanupTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             // Re-read the cert under the new transaction. The method runs as
@@ -4284,7 +4284,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // Build the response DTO while the session is open so it reflects the committed
             // post-cancel state (the locked `fresh`, not the stale pre-cancel `cert`) and its lazy
             // associations resolve here rather than after the session closes.
-            CertificateDetailDto dto = fresh.mapToDto();
+            CertificateDetail dto = fresh.mapToDto();
             transactionManager.commit(cleanupTx);
             return dto;
         } catch (RuntimeException e) {

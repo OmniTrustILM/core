@@ -25,13 +25,13 @@ import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDetailDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.GeneralNameType;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
@@ -1241,7 +1241,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                         "the platform-level placeholder must record the requested SAN");
         // The certificate detail must expose the SAN for a content-less placeholder too — the detail mapper
         // reads the SAN column unconditionally, not only for certificates that already carry issued content.
-        CertificateDetailDto detail = certificateExternalService
+        X509CertificateDetail detail = (X509CertificateDetail) certificateExternalService
                 .getCertificate(SecuredUUID.fromString(response.getUuid()));
         Assertions
                 .assertEquals(List.of("device-1.example.com"), detail.getSubjectAlternativeNames().get("dNSName"),

@@ -2,16 +2,16 @@ package com.otilm.core.mapper.certificate;
 
 import com.otilm.api.model.client.raprofile.SimplifiedRaProfileDto;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateProtocolDto;
 import com.otilm.api.model.core.certificate.CertificateQcStatementsDto;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
-import com.otilm.api.model.core.certificate.CertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.QcType;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
+import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.enums.CertificateProtocol;
@@ -55,7 +55,7 @@ class CertificateDetailDtoMapperTest {
         certificate.setAltKey(alternativeKey);
 
         // when
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toChainDto(certificate);
+        X509CertificateDetail dto = (X509CertificateDetail) CertificateDetailDtoMapper.toChainDto(certificate);
 
         // then
         Assertions.assertEquals(primaryKey.getUuid().toString(), dto.getKey().getUuid());
@@ -176,7 +176,7 @@ class CertificateDetailDtoMapperTest {
 
         certificate.setComplianceStatus(ComplianceStatus.OK);
 
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        X509CertificateDetail dto = (X509CertificateDetail) CertificateDetailDtoMapper.toDetailDto(certificate);
 
         // flat fields
         Assertions.assertEquals(certificate.uuid.toString(), dto.getUuid());
@@ -220,7 +220,7 @@ class CertificateDetailDtoMapperTest {
         Assertions.assertEquals(1, dto.getGroups().size());
         Assertions.assertEquals(group.uuid.toString(), dto.getGroups().getFirst().getUuid());
         // certificateRequest branch
-        CertificateRequestDto reqDto = dto.getCertificateRequest();
+        X509CertificateRequestDetail reqDto = (X509CertificateRequestDetail) dto.getCertificateRequest();
         Assertions.assertNotNull(reqDto);
         Assertions.assertEquals(request.uuid, reqDto.getUuid());
         Assertions.assertEquals(request.getKeyUuid().toString(), reqDto.getKeyUuid());
@@ -247,7 +247,7 @@ class CertificateDetailDtoMapperTest {
         content.setContent("base64cert==");
         certificate.setCertificateContent(content);
 
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        X509CertificateDetail dto = (X509CertificateDetail) CertificateDetailDtoMapper.toDetailDto(certificate);
         Assertions.assertNull(dto.getQcStatements());
     }
 
@@ -259,7 +259,7 @@ class CertificateDetailDtoMapperTest {
         certificate.setQcCompliance(false);
         certificate.setQcSscd(false);
 
-        CertificateDetailDto dto = CertificateDetailDtoMapper.toDetailDto(certificate);
+        X509CertificateDetail dto = (X509CertificateDetail) CertificateDetailDtoMapper.toDetailDto(certificate);
 
         CertificateQcStatementsDto qc = dto.getQcStatements();
         Assertions.assertNotNull(qc, "qcStatements must be emitted even when qcCompliance and qcSscd are both false");
