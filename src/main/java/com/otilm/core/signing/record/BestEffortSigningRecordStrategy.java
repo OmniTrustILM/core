@@ -5,6 +5,7 @@ import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.mapper.signing.SigningRecordInputMapper;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import java.util.List;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -37,8 +38,10 @@ public class BestEffortSigningRecordStrategy extends AbstractSigningRecordStrate
     }
 
     @Override
-    protected void doRecord(SigningRecordInput input) {
-        enqueue(mapper.toRecord(input));
+    protected List<UUID> doRecord(List<SigningRecordInput> inputs) {
+        List<SigningRecord> signingRecords = inputs.stream().map(mapper::toRecord).toList();
+        signingRecords.forEach(this::enqueue);
+        return signingRecords.stream().map(SigningRecord::getUuid).toList();
     }
 
     /**
