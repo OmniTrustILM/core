@@ -14,7 +14,9 @@ import java.util.Set;
 
 /**
  * The extension point through which a certificate type supplies its own handling. A handler is a Spring bean; the
- * {@link CertificateTypeHandlerRegistry} finds it by {@link #typeCode()} and adding a type adds a bean, nothing else.
+ * {@link CertificateTypeHandlerRegistry} finds it by {@link #typeCode()}, and the code that reads, checks and describes
+ * a certificate of the type goes through it. A new type also needs its own certificate and request entity subclasses,
+ * which set the discriminator, and the detail and request subclasses of the API that the detail mapper builds.
  *
  * <p>
  * The parse methods return empty when the content is not of this type, so that the registry can ask each handler in

@@ -62,6 +62,7 @@ import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
@@ -123,6 +124,8 @@ import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -1347,6 +1350,32 @@ class CertificateServiceITest extends BaseSpringBootTest {
         private boolean hasRequestAssociation(CertificateRequestEntity request) {
             return complianceProfileAssociationRepository
                     .existsByResourceAndObjectUuidIn(Resource.CERTIFICATE_REQUEST, List.of(request.getUuid()));
+        }
+
+        @Test
+        void listsTheDisplayNameOfTheExtendedKeyUsage_whenGettingACertificate() throws Exception {
+            // given — an OID of an unassigned arc, so the entry cannot replace one the shared cache holds
+            String namedOid = "2.999.2.1";
+            OidHandler
+                    .cacheOid(OidCategory.EXTENDED_KEY_USAGE, namedOid,
+                            new OidRecord("Service Test Usage", null, null, null, null, null, false));
+            CertificateContent content = certificateContentRepository
+                    .save(aCertificateContent().withContent(DOWNLOADABLE_CERT_BASE64).build());
+            certificate.setCertificateContent(content);
+            certificate.setExtendedKeyUsage(MetaDefinitions.serializeArrayString(List.of(namedOid)));
+            certificateRepository.save(certificate);
+
+            try {
+                // when
+                CertificateDetail detail = certificateService.getCertificate(certificate.getSecuredUuid());
+
+                // then
+                assertThat(detail)
+                        .isInstanceOfSatisfying(X509CertificateDetail.class,
+                                x509 -> assertThat(x509.getExtendedKeyUsage()).containsExactly("Service Test Usage"));
+            } finally {
+                OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, namedOid);
+            }
         }
 
         @Test

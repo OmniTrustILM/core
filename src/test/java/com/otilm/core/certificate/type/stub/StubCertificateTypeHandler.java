@@ -24,8 +24,9 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * A certificate type that exists only in tests: validity in whole days, no revocation and no chain. It shows that a
- * type is added by this one class and its own package, registered as a bean where a test needs it.
+ * A certificate type that exists only in tests: validity in whole days, no revocation and no chain. It shows that the
+ * handling of a type needs no change outside the handler interface and its own package, and is registered as a bean
+ * where a test needs it. It has no entities or API subclasses, so no certificate of the type is stored.
  */
 public class StubCertificateTypeHandler implements CertificateTypeHandler {
 

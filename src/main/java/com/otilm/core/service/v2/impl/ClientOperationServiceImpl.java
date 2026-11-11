@@ -2162,9 +2162,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final ClientCertificateIssueRequestDto request) throws NotFoundException, CertificateException {
         // NOT_SUPPORTED so the CSR attach below commits in its own transaction before the ISSUE action is
         // enqueued; otherwise the async consumer could read the placeholder before the CSR is visible and fail it.
-        if (request != null) {
-            request.setFormat(requestFormatResolver.resolve(request.getFormat(), request.getCertificateType()));
-        }
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
@@ -2174,6 +2171,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         assertRaProfileUnderAuthority(raProfile, authorityUuid);
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), certificate.getCertificateType()));
+        }
         if (!raProfileUuid.getValue().equals(certificate.getRaProfileUuid())) {
             throw new ValidationException(
                     "Cannot issue a certificate that belongs to a different RA profile. Certificate: %s"
