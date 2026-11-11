@@ -4,6 +4,7 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.Certificate;
@@ -60,6 +61,13 @@ public interface CertificateTypeHandler {
      * codes that have display names. By default nothing changes.
      */
     default void presentDetail(CertificateDetailDto detail) {
+    }
+
+    /**
+     * Adjusts the certificate request of a detail once its attributes are in, so that the type details agree with the
+     * fields they replace. By default nothing changes.
+     */
+    default void presentRequest(CertificateRequestDto request) {
     }
 
     /** The reasons the request exceeds the limits of the RA profile for this type; empty when it is within them. */

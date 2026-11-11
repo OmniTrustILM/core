@@ -5,8 +5,10 @@ import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
+import com.otilm.api.model.core.certificate.X509CertificateRequestTypeDetailsDto;
 import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
@@ -246,6 +248,15 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         detail.setExtendedKeyUsage(names);
         if (detail.getTypeDetails() instanceof X509CertificateTypeDetailsDto x509Details) {
             x509Details.setExtendedKeyUsage(names);
+        }
+    }
+
+    /** Gives the request details the alternative signature attributes that were read into the flat field. */
+    @Override
+    @SuppressWarnings("deprecation")
+    public void presentRequest(CertificateRequestDto request) {
+        if (request.getTypeDetails() instanceof X509CertificateRequestTypeDetailsDto details) {
+            details.setAltSignatureAttributes(request.getAltSignatureAttributes());
         }
     }
 

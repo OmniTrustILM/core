@@ -1,11 +1,15 @@
 package com.otilm.core.certificate.type;
 
+import com.otilm.api.model.client.attribute.ResponseAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateRequestDto;
 import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
+import com.otilm.api.model.core.certificate.X509CertificateRequestTypeDetailsDto;
 import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
@@ -490,6 +494,22 @@ class X509CertificateTypeHandlerTest {
         } finally {
             OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, serverAuthOid);
         }
+    }
+
+    @Test
+    void givesTheRequestDetailsTheAlternativeSignatureAttributes_whenPresentingTheRequest() {
+        // given
+        ResponseAttribute altSignatureAttribute = new ResponseAttributeV3();
+        CertificateRequestDto request = new CertificateRequestDto();
+        request.setAltSignatureAttributes(List.of(altSignatureAttribute));
+        X509CertificateRequestTypeDetailsDto details = new X509CertificateRequestTypeDetailsDto();
+        request.setTypeDetails(details);
+
+        // when
+        handler.presentRequest(request);
+
+        // then
+        assertThat(details.getAltSignatureAttributes()).containsExactly(altSignatureAttribute);
     }
 
     @Test

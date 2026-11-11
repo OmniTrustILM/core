@@ -2484,6 +2484,11 @@ public class CertificateServiceImpl
                                 .operation(AttributeOperation.SIGN)
                                 .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                                 .build()));
+        presentRequest(dto);
+    }
+
+    private void presentRequest(CertificateRequestDto dto) {
+        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> handler.presentRequest(dto));
     }
 
     @Override
@@ -2616,6 +2621,7 @@ public class CertificateServiceImpl
             dto.getCertificateRequest().setAttributes(requestAttributes);
             dto.getCertificateRequest().setSignatureAttributes(requestSignatureAttributes);
             dto.getCertificateRequest().setAltSignatureAttributes(requestAltSignatureAttributes);
+            presentRequest(dto.getCertificateRequest());
         }
         dto
                 .setIssueAttributes(attributeEngine

@@ -49,6 +49,20 @@ class RequestFormatResolverTest {
     }
 
     @Test
+    void throwsUnsupportedNamingTheType_whenAnExplicitFormatIsForATypeWithoutAHandler() {
+        // given — a request for an SSH certificate that names pkcs10, while only X.509 has a handler
+        CertificateRequestFormat explicitFormat = CertificateRequestFormat.PKCS10;
+
+        // when
+        ThrowingCallable resolveExplicit = () -> resolver.resolve(explicitFormat, CertificateType.SSH);
+
+        // then
+        assertThatThrownBy(resolveExplicit)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(CertificateType.SSH.getCode());
+    }
+
+    @Test
     void throwsUnsupportedNamingTheType_whenNoHandlerIsRegisteredForTheType() {
         // given
         var resolverWithoutHandlers = new RequestFormatResolver(new CertificateTypeHandlerRegistry(List.of()));
