@@ -297,8 +297,8 @@ public final class EncodedCrl {
     }
 
     /**
-     * The parameters of the signature algorithm, read as the JDK reads them to verify a CRL: those of RSASSA-PSS, or a
-     * curve for ECDSA.
+     * The parameters of the signature algorithm, read as the JDK reads them to verify a CRL: only those of RSASSA-PSS.
+     * ECDSA parameters are ignored, as the JDK ignores them.
      */
     private static AlgorithmParameterSpec signatureParameters(X509CRL crl) throws GeneralSecurityException {
         byte[] encoded = crl.getSigAlgParams();

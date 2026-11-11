@@ -129,11 +129,16 @@ public class LdapUtils {
         LdapContext ctx = new InitialLdapContext(env, null);
         try {
             NamingEnumeration<SearchResult> answer = ctx.search(baseDn, filter, ctls);
-            if (!answer.hasMore()) {
-                throw new NameNotFoundException("No data found for attribute in LDAP URL: " + ldapUrl);
+            try {
+                if (!answer.hasMore()) {
+                    throw new NameNotFoundException("No data found for attribute in LDAP URL: " + ldapUrl);
+                }
+                Attributes attrs = answer.next().getAttributes();
+                return (byte[]) attrs.get(attributeName).get();
+            } finally {
+                // while an enumeration is open, closing the context only marks the connection for closing
+                answer.close();
             }
-            Attributes attrs = answer.next().getAttributes();
-            return (byte[]) attrs.get(attributeName).get();
         } finally {
             // a failed or timed-out search would otherwise leave the connection open
             ctx.close();
