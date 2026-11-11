@@ -1,15 +1,24 @@
 package com.otilm.core.service.cmp.message.handler;
 
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV2;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
+import com.otilm.core.service.cmp.registration.CmpRegistrationIdentityVerifier;
+import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
+import java.util.List;
 import java.util.UUID;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.DEROctetString;
@@ -27,6 +36,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
@@ -66,6 +76,39 @@ class CrmfIrCrMessageHandlerTest {
                         any(ClientCertificateIssueRequestDto.class), protocolInfo.capture());
         assertThat(protocolInfo.getValue().getProtocol()).isEqualTo(CertificateProtocol.CMP);
         assertThat(protocolInfo.getValue().getProtocolProfileUuid()).isEqualTo(cmpProfileUuid);
+    }
+
+    @Test
+    void completesTheRegistrationWithTheProfilesIssueAttributes_whenInRegistrationMode() throws Exception {
+        // given
+        ClientOperationExternalService clientOperationExternalService = mock(ClientOperationExternalService.class);
+        handler.setClientOperationExternalService(clientOperationExternalService);
+        handler.setRegistrationIdentityVerifier(mock(CmpRegistrationIdentityVerifier.class));
+        handler.setCertificateService(mock(CertificateInternalService.class));
+        ConfigurationContext configuration = configuration(UUID.randomUUID(), UUID.randomUUID());
+        Certificate registration = aCertificate().withUuid(UUID.randomUUID()).build();
+        when(configuration.isRegistrationMode()).thenReturn(true);
+        when(configuration.getMatchedRegistration()).thenReturn(registration);
+        when(configuration.getMatchedChallenge()).thenReturn("registration-challenge");
+        List<RequestAttribute> profileIssueAttributes = List
+                .of(new RequestAttributeV2(UUID.randomUUID(), "endEntityProfile", AttributeContentType.STRING,
+                        List.of(new StringAttributeContentV2("devices"))));
+        when(configuration.getClientOperationAttributes(false)).thenReturn(profileIssueAttributes);
+        when(clientOperationExternalService
+                .issueExistingCertificate(any(SecuredParentUUID.class), any(SecuredUUID.class), any(String.class),
+                        any(ClientCertificateIssueRequestDto.class)))
+                .thenReturn(new ClientCertificateDataResponseDto());
+
+        // when
+        handler.handle(irMessage(), configuration);
+
+        // then
+        ArgumentCaptor<ClientCertificateIssueRequestDto> completion = ArgumentCaptor
+                .forClass(ClientCertificateIssueRequestDto.class);
+        verify(clientOperationExternalService)
+                .issueExistingCertificate(any(SecuredParentUUID.class), any(SecuredUUID.class), any(String.class),
+                        completion.capture());
+        assertThat(completion.getValue().getAttributes()).isEqualTo(profileIssueAttributes);
     }
 
     private static ConfigurationContext configuration(UUID cmpProfileUuid, UUID raProfileUuid) {

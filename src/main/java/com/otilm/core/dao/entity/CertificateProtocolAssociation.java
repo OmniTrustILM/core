@@ -17,6 +17,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.io.Serializable;
 import java.util.Objects;
 import java.util.UUID;
@@ -35,7 +36,10 @@ import org.hibernate.proxy.HibernateProxy;
 @Entity
 @Getter
 @Setter
-@Table(name = "certificate_protocol_association")
+// A certificate has at most one protocol association: Certificate.protocolAssociation maps it one-to-one.
+@Table(name = "certificate_protocol_association",
+        uniqueConstraints = @UniqueConstraint(name = "uq_certificate_protocol_association_certificate",
+                columnNames = "certificate_uuid"))
 public class CertificateProtocolAssociation extends UniquelyIdentified implements Serializable {
 
     @OneToOne(fetch = FetchType.LAZY)

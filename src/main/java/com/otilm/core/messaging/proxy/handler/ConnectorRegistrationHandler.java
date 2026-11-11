@@ -5,7 +5,6 @@ import com.otilm.api.clients.mq.model.ProxyMessage;
 import com.otilm.api.model.client.connector.ConnectorRequestDto;
 import com.otilm.api.model.core.connector.AuthType;
 import com.otilm.core.service.ConnectorRegistrationExternalService;
-import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -37,7 +36,6 @@ public class ConnectorRegistrationHandler implements MessageTypeResponseHandler 
     }
 
     @Override
-    @Transactional
     public void handleResponse(ProxyMessage message) {
         ConnectorRegistrationRequest regReq = message.getConnectorRegistrationRequest();
         if (regReq == null) {

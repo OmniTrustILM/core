@@ -108,6 +108,8 @@ public class V3RegisterLifecycleITest extends BaseSpringBootTest {
         wireMockServer = new WireMockServer(LoopbackWireMock.options());
         wireMockServer.start();
         WireMock.configureFor(LoopbackWireMock.HOST, wireMockServer.port());
+        // A completion has the authority validate its issue attributes.
+        V3ConnectorStubs.stubAttributesAndValidate(wireMockServer);
 
         // Intercept ActionProducer to drive ISSUE actions synchronously, bypassing RabbitMQ.
         // All other action types are no-ops. Mirrors the AcmeProtocolFlowITest ActionProducer spy pattern.

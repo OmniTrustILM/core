@@ -1705,7 +1705,7 @@ public class CertificateServiceImpl
     // checked exception.
     @Transactional(rollbackFor = Exception.class)
     public UUID addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
-            throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException {
+            throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException, AttributeException {
         if (issueRequest == null || issueRequest.getRequest() == null || issueRequest.getRequest().isBlank()) {
             throw new CertificateRequestException(
                     "A certificate signing request is required to complete a registered certificate");
@@ -1798,6 +1798,14 @@ public class CertificateServiceImpl
             setCertificateRequestAltKey(certificateRequestEntity, request.getAltPublicKey());
         }
         certificateRepository.save(certificate);
+        // The issue attributes commit with the request they were sent for; replacing them drops those of a completion
+        // whose approval was refused.
+        attributeEngine
+                .updateObjectDataAttributesContent(ObjectAttributeContentInfo
+                        .builder(Resource.CERTIFICATE, certificateUuid)
+                        .connector(certificate.getRaProfile().getAuthorityInstanceReference().getConnectorUuid())
+                        .operation(AttributeOperation.CERTIFICATE_ISSUE)
+                        .build(), issueRequest.getAttributes());
         // Completion request-attribute values are persisted by the caller (issueExistingCertificate) outside this
         // locked transaction; return the request entity so it can key the write.
         return certificateRequestEntity.getUuid();
@@ -2664,7 +2672,11 @@ public class CertificateServiceImpl
 
     private void setProtocolAssociations(CertificateProtocolInfo protocolInfo, Certificate certificate)
             throws NotFoundException, AttributeException {
-        CertificateProtocolAssociation protocolAssociation = new CertificateProtocolAssociation();
+        // A certificate keeps one association: completing a registration again after a refused approval, through any
+        // protocol, re-attributes it.
+        CertificateProtocolAssociation protocolAssociation = certificateProtocolAssociationRepository
+                .findByCertificateUuid(certificate.getUuid())
+                .orElseGet(CertificateProtocolAssociation::new);
         UUID protocolProfileUuid = protocolInfo.getProtocolProfileUuid();
         protocolAssociation.setCertificate(certificate);
         protocolAssociation.setProtocol(protocolInfo.getProtocol());

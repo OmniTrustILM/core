@@ -12,6 +12,7 @@ import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.cmp.CmpTransaction;
+import com.otilm.core.logging.RedactedFailure;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.cmp.configurations.ConfigurationContext;
 import com.otilm.core.service.cmp.message.CmpTransactionService;
@@ -259,7 +260,7 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
                     .addExtraCerts(null)
                     .build();
         } catch (Exception e) {
-            LOG.error("CRMF message cannot be handled", e);
+            LOG.error("CRMF message cannot be handled", RedactedFailure.forLog(e));
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.badDataFormat,
                     "CRMF message cannot be build, type="
                             + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));
@@ -294,7 +295,9 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
                     .addExtraCerts(null)
                     .build();
         } catch (Exception e) {
-            LOG.error("TID={} | CRMF waiting response cannot be built (type={})", tid, msgBodyType, e);
+            LOG
+                    .error("TID={} | CRMF waiting response cannot be built (type={})", tid, msgBodyType,
+                            RedactedFailure.forLog(e));
             throw new CmpCrmfValidationException(tid, request.getBody().getType(), PKIFailureInfo.systemFailure,
                     "CRMF waiting response cannot be built, type="
                             + PkiMessageDumper.msgTypeAsString(request.getBody().getType()));

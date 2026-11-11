@@ -237,6 +237,7 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
         scepProfile = scepProfileRepository.save(scepProfile);
 
         stubTokenSigning();
+        stubIssueAttributeValidation();
     }
 
     @AfterEach
@@ -901,5 +902,21 @@ class ScepRegistrationEnrolmentITest extends BaseSpringBootTest {
                         .willReturn(WireMock.okJson("""
                                 {"verifications": [{"result": true}]}
                                 """)));
+    }
+
+    /** A completion has the authority validate its issue attributes; this authority defines none. */
+    private void stubIssueAttributeValidation() {
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes"))
+                        .willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(
+                                        "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
     }
 }

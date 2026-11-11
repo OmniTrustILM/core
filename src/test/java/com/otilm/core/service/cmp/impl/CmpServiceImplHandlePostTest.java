@@ -1,5 +1,7 @@
 package com.otilm.core.service.cmp.impl;
 
+import com.otilm.api.exception.CertificateOperationException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -33,6 +35,7 @@ import com.otilm.core.service.cmp.message.handler.CrmfMessageHandler;
 import com.otilm.core.service.cmp.message.validator.impl.BodyValidator;
 import com.otilm.core.service.cmp.message.validator.impl.HeaderValidator;
 import com.otilm.core.service.cmp.message.validator.impl.ProtectionValidator;
+import com.otilm.core.util.SecretLeakProbe;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -43,6 +46,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.cmp.ErrorMsgContent;
 import org.bouncycastle.asn1.cmp.PKIBody;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
@@ -375,7 +379,46 @@ class CmpServiceImplHandlePostTest {
         assertThat(readWireFailInfo(response.getBody())).isEqualTo(PKIFailureInfo.notAuthorized);
     }
 
+    @Test
+    void logsTheFailureWithoutTheConnectorsText_whenTheConnectorRefusesTheInitialRequest() throws Exception {
+        // given
+        var crmfMessageHandler = mock(CrmfMessageHandler.class);
+        var certificateRepository = mock(CertificateRepository.class);
+        CmpServiceImpl service = createSignatureProfileService(crmfMessageHandler, certificateRepository);
+        var signerKeys = CmpTestUtil.generateKeyPairEC();
+        var signerCertificate = createSelfSignedCertificate(signerKeys);
+        Certificate protectionCertificate = CmpEntityUtil
+                .createProtectionCertificate(signerCertificate, RA_PROFILE_UUID);
+        when(certificateRepository.findByFingerprint(protectionCertificate.getFingerprint()))
+                .thenReturn(Optional.of(protectionCertificate));
+        var echoedSecret = "passphrase-the-connector-echoed";
+        when(crmfMessageHandler.handle(any(), any())).thenAnswer(invocation -> {
+            throw createIssueFailureEchoing(echoedSecret);
+        });
+        byte[] initialRequest = createSignedInitialRequest(signerKeys, signerCertificate);
+
+        // when
+        List<String> logged;
+        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
+            service.handlePost(PROFILE_NAME, initialRequest);
+            logged = probe.logged();
+        }
+
+        // then
+        SecretLeakProbe.assertNoneReveals(logged, echoedSecret);
+        assertThat(logged).anyMatch(line -> line.contains(ConnectorException.class.getName()));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** An issuance failure as the CRMF handler raises it when the connector refused the request in its own words. */
+    private static CmpProcessingException createIssueFailureEchoing(String connectorText) {
+        var shapedFailure = new CertificateOperationException("Failed to submit certificate request");
+        shapedFailure.initCause(new ConnectorException(connectorText));
+        var transactionId = new DEROctetString(SIXTEEN_BYTE_TRANSACTION_ID.getBytes(StandardCharsets.UTF_8));
+        return new CmpProcessingException(transactionId, PKIFailureInfo.systemFailure, "cannot issue certificate",
+                shapedFailure);
+    }
 
     private CmpServiceImpl createSignatureProfileService(CrmfMessageHandler crmfMessageHandler,
             CertificateRepository certificateRepository) throws Exception {

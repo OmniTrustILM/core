@@ -11,14 +11,12 @@ import com.otilm.api.model.core.connector.v2.ConnectorRequestDto;
 import com.otilm.core.security.authz.UnauthenticatedEndpoint;
 import com.otilm.core.service.ConnectorRegistrationExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
-import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
-@Transactional
 public class ConnectorRegistrationServiceImpl implements ConnectorRegistrationExternalService {
     private static final Logger logger = LoggerFactory.getLogger(ConnectorRegistrationServiceImpl.class);
 
