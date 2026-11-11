@@ -1809,8 +1809,7 @@ public class AttributeEngine {
     }
 
     private void writeObjectDataAttributesContent(ObjectAttributeContentInfo info,
-            List<RequestAttribute> requestAttributes)
-            throws ValidationException, NotFoundException, AttributeException {
+            List<RequestAttribute> requestAttributes) throws ValidationException, AttributeException {
         List<ContentWrite> writes = new ArrayList<>();
         for (RequestAttribute requestAttribute : requestAttributes) {
             AttributeDefinition attributeDefinition = requireDataAttributeDefinition(info.connectorUuid(),
@@ -1841,8 +1840,7 @@ public class AttributeEngine {
      * version) may continue to use {@link #updateObjectDataAttributesContent}.
      */
     public List<ResponseAttribute> replaceObjectDataAttributesContent(ObjectAttributeContentInfo info,
-            List<RequestAttribute> requestAttributes)
-            throws ValidationException, NotFoundException, AttributeException {
+            List<RequestAttribute> requestAttributes) throws ValidationException, AttributeException {
         if (info.objectVersion() == null) {
             throw new IllegalArgumentException("replaceObjectDataAttributesContent requires a non-null objectVersion; "
                     + "use updateObjectDataAttributesContent for unversioned objects");
