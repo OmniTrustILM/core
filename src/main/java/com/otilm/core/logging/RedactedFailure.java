@@ -2,6 +2,7 @@ package com.otilm.core.logging;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.LocationException;
 import com.otilm.api.exception.PlatformException;
 import com.otilm.api.exception.ValidationException;
 import java.util.List;
@@ -26,12 +27,14 @@ public final class RedactedFailure extends RuntimeException implements PlatformE
 
     /**
      * Whether a connector may have written part of the failure's chain: a {@link JsonProcessingException},
-     * {@link ConnectorException} or {@link ValidationException} anywhere in it.
+     * {@link ConnectorException}, {@link ValidationException} or {@link LocationException} (which carries a location
+     * connector's refusal in its message) anywhere in it.
      */
     public static boolean isConnectorWritten(Throwable failure) {
         return ExceptionUtils.indexOfType(failure, JsonProcessingException.class) >= 0
                 || ExceptionUtils.indexOfType(failure, ConnectorException.class) >= 0
-                || ExceptionUtils.indexOfType(failure, ValidationException.class) >= 0;
+                || ExceptionUtils.indexOfType(failure, ValidationException.class) >= 0
+                || ExceptionUtils.indexOfType(failure, LocationException.class) >= 0;
     }
 
     private static RedactedFailure redact(Throwable failure) {

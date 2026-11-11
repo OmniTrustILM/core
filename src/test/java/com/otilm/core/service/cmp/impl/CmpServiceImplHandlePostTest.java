@@ -14,6 +14,8 @@ import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -46,13 +48,20 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
+import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.DEROctetString;
+import org.bouncycastle.asn1.DERSequence;
+import org.bouncycastle.asn1.cmp.CertConfirmContent;
 import org.bouncycastle.asn1.cmp.ErrorMsgContent;
 import org.bouncycastle.asn1.cmp.PKIBody;
 import org.bouncycastle.asn1.cmp.PKIFailureInfo;
 import org.bouncycastle.asn1.cmp.PKIHeader;
 import org.bouncycastle.asn1.cmp.PKIHeaderBuilder;
 import org.bouncycastle.asn1.cmp.PKIMessage;
+import org.bouncycastle.asn1.cmp.PollReqContent;
+import org.bouncycastle.asn1.crmf.CertReqMessages;
+import org.bouncycastle.asn1.crmf.CertReqMsg;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.cert.X509CertificateHolder;
@@ -60,6 +69,9 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -71,6 +83,8 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographicKey;
 import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Named.named;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -362,6 +376,72 @@ class CmpServiceImplHandlePostTest {
     }
 
     @Test
+    void recordsIssueAsTheAuditOperation_whenInitialRequestIsHandled() throws Exception {
+        // given
+        var crmfMessageHandler = mock(CrmfMessageHandler.class);
+        var certificateRepository = mock(CertificateRepository.class);
+        CmpServiceImpl service = createSignatureProfileService(crmfMessageHandler, certificateRepository);
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        var signerKeys = CmpTestUtil.generateKeyPairEC();
+        var signerCertificate = createSelfSignedCertificate(signerKeys);
+        Certificate protectionCertificate = CmpEntityUtil
+                .createProtectionCertificate(signerCertificate, RA_PROFILE_UUID);
+        when(certificateRepository.findByFingerprint(protectionCertificate.getFingerprint()))
+                .thenReturn(Optional.of(protectionCertificate));
+        byte[] initialRequest = createSignedInitialRequest(signerKeys, signerCertificate);
+        when(crmfMessageHandler.handle(any(), any())).thenReturn(PKIMessage.getInstance(initialRequest));
+
+        // when
+        service.handlePost(PROFILE_NAME, initialRequest);
+
+        // then
+        verify(auditOperationOverride).set(Operation.ISSUE);
+    }
+
+    @ParameterizedTest
+    @MethodSource("bodiesAndTheirOperations")
+    void recordsTheOperationOfTheBody_whenProfileValidationFails(PKIBody body, Operation expectedOperation)
+            throws Exception {
+        // given
+        var unknownRaProfiles = mock(RaProfileRepository.class);
+        when(unknownRaProfiles.findByName(anyString())).thenReturn(Optional.empty());
+        CmpServiceImpl service = newService(unknownRaProfiles, mock(CmpProfileRepository.class), null, false);
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+
+        // when
+        service.handlePost(PROFILE_NAME, unprotectedRequestCarrying(body));
+
+        // then
+        verify(auditOperationOverride).set(expectedOperation);
+    }
+
+    @Test
+    void recordsIssueAsTheAuditOperation_whenTheHandlerFails() throws Exception {
+        // given
+        var crmfMessageHandler = mock(CrmfMessageHandler.class);
+        var certificateRepository = mock(CertificateRepository.class);
+        CmpServiceImpl service = createSignatureProfileService(crmfMessageHandler, certificateRepository);
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        var signerKeys = CmpTestUtil.generateKeyPairEC();
+        var signerCertificate = createSelfSignedCertificate(signerKeys);
+        Certificate protectionCertificate = CmpEntityUtil
+                .createProtectionCertificate(signerCertificate, RA_PROFILE_UUID);
+        when(certificateRepository.findByFingerprint(protectionCertificate.getFingerprint()))
+                .thenReturn(Optional.of(protectionCertificate));
+        when(crmfMessageHandler.handle(any(), any())).thenThrow(new IllegalStateException("handler failed"));
+        byte[] initialRequest = createSignedInitialRequest(signerKeys, signerCertificate);
+
+        // when
+        service.handlePost(PROFILE_NAME, initialRequest);
+
+        // then
+        verify(auditOperationOverride).set(Operation.ISSUE);
+    }
+
+    @Test
     void rejectsInitialRequest_whenUnprotected() throws Exception {
         // given
         var crmfMessageHandler = mock(CrmfMessageHandler.class);
@@ -509,6 +589,7 @@ class CmpServiceImplHandlePostTest {
         CmpServiceImpl service = new CmpServiceImpl();
         service.setRaProfileRepository(raProfileRepository);
         service.setCmpProfileRepository(cmpProfileRepository);
+        service.setAuditOperationOverride(mock(AuditOperationOverride.class));
 
         CmpTransactionService cmpTransactionService = mock(CmpTransactionService.class);
         when(cmpTransactionService.findByTransactionId(anyString()))
@@ -543,12 +624,33 @@ class CmpServiceImplHandlePostTest {
     }
 
     private static byte[] revocationRequest() throws Exception {
+        return unprotectedRequestCarrying(CmpTestUtil.createRevocationBody(BigInteger.ONE));
+    }
+
+    private static byte[] unprotectedRequestCarrying(PKIBody body) throws Exception {
         PKIHeaderBuilder headerBuilder = new PKIHeaderBuilder(PKIHeader.CMP_2000,
                 new GeneralName(new X500Name("CN=user")), new GeneralName(new X500Name("CN=ManagementCA")));
         headerBuilder.setTransactionID(new byte[]{1, 2, 3, 4});
         headerBuilder.setSenderNonce("12345".getBytes(StandardCharsets.UTF_8));
-        PKIBody body = CmpTestUtil.createRevocationBody(BigInteger.ONE);
         return new PKIMessage(headerBuilder.build(), body).getEncoded();
+    }
+
+    private static Stream<Arguments> bodiesAndTheirOperations() throws Exception {
+        PKIBody certificateConfirmation = new PKIBody(PKIBody.TYPE_CERT_CONFIRM,
+                CertConfirmContent.getInstance(new DERSequence()));
+        PKIBody pollingRequest = new PKIBody(PKIBody.TYPE_POLL_REQ, new PollReqContent(new ASN1Integer(0)));
+        return Stream
+                .of(arguments(named("initial request", crmfBody(PKIBody.TYPE_INIT_REQ)), Operation.ISSUE),
+                        arguments(named("certification request", crmfBody(PKIBody.TYPE_CERT_REQ)), Operation.ISSUE),
+                        arguments(named("key update request", crmfBody(PKIBody.TYPE_KEY_UPDATE_REQ)), Operation.REKEY),
+                        arguments(named("revocation request", CmpTestUtil.createRevocationBody(BigInteger.ONE)),
+                                Operation.REVOKE),
+                        arguments(named("certificate confirmation", certificateConfirmation), Operation.CMP_CONFIRM),
+                        arguments(named("polling request", pollingRequest), Operation.GET_STATUS));
+    }
+
+    private static PKIBody crmfBody(int bodyType) {
+        return new PKIBody(bodyType, new CertReqMessages(new CertReqMsg[0]));
     }
 
     private static byte[] macProtectedRevocationRequest() throws Exception {
