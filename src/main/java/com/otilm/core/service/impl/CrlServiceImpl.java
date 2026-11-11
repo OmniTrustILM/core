@@ -1,6 +1,7 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Crl;
 import com.otilm.core.dao.entity.CrlEntry;
@@ -52,8 +53,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionException;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CrlServiceImpl implements CrlService {
@@ -121,7 +120,7 @@ public class CrlServiceImpl implements CrlService {
      * the wait for the issuer or for a download permit ends first.
      */
     @Override
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @OutsideTransaction
     public UUID getCurrentCrl(X509Certificate certificate, X509Certificate issuerCertificate) throws IOException {
         byte[] issuerDnPrincipalEncoded = certificate.getIssuerX500Principal().getEncoded();
         String issuerDn = X500Name.getInstance(new PlatformX500NameStyle(true), issuerDnPrincipalEncoded).toString();
