@@ -11,6 +11,7 @@ public class SigningEngineException extends Exception implements PlatformExcepti
     private final SigningEngineFailure failure;
     private final String operatorMessage;
     private final String step;
+    private final String itemIdentifier;
 
     /**
      * @param operatorMessage diagnostic detail for the log; reachable via {@link #operatorMessage()}, never via
@@ -18,7 +19,7 @@ public class SigningEngineException extends Exception implements PlatformExcepti
      * @param clientMessage the wire-safe text, which becomes {@code getMessage()}
      */
     public SigningEngineException(SigningEngineFailure failure, String operatorMessage, String clientMessage) {
-        this(failure, operatorMessage, null, clientMessage, null);
+        this(failure, operatorMessage, null, clientMessage, null, null);
     }
 
     /**
@@ -28,15 +29,16 @@ public class SigningEngineException extends Exception implements PlatformExcepti
      */
     public SigningEngineException(SigningEngineFailure failure, String operatorMessage, Throwable cause,
             String clientMessage) {
-        this(failure, operatorMessage, cause, clientMessage, null);
+        this(failure, operatorMessage, cause, clientMessage, null, null);
     }
 
     private SigningEngineException(SigningEngineFailure failure, String operatorMessage, Throwable cause,
-            String clientMessage, String step) {
+            String clientMessage, String step, String itemIdentifier) {
         super(clientMessage, cause);
         this.failure = failure;
         this.operatorMessage = operatorMessage;
         this.step = step;
+        this.itemIdentifier = itemIdentifier;
     }
 
     /**
@@ -47,7 +49,19 @@ public class SigningEngineException extends Exception implements PlatformExcepti
     public static SigningEngineException stepFailed(SigningEngineFailure failure, String step, String operatorMessage,
             Throwable cause, String clientMessage) {
         return new SigningEngineException(failure, "step '%s' failed: %s".formatted(step, operatorMessage), cause,
-                clientMessage, step);
+                clientMessage, step, null);
+    }
+
+    /**
+     * Returns a copy of this failure attributed to the failing batch item.
+     *
+     * @param identifier the caller-chosen identifier of the item
+     */
+    public SigningEngineException withItem(String identifier) {
+        SigningEngineException itemFailure = new SigningEngineException(failure, operatorMessage, getCause(),
+                clientMessage(), step, identifier);
+        itemFailure.setStackTrace(getStackTrace());
+        return itemFailure;
     }
 
     public SigningEngineFailure failure() {
@@ -66,5 +80,10 @@ public class SigningEngineException extends Exception implements PlatformExcepti
     /** The failing step, or {@code null} when the failure is not step-scoped. */
     public String step() {
         return step;
+    }
+
+    /** The failing batch item, or {@code null} for a failure of the whole request. */
+    public String itemIdentifier() {
+        return itemIdentifier;
     }
 }

@@ -8,8 +8,10 @@ import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.proxy.ProxyDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.Proxy;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 /** Immutable connector data required to route an API client call. */
 public record ImmutableConnectorInfo(String uuid, String name, String url, ConnectorStatus status, AuthType authType,
@@ -24,6 +26,12 @@ public record ImmutableConnectorInfo(String uuid, String name, String url, Conne
         return new ImmutableConnectorInfo(connector.getUuid().toString(), connector.getName(), connector.getUrl(),
                 connector.getStatus(), connector.getAuthType(), attributes,
                 connector.getProxy() == null ? null : connector.getProxy().mapToDtoSimple());
+    }
+
+    public ImmutableConnectorInfo routedOver(String url, AuthType authType, String serializedAuthAttributes,
+            @Nullable Proxy proxy) {
+        return new ImmutableConnectorInfo(uuid, name, url, status, authType,
+                deserializeAuthAttributes(serializedAuthAttributes), proxy == null ? null : proxy.mapToDtoSimple());
     }
 
     private static List<ResponseAttribute> deserializeAuthAttributes(String authAttributes) {

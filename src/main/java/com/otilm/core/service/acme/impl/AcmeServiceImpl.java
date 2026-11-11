@@ -142,7 +142,6 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Service
-@Transactional
 public class AcmeServiceImpl implements AcmeExternalService {
 
     private static final Logger logger = LoggerFactory.getLogger(AcmeServiceImpl.class);
@@ -244,6 +243,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Directory> getDirectory(String acmeProfileName, URI requestUri, boolean isRaProfileBased)
             throws AcmeProblemDocumentException {
         logger.debug("Gathering Directory information for ACME: {}", acmeProfileName);
@@ -279,6 +279,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<?> getNonce(String acmeProfileName, Boolean isHead, URI requestUri,
             boolean isRaProfileBased) {
         String nonce = generateNonce();
@@ -400,6 +401,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Account> updateAccount(String acmeProfileName, String accountId, String requestJson,
             URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
@@ -456,6 +458,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<?> keyRollover(String acmeProfileName, String requestJson, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
@@ -520,6 +523,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Order> newOrder(String acmeProfileName, String requestJson, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
@@ -563,6 +567,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<List<Order>> listOrders(String acmeProfileName, String accountId, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException {
         AcmeAccount acmeAccount;
@@ -592,6 +597,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Authorization> getAuthorization(String acmeProfileName, String authorizationId,
             String requestJson, URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException {
         if (requestJson.isEmpty()) {
@@ -631,8 +637,8 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
-    // Spring's annotation rather than the class's jakarta one: the transaction-boundary rules read Spring's, and the
-    // rollback attribute is what those rules require of a method declaring a checked exception.
+    // Spring's annotation rather than the jakarta one the other endpoints declare: the transaction-boundary rules read
+    // Spring's, and the rollback attribute is what those rules require of a method declaring a checked exception.
     @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED,
             noRollbackFor = AcmeProblemDocumentException.class)
     public ResponseEntity<Challenge> validateChallenge(String acmeProfileName, String challengeId, URI requestUri,
@@ -692,6 +698,23 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .body(challenge.mapToDto());
     }
 
+    /**
+     * Finalizes the order with no transaction around the submission of its certificate request.
+     *
+     * <p>
+     * <b>Transactions:</b> the class declares none. One held across the submission keeps the request's connection idle
+     * in transaction for all of it while the submission works on a second connection.
+     *
+     * <p>
+     * <b>EntityManager:</b> not {@code NOT_SUPPORTED} either. Once the request has read outside a transaction, the
+     * transactions started under it run on EntityManagers of their own, so the order {@code validateOrder} reconciles
+     * would come back detached.
+     *
+     * <p>
+     * <b>Order lock:</b> the order is written only under its lock. It is claimed for processing before the submission,
+     * so a second finalize request submits nothing. It is updated afterwards from its current state, which an account
+     * deactivation may have changed.
+     */
     @Override
     @ProtocolEndpoint
     public ResponseEntity<Order> finalizeOrder(String acmeProfileName, String orderId, String requestJson,
@@ -730,19 +753,18 @@ public class AcmeServiceImpl implements AcmeExternalService {
             throw new AcmeProblemDocumentException(HttpStatus.FORBIDDEN, Problem.ORDER_NOT_READY);
         }
 
-        // Now finalize the order
-        finalizeOrder(order, csr, isRaProfileBased);
+        AcmeOrder finalized = finalizeOrder(order, csr, isRaProfileBased);
 
         return ResponseEntity
                 .ok()
-                .location(URI.create(order.getUrl()))
+                .location(URI.create(finalized.getUrl()))
                 .header(AcmeConstants.NONCE_HEADER_NAME, generateNonce())
-                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(order.getAcmeAccount()))
+                .header(AcmeConstants.RETRY_HEADER_NAME, retryIntervalHeader(finalized.getAcmeAccount()))
                 .header(AcmeConstants.LINK_HEADER_NAME, generateLinkHeader(acmeProfileName, isRaProfileBased))
-                .body(order.mapToDto());
+                .body(finalized.mapToDto());
     }
 
-    private void finalizeOrder(AcmeOrder order, byte[] csr, boolean isRaProfileBased)
+    private AcmeOrder finalizeOrder(AcmeOrder order, byte[] csr, boolean isRaProfileBased)
             throws AcmeProblemDocumentException {
         logger.debug("Finalizing Order with ID: {}", order.getOrderId());
         JcaPKCS10CertificationRequest p10Object;
@@ -762,13 +784,16 @@ public class AcmeServiceImpl implements AcmeExternalService {
                 .setAttributes(getClientOperationAttributes(false, order.getAcmeAccount(), isRaProfileBased));
         certificateIssueRequestDto.setRequest(decodedCsr);
         certificateIssueRequestDto.setFormat(CertificateRequestFormat.PKCS10);
-        order.setStatus(OrderStatus.PROCESSING);
-        acmeOrderRepository.save(order);
-        createCert(order, certificateIssueRequestDto);
+        if (!acmeChallengeWriter.claimForFinalize(order.getUuid())) {
+            logger.debug("Order {} is no longer ready to finalize", order.getOrderId());
+            throw new AcmeProblemDocumentException(HttpStatus.FORBIDDEN, Problem.ORDER_NOT_READY);
+        }
+        return createCert(order, certificateIssueRequestDto);
     }
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Order> getOrder(String acmeProfileName, String orderId, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException {
         AcmeOrder order = validateOrder(orderId);
@@ -799,6 +824,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<Resource> downloadCertificate(String acmeProfileName, String certificateId, URI requestUri,
             boolean isRaProfileBased) throws NotFoundException, CertificateException {
         logger.debug("Downloading the Certificate with ID: {}", certificateId);
@@ -814,6 +840,7 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     @Override
     @ProtocolEndpoint
+    @Transactional
     public ResponseEntity<?> revokeCertificate(String acmeProfileName, String requestJson, URI requestUri,
             boolean isRaProfileBased) throws AcmeProblemDocumentException, ConnectorException, CertificateException {
         if (requestJson.isEmpty()) {
@@ -1522,51 +1549,33 @@ public class AcmeServiceImpl implements AcmeExternalService {
 
     }
 
-    private void createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
-        // check if certificate is not already requested (prevent calling finalize multiple times issuing more
-        // certificates)
-        // not sure if it is necessary
-        if (order.getCertificateReference() == null) {
-            try {
-                // keep state as PROCESSING since issuing is async process
-                if (logger.isDebugEnabled()) {
-                    logger
-                            .debug("Requesting Certificate for the Order: {} and issue request: {}", order,
-                                    certificateIssueRequestDto);
-                }
-                ClientCertificateDataResponseDto certificateOutput = clientOperationService
-                        .issueCertificate(SecuredParentUUID
-                                .fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()),
-                                order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateIssueRequestDto,
-                                CertificateProtocolInfo
-                                        .Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid()));
-                order.setCertificateId(AcmeRandomGeneratorAndValidator.generateRandomId());
-                order
-                        .setCertificateReference(certificateService
-                                .getCertificateEntity(SecuredUUID.fromString(certificateOutput.getUuid())));
-            } catch (Exception e) {
-                logger.error("Issue Certificate failed. Exception: {}", e.getMessage());
-                order.setStatus(OrderStatus.INVALID);
-                // Order with previously invalid status would not have reached issuing of certificate, therefore count
-                // needs to be incremented always
-                incrementFailedOrdersCount(order);
+    /**
+     * Submits the certificate request of a claimed order and returns the order as it stands afterwards. The submission
+     * may have cleared the request's EntityManager and an account deactivation may have changed the order, so the order
+     * is read under its lock rather than reused.
+     */
+    private AcmeOrder createCert(AcmeOrder order, ClientCertificateIssueRequestDto certificateIssueRequestDto) {
+        Certificate certificate;
+        try {
+            if (logger.isDebugEnabled()) {
+                logger
+                        .debug("Requesting Certificate for the Order: {} and issue request: {}", order,
+                                certificateIssueRequestDto);
             }
-            acmeOrderRepository.save(order);
-        } else {
-            OrderStatus newStatus = checkOrderStatusByCertificate(order.getCertificateReference());
-            logger
-                    .debug("Calling finalize of Order but certificate is already requested. Current status: {}",
-                            newStatus);
-            if (!newStatus.equals(order.getStatus())) {
-                order.setStatus(newStatus);
-                incrementOrderCounts(newStatus, order);
-                acmeOrderRepository.save(order);
-            }
+            ClientCertificateDataResponseDto certificateOutput = clientOperationService
+                    .issueCertificate(SecuredParentUUID
+                            .fromUUID(order.getAcmeAccount().getRaProfile().getAuthorityInstanceReferenceUuid()),
+                            order.getAcmeAccount().getRaProfile().getSecuredUuid(), certificateIssueRequestDto,
+                            CertificateProtocolInfo
+                                    .Acme(order.getAcmeAccount().getAcmeProfileUuid(), order.getAcmeAccountUuid()));
+            certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateOutput.getUuid()));
+        } catch (Exception e) {
+            logger.error("Issue Certificate failed. Exception: {}", e.getMessage());
+            return acmeChallengeWriter.failFinalizeSubmission(order.getUuid());
         }
-    }
-
-    private OrderStatus checkOrderStatusByCertificate(Certificate certificate) {
-        return AcmeChallengeStateMachine.statusFromCertificate(certificate.getState());
+        return acmeChallengeWriter
+                .recordFinalizeSubmission(order.getUuid(), AcmeRandomGeneratorAndValidator.generateRandomId(),
+                        certificate);
     }
 
     protected ByteArrayResource getCertificateResource(String certificateId)
@@ -1777,21 +1786,6 @@ public class AcmeServiceImpl implements AcmeExternalService {
         }
 
         return order;
-    }
-
-    private void incrementOrderCounts(OrderStatus newStatus, AcmeOrder order) {
-        // Since this method is called only if the order status has been changed, the count of failed/valid orders will
-        // always need to be updated
-        if (newStatus == OrderStatus.INVALID) {
-            incrementFailedOrdersCount(order);
-        }
-        if (newStatus == OrderStatus.VALID) {
-            acmeChallengeWriter.countValidOrder(order.getAcmeAccountUuid());
-        }
-    }
-
-    private void incrementFailedOrdersCount(AcmeOrder order) {
-        acmeChallengeWriter.countFailedOrder(order.getAcmeAccountUuid());
     }
 
     /**
