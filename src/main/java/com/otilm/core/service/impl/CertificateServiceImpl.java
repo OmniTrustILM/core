@@ -63,7 +63,6 @@ import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.location.LocationDto;
-import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
@@ -80,6 +79,7 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
@@ -140,8 +140,6 @@ import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
-import com.otilm.core.oid.OidHandler;
-import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -290,6 +288,7 @@ public class CertificateServiceImpl
 
     private CertificateRepository certificateRepository;
     private X509CertificateRepository x509CertificateRepository;
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
     private CertificateChainService chainService;
     private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
@@ -454,6 +453,11 @@ public class CertificateServiceImpl
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
     }
 
     @Autowired
@@ -704,15 +708,7 @@ public class CertificateServiceImpl
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
         CertificateDetailDto dto = certificate.mapToDto();
         dto.setKeystoreAvailable(keystoreAvailability.of(certificate));
-        if (dto.getExtendedKeyUsage() != null) {
-            Map<String, OidRecord> oidToName = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
-            List<String> extendedKeyUsageNames = dto
-                    .getExtendedKeyUsage()
-                    .stream()
-                    .map(oid -> oidToName.get(oid) != null ? oidToName.get(oid).displayName() : oid)
-                    .toList();
-            dto.setExtendedKeyUsage(extendedKeyUsageNames);
-        }
+        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> handler.presentDetail(dto));
 
         if (certificate.getComplianceResult() != null) {
             ComplianceCheckResultDto complianceCheckResult = complianceService

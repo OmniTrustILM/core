@@ -1,12 +1,15 @@
 package com.otilm.core.certificate.type;
 
 import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
+import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.container.KeystoreDetection;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -14,6 +17,8 @@ import com.otilm.core.mapper.certificate.X509TypeDetailsMapper;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CryptographyUtil;
@@ -28,6 +33,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.bouncycastle.asn1.x509.Extension;
@@ -214,6 +220,28 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             return new ParsedCertificate(typeCode(), certificate.getEncoded(), propertiesOf(certificate));
         } catch (NoSuchAlgorithmException e) {
             throw new CertificateException(e);
+        }
+    }
+
+    /** Shows the extended key usages by the display names of their OIDs, where a name is known. */
+    @Override
+    @SuppressWarnings("deprecation")
+    public void presentDetail(CertificateDetailDto detail) {
+        if (detail.getExtendedKeyUsage() == null) {
+            return;
+        }
+        Map<String, OidRecord> oidToName = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
+        if (oidToName == null) {
+            return;
+        }
+        List<String> names = detail
+                .getExtendedKeyUsage()
+                .stream()
+                .map(oid -> oidToName.get(oid) != null ? oidToName.get(oid).displayName() : oid)
+                .toList();
+        detail.setExtendedKeyUsage(names);
+        if (detail.getTypeDetails() instanceof X509CertificateTypeDetailsDto x509Details) {
+            x509Details.setExtendedKeyUsage(names);
         }
     }
 

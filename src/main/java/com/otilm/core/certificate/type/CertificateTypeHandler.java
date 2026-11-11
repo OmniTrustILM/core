@@ -1,5 +1,6 @@
 package com.otilm.core.certificate.type;
 
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
@@ -53,6 +54,13 @@ public interface CertificateTypeHandler {
 
     /** The details only this type has, or empty when everything it has is among the common properties. */
     Optional<CertificateTypeDetailsDto> describeDetails(Certificate certificate);
+
+    /**
+     * Adjusts the certificate detail for the client, where what the type stores differs from what is shown, such as
+     * codes that have display names. By default nothing changes.
+     */
+    default void presentDetail(CertificateDetailDto detail) {
+    }
 
     /** The reasons the request exceeds the limits of the RA profile for this type; empty when it is within them. */
     default List<String> checkProfileLimits(ParsedRequest request, RaProfile raProfile) {

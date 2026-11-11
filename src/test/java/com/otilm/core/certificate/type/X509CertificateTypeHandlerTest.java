@@ -1,16 +1,20 @@
 package com.otilm.core.certificate.type;
 
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
+import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateTypeDetailsDto;
 import com.otilm.api.model.core.certificate.X509CertificateTypeDetailsDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
+import com.otilm.core.oid.OidHandler;
+import com.otilm.core.oid.OidRecord;
 import com.otilm.core.util.CertificateUtil;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
@@ -395,6 +399,44 @@ class X509CertificateTypeHandlerTest {
             assertThat(x509Details.getCommonName()).isEqualTo("details.example.com");
             assertThat(x509Details.getSubjectDn()).isEqualTo("CN=details.example.com");
         });
+    }
+
+    @Test
+    void showsTheDisplayNameOfTheOid_whenPresentingTheExtendedKeyUsages() {
+        // given
+        String serverAuthOid = "1.3.6.1.5.5.7.3.1";
+        String unnamedOid = "1.2.3.4.5";
+        OidHandler
+                .cacheOid(OidCategory.EXTENDED_KEY_USAGE, serverAuthOid,
+                        new OidRecord("TLS Web Server Authentication", null, null, null, null, null, true));
+        CertificateDetailDto detail = new CertificateDetailDto();
+        detail.setExtendedKeyUsage(List.of(serverAuthOid, unnamedOid));
+        X509CertificateTypeDetailsDto details = new X509CertificateTypeDetailsDto();
+        details.setExtendedKeyUsage(List.of(serverAuthOid, unnamedOid));
+        detail.setTypeDetails(details);
+
+        // when
+        try {
+            handler.presentDetail(detail);
+
+            // then
+            assertThat(detail.getExtendedKeyUsage()).containsExactly("TLS Web Server Authentication", unnamedOid);
+            assertThat(details.getExtendedKeyUsage()).containsExactly("TLS Web Server Authentication", unnamedOid);
+        } finally {
+            OidHandler.removeCachedOid(OidCategory.EXTENDED_KEY_USAGE, serverAuthOid);
+        }
+    }
+
+    @Test
+    void leavesTheDetailAsItIs_whenItHasNoExtendedKeyUsages() {
+        // given
+        CertificateDetailDto detail = new CertificateDetailDto();
+
+        // when
+        handler.presentDetail(detail);
+
+        // then
+        assertThat(detail.getExtendedKeyUsage()).isNull();
     }
 
     @Test
