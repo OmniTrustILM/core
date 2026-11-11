@@ -916,13 +916,18 @@ public class AttributeEngine {
     }
 
     /**
-     * Whether the request attribute identifies a data attribute definition, which is then in the name-keyed mapping.
+     * Whether the request attribute identifies a data attribute definition, which is then in the name-keyed mapping. A
+     * same-named definition it does not identify leaves the mapping, so it is not also reported as missing.
      */
     private boolean resolveDataAttributeDefinition(UUID connectorUuid, String operation,
             Map<String, AttributeDefinition> definitionsMapping, RequestAttribute requestAttribute) {
         AttributeDefinition mapped = definitionsMapping.get(requestAttribute.getName());
         if (mapped != null) {
-            return mapped.getAttributeUuid().equals(requestAttribute.getUuid());
+            boolean identified = mapped.getAttributeUuid().equals(requestAttribute.getUuid());
+            if (!identified) {
+                definitionsMapping.remove(requestAttribute.getName());
+            }
+            return identified;
         }
         Optional<AttributeDefinition> found = findDataAttributeDefinition(connectorUuid, requestAttribute);
         found.ifPresent(definition -> {

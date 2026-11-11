@@ -3074,6 +3074,29 @@ class AttributeEngineITest extends BaseSpringBootTest {
         }
 
         @Test
+        void reportsOnlyTheUuidMismatch_whenRequiredAttributeHasAnotherUuid() {
+            // given
+            DataAttributeV3 requiredDefinition = aDataAttribute().withName("identifiedAttribute").build();
+            requiredDefinition.getProperties().setRequired(true);
+            var request = aCustomAttribute()
+                    .withUuid(UUID.randomUUID())
+                    .withName(requiredDefinition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, requiredDefinition);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(requiredDefinition), List.of(request));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("which is not the uuid of its definition")
+                    .hasMessageNotContaining("is not provided");
+        }
+
+        @Test
         void rejectsDataAttribute_whenUuidIsNotTheDefinitionsUuid() {
             // given
             DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
