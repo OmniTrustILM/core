@@ -2,11 +2,13 @@ package com.otilm.core.signing.engine.signer;
 
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.operations.SignDataRequestDto;
 import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.client.cryptography.operations.SignatureResponseData;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
@@ -32,6 +34,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.ConnectorFailureFixtures.oversizedResponse;
+import static com.otilm.core.util.ConnectorFailureFixtures.problemRefusal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Named.named;
@@ -107,6 +111,55 @@ class CryptographicOperationServiceSignerTest {
                     .isInstanceOf(SigningEngineException.class)
                     .satisfies(ex -> assertThat(((SigningEngineException) ex).failure())
                             .isEqualTo(SigningEngineFailure.SIGNER_FAULT));
+        }
+
+        @Test
+        void reportsMisconfigured_whenTheProviderRefusesAnUnsupportedParameter() throws Exception {
+            // given
+            var unsupportedParameter = problemRefusal(ErrorCode.PARAMETER_UNSUPPORTED);
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willThrow(unsupportedParameter);
+
+            // when
+            ThrowingCallable sign = () -> signer.sign(DTBS_0);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(thrown.clientMessage()).isEqualTo(ErrorCode.PARAMETER_UNSUPPORTED.getTitle());
+            });
+        }
+
+        @Test
+        void reportsMisconfigured_whenTheProviderAnswersALegacy422() throws Exception {
+            // given
+            var legacyRefusal = new ValidationException("Signature attribute is not supported");
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willThrow(legacyRefusal);
+
+            // when
+            ThrowingCallable sign = () -> signer.sign(DTBS_0);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            thrown -> assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+        }
+
+        @Test
+        void throwsSignerFault_whenTheResponseExceedsTheReadLimit() throws Exception {
+            // given — a signer's response holds signatures only
+            var oversizedResponse = oversizedResponse();
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willThrow(oversizedResponse);
+
+            // when
+            ThrowingCallable sign = () -> signer.sign(DTBS_0);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            thrown -> assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT));
         }
 
         @Test
