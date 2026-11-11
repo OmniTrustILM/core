@@ -160,6 +160,27 @@ class ScepServiceImplPollUnitTest {
         Mockito.verify(auditOperationOverride).set(Operation.ISSUE);
     }
 
+    @Test
+    void recordsCertificatePollAsTheAuditOperation_whenAPollFailsBeforeDecryption() {
+        // given
+        var auditOperationOverride = Mockito.mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        Mockito.when(profile.getCaCertificate()).thenReturn(aCertificate().build());
+        var unavailableCaKey = Mockito.mock(CryptographicKeyInternalService.class);
+        Mockito.when(unavailableCaKey.getKeyItemFromKey(any(), any())).thenThrow(new IllegalStateException("no key"));
+        service.setCryptographicKeyInternalService(unavailableCaKey);
+        ScepRequest poll = Mockito.mock(ScepRequest.class);
+        Mockito.when(poll.getMessageType()).thenReturn(MessageType.CERT_POLL);
+
+        // when
+        ThrowingCallable processPoll = () -> ReflectionTestUtils.invokeMethod(service, "processPkiOperation", poll);
+
+        // then
+        assertThatThrownBy(processPoll).isInstanceOf(IllegalStateException.class).hasMessageContaining("no key");
+        Mockito.verify(auditOperationOverride).set(Operation.SCEP_CERTIFICATE_POLL);
+    }
+
     // ==================== getExistingTransaction ====================
 
     @Test

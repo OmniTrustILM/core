@@ -513,6 +513,8 @@ public class ScepServiceImpl implements ScepExternalService {
         logger.debug("Processing SCEP request: transactionId={}", scepRequest.getTransactionId());
         if (MessageType.PKCS_REQ.equals(scepRequest.getMessageType())) {
             recordAuditOperation(enrollmentOperation(registrationMode()));
+        } else if (MessageType.CERT_POLL.equals(scepRequest.getMessageType())) {
+            recordAuditOperation(Operation.SCEP_CERTIFICATE_POLL);
         }
 
         try {
@@ -601,7 +603,6 @@ public class ScepServiceImpl implements ScepExternalService {
             return enrollmentResponse(scepRequest, intuneClient, matchedRegistration);
         }
         if (scepRequest.getMessageType().equals(MessageType.CERT_POLL)) {
-            recordAuditOperation(Operation.SCEP_CERTIFICATE_POLL);
             return pollCertificate(scepRequest, intuneClient);
         }
         return buildFailedResponse(new ScepException("Unsupported Operation. The requested operation is not supported",
