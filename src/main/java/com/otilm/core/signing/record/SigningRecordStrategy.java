@@ -1,6 +1,9 @@
 package com.otilm.core.signing.record;
 
+import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
+import java.util.List;
+import java.util.UUID;
 
 /**
  * A persistence-mode strategy for recording a signing operation. Each implementation owns one
@@ -11,9 +14,11 @@ import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 public interface SigningRecordStrategy {
 
     /**
-     * Records a signing operation supplied as a deferred {@link SigningRecordInputSource}: the {@code recordingEnabled}
-     * gate and intake metrics are evaluated from the source's signing profile, and the full input is materialized only
-     * once recording is known to be on.
+     * Records the operations of one batch, building each source's input only when the profile records. A durable mode
+     * writes all of them or none.
+     *
+     * @param signingProfile the signing profile every operation of the batch ran on
+     * @return the UUIDs of the records in source order, or an empty list when the profile records nothing
      */
-    void recordSigning(SigningRecordInputSource source);
+    List<UUID> recordSigning(SigningProfileModel<?, ?> signingProfile, List<SigningRecordInputSource> sources);
 }

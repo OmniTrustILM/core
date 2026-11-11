@@ -1,6 +1,7 @@
 package com.otilm.core.dao.entity;
 
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
@@ -15,6 +16,7 @@ import java.util.List;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Mutability;
 import org.hibernate.type.SqlTypes;
 
 @Entity
@@ -38,6 +40,7 @@ public class Secret2SyncVaultProfile implements Serializable {
 
     @Column(name = "secret_attributes", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @Mutability(ReplaceOnlyMutability.class)
     private List<RequestAttribute> secretAttributes = new ArrayList<>();
 
 }

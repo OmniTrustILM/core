@@ -25,6 +25,7 @@ import com.otilm.api.model.core.scep.PkiStatus;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -107,6 +108,8 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Scope;
+import org.springframework.context.annotation.ScopedProxyMode;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -114,9 +117,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.NoTransactionException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Service
+// init stores per-request state in fields, so each HTTP request gets an instance of its own.
+@Scope(value = WebApplicationContext.SCOPE_REQUEST, proxyMode = ScopedProxyMode.TARGET_CLASS)
 // noRollbackFor keeps Spring's default (no rollback on checked exceptions): SCEP surfaces
 // these as protocol error responses rather than treating them as transaction failures.
 @Transactional(noRollbackFor = {ScepException.class, NotFoundException.class})
@@ -165,6 +172,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private CryptographicKeyInternalService cryptographicKeyService;
     private KeyProviderAdapterFactory keyProviderAdapterFactory;
     private AttributeEngine attributeEngine;
+    private AuditOperationOverride auditOperationOverride;
 
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
@@ -249,6 +257,11 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     @Autowired
+    public void setAuditOperationOverride(AuditOperationOverride auditOperationOverride) {
+        this.auditOperationOverride = auditOperationOverride;
+    }
+
+    @Autowired
     public void setKeyProviderAdapterFactory(KeyProviderAdapterFactory keyProviderAdapterFactory) {
         this.keyProviderAdapterFactory = keyProviderAdapterFactory;
     }
@@ -288,22 +301,32 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     private ResponseEntity<Object> service(String profileName, String operation, byte[] message) throws ScepException {
+        recordAuditOperation(queryAuditOperation(operation));
         init(profileName);
         validateProfile();
         logger.info("SCEP request received for profile: {}, operation: {}", profileName, operation);
         return switch (operation) {
-            case SCEP_OPERATION_GET_CA_CERT -> {
-                LoggingHelper.putAuditLogOperation(Operation.LIST_PROTOCOL_CERTIFICATES);
-                yield getCaCerts();
-            }
-            case SCEP_OPERATION_GET_CA_CAPS -> {
-                LoggingHelper.putAuditLogOperation(Operation.SCEP_CA_CAPABILITIES);
-                yield getCaCaps();
-            }
+            case SCEP_OPERATION_GET_CA_CERT -> getCaCerts();
+            case SCEP_OPERATION_GET_CA_CAPS -> getCaCaps();
             case SCEP_OPERATION_PKI_OPERATION -> pkiOperation(message);
             default -> buildResponse(null,
                     buildFailedResponse(new ScepException("Unsupported Operation", FailInfo.BAD_REQUEST), null));
         };
+    }
+
+    /** The audit operation the query names, or {@code null} when the PKI message decides it. */
+    private static Operation queryAuditOperation(String operation) {
+        if (SCEP_OPERATION_GET_CA_CERT.equals(operation)) {
+            return Operation.LIST_PROTOCOL_CERTIFICATES;
+        }
+        return SCEP_OPERATION_GET_CA_CAPS.equals(operation) ? Operation.SCEP_CA_CAPABILITIES : null;
+    }
+
+    /** Outside an HTTP request there is no audit record to hand the operation to. */
+    private void recordAuditOperation(Operation operation) {
+        if (RequestContextHolder.getRequestAttributes() != null) {
+            auditOperationOverride.set(operation);
+        }
     }
 
     private void init(String profileName) throws ScepException {
@@ -488,6 +511,11 @@ public class ScepServiceImpl implements ScepExternalService {
 
     private ResponseEntity<Object> processPkiOperation(ScepRequest scepRequest) throws ScepException {
         logger.debug("Processing SCEP request: transactionId={}", scepRequest.getTransactionId());
+        if (MessageType.PKCS_REQ.equals(scepRequest.getMessageType())) {
+            recordAuditOperation(enrollmentOperation(registrationMode()));
+        } else if (MessageType.CERT_POLL.equals(scepRequest.getMessageType())) {
+            recordAuditOperation(Operation.SCEP_CERTIFICATE_POLL);
+        }
 
         try {
             decryptRequestData(scepRequest);
@@ -525,8 +553,7 @@ public class ScepServiceImpl implements ScepExternalService {
                 verifyProofOfPossession(scepRequest);
                 // An authenticated renewal proved possession of the replaced certificate's key — the
                 // RFC-blessed equivalent of a challenge — so only initial enrolments must match a
-                // pre-registration. The match travels as a parameter: it is per-request state and must
-                // not live on this singleton.
+                // pre-registration. The match travels as a parameter.
                 if (registrationMode() && !authenticatedRenewal) {
                     matchedRegistration = matchRegistration(scepRequest);
                 }
@@ -563,20 +590,19 @@ public class ScepServiceImpl implements ScepExternalService {
             Certificate matchedRegistration) {
         if (scepTransactionRepository
                 .existsByTransactionIdAndScepProfile(scepRequest.getTransactionId(), scepProfile)) {
+            recordAuditOperation(Operation.SCEP_TRANSACTION_CHECK);
             // The registration was matched on identity alone, so anything but a verified retry is refused like an
             // unknown identity: answering it would let a known transaction ID reveal registered identities.
             if (matchedRegistration != null && !isVerifiedRetry(scepRequest, matchedRegistration)) {
                 return buildFailedResponse(new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK),
                         scepRequest.getTransactionId());
             }
-            LoggingHelper.putAuditLogOperation(Operation.SCEP_TRANSACTION_CHECK);
             return existingTransactionResponse(scepRequest);
         }
         if (scepRequest.getMessageType().equals(MessageType.PKCS_REQ)) {
             return enrollmentResponse(scepRequest, intuneClient, matchedRegistration);
         }
         if (scepRequest.getMessageType().equals(MessageType.CERT_POLL)) {
-            LoggingHelper.putAuditLogOperation(Operation.SCEP_CERTIFICATE_POLL);
             return pollCertificate(scepRequest, intuneClient);
         }
         return buildFailedResponse(new ScepException("Unsupported Operation. The requested operation is not supported",
@@ -597,21 +623,17 @@ public class ScepServiceImpl implements ScepExternalService {
 
     private ScepResponse enrollmentResponse(ScepRequest scepRequest, IntuneScepServiceClient intuneClient,
             Certificate matchedRegistration) {
+        recordAuditOperation(enrollmentOperation(matchedRegistration != null));
         try {
             // Reject before issuing when the response could never be delivered, so the platform
             // does not commit a certificate the client can never retrieve (RFC 8894 §3.2.2).
             verifyResponseEnvelopable(scepRequest);
             if (matchedRegistration != null) {
-                LoggingHelper.putAuditLogOperation(Operation.ISSUE);
                 return completeRegistration(scepRequest, matchedRegistration);
             }
-            // Manual approval for the SCEP clients are configured in the SCEP Profile.
-            // If the SCEP Profile has the manual approval set to true, only the CSR will be generated
-            if (scepProfile.getRequireManualApproval() != null && !scepProfile.getRequireManualApproval()) {
-                LoggingHelper.putAuditLogOperation(Operation.ISSUE);
+            if (issuesWithoutApproval()) {
                 return issueCertificate(scepRequest, intuneClient);
             }
-            LoggingHelper.putAuditLogOperation(Operation.REQUEST);
             return generateCsr(scepRequest, intuneClient);
         } catch (ScepException e) {
             ScepResponse failureResponse = buildFailedResponse(e, scepRequest.getTransactionId());
@@ -626,6 +648,17 @@ public class ScepServiceImpl implements ScepExternalService {
             }
             return failureResponse;
         }
+    }
+
+    /** An enrolment issues at once when it completes a registration or its profile needs no manual approval. */
+    private Operation enrollmentOperation(boolean completesRegistration) {
+        return completesRegistration || issuesWithoutApproval() ? Operation.ISSUE : Operation.REQUEST;
+    }
+
+    // Manual approval for the SCEP clients are configured in the SCEP Profile.
+    // If the SCEP Profile has the manual approval set to true, only the CSR will be generated
+    private boolean issuesWithoutApproval() {
+        return scepProfile.getRequireManualApproval() != null && !scepProfile.getRequireManualApproval();
     }
 
     private ScepResponse buildFailedResponse(ScepException scepException, String transactionId) {
@@ -1277,6 +1310,7 @@ public class ScepServiceImpl implements ScepExternalService {
             // No known certificate behind the signer: an initial enrollment, not a renewal.
             return false;
         }
+        recordAuditOperation(enrollmentOperation(false));
         validateRenewal(scepRequest, renewedCertificate);
         // Waive the challenge password only for a certificate of this profile's RA profile: holding some
         // other RA profile's certificate does not entitle a client to enroll here.

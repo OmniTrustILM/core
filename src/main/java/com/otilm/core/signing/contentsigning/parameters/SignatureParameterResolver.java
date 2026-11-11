@@ -4,6 +4,7 @@ import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureParameterGroup;
+import com.otilm.api.model.common.signature.parameters.SignatureParameterPaths;
 import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.common.signature.parameters.pades.PadesVisibleSignatureDto;
@@ -70,8 +71,8 @@ public class SignatureParameterResolver {
      */
     private static List<String> permissionViolations(@Nullable SignatureParametersDto requested,
             Set<SignatureParameterGroup> allowedGroups) {
-        return RequestParameterGroups
-                .presentFieldsByGroup(requested)
+        return SignatureParameterPaths
+                .presentByGroup(requested)
                 .entrySet()
                 .stream()
                 .filter(touched -> !allowedGroups.contains(touched.getKey()))
@@ -102,8 +103,8 @@ public class SignatureParameterResolver {
                 || !Boolean.FALSE.equals(profileDefault.getVisible())) {
             return Optional.empty();
         }
-        List<String> dropped = RequestParameterGroups
-                .presentFieldsByGroup(asked)
+        List<String> dropped = SignatureParameterPaths
+                .presentByGroup(asked)
                 .values()
                 .stream()
                 .flatMap(List::stream)

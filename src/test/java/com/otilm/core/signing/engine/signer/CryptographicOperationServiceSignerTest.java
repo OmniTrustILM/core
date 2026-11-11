@@ -1,7 +1,6 @@
 package com.otilm.core.signing.engine.signer;
 
 import com.otilm.api.exception.ConnectorException;
-import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
@@ -11,7 +10,7 @@ import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.client.cryptography.operations.SignatureResponseData;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
-import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
@@ -45,6 +44,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.ConnectorFailureFixtures.oversizedResponse;
+import static com.otilm.core.util.ConnectorFailureFixtures.problemRefusal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Named.named;
@@ -126,6 +127,55 @@ class CryptographicOperationServiceSignerTest {
                     .isInstanceOf(SigningEngineException.class)
                     .satisfies(ex -> assertThat(((SigningEngineException) ex).failure())
                             .isEqualTo(SigningEngineFailure.SIGNER_FAULT));
+        }
+
+        @Test
+        void reportsMisconfigured_whenTheProviderRefusesAnUnsupportedParameter() throws Exception {
+            // given
+            var unsupportedParameter = problemRefusal(ErrorCode.PARAMETER_UNSUPPORTED);
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willThrow(unsupportedParameter);
+
+            // when
+            ThrowingCallable sign = () -> signer.sign(DTBS_0);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(thrown.clientMessage()).isEqualTo(ErrorCode.PARAMETER_UNSUPPORTED.getTitle());
+            });
+        }
+
+        @Test
+        void reportsMisconfigured_whenTheProviderAnswersALegacy422() throws Exception {
+            // given
+            var legacyRefusal = new ValidationException("Signature attribute is not supported");
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willThrow(legacyRefusal);
+
+            // when
+            ThrowingCallable sign = () -> signer.sign(DTBS_0);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            thrown -> assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+        }
+
+        @Test
+        void throwsSignerFault_whenTheResponseExceedsTheReadLimit() throws Exception {
+            // given — a signer's response holds signatures only
+            var oversizedResponse = oversizedResponse();
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willThrow(oversizedResponse);
+
+            // when
+            ThrowingCallable sign = () -> signer.sign(DTBS_0);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            thrown -> assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT));
         }
 
         @Test
@@ -364,21 +414,6 @@ class CryptographicOperationServiceSignerTest {
             assertSignerFault(signOneItem);
         }
 
-        @Test
-        void rethrowsTheValidationExceptionUnchanged_whenTheServiceRefusesData() throws Exception {
-            // given
-            var refusal = new ValidationException(ValidationError.create("Cannot sign empty data"));
-            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
-                    .willThrow(refusal);
-            var oneItem = List.of(DTBS_0);
-
-            // when
-            ThrowingCallable signOneItem = () -> signer.signAll(oneItem);
-
-            // then
-            assertThatThrownBy(signOneItem).isSameAs(refusal);
-        }
-
         @ParameterizedTest
         @MethodSource("provideInvalidBatches")
         void throwsIllegalArgument_whenBatchOrItemIsNullOrEmpty(List<byte[]> invalidBatch) throws Exception {
@@ -519,7 +554,6 @@ class CryptographicOperationServiceSignerTest {
             assertThatThrownBy(signDigests).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
                 assertThat(ex.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
                 assertThat(ex.operatorMessage()).contains(refusal);
-                assertThat(ex.clientMessage()).isEqualTo("The signing key cannot be used for this request.");
             });
         }
 
@@ -546,14 +580,9 @@ class CryptographicOperationServiceSignerTest {
         }
 
         @Test
-        void throwsSignerFault_whenTheProviderRefusesTheMode() throws Exception {
+        void throwsMisconfigured_whenTheProviderRefusesTheMode() throws Exception {
             // given
-            var unsupported = new ProblemDetailExtended();
-            unsupported.setStatus(422);
-            unsupported.setTitle("PARAMETER_UNSUPPORTED");
-            unsupported.setDetail("PARAMETER_UNSUPPORTED");
-            unsupported.setRetryable(false);
-            var refusal = new ConnectorProblemException(unsupported);
+            var refusal = problemRefusal(ErrorCode.PARAMETER_UNSUPPORTED);
             given(callPrehashedSign()).willThrow(refusal);
             var digests = hashWithSha256(List.of(buildMessage(1)));
 
@@ -562,8 +591,8 @@ class CryptographicOperationServiceSignerTest {
 
             // then
             assertThatThrownBy(signDigests).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
-                assertThat(ex.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT);
-                assertThat(ex.operatorMessage()).startsWith("Connector error during signing");
+                assertThat(ex.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(ex.operatorMessage()).startsWith("Signing failed");
             }).hasCause(refusal);
             then(cryptographicOperationService)
                     .should(times(1))

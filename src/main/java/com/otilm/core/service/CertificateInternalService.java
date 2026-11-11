@@ -85,9 +85,9 @@ public interface CertificateInternalService extends ResourceExtensionService {
 
     /**
      * Associates the certificate with the protocol that obtained it, exactly as for a protocol-submitted request: the
-     * protocol-association row is recorded and the protocol profile's certificate associations (owner, groups, custom
-     * attributes) are applied — a profile-configured owner or group replaces one set earlier, including at registration
-     * time.
+     * protocol-association row is recorded, replacing the one an earlier attribution recorded, and the protocol
+     * profile's certificate associations (owner, groups, custom attributes) are applied — a profile-configured owner or
+     * group replaces one set earlier, including at registration time.
      *
      * <p>
      * Runs in a transaction of its own: the association is committed on return, so a caller that goes on to re-read the
@@ -101,10 +101,11 @@ public interface CertificateInternalService extends ResourceExtensionService {
     /**
      * Attaches an operator-supplied CSR to an existing certificate (a REGISTERED placeholder), preparing it for
      * issuance. The registration identity already on the row (subject DN / SAN) is preserved; the issued certificate's
-     * identity is written from the CA response at issuance.
+     * identity is written from the CA response at issuance. The request's issue attributes are stored with the CSR,
+     * replacing those of an earlier completion; the caller has them validated by the authority first.
      */
     UUID addCertificateRequestToExisting(UUID certificateUuid, ClientCertificateIssueRequestDto issueRequest)
-            throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException;
+            throws CertificateRequestException, NoSuchAlgorithmException, NotFoundException, AttributeException;
 
     CertificateChainResponseDto getCertificateChain(SecuredUUID uuid, boolean withEndCertificate)
             throws NotFoundException;

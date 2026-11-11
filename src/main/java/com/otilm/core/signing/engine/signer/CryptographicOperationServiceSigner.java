@@ -13,6 +13,8 @@ import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier;
+import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier.Classification;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 
@@ -28,6 +30,10 @@ import java.util.UUID;
  * per-request by {@link StaticManagedKeySignerCreator} with pre-resolved key routing information.
  */
 public class CryptographicOperationServiceSigner implements Signer {
+
+    private static final String CLIENT_MESSAGE = "Internal signing error";
+    private static final Classification UNCLASSIFIED = new Classification(SigningEngineFailure.SIGNER_FAULT,
+            CLIENT_MESSAGE);
 
     private final CryptographicOperationInternalService cryptographicOperationService;
     private final SecuredParentUUID tokenInstanceUuid;
@@ -89,18 +95,13 @@ public class CryptographicOperationServiceSigner implements Signer {
             }
             return signatures;
 
-        } catch (ConnectorException e) {
-            throw new SigningEngineException(SigningEngineFailure.SIGNER_FAULT,
-                    "Connector error during signing: " + e.getMessage(), e, "Internal signing error");
+        } catch (ConnectorException | ValidationException e) {
+            Classification classification = ConnectorRefusalClassifier.classify(e, UNCLASSIFIED);
+            throw new SigningEngineException(classification.failure(), "Signing failed: " + e.getMessage(), e,
+                    classification.clientMessage());
         } catch (NotFoundException e) {
             throw new SigningEngineException(SigningEngineFailure.SIGNER_FAULT,
-                    "Key or token not found during signing: " + e.getMessage(), e, "Internal signing error");
-        } catch (ValidationException e) {
-            if (!prehashed) {
-                throw e;
-            }
-            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED, e.getMessage(), e,
-                    "The signing key cannot be used for this request.");
+                    "Key or token not found during signing: " + e.getMessage(), e, CLIENT_MESSAGE);
         }
     }
 
@@ -201,6 +202,6 @@ public class CryptographicOperationServiceSigner implements Signer {
     }
 
     private static SigningEngineException signerFault(String message) {
-        return new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, message, "Internal signing error");
+        return new SigningEngineException(SigningEngineFailure.SIGNER_FAULT, message, CLIENT_MESSAGE);
     }
 }

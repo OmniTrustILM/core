@@ -88,8 +88,8 @@ final class IdentityKeyExposureFence {
      * from anywhere else.
      *
      * <p>
-     * The eighteen {@code MDC.put} sites in production all sit behind {@code LoggingHelper.putSourceInfo},
-     * {@code putAuditLogOperation} and their siblings, so a value handed to one of those is bound into every later log
+     * The {@code MDC.put} sites in production all sit behind {@code LoggingHelper.putSourceInfo},
+     * {@code putLogResourceInfo} and their siblings, so a value handed to one of those is bound into every later log
      * line of the request while the disclosing line says nothing that matches {@code MDC.put}. A one-line wrapper
      * written beside a disclosure would open the same hole again, which is what the byte-code rule closes: the wrapper
      * either registers here, and becomes a sink to the lexical rule, or it fails the build.
