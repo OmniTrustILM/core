@@ -69,6 +69,8 @@ import com.otilm.core.util.AcmeCommonHelper;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.LoopbackWireMock;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -101,6 +103,8 @@ import org.mockito.MockedConstruction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
@@ -164,6 +168,9 @@ class AcmeServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private AcmeExternalService acmeService;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     private AcmeNonce acmeValidNonce;
     private JWSSigner rsa2048Signer;
@@ -803,10 +810,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         order1.setStatus(OrderStatus.PENDING);
         acmeOrderRepository.save(order1);
         Assertions
-                .assertThrows(AcmeProblemDocumentException.class,
-                        () -> acmeService
-                                .finalizeOrder(ACME_PROFILE_NAME, ORDER_ID_VALID,
-                                        buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
+                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(ACME_PROFILE_NAME,
+                        ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
         AcmeAccount acmeAccount = acmeAccountRepository.findByUuid(order1.getAcmeAccountUuid()).orElseThrow();
         Assertions.assertEquals(1, acmeAccount.getFailedOrders());
         certificate.setState(CertificateState.ISSUED);
@@ -814,10 +819,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         order1.setStatus(OrderStatus.PENDING);
         acmeOrderRepository.save(order1);
         Assertions
-                .assertThrows(AcmeProblemDocumentException.class,
-                        () -> acmeService
-                                .finalizeOrder(ACME_PROFILE_NAME, ORDER_ID_VALID,
-                                        buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
+                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(ACME_PROFILE_NAME,
+                        ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
         acmeAccount = acmeAccountRepository.findByUuid(order1.getAcmeAccountUuid()).orElseThrow();
         Assertions.assertEquals(1, acmeAccount.getValidOrders());
 
@@ -825,9 +828,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         order1.setCertificateReferenceUuid(null);
         order1.setStatus(OrderStatus.READY);
         acmeOrderRepository.save(order1);
-        acmeService
-                .finalizeOrder(ACME_PROFILE_NAME, ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri),
-                        requestUri, false);
+        finalizeInRequest(ACME_PROFILE_NAME, ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri,
+                false);
         acmeAccount = acmeAccountRepository.findByUuid(order1.getAcmeAccountUuid()).orElseThrow();
         Assertions.assertEquals(2, acmeAccount.getFailedOrders());
 
@@ -847,9 +849,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         order1.setCertificateReferenceUuid(null);
         order1.setStatus(OrderStatus.READY);
         acmeOrderRepository.save(order1);
-        acmeService
-                .finalizeOrder(ACME_PROFILE_NAME, ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri),
-                        requestUri, false);
+        finalizeInRequest(ACME_PROFILE_NAME, ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri,
+                false);
         acmeAccount = acmeAccountRepository.findByUuid(order1.getAcmeAccountUuid()).orElseThrow();
         Assertions.assertEquals(2, acmeAccount.getFailedOrders());
     }
@@ -859,10 +860,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         String baseUri = RA_BASE_URI + RA_PROFILE_NAME;
         URI requestUri = new URI(baseUri + "/order/" + ORDER_ID_VALID + "/finalize");
         Assertions
-                .assertThrows(AcmeProblemDocumentException.class,
-                        () -> acmeService
-                                .finalizeOrder(RA_PROFILE_NAME, ORDER_ID_VALID,
-                                        buildFinalizeRequestJSON(requestUri, baseUri), requestUri, true));
+                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(RA_PROFILE_NAME,
+                        ORDER_ID_VALID, buildFinalizeRequestJSON(requestUri, baseUri), requestUri, true));
     }
 
     private String buildFinalizeRequestJSON(URI requestUri, String baseUri) throws JOSEException {
@@ -875,6 +874,24 @@ class AcmeServiceITest extends BaseSpringBootTest {
                         .customParam(URL_HEADER_CUSTOM_PARAM, requestUri.toString())
                         .build(), rsa2048Signer);
         return jwsObjectJSON.serializeFlattened();
+    }
+
+    /**
+     * Finalizes as one HTTP request does: an EntityManager stays bound to the thread throughout, as open-in-view binds
+     * one.
+     */
+    private ResponseEntity<Order> finalizeInRequest(String acmeProfileName, String orderId, String requestJson,
+            URI requestUri, boolean isRaProfileBased) throws AcmeProblemDocumentException, ConnectorException,
+            JsonProcessingException, CertificateException, AlreadyExistException {
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+        try {
+            return acmeService.finalizeOrder(acmeProfileName, orderId, requestJson, requestUri, isRaProfileBased);
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+        }
     }
 
     @Test
@@ -1362,10 +1379,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         URI requestUri = new URI(baseUri + "/order/orderStaleFin/finalize");
 
         AcmeProblemDocumentException refused = Assertions
-                .assertThrows(AcmeProblemDocumentException.class,
-                        () -> acmeService
-                                .finalizeOrder(ACME_PROFILE_NAME, "orderStaleFin",
-                                        buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
+                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(ACME_PROFILE_NAME,
+                        "orderStaleFin", buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
 
         Assertions.assertEquals(Problem.ORDER_NOT_READY.getType(), refused.getProblemDocument().getType());
         Assertions
@@ -1404,10 +1419,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         URI requestUri = new URI(baseUri + "/order/orderStaleFin2/finalize");
 
         AcmeProblemDocumentException refused = Assertions
-                .assertThrows(AcmeProblemDocumentException.class,
-                        () -> acmeService
-                                .finalizeOrder(ACME_PROFILE_NAME, "orderStaleFin2",
-                                        buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
+                .assertThrows(AcmeProblemDocumentException.class, () -> finalizeInRequest(ACME_PROFILE_NAME,
+                        "orderStaleFin2", buildFinalizeRequestJSON(requestUri, baseUri), requestUri, false));
 
         Assertions.assertEquals(Problem.ORDER_NOT_READY.getType(), refused.getProblemDocument().getType());
         Assertions
@@ -1658,8 +1671,8 @@ class AcmeServiceITest extends BaseSpringBootTest {
         URI requestUri = new URI(baseUri + "/order/orderForeignFin/finalize");
 
         AcmeProblemDocumentException refused = Assertions
-                .assertThrows(AcmeProblemDocumentException.class, () -> acmeService
-                        .finalizeOrder(ACME_PROFILE_NAME, "orderForeignFin",
+                .assertThrows(AcmeProblemDocumentException.class,
+                        () -> finalizeInRequest(ACME_PROFILE_NAME, "orderForeignFin",
                                 signedByOtherAccount("{\"csr\":\"\"}", requestUri, baseUri), requestUri, false));
 
         Assertions.assertEquals(Problem.UNAUTHORIZED.getType(), refused.getProblemDocument().getType());
