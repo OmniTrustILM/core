@@ -25,6 +25,7 @@ import com.otilm.api.model.core.scep.PkiStatus;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRequestDto;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -117,6 +118,7 @@ import org.springframework.transaction.NoTransactionException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Service
@@ -170,6 +172,7 @@ public class ScepServiceImpl implements ScepExternalService {
     private CryptographicKeyInternalService cryptographicKeyService;
     private KeyProviderAdapterFactory keyProviderAdapterFactory;
     private AttributeEngine attributeEngine;
+    private AuditOperationOverride auditOperationOverride;
 
     @Autowired
     public void setAttributeEngine(AttributeEngine attributeEngine) {
@@ -254,6 +257,11 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     @Autowired
+    public void setAuditOperationOverride(AuditOperationOverride auditOperationOverride) {
+        this.auditOperationOverride = auditOperationOverride;
+    }
+
+    @Autowired
     public void setKeyProviderAdapterFactory(KeyProviderAdapterFactory keyProviderAdapterFactory) {
         this.keyProviderAdapterFactory = keyProviderAdapterFactory;
     }
@@ -298,17 +306,24 @@ public class ScepServiceImpl implements ScepExternalService {
         logger.info("SCEP request received for profile: {}, operation: {}", profileName, operation);
         return switch (operation) {
             case SCEP_OPERATION_GET_CA_CERT -> {
-                LoggingHelper.putAuditLogOperation(Operation.LIST_PROTOCOL_CERTIFICATES);
+                recordAuditOperation(Operation.LIST_PROTOCOL_CERTIFICATES);
                 yield getCaCerts();
             }
             case SCEP_OPERATION_GET_CA_CAPS -> {
-                LoggingHelper.putAuditLogOperation(Operation.SCEP_CA_CAPABILITIES);
+                recordAuditOperation(Operation.SCEP_CA_CAPABILITIES);
                 yield getCaCaps();
             }
             case SCEP_OPERATION_PKI_OPERATION -> pkiOperation(message);
             default -> buildResponse(null,
                     buildFailedResponse(new ScepException("Unsupported Operation", FailInfo.BAD_REQUEST), null));
         };
+    }
+
+    /** Outside an HTTP request there is no audit record to hand the operation to. */
+    private void recordAuditOperation(Operation operation) {
+        if (RequestContextHolder.getRequestAttributes() != null) {
+            auditOperationOverride.set(operation);
+        }
     }
 
     private void init(String profileName) throws ScepException {
@@ -573,14 +588,14 @@ public class ScepServiceImpl implements ScepExternalService {
                 return buildFailedResponse(new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK),
                         scepRequest.getTransactionId());
             }
-            LoggingHelper.putAuditLogOperation(Operation.SCEP_TRANSACTION_CHECK);
+            recordAuditOperation(Operation.SCEP_TRANSACTION_CHECK);
             return existingTransactionResponse(scepRequest);
         }
         if (scepRequest.getMessageType().equals(MessageType.PKCS_REQ)) {
             return enrollmentResponse(scepRequest, intuneClient, matchedRegistration);
         }
         if (scepRequest.getMessageType().equals(MessageType.CERT_POLL)) {
-            LoggingHelper.putAuditLogOperation(Operation.SCEP_CERTIFICATE_POLL);
+            recordAuditOperation(Operation.SCEP_CERTIFICATE_POLL);
             return pollCertificate(scepRequest, intuneClient);
         }
         return buildFailedResponse(new ScepException("Unsupported Operation. The requested operation is not supported",
@@ -606,16 +621,16 @@ public class ScepServiceImpl implements ScepExternalService {
             // does not commit a certificate the client can never retrieve (RFC 8894 §3.2.2).
             verifyResponseEnvelopable(scepRequest);
             if (matchedRegistration != null) {
-                LoggingHelper.putAuditLogOperation(Operation.ISSUE);
+                recordAuditOperation(Operation.ISSUE);
                 return completeRegistration(scepRequest, matchedRegistration);
             }
             // Manual approval for the SCEP clients are configured in the SCEP Profile.
             // If the SCEP Profile has the manual approval set to true, only the CSR will be generated
             if (scepProfile.getRequireManualApproval() != null && !scepProfile.getRequireManualApproval()) {
-                LoggingHelper.putAuditLogOperation(Operation.ISSUE);
+                recordAuditOperation(Operation.ISSUE);
                 return issueCertificate(scepRequest, intuneClient);
             }
-            LoggingHelper.putAuditLogOperation(Operation.REQUEST);
+            recordAuditOperation(Operation.REQUEST);
             return generateCsr(scepRequest, intuneClient);
         } catch (ScepException e) {
             ScepResponse failureResponse = buildFailedResponse(e, scepRequest.getTransactionId());

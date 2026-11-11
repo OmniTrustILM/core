@@ -15,6 +15,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
 import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -67,6 +68,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import static com.otilm.core.service.cmp.CmpConstants.HTTP_HEADER_CONTENT_TYPE;
@@ -180,10 +182,16 @@ public class CmpServiceImpl implements CmpExternalService {
     // -- OTHERS
     private AttributeEngine attributeEngine;
     private CertificateInternalService certificateService;
+    private AuditOperationOverride auditOperationOverride;
 
     @Autowired
     private void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
+    }
+
+    @Autowired
+    public void setAuditOperationOverride(AuditOperationOverride auditOperationOverride) {
+        this.auditOperationOverride = auditOperationOverride;
     }
 
     @Autowired
@@ -273,21 +281,19 @@ public class CmpServiceImpl implements CmpExternalService {
                         throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure,
                                 String.format(" %s | general problem while handling crmf message", logPrefix));
                     }
-                    LoggingHelper
-                            .putAuditLogOperation(
-                                    bodyType == PKIBody.TYPE_KEY_UPDATE_REQ ? Operation.REKEY : Operation.ISSUE);
+                    recordAuditOperation(bodyType == PKIBody.TYPE_KEY_UPDATE_REQ ? Operation.REKEY : Operation.ISSUE);
                     break;
                 case PKIBody.TYPE_REVOCATION_REQ: // (11) rr, Revocation Request; RevReqContent
                     pkiResponse = revocationMessageHandler.handle(pkiRequest, configuration);
-                    LoggingHelper.putAuditLogOperation(Operation.REVOKE);
+                    recordAuditOperation(Operation.REVOKE);
                     break;
                 case PKIBody.TYPE_CERT_CONFIRM: // (24) certConf, Certificate confirm; CertConfirmContent
                     pkiResponse = certConfirmMessageHandler.handle(pkiRequest, configuration);
-                    LoggingHelper.putAuditLogOperation(Operation.CMP_CONFIRM);
+                    recordAuditOperation(Operation.CMP_CONFIRM);
                     break;
                 case PKIBody.TYPE_POLL_REQ: // (25) pollReq, Polling Request (RFC 4210 §5.2.6)
                     pkiResponse = pollReqMessageHandler.handle(pkiRequest, configuration);
-                    LoggingHelper.putAuditLogOperation(Operation.GET_STATUS);
+                    recordAuditOperation(Operation.GET_STATUS);
                     break;
                 case PKIBody.TYPE_CROSS_CERT_REQ, PKIBody.TYPE_KEY_RECOVERY_REQ, PKIBody.TYPE_GEN_MSG,
                         PKIBody.TYPE_NESTED, PKIBody.TYPE_P10_CERT_REQ, PKIBody.TYPE_REVOCATION_ANN,
@@ -326,6 +332,13 @@ public class CmpServiceImpl implements CmpExternalService {
         } catch (Exception e) {
             return errorResponse(tid, logPrefix, requestAsString, "handling", e,
                     buildProcessingErrorResponse(configuration, pkiRequest, safeErrorBody(e)));
+        }
+    }
+
+    /** Outside an HTTP request there is no audit record to hand the operation to. */
+    private void recordAuditOperation(Operation operation) {
+        if (RequestContextHolder.getRequestAttributes() != null) {
+            auditOperationOverride.set(operation);
         }
     }
 

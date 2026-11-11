@@ -477,7 +477,7 @@ class IdentityKeyExposureFenceSelfTest {
     }
 
     /**
-     * The shape the code base actually uses: eighteen {@code MDC.put} sites sit behind {@code LoggingHelper}'s static
+     * The shape the code base actually uses: the {@code MDC.put} sites sit behind {@code LoggingHelper}'s static
      * methods, so a value handed to one of them is bound into every later log line while the disclosing line names no
      * logger and no MDC.
      */
@@ -493,7 +493,7 @@ class IdentityKeyExposureFenceSelfTest {
                 .contains("logs the crypto-asset identity key");
         assertThat(IdentityKeyExposureFence
                 .sourceFileViolations(writer, List
-                        .of("  com.otilm.core.logging.LoggingHelper.putAuditLogOperation(", "          identityKey);")))
+                        .of("  com.otilm.core.logging.LoggingHelper.putLogResourceInfo(", "          identityKey);")))
                 .describedAs("qualified, and wrapped across lines")
                 .singleElement()
                 .asString()

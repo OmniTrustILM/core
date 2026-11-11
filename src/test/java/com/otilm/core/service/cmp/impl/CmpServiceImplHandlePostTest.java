@@ -14,6 +14,8 @@ import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
 import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -359,6 +361,30 @@ class CmpServiceImplHandlePostTest {
         ArgumentCaptor<ConfigurationContext> configuration = ArgumentCaptor.forClass(ConfigurationContext.class);
         verify(crmfMessageHandler).handle(any(), configuration.capture());
         assertThat(configuration.getValue().getProtectionCertificate()).isSameAs(protectionCertificate);
+    }
+
+    @Test
+    void recordsIssueAsTheAuditOperation_whenInitialRequestIsHandled() throws Exception {
+        // given
+        var crmfMessageHandler = mock(CrmfMessageHandler.class);
+        var certificateRepository = mock(CertificateRepository.class);
+        CmpServiceImpl service = createSignatureProfileService(crmfMessageHandler, certificateRepository);
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        var signerKeys = CmpTestUtil.generateKeyPairEC();
+        var signerCertificate = createSelfSignedCertificate(signerKeys);
+        Certificate protectionCertificate = CmpEntityUtil
+                .createProtectionCertificate(signerCertificate, RA_PROFILE_UUID);
+        when(certificateRepository.findByFingerprint(protectionCertificate.getFingerprint()))
+                .thenReturn(Optional.of(protectionCertificate));
+        byte[] initialRequest = createSignedInitialRequest(signerKeys, signerCertificate);
+        when(crmfMessageHandler.handle(any(), any())).thenReturn(PKIMessage.getInstance(initialRequest));
+
+        // when
+        service.handlePost(PROFILE_NAME, initialRequest);
+
+        // then
+        verify(auditOperationOverride).set(Operation.ISSUE);
     }
 
     @Test

@@ -1,7 +1,9 @@
 package com.otilm.core.service.scep.impl;
 
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.scep.PkiStatus;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
@@ -11,10 +13,14 @@ import com.otilm.core.service.scep.message.ScepResponse;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,6 +55,33 @@ class ScepServiceImplPollUnitTest {
         ReflectionTestUtils.setField(service, "scepProfile", profile);
         // raProfileBased=false by default (boolean field) — buildFailedResponse will not
         // touch raProfile.getName() under that path.
+    }
+
+    @AfterEach
+    void clearRequestContext() {
+        RequestContextHolder.resetRequestAttributes();
+    }
+
+    // ==================== audit operation ====================
+
+    @Test
+    void recordsTransactionCheckAsTheAuditOperation_whenTheTransactionIdIsKnown() {
+        // given
+        var auditOperationOverride = Mockito.mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        ScepRequest request = Mockito.mock(ScepRequest.class);
+        Mockito.when(request.getTransactionId()).thenReturn("tx-known");
+        Mockito.when(transactionRepository.existsByTransactionIdAndScepProfile("tx-known", profile)).thenReturn(true);
+        Mockito
+                .when(transactionRepository.findByTransactionIdAndScepProfile("tx-known", profile))
+                .thenReturn(Optional.of(transactionWithCert(certificateInState(CertificateState.PENDING_ISSUE))));
+
+        // when
+        ReflectionTestUtils.invokeMethod(service, "resolveResponse", request, null, null);
+
+        // then
+        Mockito.verify(auditOperationOverride).set(Operation.SCEP_TRANSACTION_CHECK);
     }
 
     // ==================== getExistingTransaction ====================
