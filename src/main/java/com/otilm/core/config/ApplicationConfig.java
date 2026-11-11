@@ -268,7 +268,7 @@ public class ApplicationConfig {
 
     @Bean
     public ContentSigningFormattingApiClient contentSigningFormattingApiClient(WebClient webClient,
-            TrustManager[] defaultTrustManagers) {
-        return new ContentSigningFormattingApiClient(webClient, defaultTrustManagers);
+            TrustManager[] defaultTrustManagers, Validator validator) {
+        return new ContentSigningFormattingApiClient(webClient, defaultTrustManagers, validator);
     }
 }

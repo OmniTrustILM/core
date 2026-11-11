@@ -7,6 +7,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.core.model.crypto.CryptographicKeyItemOperationModel;
 import com.otilm.core.model.signing.SigningCertificate;
+import com.otilm.core.model.signing.SigningKeyItems;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -44,18 +45,14 @@ public class StaticManagedKeySignerCreator implements SignerCreator {
 
         List<CryptographicKeyItemOperationModel> keyItems = signingScheme.keyItems();
 
-        CryptographicKeyItemOperationModel privateKeyItem = keyItems
-                .stream()
-                .filter(item -> item.keyType() == KeyType.PRIVATE_KEY)
-                .findFirst()
+        CryptographicKeyItemOperationModel privateKeyItem = SigningKeyItems
+                .first(KeyType.PRIVATE_KEY, keyItems)
                 .orElseThrow(() -> new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
                         String.format("No private key item found for key '%s'", certificate.keyUuid()),
                         "Signing key could not be found."));
 
-        CryptographicKeyItemOperationModel publicKeyItem = keyItems
-                .stream()
-                .filter(item -> item.keyType() == KeyType.PUBLIC_KEY)
-                .findFirst()
+        CryptographicKeyItemOperationModel publicKeyItem = SigningKeyItems
+                .first(KeyType.PUBLIC_KEY, keyItems)
                 .orElseThrow(() -> new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
                         String.format("No public key item found for key '%s'", certificate.keyUuid()),
                         "Signing key could not be found."));

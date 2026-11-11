@@ -70,6 +70,7 @@ import org.slf4j.LoggerFactory;
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
 import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
+import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -598,7 +599,7 @@ class ManagedContentSigningEngineTest {
             DocumentTransferMode refused = DocumentTransferMode.INLINE;
 
             // when
-            String message = ManagedContentSigningEngine.clientRefusal(SignatureFamily.CADES, refused);
+            String message = ManagedContentSigningEngine.clientRefusal("CAdES", refused);
 
             // then
             assertThat(message).isEqualTo("CAdES signing needs only the document's digest, not the document itself");
@@ -623,6 +624,30 @@ class ManagedContentSigningEngineTest {
             verify(formattingClient).computeDtbs(any(), captured.capture());
             assertThat(captured.getValue().getFamily()).isEqualTo(SignatureFamily.CADES);
             assertThat(captured.getValue().getDocument()).isEqualTo(digestOnly);
+        }
+
+        @Test
+        void refusesAnInlineDocumentBeforeResolvingTheSigner_whenTheFamilyDeclaresOnlyDigestOnly() {
+            // given
+            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
+                    .withMaxLevel(SignatureLevel.SIGNED)
+                    .withFamilyDeclaration(aFamilyDeclaration(new SignatureFamily("mrtd"))
+                            .withTransferModes(Set.of(DocumentTransferMode.DIGEST_ONLY))
+                            .build())
+                    .build();
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign)
+                    .hasMessageContaining("mrtd signing needs only the document's digest, not the document itself")
+                    .isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                        assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                        assertThat(refusal.operatorMessage()).contains("transferMode inline");
+                    });
+            verifyNoInteractions(signingCertificateValidatorFactory, acquisitions, formattingClient);
         }
     }
 
@@ -770,6 +795,100 @@ class ManagedContentSigningEngineTest {
             assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
         }
 
+    }
+
+    @Nested
+    class DeclarationGate {
+
+        @Test
+        void refusesBeforeComputeDtbs_whenTheConnectorNoLongerDeclaresTheTargetLevel() {
+            // given — a reconnect lowered the family's levels below the profile's ceiling
+            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
+                    .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                    .withFamilyDeclaration(
+                            aFamilyDeclaration(SignatureFamily.PADES).withHighestLevel(SignatureLevel.SIGNED).build())
+                    .build();
+            var undeclaredLevel = SignatureLevel.TIMESTAMPED;
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request(undeclaredLevel), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(refusal.operatorMessage()).contains(undeclaredLevel.name());
+            });
+            verifyNoInteractions(formattingClient, acquisitions);
+        }
+
+        @Test
+        void refusesToAugment_whenTheConnectorNoLongerDeclaresTheTargetLevel() {
+            // given
+            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
+                    .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                    .withFamilyDeclaration(
+                            aFamilyDeclaration(SignatureFamily.PADES).withHighestLevel(SignatureLevel.SIGNED).build())
+                    .build();
+            var undeclaredLevel = SignatureLevel.TIMESTAMPED;
+
+            // when
+            ThrowingCallable augment = () -> engine
+                    .augment(new AugmentationRequest(undeclaredLevel, "foreign document".getBytes(), null),
+                            aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(augment).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(refusal.operatorMessage()).contains(undeclaredLevel.name());
+            });
+            verifyNoInteractions(formattingClient, acquisitions);
+        }
+
+        @Test
+        void refusesToReleaseTheKey_whenTheFamilyNoLongerAcceptsTheSignersAlgorithm() throws SigningEngineException {
+            // given
+            var onlyAcceptedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
+            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
+                    .withMaxLevel(SignatureLevel.SIGNED)
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                            .withSignatureAlgorithms(Set.of(onlyAcceptedAlgorithm))
+                            .build())
+                    .build();
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(refusal.operatorMessage()).contains(SIGNATURE_ALGORITHM.getCode());
+            });
+            verifyNoInteractions(formattingClient);
+            verify(acquisitions, never()).signatureValue(any(), any());
+        }
+
+        @Test
+        void signs_whenTheFamilyAcceptsTheSignersAlgorithm() throws SigningEngineException {
+            // given
+            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
+                    .withMaxLevel(SignatureLevel.SIGNED)
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                            .withSignatureAlgorithms(Set.of(SIGNATURE_ALGORITHM))
+                            .build())
+                    .build();
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signatureValue(any(), any())).thenReturn("signature".getBytes());
+            stubEmbedSignatureValue("signed document".getBytes());
+
+            // when
+            SignedContent signed = engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
+        }
     }
 
     @Nested

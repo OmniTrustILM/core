@@ -145,7 +145,7 @@ class ContentSigningRecordFactoryTest {
             // then
             assertThat(input.getRequestMetadataJson())
                     .contains("\"signatureLevel\":\"TIMESTAMPED\"")
-                    .contains("\"family\":\"PADES\"")
+                    .contains("\"family\":\"pades\"")
                     .contains("\"timestampTokenSerialNumbers\":[\"2a\"]");
         }
 

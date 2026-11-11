@@ -4,6 +4,7 @@ import com.otilm.api.clients.ApiClientConnectorInfo;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SignatureParameterPolicy;
@@ -26,7 +27,9 @@ public final class ResolvedManagedContentSigningProfileBuilder {
     private boolean enabled = true;
     private List<SigningProtocol> enabledProtocols = List.of(SigningProtocol.CSC_API);
     private List<RequestAttribute> signatureFormattingConnectorAttributes = List.of();
-    private SignatureFamily family = SignatureFamily.PADES;
+    private SignatureFamilyDeclarationDto familyDeclaration = SignatureFamilyDeclarationDtoBuilder
+            .aFamilyDeclaration(SignatureFamily.PADES)
+            .build();
     private SignatureLevel maxLevel = SignatureLevel.TIMESTAMPED;
     private String timestampSourceProfileName = "internal-tsa";
     private Long documentSizeCap = null;
@@ -75,8 +78,15 @@ public final class ResolvedManagedContentSigningProfileBuilder {
         return this;
     }
 
+    /** Uses the declaration a connector serving the family sends, with every level up to {@code ARCHIVAL}. */
     public ResolvedManagedContentSigningProfileBuilder withFamily(SignatureFamily family) {
-        this.family = family;
+        this.familyDeclaration = SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration(family).build();
+        return this;
+    }
+
+    public ResolvedManagedContentSigningProfileBuilder withFamilyDeclaration(
+            SignatureFamilyDeclarationDto familyDeclaration) {
+        this.familyDeclaration = familyDeclaration;
         return this;
     }
 
@@ -120,8 +130,8 @@ public final class ResolvedManagedContentSigningProfileBuilder {
 
     public ResolvedManagedContentSigningProfile build() {
         return new ResolvedManagedContentSigningProfile(uuid, name, description, version, enabled, enabledProtocols,
-                signatureFormattingConnectorAttributes, family, maxLevel, timestampSourceProfileName, documentSizeCap,
-                certificatePurpose, parameterPolicy, signatureFormattingConnector, resolvedScheme);
+                signatureFormattingConnectorAttributes, familyDeclaration, maxLevel, timestampSourceProfileName,
+                documentSizeCap, certificatePurpose, parameterPolicy, signatureFormattingConnector, resolvedScheme);
     }
 
     private static ResolvedManagedScheme defaultScheme() {

@@ -38,9 +38,11 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.common.signature.SignatureParameterGroup;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
@@ -79,6 +81,7 @@ import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.TspProfileModel;
 import com.otilm.core.model.signing.scheme.SigningSchemeModel;
+import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.security.authz.AnyPrincipalEndpoint;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -97,9 +100,13 @@ import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.service.model.SecuredList;
 import com.otilm.core.service.writer.SigningProfileWriter;
+import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingAttributes;
 import com.otilm.core.signing.contentsigning.profile.ContentSigningWorkflowValidator;
 import com.otilm.core.signing.contentsigning.profile.TimestampSourceRequests;
+import com.otilm.core.signing.engine.error.SigningEngineException;
+import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
+import com.otilm.core.signing.engine.signer.SignerFactory;
 import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
 import com.otilm.core.signing.formatting.FormattingAttributesCheck;
 import com.otilm.core.util.CertificateEligibilityUtil;
@@ -147,6 +154,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     private SigningProfileServiceImpl self;
     private CryptographicOperationInternalService cryptographicOperationService;
+    private ManagedSchemeResolver managedSchemeResolver;
+    private SignerFactory signerFactory;
     private CertificateInternalService certificateService;
     private ConnectorInternalService connectorService;
     private TokenProfileInternalService tokenProfileService;
@@ -166,6 +175,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     private ClusterOperationSynchronizer clusterSynchronizer;
     private ContentSigningWorkflowValidator contentSigningWorkflowValidator;
     private ContentSigningFormattingAttributes contentSigningFormattingAttributes;
+    private ContentSigningDeclarations contentSigningDeclarations;
 
     // ──────────────────────────────────────────────────────────────────────────
     // List / search
@@ -294,12 +304,20 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     public List<BaseAttribute> listContentSigningFormattingConnectorAttributes(UUID connectorUuid,
             SignatureFamily family, SignatureLevel maxLevel, SecuredUUID signingProfileUuid)
             throws NotFoundException, ConnectorException, AttributeException {
-        ContentSigningWorkflowValidator
-                .requireConnectorServes(
-                        connectorService.getConnectorEntityWithInterfaces(SecuredUUID.fromUUID(connectorUuid)), family,
-                        maxLevel);
+        contentSigningWorkflowValidator
+                .requireConnectorServes(connectorService.getConnectorEntity(SecuredUUID.fromUUID(connectorUuid)),
+                        family, maxLevel);
         return contentSigningFormattingAttributes
                 .aggregate(connectorService.getConnectorForApiClient(connectorUuid), maxLevel);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.SIGNING_PROFILE, action = ResourceAction.ANY)
+    @Transactional(readOnly = true)
+    public List<SignatureFamilyDeclarationDto> listSignatureFormattingConnectorDeclarations(UUID connectorUuid,
+            SecuredUUID signingProfileUuid) throws NotFoundException {
+        Connector connector = connectorService.getConnectorEntity(SecuredUUID.fromUUID(connectorUuid));
+        return contentSigningDeclarations.families(connector.getUuid());
     }
 
     @Override
@@ -1026,24 +1044,35 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             requireNoSignatureParameters(w);
             return;
         }
-        requireStaticKeyManagedSigning(request.getSigningScheme());
-        contentSigningWorkflowValidator
-                .validate(w,
-                        connectorService
-                                .getConnectorEntityWithInterfaces(
-                                        SecuredUUID.fromUUID(requireSignatureFormattingConnectorUuid(w))),
-                        targetProfileUuid);
+        StaticKeyManagedSigningRequestDto scheme = requireStaticKeyManagedSigning(request.getSigningScheme());
+        Connector formattingConnector = connectorService
+                .getConnectorEntity(SecuredUUID.fromUUID(requireSignatureFormattingConnectorUuid(w)));
+        SignatureAlgorithm signatureAlgorithm = signatureAlgorithmOf(request.getName(), scheme);
+        contentSigningWorkflowValidator.validate(w, formattingConnector, signatureAlgorithm, targetProfileUuid);
+    }
+
+    /** Signing resolves the algorithm the same way, so save checks the algorithm the profile signs with. */
+    private SignatureAlgorithm signatureAlgorithmOf(String profileName, StaticKeyManagedSigningRequestDto scheme) {
+        var signing = new StaticKeyManagedSigning(scheme.getCertificateUuid(),
+                Objects.requireNonNullElse(scheme.getSigningOperationAttributes(), List.of()));
+        try {
+            return signerFactory.signatureAlgorithm(managedSchemeResolver.resolve(profileName, signing));
+        } catch (SigningEngineException e) {
+            throw new ValidationException(notEligibleMessage(scheme.getCertificateUuid(),
+                    SigningWorkflowType.CONTENT_SIGNING, e.operatorMessage()));
+        }
     }
 
     /**
      * Only the static-key scheme resolves for content signing, so a one-time-key profile would save cleanly and then
      * fail on every request.
      */
-    private static void requireStaticKeyManagedSigning(SigningSchemeRequestDto scheme) {
-        if (!(scheme instanceof StaticKeyManagedSigningRequestDto)) {
+    private static StaticKeyManagedSigningRequestDto requireStaticKeyManagedSigning(SigningSchemeRequestDto scheme) {
+        if (!(scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme)) {
             throw new ValidationException("Managed content signing requires the %s managed signing type"
                     .formatted(ManagedSigningType.STATIC_KEY));
         }
+        return staticKeyScheme;
     }
 
     private static UUID requireSignatureFormattingConnectorUuid(ContentSigningWorkflowRequestDto w) {
@@ -1122,11 +1151,17 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     private static String notEligibleMessage(Certificate certificate, SigningWorkflowType workflowType,
             CertificatePurposeRequirements certificatePurpose) {
-        return "Certificate " + certificate.getUuid() + " is not eligible for signing workflow type " + workflowType
-                + CertificateEligibilityUtil
-                        .describeSigningPurposeMismatch(certificate, workflowType, certificatePurpose)
-                        .map(reason -> ": " + reason)
-                        .orElse("");
+        String reason = CertificateEligibilityUtil
+                .describeSigningPurposeMismatch(certificate, workflowType, certificatePurpose)
+                .orElse(null);
+        return notEligibleMessage(certificate.getUuid(), workflowType, reason);
+    }
+
+    private static String notEligibleMessage(UUID certificateUuid, SigningWorkflowType workflowType,
+            @Nullable String reason) {
+        String refusal = "Certificate %s is not eligible for signing workflow type %s"
+                .formatted(certificateUuid, workflowType);
+        return reason == null ? refusal : refusal + ": " + reason;
     }
 
     private static CertificatePurposeRequirements certificatePurposeOf(SigningProfileVersion version) {
@@ -1456,6 +1491,16 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     @Autowired
+    public void setManagedSchemeResolver(ManagedSchemeResolver managedSchemeResolver) {
+        this.managedSchemeResolver = managedSchemeResolver;
+    }
+
+    @Autowired
+    public void setSignerFactory(SignerFactory signerFactory) {
+        this.signerFactory = signerFactory;
+    }
+
+    @Autowired
     public void setCertificateService(CertificateInternalService certificateService) {
         this.certificateService = certificateService;
     }
@@ -1536,5 +1581,10 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     public void setContentSigningFormattingAttributes(
             ContentSigningFormattingAttributes contentSigningFormattingAttributes) {
         this.contentSigningFormattingAttributes = contentSigningFormattingAttributes;
+    }
+
+    @Autowired
+    public void setContentSigningDeclarations(ContentSigningDeclarations contentSigningDeclarations) {
+        this.contentSigningDeclarations = contentSigningDeclarations;
     }
 }
