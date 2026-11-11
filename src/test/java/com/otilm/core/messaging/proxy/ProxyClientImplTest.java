@@ -34,7 +34,9 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -504,6 +506,63 @@ class ProxyClientImplTest {
                 .isInstanceOf(ConnectorException.class);
     }
 
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void throwsClientErrorWithItsStatus_whenTheProxyCategoryIsUnknown() throws Exception {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        ConnectorResponse conflict = answeredError(HttpStatus.CONFLICT.value(), "unknown", "application/json", """
+                {"message":"key already exists"}""");
+        replyWith(conflict);
+
+        // when
+        ThrowingCallable send = () -> proxyClient.sendRequest(connector, "/v1/test", "POST", null, Map.class);
+
+        // then
+        assertThatThrownBy(send)
+                .isInstanceOfSatisfying(ConnectorClientException.class,
+                        clientError -> assertThat(clientError.getHttpStatus()).isEqualTo(HttpStatus.CONFLICT));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {404, 409, 503})
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void attachesTheConnector_whenTheReplyCarriesOnlyAStatus(int errorStatus) {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(ConnectorResponse.builder().statusCode(errorStatus).build());
+
+        // when
+        ThrowingCallable send = () -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class);
+
+        // then
+        assertThatThrownBy(send)
+                .isInstanceOfSatisfying(ConnectorException.class,
+                        failure -> assertThat(failure.getConnector()).isSameAs(connector));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"404, not_found", "409, unknown", "503, server_error"})
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void attachesTheConnector_whenTheProxyFilesTheErrorUnderACategory(int errorStatus, String errorCategory) {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(ConnectorResponse
+                .builder()
+                .statusCode(errorStatus)
+                .error("HTTP " + errorStatus)
+                .errorCategory(errorCategory)
+                .build());
+
+        // when
+        ThrowingCallable send = () -> proxyClient.sendRequest(connector, "/v1/test", "GET", null, String.class);
+
+        // then
+        assertThatThrownBy(send)
+                .isInstanceOfSatisfying(ConnectorException.class,
+                        failure -> assertThat(failure.getConnector()).isSameAs(connector));
+    }
+
     // ==================== Error Handling - HTTP Errors ====================
 
     @Test
@@ -691,13 +750,14 @@ class ProxyClientImplTest {
                 .errorCategory("unknown")
                 .build();
         return Stream
-                .of(Arguments.of("error body of another type", bodyOfAnotherType, ConnectorException.class, "HTTP 422"),
+                .of(Arguments
+                        .of("error body of another type", bodyOfAnotherType, ValidationException.class, "HTTP 422"),
                         Arguments
                                 .of("problem detail with an unknown error code", unknownErrorCode,
                                         ConnectorEntityNotFoundException.class, "HTTP 404"),
-                        Arguments.of("empty problem detail", emptyProblemDetail, ConnectorException.class, "HTTP 422"),
+                        Arguments.of("empty problem detail", emptyProblemDetail, ValidationException.class, "HTTP 422"),
                         Arguments
-                                .of("error body without headers", bodyWithoutHeaders, ConnectorException.class,
+                                .of("error body without headers", bodyWithoutHeaders, ValidationException.class,
                                         "HTTP 422"));
     }
 
