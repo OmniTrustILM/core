@@ -225,11 +225,11 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void keepsAFreshBudget_whenAHundredAndTwentyDarkSlicesFollowEachOther() throws Exception {
+    void keepsAFreshBudget_whenMoreDarkSlicesThanTheBudgetFollowEachOther() throws Exception {
         // given
         Discovery run = checkpointedRunStillScanning();
         armDrainRow(run, 0);
-        var darkSlices = 120;
+        var moreSlicesThanTheDrainBudget = workProperties.scheduleFor(DiscoveryWorkType.DRAIN).maxAttempts() + 20;
         int[] slicesServed = {0};
         when(client.results(any(), anyInt(), anyLong()))
                 .thenAnswer(call -> checkpointedPage(position("target-" + (++slicesServed[0]) * 37)));
@@ -237,7 +237,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
 
         // when
         List<Integer> attemptsAfterEachSlice = new ArrayList<>();
-        for (int slice = 0; slice < darkSlices; slice++) {
+        for (int slice = 0; slice < moreSlicesThanTheDrainBudget; slice++) {
             worker.tick(tick);
             DiscoveryWork row = drainRow(run);
             attemptsAfterEachSlice.add(row.getAttempt());
@@ -247,9 +247,9 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         }
 
         // then
-        assertThat(attemptsAfterEachSlice).hasSize(darkSlices).containsOnly(0);
+        assertThat(attemptsAfterEachSlice).hasSize(moreSlicesThanTheDrainBudget).containsOnly(0);
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
-        verify(workProducer, times(darkSlices)).produceMessage(any());
+        verify(workProducer, times(moreSlicesThanTheDrainBudget)).produceMessage(any());
     }
 
     @Test
@@ -261,7 +261,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         discoveryRepository.saveAndFlush(run);
         var nearTheEndOfTheBudget = 98;
         armDrainRow(run, nearTheEndOfTheBudget + 1);
-        when(client.results(any(), anyInt(), anyLong())).thenReturn(finalCheckpointedPage(storedPosition));
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(checkpointedPageWithNothingMore(storedPosition));
         PollSchedule ladder = workProperties.scheduleFor(DiscoveryWorkType.DRAIN);
         OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
 
@@ -277,13 +277,13 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
-    void expeditesTheStatusPoll_whenACheckpointedPageSaysNothingMoreIsReady() throws Exception {
+    void expeditesTheStatusPoll_whenAnAdvancingCheckpointedPageSaysNothingMoreIsReady() throws Exception {
         // given
         Discovery run = checkpointedRunStillScanning();
         armDrainRow(run, 0);
         workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
         when(client.results(any(), anyInt(), anyLong()))
-                .thenReturn(finalCheckpointedPage(position("past-the-last-target"), keyItem(1, "key-a")));
+                .thenReturn(checkpointedPageWithNothingMore(position("past-the-last-target"), keyItem(1, "key-a")));
 
         // when
         worker.tick(admitTick(run, 0));
@@ -700,8 +700,11 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         return page;
     }
 
-    /** The page a connector answers once nothing more is ready: {@code more} is false. */
-    private static DiscoveryResultsResponseDto finalCheckpointedPage(List<MetadataAttribute> checkpoint,
+    /**
+     * A checkpointed page with {@code more} false: a last slice, or a pending answer when it repeats the stored
+     * checkpoint with no items.
+     */
+    private static DiscoveryResultsResponseDto checkpointedPageWithNothingMore(List<MetadataAttribute> checkpoint,
             DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = page(items.length, false, items);
         page.setCheckpoint(checkpoint);

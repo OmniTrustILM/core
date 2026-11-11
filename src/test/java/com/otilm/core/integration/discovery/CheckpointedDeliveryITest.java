@@ -104,7 +104,7 @@ class CheckpointedDeliveryITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @MethodSource("drainDeliveries")
-    void stagesEveryItemOnceAndHandsTheRunOver_whenTheScanReachesItsLastTarget(int deliveriesPerDrain)
+    void handsTheRunOverWithEveryItemStagedOnce_whenTheScanReachesItsLastTarget(int deliveriesPerDrain)
             throws Exception {
         // given
         Discovery run = checkpointedRunAtTheFirstTarget();
@@ -129,7 +129,7 @@ class CheckpointedDeliveryITest extends BaseSpringBootTest {
 
     /**
      * One slice of the scan from the position in the checkpoint: every tenth target holds three items, the rest are
-     * dark. A request whose cursor disagrees with the checkpoint is refused as the contract says.
+     * dark. A request whose afterSequence is not the checkpoint's high water is refused, as the contract says.
      */
     private static DiscoveryResultsResponseDto nextSlice(Discovery run, int maxItems, DiscoveredKeyDto payload)
             throws ConnectorProblemException {

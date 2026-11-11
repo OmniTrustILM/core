@@ -164,6 +164,7 @@ class CheckpointedSliceCapITest extends BaseSpringBootTest {
         // then
         Duration statusTookFor = Duration.ofNanos(System.nanoTime() - startedAt);
         assertThat(statusTookFor).isLessThan(Duration.ofSeconds(2));
+        verify(client).status(any());
         assertThat(holdEveryFreePermit()).isZero();
     }
 
