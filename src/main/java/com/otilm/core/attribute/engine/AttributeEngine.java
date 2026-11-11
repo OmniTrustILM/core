@@ -1783,8 +1783,7 @@ public class AttributeEngine {
      * skips the delete {@link #updateObjectDataAttributesContent} runs first, and with no attributes it sends no SQL.
      */
     public List<ResponseAttribute> createObjectDataAttributesContent(ObjectAttributeContentInfo info,
-            List<RequestAttribute> requestAttributes)
-            throws ValidationException, NotFoundException, AttributeException {
+            List<RequestAttribute> requestAttributes) throws ValidationException, AttributeException {
         if (requestAttributes == null || requestAttributes.isEmpty()) {
             return List.of();
         }
@@ -1796,8 +1795,7 @@ public class AttributeEngine {
     }
 
     public List<ResponseAttribute> updateObjectDataAttributesContent(ObjectAttributeContentInfo info,
-            List<RequestAttribute> requestAttributes)
-            throws ValidationException, NotFoundException, AttributeException {
+            List<RequestAttribute> requestAttributes) throws ValidationException, AttributeException {
         logger
                 .debug("Updating the content of data attributes for resource {} with UUID: {} version: {}",
                         info.objectType().getLabel(), info.objectUuid(), info.objectVersion());
