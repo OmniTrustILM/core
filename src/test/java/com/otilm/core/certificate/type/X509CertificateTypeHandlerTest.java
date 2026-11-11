@@ -198,6 +198,33 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void readsTheDerCertificate_whenItsSubjectHoldsAPemHeaderOnALineOfItsOwn() throws Exception {
+        // given — \0A is a line break in the subject, so the header text starts a line inside the DER
+        KeyPair holderKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate leaf = CertificateGeneratorHelper
+                .generateEndEntityCertificate(chain.getCaCertificateKeyPair(), chain.getCaCertificate(), holderKeys,
+                        "CN=holder\\0A-----BEGIN CERTIFICATE-----", null);
+
+        // when
+        Optional<ParsedCertificate> parsed = handler.parseCertificate(leaf.getEncoded());
+
+        // then
+        assertThat(parsed).isPresent();
+    }
+
+    @Test
+    void readsTheDerRequest_whenItsSubjectHoldsAPemHeaderOnALineOfItsOwn() throws Exception {
+        // given
+        byte[] csr = pkcs10(chain.getEndEntityCertificateKeyPair(), "CN=holder\\0A-----BEGIN CERTIFICATE REQUEST-----");
+
+        // when
+        Optional<ParsedRequest> parsed = handler.parseRequest(csr);
+
+        // then
+        assertThat(parsed).isPresent();
+    }
+
+    @Test
     void readsTheDerRequest_whenItsSubjectHoldsAPemHeaderText() throws Exception {
         // given
         byte[] csr = pkcs10(chain.getEndEntityCertificateKeyPair(), "CN=-----BEGIN CERTIFICATE REQUEST-----");

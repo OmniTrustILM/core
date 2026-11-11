@@ -39,6 +39,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.bouncycastle.asn1.ASN1Primitive;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.cert.jcajce.JcaCertStore;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
@@ -70,6 +71,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     private static final Logger logger = LoggerFactory.getLogger(X509CertificateTypeHandler.class);
 
     private static final byte[] NOT_THIS_TYPE = new byte[0];
+    private static final byte ASN1_SEQUENCE_TAG = 0x30;
     private static final Pattern PEM_HEADER_LINE = Pattern.compile("^[ \\t]*-----BEGIN ", Pattern.MULTILINE);
     private static final Set<String> REQUEST_PEM_TYPES = Set.of("CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST");
     private static final Set<String> REQUEST_PEM_MARKERS = Set
@@ -277,7 +279,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     private static byte[] decodeCertificateContent(byte[] content) {
-        if (!containsPemMarker(content)) {
+        if (looksLikeDer(content) || !containsPemMarker(content)) {
             return content;
         }
         // the first PEM object decides, wherever it starts, as the parser of the upload has always read it
@@ -294,7 +296,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     private static byte[] decodeRequestContent(byte[] content) {
-        if (!containsPemMarker(content)) {
+        if (looksLikeDer(content) || !containsPemMarker(content)) {
             return content;
         }
         String pem = new String(content, StandardCharsets.UTF_8);
@@ -323,6 +325,19 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             } catch (CertificateRequestException notCrmf) {
                 return null;
             }
+        }
+    }
+
+    // content that is one complete ASN.1 structure is DER, whatever text its fields hold
+    private static boolean looksLikeDer(byte[] content) {
+        if (content.length == 0 || content[0] != ASN1_SEQUENCE_TAG) {
+            return false;
+        }
+        try {
+            ASN1Primitive.fromByteArray(content);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            return false;
         }
     }
 
