@@ -2,6 +2,8 @@ package com.otilm.core.certificate.type;
 
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import java.security.PublicKey;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * A certificate request read by the handler of its type.
@@ -14,4 +16,22 @@ import java.security.PublicKey;
  */
 public record ParsedRequest(String typeCode, CertificateRequestFormat format, byte[] encoded, String holder,
         PublicKey publicKey) {
+
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof ParsedRequest that && Objects.equals(typeCode, that.typeCode) && format == that.format
+                && Arrays.equals(encoded, that.encoded) && Objects.equals(holder, that.holder)
+                && Objects.equals(publicKey, that.publicKey);
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * Objects.hash(typeCode, format, holder, publicKey) + Arrays.hashCode(encoded);
+    }
+
+    @Override
+    public String toString() {
+        return "ParsedRequest[typeCode=" + typeCode + ", format=" + format + ", encoded=" + encoded.length
+                + " bytes, holder=" + holder + "]";
+    }
 }

@@ -68,6 +68,8 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(X509CertificateTypeHandler.class);
 
+    // the decoded content of something that is not a certificate or a request of this type
+    private static final byte[] NOT_THIS_TYPE = new byte[0];
     private static final String PEM_MARKER = "-----BEGIN";
     private static final Set<String> REQUEST_PEM_TYPES = Set.of("CERTIFICATE REQUEST", "NEW CERTIFICATE REQUEST");
     private static final Set<String> REQUEST_PEM_MARKERS = Set
@@ -94,7 +96,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             return Optional.empty();
         }
         byte[] der = decodeCertificateContent(content);
-        if (der == null) {
+        if (der.length == 0) {
             return Optional.empty();
         }
         try {
@@ -109,7 +111,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     @Override
     public Optional<ParsedRequest> parseRequest(byte[] content) {
         byte[] der = decodeRequestContent(content);
-        if (der == null) {
+        if (der.length == 0) {
             return Optional.empty();
         }
         CertificateRequest request = readRequest(der);
@@ -282,7 +284,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         } catch (IOException e) {
             logger.debug("Failed to read the content as a PEM object: {}", e.getMessage());
         }
-        return null;
+        return NOT_THIS_TYPE;
     }
 
     private static byte[] decodeRequestContent(byte[] content) {
@@ -291,7 +293,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         }
         String pem = new String(content, StandardCharsets.UTF_8);
         if (REQUEST_PEM_MARKERS.stream().noneMatch(pem::contains)) {
-            return null;
+            return NOT_THIS_TYPE;
         }
         try (PEMParser pemParser = new PEMParser(new StringReader(pem))) {
             PemObject pemObject = pemParser.readPemObject();

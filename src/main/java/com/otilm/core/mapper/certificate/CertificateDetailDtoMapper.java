@@ -111,41 +111,7 @@ public class CertificateDetailDtoMapper {
         dto.setPrivateKeyAvailability(false);
 
         if (certificate.getCertificateRequestEntity() != null) {
-            final CertificateRequestDto certificateRequestDto = new CertificateRequestDto();
-            certificateRequestDto.setUuid(certificate.getCertificateRequestEntity().getUuid());
-            certificateRequestDto.setContent(certificate.getCertificateRequestEntity().getContent());
-            certificateRequestDto.setCertificateType(certificate.getCertificateRequestEntity().getCertificateType());
-            String requestCommonName = CertificateUtil
-                    .formatCommonName(certificate.getCertificateRequestEntity().getCommonName());
-            certificateRequestDto.setCommonName(requestCommonName);
-            certificateRequestDto.setDisplayName(requestCommonName);
-            certificateRequestDto
-                    .setSignatureAlgorithm(certificate.getCertificateRequestEntity().getSignatureAlgorithm());
-            certificateRequestDto
-                    .setPublicKeyAlgorithm(certificate.getCertificateRequestEntity().getPublicKeyAlgorithm());
-            certificateRequestDto
-                    .setCertificateRequestFormat(
-                            certificate.getCertificateRequestEntity().getCertificateRequestFormat());
-            if (X509CertificateRequestEntity
-                    .fromOrNull(certificate
-                            .getCertificateRequestEntity()) instanceof X509CertificateRequestEntity x509Request) {
-                X509CertificateRequestTypeDetailsDto requestDetails = X509TypeDetailsMapper
-                        .toRequestDetails(x509Request);
-                certificateRequestDto.setTypeDetails(requestDetails);
-                certificateRequestDto.setSubjectDn(requestDetails.getSubjectDn());
-                certificateRequestDto.setAltSignatureAlgorithm(requestDetails.getAltSignatureAlgorithm());
-                certificateRequestDto.setSubjectAlternativeNames(requestDetails.getSubjectAlternativeNames());
-            }
-            certificateRequestDto
-                    .setKeyUuid(certificate.getCertificateRequestEntity().getKeyUuid() != null
-                            ? certificate.getCertificateRequestEntity().getKeyUuid().toString()
-                            : null);
-            certificateRequestDto
-                    .setAltKeyUuid(certificate.getCertificateRequestEntity().getAltKeyUuid() != null
-                            ? certificate.getCertificateRequestEntity().getAltKeyUuid().toString()
-                            : null);
-            certificateRequestDto.setComplianceStatus(certificate.getCertificateRequestEntity().getComplianceStatus());
-            dto.setCertificateRequest(certificateRequestDto);
+            dto.setCertificateRequest(mapCertificateRequest(certificate));
         }
         if (certificate.getKey() != null && !certificate.getKey().getItems().isEmpty() && !certificate
                 .getKey()
@@ -177,6 +143,41 @@ public class CertificateDetailDtoMapper {
         }
 
         return dto;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static CertificateRequestDto mapCertificateRequest(Certificate certificate) {
+        final CertificateRequestDto certificateRequestDto = new CertificateRequestDto();
+        certificateRequestDto.setUuid(certificate.getCertificateRequestEntity().getUuid());
+        certificateRequestDto.setContent(certificate.getCertificateRequestEntity().getContent());
+        certificateRequestDto.setCertificateType(certificate.getCertificateRequestEntity().getCertificateType());
+        String requestCommonName = CertificateUtil
+                .formatCommonName(certificate.getCertificateRequestEntity().getCommonName());
+        certificateRequestDto.setCommonName(requestCommonName);
+        certificateRequestDto.setDisplayName(requestCommonName);
+        certificateRequestDto.setSignatureAlgorithm(certificate.getCertificateRequestEntity().getSignatureAlgorithm());
+        certificateRequestDto.setPublicKeyAlgorithm(certificate.getCertificateRequestEntity().getPublicKeyAlgorithm());
+        certificateRequestDto
+                .setCertificateRequestFormat(certificate.getCertificateRequestEntity().getCertificateRequestFormat());
+        if (X509CertificateRequestEntity
+                .fromOrNull(certificate
+                        .getCertificateRequestEntity()) instanceof X509CertificateRequestEntity x509Request) {
+            X509CertificateRequestTypeDetailsDto requestDetails = X509TypeDetailsMapper.toRequestDetails(x509Request);
+            certificateRequestDto.setTypeDetails(requestDetails);
+            certificateRequestDto.setSubjectDn(requestDetails.getSubjectDn());
+            certificateRequestDto.setAltSignatureAlgorithm(requestDetails.getAltSignatureAlgorithm());
+            certificateRequestDto.setSubjectAlternativeNames(requestDetails.getSubjectAlternativeNames());
+        }
+        certificateRequestDto
+                .setKeyUuid(certificate.getCertificateRequestEntity().getKeyUuid() != null
+                        ? certificate.getCertificateRequestEntity().getKeyUuid().toString()
+                        : null);
+        certificateRequestDto
+                .setAltKeyUuid(certificate.getCertificateRequestEntity().getAltKeyUuid() != null
+                        ? certificate.getCertificateRequestEntity().getAltKeyUuid().toString()
+                        : null);
+        certificateRequestDto.setComplianceStatus(certificate.getCertificateRequestEntity().getComplianceStatus());
+        return certificateRequestDto;
     }
 
     @SuppressWarnings("deprecation")

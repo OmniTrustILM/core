@@ -233,8 +233,9 @@ class X509CertificateTypeHandlerTest {
     void readsTheRequest_whenTheHeaderBodyAndFooterShareALine() throws Exception {
         // given
         byte[] csr = pkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN);
-        String singleLinePem = "-----BEGIN CERTIFICATE REQUEST-----" + Base64.getEncoder().encodeToString(csr)
-                + "-----END CERTIFICATE REQUEST-----";
+        String singleLinePem = """
+                -----BEGIN CERTIFICATE REQUEST-----%s-----END CERTIFICATE REQUEST-----"""
+                .formatted(Base64.getEncoder().encodeToString(csr));
 
         // when
         ParsedRequest parsed = handler.parseRequest(singleLinePem.getBytes(StandardCharsets.UTF_8)).orElseThrow();
