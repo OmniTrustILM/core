@@ -421,7 +421,7 @@ public class CrlServiceImpl implements CrlService {
                 reasonToIgnore = findBaseCrlMismatch(deltaCrl.header(), crl, deltaCrlUrl);
             }
             if (reasonToIgnore == null) {
-                updateDeltaCrl(crl, deltaCrl);
+                updateDeltaCrl(crl, deltaCrl, downloadKey);
                 return;
             }
             lastReasonToIgnore = reasonToIgnore;
@@ -433,7 +433,7 @@ public class CrlServiceImpl implements CrlService {
         throw failure;
     }
 
-    private void updateDeltaCrl(Crl crl, EncodedCrl deltaCrl) throws IOException {
+    private void updateDeltaCrl(Crl crl, EncodedCrl deltaCrl, String downloadKey) throws IOException {
         BigInteger deltaCrlNumber = readCrlNumber(deltaCrl.header());
         // The stored delta CRL is applied already, and findReasonToIgnore refused older ones.
         if (crl.getCrlNumberDelta() != null && deltaCrlNumber.compareTo(new BigInteger(crl.getCrlNumberDelta())) <= 0) {
@@ -453,9 +453,17 @@ public class CrlServiceImpl implements CrlService {
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
-        boolean applied = crlWriter
-                .applyDeltaCrl(crl.getUuid(), crl.getCrlNumber(), removals, upserts, deltaCrlNumber.toString(),
-                        deltaCrl.header().getNextUpdate(), lastRevocationDate);
+        boolean applied;
+        try {
+            applied = crlWriter
+                    .applyDeltaCrl(crl.getUuid(), crl.getCrlNumber(), removals, upserts, deltaCrlNumber.toString(),
+                            deltaCrl.header().getNextUpdate(), lastRevocationDate);
+        } catch (DataAccessException | TransactionException | PersistenceException e) {
+            logger.error("Failed to store the delta CRL of issuer {}: {}", crl.getIssuerDn(), e.getMessage());
+            IOException failure = new IOException("The delta CRL could not be stored");
+            crlDownloadGuard.rememberFailure(downloadKey, failure);
+            throw failure;
+        }
         if (!applied) {
             requireDeltaCrlStoredMeanwhile(crl, deltaCrlNumber);
         }
@@ -463,14 +471,14 @@ public class CrlServiceImpl implements CrlService {
 
     /**
      * A writer for another validation, possibly on another Core instance, changed the stored CRL first. Its entries
-     * answer the check only if it applied this delta CRL or a newer one; a newer base CRL without it would miss the
-     * revocations this delta CRL lists.
+     * answer the check only if they are at least as new as this delta CRL: a complete or delta CRL numbered at or above
+     * it, since both share one numbering sequence. An older base CRL without it would miss the revocations this delta
+     * CRL lists.
      */
     private void requireDeltaCrlStoredMeanwhile(Crl crl, BigInteger deltaCrlNumber) throws IOException {
         Crl stored = findStoredCrl(crl.getIssuerDn(), crl.getSerialNumber());
-        boolean storedDeltaCrlIsAsNew = stored != null && stored.getCrlNumberDelta() != null
-                && new BigInteger(stored.getCrlNumberDelta()).compareTo(deltaCrlNumber) >= 0;
-        if (!storedDeltaCrlIsAsNew) {
+        boolean storedCrlIsAsNew = stored != null && newestStoredCrlNumber(stored).compareTo(deltaCrlNumber) >= 0;
+        if (!storedCrlIsAsNew) {
             throw new IOException("The stored CRL changed while its delta CRL was applied");
         }
     }
@@ -521,13 +529,14 @@ public class CrlServiceImpl implements CrlService {
     }
 
     /**
-     * A delta CRL is downloaded when none is stored, when the stored one is past its next update, or when the stored
-     * one is numbered below the stored base CRL, so it cannot extend it.
+     * A delta CRL is downloaded when none is stored, when the stored one is past its next update by more than the clock
+     * skew a stored base CRL is allowed too, or when the stored one is numbered below the stored base CRL, so it cannot
+     * extend it.
      */
     private static boolean isDeltaCrlDue(Crl crl) {
         return crl.getCrlNumberDelta() == null || crl.getNextUpdateDelta() == null
                 || new BigInteger(crl.getCrlNumberDelta()).compareTo(new BigInteger(crl.getCrlNumber())) < 0
-                || crl.getNextUpdateDelta().toInstant().isBefore(Instant.now());
+                || crl.getNextUpdateDelta().toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
     }
 
     private static boolean isDeltaCrl(X509CRL crl) {

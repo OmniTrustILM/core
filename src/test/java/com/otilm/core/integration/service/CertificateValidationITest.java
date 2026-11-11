@@ -3202,10 +3202,13 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         crlRepository.save(storedCrl);
     }
 
-    /** Moves the stored delta CRL's next update a minute into the past, so the next check downloads it again. */
+    /**
+     * Moves the stored delta CRL's next update ten minutes into the past, beyond the clock skew a stored delta CRL is
+     * still used for, so the next check downloads it again.
+     */
     private void markStoredDeltaCrlDue(X509Certificate selfSignedIssuer) {
         Crl storedCrl = findStoredCrl(selfSignedIssuer).orElseThrow();
-        storedCrl.setNextUpdateDelta(Date.from(Instant.now().minus(Duration.ofMinutes(1))));
+        storedCrl.setNextUpdateDelta(Date.from(Instant.now().minus(Duration.ofMinutes(10))));
         crlRepository.save(storedCrl);
     }
 

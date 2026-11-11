@@ -237,14 +237,75 @@ class CrlServiceImplTest {
                     .hasMessageContaining("changed while its delta CRL was applied");
         }
 
-        // ── Helpers ──────────────────────────────────────────────────────────
+        @Test
+        void usesNewerCompleteCrl_whenAnotherWriterStoredItWhileTheDeltaCrlWasApplied() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(true);
+            Crl stored = currentBaseCrlWithDueDeltaCrl();
+            storedRow.set(stored);
+            byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
+            when(crlDownloader.download(DELTA_CRL_URL)).thenReturn(deltaCrlOfStoredBase);
+            Crl newerCompleteCrl = copyOf(stored);
+            newerCompleteCrl.setCrlNumber("8");
+            when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+                storedRow.set(newerCompleteCrl);
+                return false;
+            });
 
-        private static byte[] deltaCrl(X509Certificate issuer, String baseCrlNumber, int crlNumber) throws Exception {
-            return anX509Crl(issuer.getSubjectX500Principal(), issuerKeyPair.getPrivate())
-                    .withCrlNumber(BigInteger.valueOf(crlNumber))
-                    .withDeltaCrlIndicator(new BigInteger(baseCrlNumber))
-                    .build()
-                    .getEncoded();
+            // when
+            UUID crlUuid = crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThat(crlUuid).isEqualTo(newerCompleteCrl.getUuid());
+        }
+    }
+
+    // ── StoringTheDeltaCrl ───────────────────────────────────────────────────
+
+    @Nested
+    class StoringTheDeltaCrl {
+
+        @Test
+        void failsCrlCheckWithReason_whenStoringTheDeltaCrlFails() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(true);
+            Crl stored = currentBaseCrlWithDueDeltaCrl();
+            storedRow.set(stored);
+            byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
+            when(crlDownloader.download(DELTA_CRL_URL)).thenReturn(deltaCrlOfStoredBase);
+            when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any()))
+                    .thenThrow(new QueryTimeoutException("canceling statement due to statement timeout"));
+
+            // when
+            ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThatThrownBy(check)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("The delta CRL could not be stored");
+        }
+
+        @Test
+        void failsWithoutDownloadingAgain_whenStoringTheDeltaCrlFailedJustBefore() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(true);
+            Crl stored = currentBaseCrlWithDueDeltaCrl();
+            storedRow.set(stored);
+            byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
+            when(crlDownloader.download(DELTA_CRL_URL)).thenReturn(deltaCrlOfStoredBase);
+            when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any()))
+                    .thenThrow(new QueryTimeoutException("canceling statement due to statement timeout"));
+            ThrowingCallable firstCheck = () -> crlService.getCurrentCrl(certificate, certificate);
+            assertThatThrownBy(firstCheck).isInstanceOf(IOException.class);
+
+            // when
+            ThrowingCallable secondCheck = () -> crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThatThrownBy(secondCheck)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("The delta CRL could not be stored");
+            verify(crlDownloader, times(1)).download(DELTA_CRL_URL);
         }
     }
 
@@ -341,6 +402,23 @@ class CrlServiceImplTest {
             assertThat(crlUuid).isEqualTo(justPastNextUpdate.getUuid());
             verifyNoInteractions(crlDownloader);
         }
+
+        @Test
+        void usesStoredDeltaCrlWithoutDownload_whenItsNextUpdatePassedWithinClockSkew() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(true);
+            Crl deltaJustPastNextUpdate = currentBaseCrl();
+            deltaJustPastNextUpdate.setCrlNumberDelta("6");
+            deltaJustPastNextUpdate.setNextUpdateDelta(Date.from(Instant.now().minus(Duration.ofMinutes(1))));
+            storedRow.set(deltaJustPastNextUpdate);
+
+            // when
+            UUID crlUuid = crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThat(crlUuid).isEqualTo(deltaJustPastNextUpdate.getUuid());
+            verifyNoInteractions(crlDownloader);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -359,6 +437,14 @@ class CrlServiceImplTest {
     /** A current base CRL with no delta CRL applied, so a certificate naming a delta CRL needs one downloaded. */
     private static Crl currentBaseCrlWithDueDeltaCrl() {
         return currentBaseCrl();
+    }
+
+    private static byte[] deltaCrl(X509Certificate issuer, String baseCrlNumber, int crlNumber) throws Exception {
+        return anX509Crl(issuer.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                .withCrlNumber(BigInteger.valueOf(crlNumber))
+                .withDeltaCrlIndicator(new BigInteger(baseCrlNumber))
+                .build()
+                .getEncoded();
     }
 
     private static Crl copyOf(Crl crl) {
