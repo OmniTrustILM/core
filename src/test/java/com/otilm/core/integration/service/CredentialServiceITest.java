@@ -50,11 +50,16 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CredentialServiceITest extends BaseSpringBootTest {
 
@@ -167,6 +172,45 @@ class CredentialServiceITest extends BaseSpringBootTest {
         Assertions.assertEquals(request.getName(), dto.getName());
         Assertions.assertNotNull(dto.getConnectorUuid());
         Assertions.assertEquals(credential.getConnectorUuid().toString(), dto.getConnectorUuid());
+    }
+
+    @Test
+    void rejectsCreation_whenDataAttributeUuidIsNotTheDefinitionsUuid() {
+        // given
+        var definitionUuid = UUID.randomUUID();
+        var staleUuid = UUID.randomUUID();
+        var attributeName = "apiKeyAttribute";
+        mockServer
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching("/v1/credentialProvider/[^/]+/attributes"))
+                        .willReturn(WireMock
+                                .okJson("[" + buildStringAttributeDefinitionJson(definitionUuid, attributeName)
+                                        + "]")));
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/credentialProvider/[^/]+/attributes/validate"))
+                        .willReturn(WireMock.okJson("true")));
+        CredentialRequestDto request = new CredentialRequestDto();
+        request.setName("mismatchedCredential");
+        request.setConnectorUuid(connector.getUuid().toString());
+        request.setKind("ApiKey");
+        request
+                .setAttributes(List
+                        .of(aCustomAttribute()
+                                .withUuid(staleUuid)
+                                .withName(attributeName)
+                                .withStringContent("secret")
+                                .build()));
+
+        // when
+        ThrowingCallable create = () -> credentialService.createCredential(request);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(attributeName)
+                .hasMessageContaining(staleUuid.toString());
+        assertThat(credentialRepository.findByName("mismatchedCredential")).isEmpty();
     }
 
     @Test
@@ -432,5 +476,13 @@ class CredentialServiceITest extends BaseSpringBootTest {
         nameAndUuidDto = credentialInternalService.getResourceObjectExternal(credential.getSecuredUuid());
         Assertions.assertEquals(credential.getUuid().toString(), nameAndUuidDto.getUuid());
         Assertions.assertEquals(credential.getName(), nameAndUuidDto.getName());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static String buildStringAttributeDefinitionJson(UUID uuid, String name) {
+        return "{\"uuid\":\"" + uuid + "\",\"name\":\"" + name + "\",\"type\":\"data\",\"contentType\":\"string\","
+                + "\"version\":3,\"properties\":{\"label\":\"" + name + "\",\"visible\":true,\"required\":true,"
+                + "\"readOnly\":false,\"list\":false,\"multiSelect\":false}}";
     }
 }
