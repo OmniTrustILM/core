@@ -61,6 +61,7 @@ import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RegisterWireBuilder;
 import com.otilm.core.certificate.request.RenewContentSeeder;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.RequestFormatResolver;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
@@ -216,6 +217,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     private RaProfileRepository raProfileRepository;
     private CertificateRepository certificateRepository;
+    private RequestFormatResolver requestFormatResolver;
     private LocationExternalService locationService;
     private LocationInternalService locationInternalService;
     private CertificateInternalService certificateService;
@@ -363,6 +365,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setRaProfileRepository(RaProfileRepository raProfileRepository) {
         this.raProfileRepository = raProfileRepository;
+    }
+
+    @Autowired
+    public void setRequestFormatResolver(RequestFormatResolver requestFormatResolver) {
+        this.requestFormatResolver = requestFormatResolver;
     }
 
     @Autowired
@@ -518,6 +525,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // Issue/renew/rekey reach this body by self-invocation, bypassing the annotation above, so without this probe
         // a platform key signs a CSR before the nested CREATE gate can deny. Denies nobody that gate would admit.
         certificateService.checkCreatePermissions();
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), null));
+        }
         boolean createCustomAttributes = !AuthHelper.isLoggedProtocolUser();
         if (createCustomAttributes) {
             attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, request.getCustomAttributes());
@@ -639,6 +649,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch)
             throws NotFoundException, CertificateOperationException {
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), request.getCertificateType()));
+        }
         // validate RA profile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
@@ -2149,6 +2162,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final ClientCertificateIssueRequestDto request) throws NotFoundException, CertificateException {
         // NOT_SUPPORTED so the CSR attach below commits in its own transaction before the ISSUE action is
         // enqueued; otherwise the async consumer could read the placeholder before the CSR is visible and fail it.
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), request.getCertificateType()));
+        }
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
@@ -2411,6 +2427,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.RENEW, authorityUuid);
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
+        }
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
         // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
@@ -2615,6 +2634,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
+        }
 
         // Self-service gate, symmetric with renew: a certificate with a live registration authorization rekeys
         // only against its challenge, and a verified challenge lets the authorization follow the successor.

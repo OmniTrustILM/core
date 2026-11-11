@@ -2,6 +2,7 @@ package com.otilm.core.certificate.type;
 
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.dao.entity.RaProfile;
 import java.util.List;
 import java.util.Optional;
@@ -20,6 +21,9 @@ public interface CertificateTypeHandler {
     String typeCode();
 
     Set<CertificateOperation> supportedOperations();
+
+    /** The format a request of this type is read in when the client does not name one. */
+    CertificateRequestFormat defaultRequestFormat();
 
     Optional<ParsedCertificate> parseCertificate(byte[] content);
 

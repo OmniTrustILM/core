@@ -4,6 +4,7 @@ import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.core.container.KeystoreDetection;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
@@ -63,6 +64,11 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     @Override
     public Set<CertificateOperation> supportedOperations() {
         return EnumSet.allOf(CertificateOperation.class);
+    }
+
+    @Override
+    public CertificateRequestFormat defaultRequestFormat() {
+        return CertificateRequestFormat.PKCS10;
     }
 
     @Override

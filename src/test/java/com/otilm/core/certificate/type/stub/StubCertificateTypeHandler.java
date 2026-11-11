@@ -47,6 +47,11 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
+    public CertificateRequestFormat defaultRequestFormat() {
+        return CertificateRequestFormat.PKCS10;
+    }
+
+    @Override
     public Optional<ParsedCertificate> parseCertificate(byte[] content) {
         String text = new String(content, StandardCharsets.UTF_8);
         if (!text.startsWith(CERTIFICATE_PREFIX)) {
