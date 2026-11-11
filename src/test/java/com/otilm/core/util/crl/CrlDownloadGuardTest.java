@@ -38,7 +38,7 @@ class CrlDownloadGuardTest {
     class UnderIssuerLock {
 
         @Test
-        void startsWorkForIssuer_onlyAfterRunningWorkForItEnds() throws Exception {
+        void holdsBackWorkForIssuer_whenOtherWorkForItRuns() throws Exception {
             // given
             var guard = new CrlDownloadGuard(1, Duration.ofSeconds(5), RETRY_AFTER_FAILURE, tickerNanos::get);
             var releaseFirst = new CountDownLatch(1);
