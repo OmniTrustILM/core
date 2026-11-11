@@ -273,8 +273,11 @@ class X509CertificateTypeHandlerTest {
     @Test
     void throwsHandlerException_whenAPemRequestIsMalformed() {
         // given
-        byte[] malformedPem = ("-----BEGIN CERTIFICATE REQUEST-----\n%%%not base64%%%\n"
-                + "-----END CERTIFICATE REQUEST-----\n").getBytes(StandardCharsets.UTF_8);
+        byte[] malformedPem = """
+                -----BEGIN CERTIFICATE REQUEST-----
+                %%%not base64%%%
+                -----END CERTIFICATE REQUEST-----
+                """.getBytes(StandardCharsets.UTF_8);
 
         // when
         ThrowingCallable parse = () -> handler.parseRequest(malformedPem);

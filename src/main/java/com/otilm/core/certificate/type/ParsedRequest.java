@@ -19,9 +19,10 @@ public record ParsedRequest(String typeCode, CertificateRequestFormat format, by
 
     @Override
     public boolean equals(Object other) {
-        return other instanceof ParsedRequest that && Objects.equals(typeCode, that.typeCode) && format == that.format
-                && Arrays.equals(encoded, that.encoded) && Objects.equals(holder, that.holder)
-                && Objects.equals(publicKey, that.publicKey);
+        return other instanceof ParsedRequest(String otherTypeCode, CertificateRequestFormat otherFormat, byte[] otherEncoded, String otherHolder, PublicKey otherPublicKey)
+                && Objects.equals(typeCode, otherTypeCode) && format == otherFormat
+                && Arrays.equals(encoded, otherEncoded) && Objects.equals(holder, otherHolder)
+                && Objects.equals(publicKey, otherPublicKey);
     }
 
     @Override

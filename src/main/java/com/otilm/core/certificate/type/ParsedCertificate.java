@@ -14,8 +14,9 @@ public record ParsedCertificate(String typeCode, byte[] encoded, CertificateProp
 
     @Override
     public boolean equals(Object other) {
-        return other instanceof ParsedCertificate that && Objects.equals(typeCode, that.typeCode)
-                && Arrays.equals(encoded, that.encoded) && Objects.equals(properties, that.properties);
+        return other instanceof ParsedCertificate(String otherTypeCode, byte[] otherEncoded, CertificateProperties otherProperties)
+                && Objects.equals(typeCode, otherTypeCode) && Arrays.equals(encoded, otherEncoded)
+                && Objects.equals(properties, otherProperties);
     }
 
     @Override
