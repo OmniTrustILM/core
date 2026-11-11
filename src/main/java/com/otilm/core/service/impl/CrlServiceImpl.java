@@ -176,7 +176,7 @@ public class CrlServiceImpl implements CrlService {
 
         UUID caCertificateUuid = caCertificate != null ? caCertificate.getUuid() : null;
         CrlRead read = new CrlRead(certificate.getIssuerX500Principal(), issuerCertificate.getPublicKey(),
-                crlDownloader.deadline());
+                new DownloadBudget(crlDownloader.downloadTimeout()));
         // If CRL is not present or current UTC time is past its next_update timestamp, download the CRL and save the
         // CRL and its entries in database
         if (crl == null) {
@@ -275,7 +275,7 @@ public class CrlServiceImpl implements CrlService {
 
         String lastReasonToIgnore = null;
         for (String crlUrl : crlUrls) {
-            DownloadedCrl downloaded = downloadCrl(crlUrl, false, read.deadline());
+            DownloadedCrl downloaded = downloadCrl(crlUrl, false, read.budget());
             EncodedCrl downloadedCrl = downloaded.crl();
             String reasonToIgnore = downloadedCrl == null
                     ? downloaded.reasonUnread()
@@ -357,9 +357,10 @@ public class CrlServiceImpl implements CrlService {
         return String.join("|", kind, issuerDn, issuerSerialNumber, distributionPoints);
     }
 
-    private DownloadedCrl downloadCrl(String crlUrl, boolean delta, long deadline) {
+    private DownloadedCrl downloadCrl(String crlUrl, boolean delta, DownloadBudget budget) {
         try {
-            return new DownloadedCrl(EncodedCrl.parse(crlDownloader.download(crlUrl, deadline)), null);
+            byte[] encoded = budget.spendOn(deadline -> crlDownloader.download(crlUrl, deadline));
+            return new DownloadedCrl(EncodedCrl.parse(encoded), null);
         } catch (CrlDownloadException e) {
             logger.warn("Ignoring the CRL from {}: {}", crlUrl, e.reason());
             return new DownloadedCrl(null, e.reason());
@@ -412,7 +413,7 @@ public class CrlServiceImpl implements CrlService {
         crlDownloadGuard.rethrowRecentFailure(downloadKey);
         String lastReasonToIgnore = null;
         for (String deltaCrlUrl : deltaCrlUrls) {
-            DownloadedCrl downloaded = downloadCrl(deltaCrlUrl, true, read.deadline());
+            DownloadedCrl downloaded = downloadCrl(deltaCrlUrl, true, read.budget());
             EncodedCrl deltaCrl = downloaded.crl();
             String reasonToIgnore = deltaCrl == null
                     ? downloaded.reasonUnread()
@@ -622,10 +623,38 @@ public class CrlServiceImpl implements CrlService {
 
     /**
      * One read of an issuer's CRLs: the name a CRL must carry and the key its signature must verify with to count for a
-     * certificate, and the deadline all its downloads share, so a permit is held no longer than one download timeout
-     * however many URLs the certificate names.
+     * certificate, and the download time all its downloads share, so a permit is held for no more than one download
+     * timeout of downloading however many URLs the certificate names.
      */
-    private record CrlRead(X500Principal issuerName, PublicKey issuerKey, long deadline) {
+    private record CrlRead(X500Principal issuerName, PublicKey issuerKey, DownloadBudget budget) {
+    }
+
+    /**
+     * The download time a read of an issuer's CRLs has left. Only downloads spend it: parsing and storing a large base
+     * CRL must not leave its delta CRL without time to be read.
+     */
+    static final class DownloadBudget {
+
+        private long remainingNanos;
+
+        DownloadBudget(Duration downloadTimeout) {
+            this.remainingNanos = downloadTimeout.toNanos();
+        }
+
+        /** Runs one download with a deadline of what is left, and spends the time it took. */
+        byte[] spendOn(Download download) throws IOException {
+            long start = System.nanoTime();
+            try {
+                return download.before(start + remainingNanos);
+            } finally {
+                remainingNanos -= System.nanoTime() - start;
+            }
+        }
+
+        @FunctionalInterface
+        interface Download {
+            byte[] before(long deadline) throws IOException;
+        }
     }
 
     /** A downloaded CRL, or why none could be read, worded to follow "it was ignored because". */

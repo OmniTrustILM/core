@@ -24,7 +24,8 @@ import org.springframework.util.unit.DataSize;
  * stored, and the read timeout bounds each read only, so a server sending a byte now and then could otherwise keep a
  * download going for ever. Until the response headers have arrived, which includes connecting, the TLS handshake and
  * redirects, a watchdog closes the connection at the deadline; the body is read in a loop that checks the deadline
- * after each read.
+ * after each read. A body read blocked at the deadline still ends within one read timeout: closing the connection then
+ * would not cut it short, since closing the body stream waits for a read in progress.
  */
 @Component
 public class CrlDownloader {
@@ -53,21 +54,21 @@ public class CrlDownloader {
         this.downloadTimeout = downloadTimeout;
     }
 
-    /** One download timeout from now, as {@link System#nanoTime()}: the deadline several downloads may share. */
-    public long deadline() {
-        return System.nanoTime() + downloadTimeout.toNanos();
+    /** How long downloading may take: one download, or all those of one read of an issuer's CRLs. */
+    public Duration downloadTimeout() {
+        return downloadTimeout;
     }
 
     /** Returns the CRL the URL serves within one download timeout from now, as {@link #download(String, long)}. */
     public byte[] download(String crlUrl) throws IOException {
-        return download(crlUrl, deadline());
+        return download(crlUrl, System.nanoTime() + downloadTimeout.toNanos());
     }
 
     /**
      * Returns the CRL the URL serves, read before the deadline. Only http, https, ldap and ldaps URLs are read: the JDK
      * opens other schemes, such as {@code jar:}, over connections that take none of the timeouts.
      *
-     * @param deadline as {@link System#nanoTime()}, from {@link #deadline()}
+     * @param deadline as {@link System#nanoTime()}
      * @throws CrlDownloadException when the URL's scheme is not read, the CRL is larger than the size limit, the
      * deadline has passed before the download starts, or an HTTP download outlasts it; an LDAP download outlasting it
      * fails as unreadable

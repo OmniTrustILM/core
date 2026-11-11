@@ -1,5 +1,6 @@
 package com.otilm.core.service.impl;
 
+import com.github.tomakehurst.wiremock.WireMockServer;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.dao.entity.Crl;
@@ -42,6 +43,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -70,6 +72,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.util.unit.DataSize;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.otilm.core.util.builders.CrlBuilder.aCrl;
 import static com.otilm.core.util.builders.X509CrlBuilder.anX509Crl;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -165,6 +170,7 @@ class CrlServiceImplTest {
         lenient()
                 .when(crlRepository.findByIssuerDnAndSerialNumber(anyString(), anyString()))
                 .thenAnswer(invocation -> readStoredRow());
+        lenient().when(crlDownloader.downloadTimeout()).thenReturn(Duration.ofMinutes(1));
     }
 
     @AfterEach
@@ -542,7 +548,50 @@ class CrlServiceImplTest {
             }
         }
 
+        @Test
+        @Timeout(20)
+        void readsDeltaCrl_whenStoringTheBaseCrlOutlastsTheDownloadTimeout() throws Exception {
+            // given
+            var downloadTimeout = Duration.ofSeconds(1);
+            crlService.setCrlDownloader(new CrlDownloader(1_000, 5_000, DataSize.ofMegabytes(1), downloadTimeout));
+            WireMockServer crlServer = LoopbackWireMock.start();
+            try {
+                String baseUrl = LoopbackWireMock.url(crlServer) + "/base.crl";
+                String deltaUrl = LoopbackWireMock.url(crlServer) + "/delta.crl";
+                X509Certificate certificate = selfSignedCertificateWithDeltaCrl(deltaUrl, baseUrl);
+                crlServer
+                        .stubFor(get(urlPathEqualTo("/base.crl"))
+                                .willReturn(aResponse().withBody(StoringTheCrl.baseCrl(certificate, 5))));
+                crlServer
+                        .stubFor(get(urlPathEqualTo("/delta.crl"))
+                                .willReturn(aResponse().withBody(deltaCrl(certificate, "5", 7))));
+                UUID storedCrlUuid = UUID.randomUUID();
+                when(crlWriter.persistCrlAndEntries(any(), anyBoolean(), any(), any())).thenAnswer(invocation -> {
+                    takeLongerThan(downloadTimeout);
+                    return new CrlWrite(storedCrlUuid, true);
+                });
+                when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any())).thenReturn(true);
+
+                // when
+                UUID crlUuid = crlService.getCurrentCrl(certificate, certificate);
+
+                // then
+                assertThat(crlUuid).isEqualTo(storedCrlUuid);
+                verify(crlWriter).applyDeltaCrl(any(), any(), any(), any(), any(), any(), any());
+            } finally {
+                crlServer.stop();
+            }
+        }
+
         // ── Helpers ──────────────────────────────────────────────────────────
+
+        /** Stands in for a store that takes longer than the downloads may, without counting as a download. */
+        private static void takeLongerThan(Duration duration) {
+            long until = System.nanoTime() + duration.toNanos() + Duration.ofMillis(200).toNanos();
+            while (System.nanoTime() - until < 0) {
+                LockSupport.parkNanos(until - System.nanoTime());
+            }
+        }
 
         /** Accepts every connection and never answers, holding each until its client hangs up. */
         private static void holdEveryConnectionOpen(ServerSocket server) {
@@ -638,20 +687,22 @@ class CrlServiceImplTest {
     }
 
     private static X509Certificate selfSignedCertificate(boolean namingDeltaCrl) throws Exception {
-        return selfSignedCertificate(namingDeltaCrl, BASE_CRL_URL);
+        return selfSignedCertificateWithDeltaCrl(namingDeltaCrl ? DELTA_CRL_URL : null, BASE_CRL_URL);
     }
 
     private static X509Certificate selfSignedCertificateNaming(String... crlUrls) throws Exception {
-        return selfSignedCertificate(false, crlUrls);
+        return selfSignedCertificateWithDeltaCrl(null, crlUrls);
     }
 
-    private static X509Certificate selfSignedCertificate(boolean namingDeltaCrl, String... crlUrls) throws Exception {
+    /** Names the delta CRL at {@code deltaCrlUrl} unless it is {@code null}. */
+    private static X509Certificate selfSignedCertificateWithDeltaCrl(String deltaCrlUrl, String... crlUrls)
+            throws Exception {
         X500Name name = new X500Name(ISSUER_DN);
         X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(name, BigInteger.ONE, new Date(0),
                 Date.from(Instant.parse("9999-12-31T23:59:59Z")), name, issuerKeyPair.getPublic());
         builder.addExtension(Extension.cRLDistributionPoints, false, distributionPoints(crlUrls));
-        if (namingDeltaCrl) {
-            builder.addExtension(Extension.freshestCRL, false, distributionPoints(DELTA_CRL_URL));
+        if (deltaCrlUrl != null) {
+            builder.addExtension(Extension.freshestCRL, false, distributionPoints(deltaCrlUrl));
         }
         return new JcaX509CertificateConverter()
                 .getCertificate(
