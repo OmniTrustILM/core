@@ -3,6 +3,10 @@ package com.otilm.core.util.crl;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.otilm.core.util.LoopbackWireMock;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.SequenceInputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -113,16 +117,71 @@ class CrlDownloaderTest {
                     deadlineShorterThanReadTimeout);
 
             // when
+            long start = System.nanoTime();
             ThrowingCallable download = () -> downloader.download(url);
 
             // then
             assertThatThrownBy(download)
                     .isInstanceOfSatisfying(CrlDownloadException.class,
                             e -> assertThat(e.reason()).isEqualTo("its download took longer than 800 ms"));
+            assertThat(Duration.ofNanos(System.nanoTime() - start))
+                    .as("stopped by the deadline, not by the 5 s read timeout")
+                    .isLessThan(Duration.ofSeconds(3));
         }
     }
 
+    @Test
+    void refusesCrl_whenEndOfDeclaredBodyArrivesAfterDeadline() {
+        // given
+        var downloadTimeout = Duration.ofMillis(200);
+        byte[] declaredBody = bytes(10);
+        InputStream bodyEndingLate = bodyThatEndsAfter(declaredBody, Duration.ofMillis(400));
+        long deadline = System.nanoTime() + downloadTimeout.toNanos();
+
+        // when
+        ThrowingCallable read = () -> downloader(downloadTimeout)
+                .readWithinLimits(CRL_PATH, bodyEndingLate, declaredBody.length, deadline);
+
+        // then
+        assertThatThrownBy(read)
+                .isInstanceOfSatisfying(CrlDownloadException.class,
+                        e -> assertThat(e.reason()).isEqualTo("its download took longer than 200 ms"));
+    }
+
+    @Test
+    void refusesCrl_whenEndOfUndeclaredBodyArrivesAfterDeadline() {
+        // given
+        var downloadTimeout = Duration.ofMillis(200);
+        InputStream bodyEndingLate = bodyThatEndsAfter(bytes(10), Duration.ofMillis(400));
+        long deadline = System.nanoTime() + downloadTimeout.toNanos();
+
+        // when
+        ThrowingCallable read = () -> downloader(downloadTimeout)
+                .readWithinLimits(CRL_PATH, bodyEndingLate, -1, deadline);
+
+        // then
+        assertThatThrownBy(read)
+                .isInstanceOfSatisfying(CrlDownloadException.class,
+                        e -> assertThat(e.reason()).isEqualTo("its download took longer than 200 ms"));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Returns the bytes at once, then signals the end of the body only after the delay. */
+    private static InputStream bodyThatEndsAfter(byte[] body, Duration delay) {
+        return new SequenceInputStream(new ByteArrayInputStream(body), new InputStream() {
+            @Override
+            public int read() throws IOException {
+                try {
+                    Thread.sleep(delay.toMillis());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(e);
+                }
+                return -1;
+            }
+        });
+    }
 
     /** Reads the request and keeps the connection open without answering, as a stalled server does. */
     private static void readRequestWithoutAnswering(ServerSocket server) {

@@ -104,8 +104,7 @@ public class CrlDownloader {
      * sent. Growth stops at the declared length, so a body that matches it ends in an array of its exact size, without
      * a final copy; a body longer than declared, or without a declared length, grows up to the size limit.
      */
-    private byte[] readWithinLimits(String crlUrl, InputStream body, long declaredLength, long deadline)
-            throws IOException {
+    byte[] readWithinLimits(String crlUrl, InputStream body, long declaredLength, long deadline) throws IOException {
         long maxBytes = maxSize.toBytes();
         long expected = declaredLength > 0 ? declaredLength : maxBytes;
         byte[] data = new byte[(int) Math.min(expected, INITIAL_BUFFER_SIZE)];
@@ -113,6 +112,7 @@ public class CrlDownloader {
         while (true) {
             if (size == data.length) {
                 int next = body.read();
+                requireWithinDeadline(crlUrl, deadline);
                 if (next == -1) {
                     return data;
                 }
@@ -124,13 +124,18 @@ public class CrlDownloader {
                 data[size++] = (byte) next;
             }
             int read = body.read(data, size, data.length - size);
+            requireWithinDeadline(crlUrl, deadline);
             if (read == -1) {
                 return Arrays.copyOf(data, size);
             }
             size += read;
-            if (System.nanoTime() - deadline > 0) {
-                throw tooSlow(crlUrl);
-            }
+        }
+    }
+
+    /** Checked after every read, also the one that ends the body, so a body ending past the deadline is refused. */
+    private void requireWithinDeadline(String crlUrl, long deadline) throws CrlDownloadException {
+        if (System.nanoTime() - deadline > 0) {
+            throw tooSlow(crlUrl);
         }
     }
 
