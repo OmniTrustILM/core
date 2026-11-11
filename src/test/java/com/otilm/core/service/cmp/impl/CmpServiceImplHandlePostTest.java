@@ -388,6 +388,22 @@ class CmpServiceImplHandlePostTest {
     }
 
     @Test
+    void recordsRevokeAsTheAuditOperation_whenProfileValidationFails() throws Exception {
+        // given
+        var unknownRaProfiles = mock(RaProfileRepository.class);
+        when(unknownRaProfiles.findByName(anyString())).thenReturn(Optional.empty());
+        CmpServiceImpl service = newService(unknownRaProfiles, mock(CmpProfileRepository.class), null, false);
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+
+        // when
+        service.handlePost(PROFILE_NAME, revocationRequest());
+
+        // then
+        verify(auditOperationOverride).set(Operation.REVOKE);
+    }
+
+    @Test
     void recordsIssueAsTheAuditOperation_whenTheHandlerFails() throws Exception {
         // given
         var crmfMessageHandler = mock(CrmfMessageHandler.class);

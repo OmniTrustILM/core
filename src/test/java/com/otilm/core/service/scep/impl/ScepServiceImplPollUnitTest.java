@@ -1,5 +1,6 @@
 package com.otilm.core.service.scep.impl;
 
+import com.otilm.api.exception.ScepException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.scep.PkiStatus;
@@ -7,12 +8,14 @@ import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.scep.ScepTransaction;
+import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepTransactionRepository;
 import com.otilm.core.service.scep.message.ScepRequest;
 import com.otilm.core.service.scep.message.ScepResponse;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +27,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link ScepServiceImpl} private polling methods (the kernels of the RFC 8894 §3.3 GetCertInitial /
@@ -85,6 +89,48 @@ class ScepServiceImplPollUnitTest {
 
         // then
         Mockito.verify(auditOperationOverride).set(Operation.SCEP_TRANSACTION_CHECK);
+    }
+
+    @Test
+    void recordsTransactionCheckAsTheAuditOperation_whenTheRetryIsRejected() {
+        // given
+        var auditOperationOverride = Mockito.mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        var transactionOfNoRegistration = "tx-of-no-registration";
+        ScepRequest request = Mockito.mock(ScepRequest.class);
+        Mockito.when(request.getTransactionId()).thenReturn(transactionOfNoRegistration);
+        Mockito
+                .when(transactionRepository.existsByTransactionIdAndScepProfile(transactionOfNoRegistration, profile))
+                .thenReturn(true);
+        Certificate matchedRegistration = aCertificate().build();
+
+        // when
+        ReflectionTestUtils.invokeMethod(service, "resolveResponse", request, null, matchedRegistration);
+
+        // then
+        Mockito.verify(auditOperationOverride).set(Operation.SCEP_TRANSACTION_CHECK);
+    }
+
+    @Test
+    void recordsCaCapabilitiesAsTheAuditOperation_whenTheProfileDoesNotExist() {
+        // given
+        var auditOperationOverride = Mockito.mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        var missingProfileRepository = Mockito.mock(ScepProfileRepository.class);
+        Mockito.when(missingProfileRepository.findByName("missing-profile")).thenReturn(Optional.empty());
+        service.setScepProfileRepository(missingProfileRepository);
+        RequestContextHolder
+                .setRequestAttributes(new ServletRequestAttributes(
+                        new MockHttpServletRequest("GET", "/v1/protocols/scep/missing-profile/pkiclient.exe")));
+
+        // when
+        ThrowingCallable getCaCaps = () -> service
+                .handleGet("missing-profile", ScepServiceImpl.SCEP_OPERATION_GET_CA_CAPS, null);
+
+        // then
+        assertThatThrownBy(getCaCaps).isInstanceOf(ScepException.class);
+        Mockito.verify(auditOperationOverride).set(Operation.SCEP_CA_CAPABILITIES);
     }
 
     // ==================== getExistingTransaction ====================

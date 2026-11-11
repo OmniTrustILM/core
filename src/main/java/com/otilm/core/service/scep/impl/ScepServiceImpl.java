@@ -301,22 +301,25 @@ public class ScepServiceImpl implements ScepExternalService {
     }
 
     private ResponseEntity<Object> service(String profileName, String operation, byte[] message) throws ScepException {
+        recordAuditOperation(queryAuditOperation(operation));
         init(profileName);
         validateProfile();
         logger.info("SCEP request received for profile: {}, operation: {}", profileName, operation);
         return switch (operation) {
-            case SCEP_OPERATION_GET_CA_CERT -> {
-                recordAuditOperation(Operation.LIST_PROTOCOL_CERTIFICATES);
-                yield getCaCerts();
-            }
-            case SCEP_OPERATION_GET_CA_CAPS -> {
-                recordAuditOperation(Operation.SCEP_CA_CAPABILITIES);
-                yield getCaCaps();
-            }
+            case SCEP_OPERATION_GET_CA_CERT -> getCaCerts();
+            case SCEP_OPERATION_GET_CA_CAPS -> getCaCaps();
             case SCEP_OPERATION_PKI_OPERATION -> pkiOperation(message);
             default -> buildResponse(null,
                     buildFailedResponse(new ScepException("Unsupported Operation", FailInfo.BAD_REQUEST), null));
         };
+    }
+
+    /** The audit operation the query names, or {@code null} when the PKI message decides it. */
+    private static Operation queryAuditOperation(String operation) {
+        if (SCEP_OPERATION_GET_CA_CERT.equals(operation)) {
+            return Operation.LIST_PROTOCOL_CERTIFICATES;
+        }
+        return SCEP_OPERATION_GET_CA_CAPS.equals(operation) ? Operation.SCEP_CA_CAPABILITIES : null;
     }
 
     /** Outside an HTTP request there is no audit record to hand the operation to. */
@@ -582,13 +585,13 @@ public class ScepServiceImpl implements ScepExternalService {
             Certificate matchedRegistration) {
         if (scepTransactionRepository
                 .existsByTransactionIdAndScepProfile(scepRequest.getTransactionId(), scepProfile)) {
+            recordAuditOperation(Operation.SCEP_TRANSACTION_CHECK);
             // The registration was matched on identity alone, so anything but a verified retry is refused like an
             // unknown identity: answering it would let a known transaction ID reveal registered identities.
             if (matchedRegistration != null && !isVerifiedRetry(scepRequest, matchedRegistration)) {
                 return buildFailedResponse(new ScepException(REGISTRATION_REJECTION, FailInfo.BAD_MESSAGE_CHECK),
                         scepRequest.getTransactionId());
             }
-            recordAuditOperation(Operation.SCEP_TRANSACTION_CHECK);
             return existingTransactionResponse(scepRequest);
         }
         if (scepRequest.getMessageType().equals(MessageType.PKCS_REQ)) {

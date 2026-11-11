@@ -239,9 +239,11 @@ public class CmpServiceImpl implements CmpExternalService {
             }
         }
 
+        int bodyType = pkiRequest.getBody().getType();
+        recordAuditOperation(auditOperationOf(bodyType));
+
         // -- (processing) part
         init(profileName);
-        int bodyType = pkiRequest.getBody().getType();
 
         // Profile validation must run before cmpProfile is dereferenced below.
         try {
@@ -276,7 +278,6 @@ public class CmpServiceImpl implements CmpExternalService {
                 case PKIBody.TYPE_INIT_REQ, // ( 1) ir, Initial Request; CertReqMessages
                         PKIBody.TYPE_CERT_REQ, // ( 2) cr, Certification Req; CertReqMessages
                         PKIBody.TYPE_KEY_UPDATE_REQ: // ( 7) kur, Key Update Request; CertReqMessages
-                    recordAuditOperation(bodyType == PKIBody.TYPE_KEY_UPDATE_REQ ? Operation.REKEY : Operation.ISSUE);
                     pkiResponse = crmfMessageHandler.handle(pkiRequest, configuration);
                     if (pkiResponse == null) {
                         throw new CmpCrmfValidationException(tid, bodyType, PKIFailureInfo.systemFailure,
@@ -284,15 +285,12 @@ public class CmpServiceImpl implements CmpExternalService {
                     }
                     break;
                 case PKIBody.TYPE_REVOCATION_REQ: // (11) rr, Revocation Request; RevReqContent
-                    recordAuditOperation(Operation.REVOKE);
                     pkiResponse = revocationMessageHandler.handle(pkiRequest, configuration);
                     break;
                 case PKIBody.TYPE_CERT_CONFIRM: // (24) certConf, Certificate confirm; CertConfirmContent
-                    recordAuditOperation(Operation.CMP_CONFIRM);
                     pkiResponse = certConfirmMessageHandler.handle(pkiRequest, configuration);
                     break;
                 case PKIBody.TYPE_POLL_REQ: // (25) pollReq, Polling Request (RFC 4210 §5.2.6)
-                    recordAuditOperation(Operation.GET_STATUS);
                     pkiResponse = pollReqMessageHandler.handle(pkiRequest, configuration);
                     break;
                 case PKIBody.TYPE_CROSS_CERT_REQ, PKIBody.TYPE_KEY_RECOVERY_REQ, PKIBody.TYPE_GEN_MSG,
@@ -333,6 +331,18 @@ public class CmpServiceImpl implements CmpExternalService {
             return errorResponse(tid, logPrefix, requestAsString, "handling", e,
                     buildProcessingErrorResponse(configuration, pkiRequest, safeErrorBody(e)));
         }
+    }
+
+    /** The audit operation a CMP body asks for, or {@code null} for a body type this endpoint does not serve. */
+    private static Operation auditOperationOf(int bodyType) {
+        return switch (bodyType) {
+            case PKIBody.TYPE_INIT_REQ, PKIBody.TYPE_CERT_REQ -> Operation.ISSUE;
+            case PKIBody.TYPE_KEY_UPDATE_REQ -> Operation.REKEY;
+            case PKIBody.TYPE_REVOCATION_REQ -> Operation.REVOKE;
+            case PKIBody.TYPE_CERT_CONFIRM -> Operation.CMP_CONFIRM;
+            case PKIBody.TYPE_POLL_REQ -> Operation.GET_STATUS;
+            default -> null;
+        };
     }
 
     /** Outside an HTTP request there is no audit record to hand the operation to. */

@@ -304,20 +304,30 @@ class AuditLogAspectTest {
     }
 
     @Test
-    void keepsTheAnnotatedOperationAndLeavesTheOverrideUnconsumed_whenTheOperationIsConcrete() throws Throwable {
+    void keepsTheAnnotatedOperation_whenTheOperationIsConcrete() throws Throwable {
         // given
         bindRequestScope();
-        when(joinPoint.proceed()).thenAnswer(invocation -> {
-            auditOperationOverride.set(Operation.ISSUE);
-            return "released";
-        });
+        stubBodySettingTheOverride(Operation.ISSUE);
 
         // when
         aspect.log(joinPointOn("synchronousProbe"));
 
         // then
         assertThat(recordWritten().operation()).isEqualTo(Operation.EXPORT);
-        assertThat(auditOperationOverride.consume()).isEqualTo(Operation.ISSUE);
+    }
+
+    @Test
+    void leavesTheOverrideUnconsumed_whenTheOperationIsConcrete() throws Throwable {
+        // given
+        bindRequestScope();
+        var overrideForTheWaitingFrame = Operation.ISSUE;
+        stubBodySettingTheOverride(overrideForTheWaitingFrame);
+
+        // when
+        aspect.log(joinPointOn("synchronousProbe"));
+
+        // then
+        assertThat(auditOperationOverride.consume()).isEqualTo(overrideForTheWaitingFrame);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -326,6 +336,13 @@ class AuditLogAspectTest {
         ArgumentCaptor<LogRecord> recorded = ArgumentCaptor.forClass(LogRecord.class);
         verify(auditLogInternalService).log(recorded.capture(), eq(AuditLogOutput.DATABASE));
         return recorded.getValue();
+    }
+
+    private void stubBodySettingTheOverride(Operation discovered) throws Throwable {
+        when(joinPoint.proceed()).thenAnswer(invocation -> {
+            auditOperationOverride.set(discovered);
+            return "released";
+        });
     }
 
     private static void bindRequestScope() {
