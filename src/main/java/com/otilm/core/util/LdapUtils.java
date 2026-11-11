@@ -4,7 +4,9 @@ import java.util.Hashtable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.naming.Context;
+import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
+import javax.naming.NamingException;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.SearchControls;
 import javax.naming.directory.SearchResult;
@@ -61,7 +63,7 @@ public class LdapUtils {
      * timeout bounds the wait for each LDAP response.
      */
     public static byte[] downloadFromLdap(String ldapUrl, int connectTimeoutMillis, int readTimeoutMillis)
-            throws Exception {
+            throws NamingException {
         // Compile the regex pattern
         Pattern pattern = Pattern.compile(LDAP_URL_REGEX);
 
@@ -133,7 +135,7 @@ public class LdapUtils {
             return data;
         } else {
             ctx.close();
-            throw new Exception("No data found for attribute in LDAP URL: " + ldapUrl);
+            throw new NameNotFoundException("No data found for attribute in LDAP URL: " + ldapUrl);
         }
     }
 

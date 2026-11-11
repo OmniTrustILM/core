@@ -13,6 +13,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.naming.NamingException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -144,9 +145,7 @@ public class CrlDownloader {
         byte[] crl;
         try {
             crl = LdapUtils.downloadFromLdap(crlUrl, connectTimeoutMillis, (int) downloadTimeout.toMillis());
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
+        } catch (NamingException | RuntimeException e) {
             throw new IOException("Failed to read the CRL from LDAP: " + e.getMessage(), e);
         }
         if (crl == null) {
