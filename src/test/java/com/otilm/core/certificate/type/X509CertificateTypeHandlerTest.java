@@ -20,6 +20,7 @@ import java.security.KeyPair;
 import java.security.PublicKey;
 import java.security.Security;
 import java.security.cert.X509Certificate;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -99,6 +100,34 @@ class X509CertificateTypeHandlerTest {
         assertThat(validity.precision()).isEqualTo(ValidityPrecision.DATE_TIME);
         assertThat(validity.notBefore()).isEqualTo(leaf.getNotBefore().toInstant());
         assertThat(validity.notAfter()).isEqualTo(leaf.getNotAfter().toInstant());
+    }
+
+    @Test
+    void reportsValid_whenTheCertificateIsWithinItsValidityPeriod() throws Exception {
+        // given
+        X509Certificate leaf = chain.getEndEntityCertificate();
+        ParsedCertificate parsed = handler.parseCertificate(leaf.getEncoded()).orElseThrow();
+        Instant duringValidity = leaf.getNotBefore().toInstant().plusSeconds(60);
+
+        // when
+        ValidityStatus status = parsed.properties().statusAt(duringValidity);
+
+        // then
+        assertThat(status).isEqualTo(ValidityStatus.VALID);
+    }
+
+    @Test
+    void reportsExpired_whenTheMomentIsAfterTheEndOfTheCertificate() throws Exception {
+        // given
+        X509Certificate leaf = chain.getEndEntityCertificate();
+        ParsedCertificate parsed = handler.parseCertificate(leaf.getEncoded()).orElseThrow();
+        Instant afterExpiry = leaf.getNotAfter().toInstant().plusSeconds(60);
+
+        // when
+        ValidityStatus status = parsed.properties().statusAt(afterExpiry);
+
+        // then
+        assertThat(status).isEqualTo(ValidityStatus.EXPIRED);
     }
 
     @Test
