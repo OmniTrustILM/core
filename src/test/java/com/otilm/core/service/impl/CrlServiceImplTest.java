@@ -466,14 +466,33 @@ class CrlServiceImplTest {
             // then
             assertThat(crlUuid).isEqualTo(storedByAnotherWriter.getUuid());
         }
+    }
 
-        // ── Helpers ──────────────────────────────────────────────────────────
+    // ── DownloadFailureMemory ────────────────────────────────────────────────
 
-        private static byte[] baseCrl(X509Certificate issuer, int crlNumber) throws Exception {
-            return anX509Crl(issuer.getSubjectX500Principal(), issuerKeyPair.getPrivate())
-                    .withCrlNumber(BigInteger.valueOf(crlNumber))
-                    .build()
-                    .getEncoded();
+    @Nested
+    class DownloadFailureMemory {
+
+        @Test
+        void downloadsOtherDistributionPoint_whenOneOfTheIssuerFailedJustBefore() throws Exception {
+            // given
+            String failingUrl = "http://crl.test/partition-1.crl";
+            String otherUrl = "http://crl.test/partition-2.crl";
+            X509Certificate namingFailingUrl = selfSignedCertificateNaming(failingUrl);
+            X509Certificate namingOtherUrl = selfSignedCertificateNaming(otherUrl);
+            when(crlDownloader.download(eq(failingUrl), anyLong())).thenThrow(new IOException("Connection refused"));
+            when(crlDownloader.download(eq(otherUrl), anyLong())).thenReturn(baseCrl(namingOtherUrl, 5));
+            when(crlWriter.persistCrlAndEntries(any(), anyBoolean(), any(), any()))
+                    .thenReturn(new CrlWrite(UUID.randomUUID(), true));
+            ThrowingCallable failingCheck = () -> crlService.getCurrentCrl(namingFailingUrl, namingFailingUrl);
+            assertThatThrownBy(failingCheck).isInstanceOf(IOException.class);
+
+            // when
+            UUID crlUuid = crlService.getCurrentCrl(namingOtherUrl, namingOtherUrl);
+
+            // then
+            assertThat(crlUuid).isNotNull();
+            verify(crlDownloader).download(eq(otherUrl), anyLong());
         }
     }
 
@@ -561,7 +580,7 @@ class CrlServiceImplTest {
                 X509Certificate certificate = selfSignedCertificateWithDeltaCrl(deltaUrl, baseUrl);
                 crlServer
                         .stubFor(get(urlPathEqualTo("/base.crl"))
-                                .willReturn(aResponse().withBody(StoringTheCrl.baseCrl(certificate, 5))));
+                                .willReturn(aResponse().withBody(baseCrl(certificate, 5))));
                 crlServer
                         .stubFor(get(urlPathEqualTo("/delta.crl"))
                                 .willReturn(aResponse().withBody(deltaCrl(certificate, "5", 7))));
@@ -661,6 +680,13 @@ class CrlServiceImplTest {
     /** A current base CRL with no delta CRL applied, so a certificate naming a delta CRL needs one downloaded. */
     private static Crl currentBaseCrlWithDueDeltaCrl() {
         return currentBaseCrl();
+    }
+
+    private static byte[] baseCrl(X509Certificate issuer, int crlNumber) throws Exception {
+        return anX509Crl(issuer.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                .withCrlNumber(BigInteger.valueOf(crlNumber))
+                .build()
+                .getEncoded();
     }
 
     private static byte[] deltaCrl(X509Certificate issuer, String baseCrlNumber, int crlNumber) throws Exception {

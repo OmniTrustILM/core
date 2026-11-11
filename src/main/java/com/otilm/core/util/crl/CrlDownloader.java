@@ -165,8 +165,7 @@ public class CrlDownloader {
      * bounds the wait for each LDAP response, as JNDI has no deadline for the whole exchange.
      */
     private byte[] downloadFromLdap(String crlUrl, long remainingNanos) throws IOException {
-        int remainingMillis = (int) Math
-                .max(1, Math.min(Integer.MAX_VALUE, TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
+        int remainingMillis = Math.clamp(TimeUnit.NANOSECONDS.toMillis(remainingNanos), 1, Integer.MAX_VALUE);
         byte[] crl;
         try {
             crl = LdapUtils.downloadFromLdap(crlUrl, Math.min(connectTimeoutMillis, remainingMillis), remainingMillis);
