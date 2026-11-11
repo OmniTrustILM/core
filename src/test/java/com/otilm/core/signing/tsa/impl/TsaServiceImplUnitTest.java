@@ -84,15 +84,14 @@ class TsaServiceImplUnitTest {
                 .withName("content-signing-profile")
                 .withEnabledProtocols(List.of())
                 .withTspProfileUuid(null)
-                .withWorkflow(new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null, null,
+                .withWorkflow(new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null,
                         CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL))
                 .build();
     }
 
     private static ResolvedManagedContentSigningProfile aResolvedContentSigningProfile() {
         return new ResolvedManagedContentSigningProfile(UUID.randomUUID(), "docs", null, 1, true, List.of(), List.of(),
-                null, null, null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL, null,
-                null);
+                null, null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL, null, null);
     }
 
     // ── processTspRequestForTspProfile ────────────────────────────────────────
@@ -497,7 +496,7 @@ class TsaServiceImplUnitTest {
                     .withName("content-signing-profile")
                     .withTspProfileUuid(TSP_PROFILE_UUID)
                     .withWorkflow(new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null,
-                            null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL))
+                            CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL))
                     .build();
             doReturn(signingProfile).when(signingProfileService).getSigningProfileModel("content-signing-profile");
             when(tspProfileService.getTspProfile(TSP_PROFILE_UUID)).thenReturn(aTspProfile().build());

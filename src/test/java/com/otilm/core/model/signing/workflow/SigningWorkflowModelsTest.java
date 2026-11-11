@@ -37,7 +37,7 @@ class SigningWorkflowModelsTest {
 
         // when
         ManagedContentSigningWorkflow wf = new ManagedContentSigningWorkflow(connectorUuid, attrs, null, null, null,
-                null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
+                CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
 
         // then
         assertThat(wf.getWorkflowType()).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);

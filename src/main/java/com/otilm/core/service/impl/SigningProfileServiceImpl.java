@@ -955,7 +955,6 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         version.setSignatureFamily(null);
         version.setMaxSignatureLevel(null);
         version.setTimestampSourceProfileUuid(null);
-        version.setDocumentSizeCap(null);
         version.setRequireNonRepudiation(false);
         version.setRequiredExtendedKeyUsageOids(new ArrayList<>());
         version.setAllowedRequestParameterGroups(new ArrayList<>());
@@ -971,8 +970,6 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                 if (signingScheme == SigningScheme.MANAGED) {
                     applyManagedContentSigning(version, w);
                 }
-                // Stored for both schemes because the cap belongs to request admission, not to leveling.
-                version.setDocumentSizeCap(w.getDocumentSizeCap());
             }
             case RawSigningWorkflowRequestDto ignored -> {
                 // RawSigningWorkflowRequestDto has no signatureFormattingConnectorUuid field — no formatting is allowed
