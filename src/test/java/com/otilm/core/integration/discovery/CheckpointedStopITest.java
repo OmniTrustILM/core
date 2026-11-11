@@ -5,6 +5,7 @@ import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStopResponseDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -139,9 +140,10 @@ class CheckpointedStopITest extends BaseSpringBootTest {
         Discovery run = checkpointedRun();
         armRow(run, DiscoveryWorkType.STATUS);
         adapter.stop(reload(run));
+        when(client.resume(any())).thenReturn(resumedInCheckpointedMode());
         DiscoveryWorkTick readTheRunStopped = spy(tickSeeder.admitTick(run.getUuid(), DiscoveryWorkType.STATUS, 0));
         doAnswer(park -> {
-            resumeAsTheAdapterCommitsIt(run);
+            adapter.resume(reload(run));
             return park.callRealMethod();
         }).when(readTheRunStopped).reschedule(anyInt(), any());
 
@@ -217,16 +219,10 @@ class CheckpointedStopITest extends BaseSpringBootTest {
         return item;
     }
 
-    /** What the adapter's resume commits for a connector that answered in checkpointed mode, then its expedites. */
-    private void resumeAsTheAdapterCommitsIt(Discovery run) {
-        Discovery current = reload(run);
-        current.setStatus(DiscoveryStatus.IN_PROGRESS);
-        current.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        current.setStoppedAt(null);
-        current.setCheckpointRevision(current.getCheckpointRevision() + 1);
-        discoveryRepository.saveAndFlush(current);
-        workWriter.expedite(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
-        workWriter.expedite(run.getUuid(), DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
+    private static DiscoveryInitiateResponseDto resumedInCheckpointedMode() {
+        DiscoveryInitiateResponseDto response = new DiscoveryInitiateResponseDto();
+        response.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        return response;
     }
 
     private void armRow(Discovery run, DiscoveryWorkType workType) {
