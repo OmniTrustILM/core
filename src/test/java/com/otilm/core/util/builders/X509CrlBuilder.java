@@ -1,6 +1,7 @@
 package com.otilm.core.util.builders;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.math.BigInteger;
 import java.security.PrivateKey;
 import java.security.cert.CRLException;
@@ -14,6 +15,7 @@ import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.asn1.x509.CRLNumber;
 import org.bouncycastle.asn1.x509.CRLReason;
 import org.bouncycastle.asn1.x509.Extension;
@@ -46,6 +48,8 @@ public final class X509CrlBuilder {
     private BigInteger deltaCrlIndicator;
 
     private String signatureAlgorithm = "SHA256WithRSAEncryption";
+
+    private ASN1Encodable signatureAlgorithmParameters;
 
     private final Map<BigInteger, Revocation> revocations = new LinkedHashMap<>();
 
@@ -112,6 +116,12 @@ public final class X509CrlBuilder {
         return this;
     }
 
+    /** Encodes these parameters with the signature algorithm in place of the ones the algorithm itself uses. */
+    public X509CrlBuilder withSignatureAlgorithmParameters(ASN1Encodable signatureAlgorithmParameters) {
+        this.signatureAlgorithmParameters = signatureAlgorithmParameters;
+        return this;
+    }
+
     public X509CRL build() {
         try {
             X509v2CRLBuilder crlBuilder = new X509v2CRLBuilder(X500Name.getInstance(issuerName.getEncoded()),
@@ -133,15 +143,40 @@ public final class X509CrlBuilder {
                         .addCRLEntry(revocation.getKey(), Date.from(revocation.getValue().revocationDate()),
                                 revocation.getValue().extensions());
             }
-            ContentSigner signer = new JcaContentSignerBuilder(signatureAlgorithm)
+            ContentSigner algorithmSigner = new JcaContentSignerBuilder(signatureAlgorithm)
                     .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                     .build(signerKey);
+            ContentSigner signer = signatureAlgorithmParameters == null
+                    ? algorithmSigner
+                    : withParameters(algorithmSigner, signatureAlgorithmParameters);
             return new JcaX509CRLConverter()
                     .setProvider(BouncyCastleProvider.PROVIDER_NAME)
                     .getCRL(crlBuilder.build(signer));
         } catch (IOException | OperatorCreationException | CRLException e) {
             throw new IllegalStateException("Failed to build the CRL", e);
         }
+    }
+
+    /** Signs as the signer does, naming its algorithm with the given parameters. */
+    private static ContentSigner withParameters(ContentSigner signer, ASN1Encodable parameters) {
+        AlgorithmIdentifier algorithm = new AlgorithmIdentifier(signer.getAlgorithmIdentifier().getAlgorithm(),
+                parameters);
+        return new ContentSigner() {
+            @Override
+            public AlgorithmIdentifier getAlgorithmIdentifier() {
+                return algorithm;
+            }
+
+            @Override
+            public OutputStream getOutputStream() {
+                return signer.getOutputStream();
+            }
+
+            @Override
+            public byte[] getSignature() {
+                return signer.getSignature();
+            }
+        };
     }
 
     private record Revocation(Extensions extensions, Instant revocationDate) {

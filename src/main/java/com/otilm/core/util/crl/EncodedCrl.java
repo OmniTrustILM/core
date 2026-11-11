@@ -20,7 +20,6 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509CRL;
 import java.security.cert.X509CRLEntry;
 import java.security.spec.AlgorithmParameterSpec;
-import java.security.spec.ECParameterSpec;
 import java.security.spec.PSSParameterSpec;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -314,9 +313,8 @@ public final class EncodedCrl {
                 return parameters.getParameterSpec(PSSParameterSpec.class);
             }
             if (algorithm.contains("ECDSA")) {
-                AlgorithmParameters parameters = AlgorithmParameters.getInstance("EC");
-                parameters.init(encoded);
-                return parameters.getParameterSpec(ECParameterSpec.class);
+                // RFC 3279 and RFC 5758 leave ECDSA parameters absent, and the JDK ignores any that are present
+                return null;
             }
         } catch (IOException e) {
             throw new InvalidAlgorithmParameterException("Malformed signature algorithm parameters", e);

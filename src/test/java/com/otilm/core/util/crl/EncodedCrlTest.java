@@ -4,9 +4,12 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.PublicKey;
 import java.security.Security;
+import java.security.SignatureException;
 import java.security.cert.CRLException;
 import java.security.cert.CRLReason;
 import java.security.cert.CertificateFactory;
@@ -26,6 +29,7 @@ import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1Encodable;
 import org.bouncycastle.asn1.ASN1Enumerated;
 import org.bouncycastle.asn1.ASN1GeneralizedTime;
+import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1Sequence;
 import org.bouncycastle.asn1.DERNull;
@@ -147,7 +151,34 @@ class EncodedCrlTest {
             assertThat(signed).isFalse();
         }
 
+        @Test
+        void verifiesSignatureLikeJdk_whenEcdsaParametersAreNotEcParameters() throws Exception {
+            // given
+            KeyPair ecKeyPair = keyPair("EC", new ECGenParameterSpec("secp256r1"));
+            byte[] crlWithIntegerParameters = anX509Crl(ISSUER, ecKeyPair.getPrivate())
+                    .withSignatureAlgorithm("SHA256withECDSA")
+                    .withSignatureAlgorithmParameters(new ASN1Integer(1))
+                    .build()
+                    .getEncoded();
+            boolean jdkVerdict = verifiesWithJdk(crlWithIntegerParameters, ecKeyPair.getPublic());
+
+            // when
+            boolean signed = EncodedCrl.parse(crlWithIntegerParameters).isSignedBy(ecKeyPair.getPublic());
+
+            // then
+            assertThat(signed).isEqualTo(jdkVerdict).isTrue();
+        }
+
         // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static boolean verifiesWithJdk(byte[] crl, PublicKey publicKey) throws Exception {
+            try {
+                jdkParse(crl).verify(publicKey);
+                return true;
+            } catch (SignatureException | InvalidKeyException e) {
+                return false;
+            }
+        }
 
         private static Stream<Named<SignatureAlgorithm>> signatureAlgorithms() throws Exception {
             return Stream
