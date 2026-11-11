@@ -16,7 +16,13 @@ import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
+import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.AfterEach;
@@ -24,6 +30,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CrlBuilder.aCrl;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,8 +43,10 @@ class CrlWriterITest extends BaseSpringBootTest {
     private static final String ISSUER_SERIAL = "1a2b";
     private static final Date REVOKED_AT = Date.from(Instant.parse("2026-01-02T03:04:05Z"));
     private static final Date NEXT_UPDATE = Date.from(Instant.now().plus(7, ChronoUnit.DAYS));
-    /** More entries than one statement carries, so writing them takes several statements. */
+    /** Above CrlWriter.ENTRIES_PER_STATEMENT (1,000), so writing them takes several statements. */
     private static final int ENTRIES_OVER_SEVERAL_STATEMENTS = 2_500;
+    /** Far below one statement per entry, and above the few statements the fixed statement sizes add. */
+    private static final int FEW_STATEMENTS = 20;
 
     @Autowired
     private CrlWriter crlWriter;
@@ -49,6 +60,14 @@ class CrlWriterITest extends BaseSpringBootTest {
     @Autowired
     private EntityManagerFactory entityManagerFactory;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private DataSource dataSource;
+
+    private final ExecutorService executor = Executors.newFixedThreadPool(2);
+
     private Statistics statistics;
 
     @BeforeEach
@@ -59,8 +78,9 @@ class CrlWriterITest extends BaseSpringBootTest {
     }
 
     @AfterEach
-    void stopRecordingStatementStatistics() {
+    void stopRecordingStatementStatisticsAndExecutor() {
         statistics.setStatisticsEnabled(false);
+        executor.shutdownNow();
     }
 
     @Nested
@@ -87,7 +107,7 @@ class CrlWriterITest extends BaseSpringBootTest {
             crlWriter.persistCrlAndEntries(newCrl("5"), true, entries, REVOKED_AT);
 
             // then
-            assertThat(statistics.getPrepareStatementCount()).isLessThan(10);
+            assertThat(statistics.getPrepareStatementCount()).isLessThan(FEW_STATEMENTS);
         }
 
         @Test
@@ -161,6 +181,74 @@ class CrlWriterITest extends BaseSpringBootTest {
             assertThat(storedCrl().getCrlNumber()).isEqualTo("4");
             assertThat(storedSerials()).containsExactlyInAnyOrderElementsOf(serials(newerEntries));
         }
+
+        @Test
+        void keepsConcurrentWritersNewerCrl_whenRefreshWaitedForItsRowLock() throws Exception {
+            // given
+            UUID crlUuid = storeCrl("5", entries(0, 2));
+            var newerEntries = entries(100, 2);
+            CountDownLatch newerWriterHoldsLock = new CountDownLatch(1);
+            CountDownLatch commitNewerWriter = new CountDownLatch(1);
+            Future<?> newerWriter = executor
+                    .submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                        crlWriter
+                                .persistCrlAndEntries(storedCrlWithNumber(crlUuid, "7"), false, newerEntries,
+                                        REVOKED_AT);
+                        newerWriterHoldsLock.countDown();
+                        awaitQuietly(commitNewerWriter);
+                    }));
+            assertThat(newerWriterHoldsLock.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<CrlWrite> olderWriter = executor
+                    .submit(() -> crlWriter
+                            .persistCrlAndEntries(storedCrlWithNumber(crlUuid, "6"), false, entries(200, 2),
+                                    REVOKED_AT));
+            awaitABackendWaitingForALock();
+
+            // when
+            commitNewerWriter.countDown();
+            newerWriter.get(10, TimeUnit.SECONDS);
+            CrlWrite olderWrite = olderWriter.get(10, TimeUnit.SECONDS);
+
+            // then
+            assertThat(olderWrite.written()).isFalse();
+            assertThat(storedCrl().getCrlNumber()).isEqualTo("7");
+            assertThat(storedSerials()).containsExactlyInAnyOrderElementsOf(serials(newerEntries));
+        }
+
+        @Test
+        void keepsStoredDeltaCrl_whenCompleteCrlIsOlderThanIt() {
+            // given
+            UUID crlUuid = storeCrl("5", List.of());
+            var deltaEntries = entries(0, 1);
+            crlWriter.applyDeltaCrl(crlUuid, "5", List.of(), deltaEntries, "8", NEXT_UPDATE, REVOKED_AT);
+
+            // when
+            CrlWrite write = crlWriter
+                    .persistCrlAndEntries(storedCrlWithNumber(crlUuid, "7"), false, entries(100, 1), REVOKED_AT);
+
+            // then
+            assertThat(write.written()).isFalse();
+            assertThat(storedCrl().getCrlNumberDelta()).isEqualTo("8");
+            assertThat(storedSerials()).containsExactlyElementsOf(serials(deltaEntries));
+        }
+
+        @Test
+        void storesCompleteCrl_whenNumberedLikeTheStoredDeltaCrl() {
+            // given
+            UUID crlUuid = storeCrl("5", List.of());
+            crlWriter.applyDeltaCrl(crlUuid, "5", List.of(), entries(0, 1), "8", NEXT_UPDATE, REVOKED_AT);
+            var completeEntries = entries(100, 2);
+
+            // when
+            CrlWrite write = crlWriter
+                    .persistCrlAndEntries(storedCrlWithNumber(crlUuid, "8"), false, completeEntries, REVOKED_AT);
+
+            // then
+            assertThat(write.written()).isTrue();
+            assertThat(storedCrl().getCrlNumber()).isEqualTo("8");
+            assertThat(storedCrl().getCrlNumberDelta()).isNull();
+            assertThat(storedSerials()).containsExactlyInAnyOrderElementsOf(serials(completeEntries));
+        }
     }
 
     @Nested
@@ -192,7 +280,7 @@ class CrlWriterITest extends BaseSpringBootTest {
             crlWriter.applyDeltaCrl(crlUuid, "5", removals, upserts, "6", NEXT_UPDATE, REVOKED_AT);
 
             // then
-            assertThat(statistics.getPrepareStatementCount()).isLessThan(10);
+            assertThat(statistics.getPrepareStatementCount()).isLessThan(FEW_STATEMENTS);
         }
 
         @Test
@@ -246,6 +334,32 @@ class CrlWriterITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Each query runs in its own transaction, so it sees the activity of the moment. */
+    private void awaitABackendWaitingForALock() throws InterruptedException {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Integer waiting = jdbc
+                    .queryForObject(
+                            "SELECT count(*) FROM pg_stat_activity"
+                                    + " WHERE wait_event_type = 'Lock' AND datname = current_database()",
+                            Integer.class);
+            if (waiting != null && waiting > 0) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new AssertionError("No database backend started waiting for a lock");
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     private UUID storeCrl(String crlNumber, List<CrlEntryData> entries) {
         return crlWriter.persistCrlAndEntries(newCrl(crlNumber), true, entries, REVOKED_AT).crlUuid();

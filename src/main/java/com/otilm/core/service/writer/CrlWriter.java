@@ -43,6 +43,12 @@ public class CrlWriter {
     /** Rows one statement writes; at four parameters a row this stays far below PostgreSQL's parameter limit. */
     static final int ENTRIES_PER_STATEMENT = 1_000;
 
+    /**
+     * Hibernate keeps an interpretation of every distinct native statement text it runs, so statements are cut into
+     * these sizes only, rather than into whatever is left over of a CRL.
+     */
+    private static final int[] STATEMENT_SIZES = {ENTRIES_PER_STATEMENT, 100, 10, 1};
+
     private static final String ENTRY_COLUMNS = "INSERT INTO {h-schema}crl_entry"
             + " (crl_uuid, serial_number, revocation_date, revocation_reason) VALUES ";
     private static final String KEEP_STORED_ENTRY = " ON CONFLICT (crl_uuid, serial_number) DO NOTHING";
@@ -77,8 +83,8 @@ public class CrlWriter {
      * Nothing is written when the row already holds this CRL or a newer one, which a concurrent writer stored first:
      * one with the same number, a higher one, or a delta CRL numbered above it. A complete CRL numbered like the stored
      * delta CRL is written, since a CRL issuer gives a complete CRL and a delta CRL issued together the same number.
-     * The returned UUID is the row's, which for a new CRL differs from {@code crl.getUuid()} when a concurrent writer
-     * inserted the row. Callers that need a fresh entity must refetch from the repository.
+     * The returned {@link CrlWrite#crlUuid()} is the row's, which for a new CRL differs from {@code crl.getUuid()} when
+     * a concurrent writer inserted the row. Callers that need a fresh entity must refetch from the repository.
      */
     @Transactional
     public CrlWrite persistCrlAndEntries(Crl crl, boolean isNewCrl, Iterable<CrlEntryData> entries,
@@ -97,7 +103,8 @@ public class CrlWriter {
             }
             crlEntryRepository.deleteEntriesOfCrl(stored.uuid());
         }
-        forEachChunk(entries, chunk -> insertEntries(stored.uuid(), chunk, KEEP_STORED_ENTRY));
+        forEachChunk(entries,
+                chunk -> forEachStatement(chunk, rows -> insertEntries(stored.uuid(), rows, KEEP_STORED_ENTRY)));
         crlRepository.updateBaseMetadata(stored.uuid(), crl.getCrlNumber(), crl.getNextUpdate(), lastRevocationDate);
         return new CrlWrite(stored.uuid(), true);
     }
@@ -120,8 +127,9 @@ public class CrlWriter {
         if (!stored.acceptsDeltaCrl(new BigInteger(baseCrlNumber), new BigInteger(crlNumberDelta))) {
             return false;
         }
-        forEachChunk(removeSerials, chunk -> deleteEntries(crlUuid, chunk));
-        forEachChunk(upserts, chunk -> insertEntries(crlUuid, lastListingOfEachSerial(chunk), REPLACE_STORED_ENTRY));
+        forEachChunk(removeSerials, chunk -> forEachStatement(chunk, rows -> deleteEntries(crlUuid, rows)));
+        forEachChunk(upserts, chunk -> forEachStatement(lastListingOfEachSerial(chunk),
+                rows -> insertEntries(crlUuid, rows, REPLACE_STORED_ENTRY)));
         crlRepository.updateDeltaMetadata(crlUuid, crlNumberDelta, nextUpdateDelta, lastRevocationDate);
         return true;
     }
@@ -195,12 +203,33 @@ public class CrlWriter {
     }
 
     /** One statement cannot change a row twice, so a serial number listed twice in a chunk keeps its last listing. */
-    private static Collection<CrlEntryData> lastListingOfEachSerial(List<CrlEntryData> chunk) {
+    private static List<CrlEntryData> lastListingOfEachSerial(List<CrlEntryData> chunk) {
         Map<String, CrlEntryData> lastListings = new LinkedHashMap<>();
         for (CrlEntryData entry : chunk) {
             lastListings.put(entry.serialNumber(), entry);
         }
-        return lastListings.values();
+        return new ArrayList<>(lastListings.values());
+    }
+
+    private static <T> void forEachStatement(List<T> chunk, Consumer<List<T>> writeStatement) {
+        int from = 0;
+        for (int size : statementSizes(chunk.size())) {
+            writeStatement.accept(chunk.subList(from, from + size));
+            from += size;
+        }
+    }
+
+    /** The statement sizes, largest first, that together cover {@code rows} rows. */
+    static List<Integer> statementSizes(int rows) {
+        List<Integer> sizes = new ArrayList<>();
+        int remaining = rows;
+        for (int size : STATEMENT_SIZES) {
+            while (remaining >= size) {
+                sizes.add(size);
+                remaining -= size;
+            }
+        }
+        return sizes;
     }
 
     private static <T> void forEachChunk(Iterable<T> items, Consumer<List<T>> writeChunk) {
@@ -217,10 +246,7 @@ public class CrlWriter {
         }
     }
 
-    /**
-     * The row a base CRL was written to, and whether its entries were written: they are not when the row already holds
-     * this CRL or a newer one, which a writer for another validation stored first.
-     */
+    /** The issuer's CRL row, and whether {@link CrlWriter#persistCrlAndEntries} wrote the CRL to it. */
     public record CrlWrite(UUID crlUuid, boolean written) {
     }
 
