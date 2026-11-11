@@ -70,6 +70,8 @@ class EncodedCrlTest {
         rsaKeyPair = keyPair("RSA", null);
     }
 
+    // ── MatchingTheJdkParser ─────────────────────────────────────────────────
+
     @Nested
     class MatchingTheJdkParser {
 
@@ -144,7 +146,25 @@ class EncodedCrlTest {
             // then
             assertThat(signed).isFalse();
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        /** Changes the last byte of the last entry's serial number, which the signature covers. */
+        private static byte[] alterLastSerialNumber(byte[] der) throws Exception {
+            byte[] altered = der.clone();
+            int serialNumberContentEnd = lastSerialNumberContentEnd(der);
+            altered[serialNumberContentEnd - 1] ^= 0x01;
+            return altered;
+        }
+
+        private static int lastSerialNumberContentEnd(byte[] der) throws Exception {
+            int tagOffset = lastSerialNumberTagOffset(der);
+            int length = der[tagOffset + 1] & 0xff;
+            return tagOffset + 2 + length;
+        }
     }
+
+    // ── Entries ──────────────────────────────────────────────────────────────
 
     @Nested
     class Entries {
@@ -291,7 +311,17 @@ class EncodedCrlTest {
             assertThat(parsed.lastRevocationDate()).isNull();
             assertThat(parsed.isSignedBy(rsaKeyPair.getPublic())).isTrue();
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static Extensions reasonCodeExtension(int reasonCode) throws Exception {
+            ExtensionsGenerator extensions = new ExtensionsGenerator();
+            extensions.addExtension(Extension.reasonCode, false, new ASN1Enumerated(reasonCode));
+            return extensions.generate();
+        }
     }
+
+    // ── Encodings ────────────────────────────────────────────────────────────
 
     @Nested
     class Encodings {
@@ -338,7 +368,17 @@ class EncodedCrlTest {
             assertThat(listOf(parsed.entries())).containsExactlyInAnyOrderElementsOf(jdkEntries(indefiniteLength));
             assertThat(parsed.isSignedBy(rsaKeyPair.getPublic())).isTrue();
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static byte[] concat(byte[] first, byte[] second) {
+            byte[] joined = Arrays.copyOf(first, first.length + second.length);
+            System.arraycopy(second, 0, joined, first.length, second.length);
+            return joined;
+        }
     }
+
+    // ── Refusals ─────────────────────────────────────────────────────────────
 
     @Nested
     class Refusals {
@@ -474,30 +514,54 @@ class EncodedCrlTest {
                     .isInstanceOfSatisfying(CrlRefusedException.class, e -> assertThat(e.reason())
                             .isEqualTo("it is not DER-encoded and larger than 1 MB, the most read whole"));
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static byte[] withLastSerialNumberTag(byte[] der, byte tag) throws Exception {
+            byte[] altered = der.clone();
+            altered[lastSerialNumberTagOffset(der)] = tag;
+            return altered;
+        }
+
+        private static byte[] withOuterSignatureAlgorithm(byte[] der, AlgorithmIdentifier signatureAlgorithm)
+                throws Exception {
+            ASN1Sequence crl = ASN1Sequence.getInstance(der);
+            return new DERSequence(new ASN1Encodable[]{crl.getObjectAt(0), signatureAlgorithm, crl.getObjectAt(2)})
+                    .getEncoded();
+        }
+
+        private static byte[] withExtraOuterElement(byte[] der) throws Exception {
+            ASN1Sequence crl = ASN1Sequence.getInstance(der);
+            return new DERSequence(new ASN1Encodable[]{
+                    crl.getObjectAt(0),
+                    crl.getObjectAt(1),
+                    crl.getObjectAt(2),
+                    new ASN1Enumerated(1)}).getEncoded();
+        }
+
+        private static byte[] withExtraSignedListField(byte[] der) throws Exception {
+            ASN1Sequence crl = ASN1Sequence.getInstance(der);
+            ASN1Sequence signedList = ASN1Sequence.getInstance(crl.getObjectAt(0));
+            ASN1Encodable[] fields = Arrays.copyOf(signedList.toArray(), signedList.size() + 1);
+            fields[signedList.size()] = DERNull.INSTANCE;
+            return new DERSequence(new ASN1Encodable[]{new DERSequence(fields), crl.getObjectAt(1), crl.getObjectAt(2)})
+                    .getEncoded();
+        }
+
+        private static byte[] crlWithSerialNumbers(int count) {
+            var builder = anX509Crl(ISSUER, rsaKeyPair.getPrivate());
+            for (int i = 0; i < count; i++) {
+                builder.withRevocation(BigInteger.valueOf(1_000_000L + i), REVOKED_AT, null);
+            }
+            try {
+                return builder.build().getEncoded();
+            } catch (CRLException e) {
+                throw new IllegalStateException(e);
+            }
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static byte[] crlWithSerialNumbers(int count) {
-        var builder = anX509Crl(ISSUER, rsaKeyPair.getPrivate());
-        for (int i = 0; i < count; i++) {
-            builder.withRevocation(BigInteger.valueOf(1_000_000L + i), REVOKED_AT, null);
-        }
-        try {
-            return builder.build().getEncoded();
-        } catch (CRLException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static byte[] withExtraSignedListField(byte[] der) throws Exception {
-        ASN1Sequence crl = ASN1Sequence.getInstance(der);
-        ASN1Sequence signedList = ASN1Sequence.getInstance(crl.getObjectAt(0));
-        ASN1Encodable[] fields = Arrays.copyOf(signedList.toArray(), signedList.size() + 1);
-        fields[signedList.size()] = DERNull.INSTANCE;
-        return new DERSequence(new ASN1Encodable[]{new DERSequence(fields), crl.getObjectAt(1), crl.getObjectAt(2)})
-                .getEncoded();
-    }
 
     static Stream<Named<SignatureAlgorithm>> signatureAlgorithms() throws Exception {
         return Stream
@@ -538,12 +602,6 @@ class EncodedCrlTest {
         return generator.generateKeyPair();
     }
 
-    private static Extensions reasonCodeExtension(int reasonCode) throws Exception {
-        ExtensionsGenerator extensions = new ExtensionsGenerator();
-        extensions.addExtension(Extension.reasonCode, false, new ASN1Enumerated(reasonCode));
-        return extensions.generate();
-    }
-
     private static X509CRL jdkParse(byte[] crl) throws Exception {
         return (X509CRL) CertificateFactory.getInstance("X509").generateCRL(new ByteArrayInputStream(crl));
     }
@@ -566,20 +624,6 @@ class EncodedCrlTest {
         return list;
     }
 
-    /** Changes the last byte of the last entry's serial number, which the signature covers. */
-    private static byte[] alterLastSerialNumber(byte[] der) throws Exception {
-        byte[] altered = der.clone();
-        int serialNumberContentEnd = lastSerialNumberContentEnd(der);
-        altered[serialNumberContentEnd - 1] ^= 0x01;
-        return altered;
-    }
-
-    private static byte[] withLastSerialNumberTag(byte[] der, byte tag) throws Exception {
-        byte[] altered = der.clone();
-        altered[lastSerialNumberTagOffset(der)] = tag;
-        return altered;
-    }
-
     private static int lastSerialNumberTagOffset(byte[] der) throws Exception {
         ASN1Sequence crl = ASN1Sequence.getInstance(der);
         ASN1Sequence tbs = ASN1Sequence.getInstance(crl.getObjectAt(0));
@@ -587,12 +631,6 @@ class EncodedCrlTest {
         byte[] lastEntry = revoked.getObjectAt(revoked.size() - 1).toASN1Primitive().getEncoded();
         int entryOffset = lastIndexOf(der, lastEntry);
         return entryOffset + 2;
-    }
-
-    private static int lastSerialNumberContentEnd(byte[] der) throws Exception {
-        int tagOffset = lastSerialNumberTagOffset(der);
-        int length = der[tagOffset + 1] & 0xff;
-        return tagOffset + 2 + length;
     }
 
     private static int lastIndexOf(byte[] haystack, byte[] needle) {
@@ -613,26 +651,6 @@ class EncodedCrlTest {
         }
         out.write(new byte[]{0x00, 0x00});
         return out.toByteArray();
-    }
-
-    private static byte[] withOuterSignatureAlgorithm(byte[] der, AlgorithmIdentifier signatureAlgorithm)
-            throws Exception {
-        ASN1Sequence crl = ASN1Sequence.getInstance(der);
-        return new DERSequence(new ASN1Encodable[]{crl.getObjectAt(0), signatureAlgorithm, crl.getObjectAt(2)})
-                .getEncoded();
-    }
-
-    private static byte[] withExtraOuterElement(byte[] der) throws Exception {
-        ASN1Sequence crl = ASN1Sequence.getInstance(der);
-        return new DERSequence(
-                new ASN1Encodable[]{crl.getObjectAt(0), crl.getObjectAt(1), crl.getObjectAt(2), new ASN1Enumerated(1)})
-                .getEncoded();
-    }
-
-    private static byte[] concat(byte[] first, byte[] second) {
-        byte[] joined = Arrays.copyOf(first, first.length + second.length);
-        System.arraycopy(second, 0, joined, first.length, second.length);
-        return joined;
     }
 
     record SignatureAlgorithm(String name, KeyPair keyPair) {

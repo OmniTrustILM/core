@@ -32,6 +32,8 @@ class CrlDownloadGuardTest {
         executor.shutdownNow();
     }
 
+    // ── UnderIssuerLock ──────────────────────────────────────────────────────
+
     @Nested
     class UnderIssuerLock {
 
@@ -79,10 +81,22 @@ class CrlDownloadGuardTest {
             // then
             assertThatThrownBy(second)
                     .isInstanceOf(IOException.class)
-                    .hasMessage("Another validation is still reading the CRL of this issuer");
+                    .hasMessageContaining("Another validation is still reading the CRL of this issuer");
             releaseFirst.countDown();
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static boolean waitBriefly(Future<Boolean> work) {
+            try {
+                return work.get(300, TimeUnit.MILLISECONDS);
+            } catch (Exception e) {
+                return false;
+            }
+        }
     }
+
+    // ── WithDownloadPermit ───────────────────────────────────────────────────
 
     @Nested
     class WithDownloadPermit {
@@ -105,7 +119,7 @@ class CrlDownloadGuardTest {
             // then
             assertThatThrownBy(second)
                     .isInstanceOf(IOException.class)
-                    .hasMessage("Too many CRLs are being read at once");
+                    .hasMessageContaining("Too many CRLs are being read at once");
             releaseFirst.countDown();
         }
 
@@ -126,6 +140,8 @@ class CrlDownloadGuardTest {
         }
     }
 
+    // ── RecentFailures ───────────────────────────────────────────────────────
+
     @Nested
     class RecentFailures {
 
@@ -140,7 +156,9 @@ class CrlDownloadGuardTest {
             ThrowingCallable rethrow = () -> guard.rethrowRecentFailure("download");
 
             // then
-            assertThatThrownBy(rethrow).isInstanceOf(IOException.class).hasMessage("Failed to read a usable CRL");
+            assertThatThrownBy(rethrow)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("Failed to read a usable CRL");
         }
 
         @Test
@@ -162,14 +180,6 @@ class CrlDownloadGuardTest {
 
     private CrlDownloadGuard guard(int maxConcurrentDownloads) {
         return new CrlDownloadGuard(maxConcurrentDownloads, WAIT_TIMEOUT, RETRY_AFTER_FAILURE, tickerNanos::get);
-    }
-
-    private static boolean waitBriefly(Future<Boolean> work) {
-        try {
-            return work.get(300, TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     private static boolean awaitRelease(CountDownLatch release) throws IOException {

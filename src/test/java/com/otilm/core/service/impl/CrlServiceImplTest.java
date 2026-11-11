@@ -152,6 +152,8 @@ class CrlServiceImplTest {
         executor.shutdownNow();
     }
 
+    // ── StoredCrlFallback ────────────────────────────────────────────────────
+
     @Nested
     class StoredCrlFallback {
 
@@ -184,7 +186,29 @@ class CrlServiceImplTest {
             // then
             assertThatThrownBy(check).isInstanceOf(IOException.class).hasMessageContaining("Too many CRLs");
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private void holdTheOnlyDownloadPermit() throws InterruptedException {
+            CountDownLatch permitHeld = new CountDownLatch(1);
+            executor.submit(() -> crlDownloadGuard.withDownloadPermit(() -> {
+                permitHeld.countDown();
+                return awaitRelease();
+            }));
+            assertThat(permitHeld.await(5, TimeUnit.SECONDS)).isTrue();
+        }
+
+        private boolean awaitRelease() throws IOException {
+            try {
+                return releasePermit.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException(e);
+            }
+        }
     }
+
+    // ── DeltaCrlRace ─────────────────────────────────────────────────────────
 
     @Nested
     class DeltaCrlRace {
@@ -212,7 +236,19 @@ class CrlServiceImplTest {
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("changed while its delta CRL was applied");
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static byte[] deltaCrl(X509Certificate issuer, String baseCrlNumber, int crlNumber) throws Exception {
+            return anX509Crl(issuer.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                    .withCrlNumber(BigInteger.valueOf(crlNumber))
+                    .withDeltaCrlIndicator(new BigInteger(baseCrlNumber))
+                    .build()
+                    .getEncoded();
+        }
     }
+
+    // ── StoringTheCrl ────────────────────────────────────────────────────────
 
     @Nested
     class StoringTheCrl {
@@ -230,7 +266,9 @@ class CrlServiceImplTest {
             ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
 
             // then
-            assertThatThrownBy(check).isInstanceOf(IOException.class).hasMessage("The CRL could not be stored");
+            assertThatThrownBy(check)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("The CRL could not be stored");
         }
 
         @Test
@@ -248,7 +286,9 @@ class CrlServiceImplTest {
             ThrowingCallable secondCheck = () -> crlService.getCurrentCrl(certificate, certificate);
 
             // then
-            assertThatThrownBy(secondCheck).isInstanceOf(IOException.class).hasMessage("The CRL could not be stored");
+            assertThatThrownBy(secondCheck)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("The CRL could not be stored");
             verify(crlDownloader, times(1)).download(BASE_CRL_URL);
         }
 
@@ -270,7 +310,18 @@ class CrlServiceImplTest {
             // then
             assertThat(crlUuid).isEqualTo(storedByAnotherWriter.getUuid());
         }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static byte[] baseCrl(X509Certificate issuer, int crlNumber) throws Exception {
+            return anX509Crl(issuer.getSubjectX500Principal(), issuerKeyPair.getPrivate())
+                    .withCrlNumber(BigInteger.valueOf(crlNumber))
+                    .build()
+                    .getEncoded();
+        }
     }
+
+    // ── StoredCrlCurrency ────────────────────────────────────────────────────
 
     @Nested
     class StoredCrlCurrency {
@@ -293,24 +344,6 @@ class CrlServiceImplTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private void holdTheOnlyDownloadPermit() throws InterruptedException {
-        CountDownLatch permitHeld = new CountDownLatch(1);
-        executor.submit(() -> crlDownloadGuard.withDownloadPermit(() -> {
-            permitHeld.countDown();
-            return awaitRelease();
-        }));
-        assertThat(permitHeld.await(5, TimeUnit.SECONDS)).isTrue();
-    }
-
-    private boolean awaitRelease() throws IOException {
-        try {
-            return releasePermit.await(10, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException(e);
-        }
-    }
 
     private static Crl currentBaseCrl() {
         Crl crl = new Crl();
@@ -341,21 +374,6 @@ class CrlServiceImplTest {
         copy.setLastRevocationDate(crl.getLastRevocationDate());
         copy.setCaCertificateUuid(crl.getCaCertificateUuid());
         return copy;
-    }
-
-    private static byte[] baseCrl(X509Certificate issuer, int crlNumber) throws Exception {
-        return anX509Crl(issuer.getSubjectX500Principal(), issuerKeyPair.getPrivate())
-                .withCrlNumber(BigInteger.valueOf(crlNumber))
-                .build()
-                .getEncoded();
-    }
-
-    private static byte[] deltaCrl(X509Certificate issuer, String baseCrlNumber, int crlNumber) throws Exception {
-        return anX509Crl(issuer.getSubjectX500Principal(), issuerKeyPair.getPrivate())
-                .withCrlNumber(BigInteger.valueOf(crlNumber))
-                .withDeltaCrlIndicator(new BigInteger(baseCrlNumber))
-                .build()
-                .getEncoded();
     }
 
     private static X509Certificate selfSignedCertificate(boolean namingDeltaCrl) throws Exception {

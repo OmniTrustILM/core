@@ -83,6 +83,8 @@ class CrlWriterITest extends BaseSpringBootTest {
         executor.shutdownNow();
     }
 
+    // ── PersistCrlAndEntries ─────────────────────────────────────────────────
+
     @Nested
     class PersistCrlAndEntries {
 
@@ -251,6 +253,8 @@ class CrlWriterITest extends BaseSpringBootTest {
         }
     }
 
+    // ── ApplyDeltaCrl ────────────────────────────────────────────────────────
+
     @Nested
     class ApplyDeltaCrl {
 
@@ -265,7 +269,8 @@ class CrlWriterITest extends BaseSpringBootTest {
             crlWriter.applyDeltaCrl(crlUuid, "5", removals, upserts, "6", NEXT_UPDATE, REVOKED_AT);
 
             // then
-            assertThat(crlEntryRepository.count()).isEqualTo(ENTRIES_OVER_SEVERAL_STATEMENTS - 1_200 + 1_300);
+            assertThat(crlEntryRepository.count())
+                    .isEqualTo(ENTRIES_OVER_SEVERAL_STATEMENTS - removals.size() + upserts.size());
         }
 
         @Test
@@ -320,7 +325,8 @@ class CrlWriterITest extends BaseSpringBootTest {
         void skipsDeltaCrl_whenNewerDeltaCrlIsStored() {
             // given
             UUID crlUuid = storeCrl("5", List.of());
-            crlWriter.applyDeltaCrl(crlUuid, "5", List.of(), entries(0, 1), "8", NEXT_UPDATE, REVOKED_AT);
+            var newerDeltaEntries = entries(0, 1);
+            crlWriter.applyDeltaCrl(crlUuid, "5", List.of(), newerDeltaEntries, "8", NEXT_UPDATE, REVOKED_AT);
 
             // when
             boolean applied = crlWriter
@@ -329,7 +335,7 @@ class CrlWriterITest extends BaseSpringBootTest {
             // then
             assertThat(applied).isFalse();
             assertThat(storedCrl().getCrlNumberDelta()).isEqualTo("8");
-            assertThat(storedSerials()).containsExactly(Integer.toHexString(0));
+            assertThat(storedSerials()).containsExactlyElementsOf(serials(newerDeltaEntries));
         }
     }
 
