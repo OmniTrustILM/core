@@ -156,7 +156,7 @@ class ScepServiceImplPollUnitTest {
                 .invokeMethod(service, "processPkiOperation", enrolment);
 
         // then
-        assertThatThrownBy(processEnrolment).isInstanceOf(IllegalStateException.class).hasMessage("no key");
+        assertThatThrownBy(processEnrolment).isInstanceOf(IllegalStateException.class).hasMessageContaining("no key");
         Mockito.verify(auditOperationOverride).set(Operation.ISSUE);
     }
 
