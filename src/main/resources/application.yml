@@ -427,6 +427,14 @@ validation:
   crl:
     read-timeout: 2000
     connect-timeout: 1000
+    # Largest CRL Core reads; a CRL is held in memory while it is checked and stored
+    max-size: 64MB
+    # Longest a whole CRL download may take; the read timeout bounds each read only
+    download-timeout: 60s
+    # CRLs of different issuers read at the same time
+    max-concurrent-downloads: 2
+    # How long a failed CRL download is reported for further certificates of its issuer before it is tried again
+    retry-after-failure: 60s
   ocsp:
     read-timeout: 1000
     connect-timeout: 1000
