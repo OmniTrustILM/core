@@ -137,8 +137,7 @@ discovery:
     stopped-max-duration: ${DISCOVERY_RUN_STOPPED_MAX_DURATION:P7D}
   # Delivery modes offered to Discovery v2 connectors, most preferred first (wire codes, comma-separated). Removing
   # checkpointed makes a connector that supports only checkpointed delivery refuse every new run and every resume.
-  # Runs already in checkpointed delivery are then answered "busy" on every drain and fail after
-  # discovery.slice.max-busy-wait plus the drain budget, so let them finish or cancel them first.
+  # Runs already in checkpointed delivery keep draining in it until they end.
   delivery:
     modes: ${DISCOVERY_DELIVERY_MODES:checkpointed,buffered}
   slice:

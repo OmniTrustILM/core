@@ -15,7 +15,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>
  * Configured as {@code discovery.delivery.modes}, documented in application.yml. Dropping {@code checkpointed} there is
- * the operator's switch for a broken release.
+ * the operator's switch for a broken release: no new run or resume gets checkpointed delivery, while drains of runs
+ * already in it still offer it.
  */
 @Component
 public class DiscoveryDeliveryModeOffer {
