@@ -12,7 +12,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -476,7 +476,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         CertificateChainResponseDto certificateChainCompleteResponseDto = certificateService
                 .getCertificateChain(chainCompleteCertificate.getSecuredUuid(), false);
         Assertions.assertTrue(certificateChainCompleteResponseDto.isCompleteChain());
-        List<CertificateDetailDto> certificates = certificateChainCompleteResponseDto.getCertificates();
+        List<CertificateDetail> certificates = certificateChainCompleteResponseDto.getCertificates();
         Assertions
                 .assertEquals(chainCompleteCertificate.getIssuerDn(),
                         certificates.get(certificates.size() - 1).getSubjectDn());

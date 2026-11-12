@@ -12,7 +12,7 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -326,7 +326,7 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * @param predecessorCertificateUuid UUID of the predecessor certificate specified in case of renew/rekey operation
      * return Certificate detail DTO
      */
-    CertificateDetailDto submitCertificateRequest(String csr, CertificateRequestFormat csrFormat,
+    CertificateDetail submitCertificateRequest(String csr, CertificateRequestFormat csrFormat,
             List<RequestAttribute> signatureAttributes, List<RequestAttribute> altSignatureAttributes,
             List<RequestAttribute> csrAttributes, List<RequestAttribute> issueAttributes, UUID keyUuid, UUID altKeyUuid,
             UUID raProfileUuid, UUID predecessorCertificateUuid, CertificateProtocolInfo protocolInfo)
@@ -341,7 +341,7 @@ public interface CertificateInternalService extends ResourceExtensionService {
      * @param meta Metadata of the certificate
      * @return Certificate detail DTO
      */
-    CertificateDetailDto issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta)
+    CertificateDetail issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta)
             throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException,
             AttributeException;
 

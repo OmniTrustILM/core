@@ -6,7 +6,7 @@ import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.CertificateRequestException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRekeyRequestDto;
@@ -27,7 +27,7 @@ import java.util.function.Consumer;
 
 public interface ClientOperationInternalService {
 
-    CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
+    CertificateDetail submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException;
 

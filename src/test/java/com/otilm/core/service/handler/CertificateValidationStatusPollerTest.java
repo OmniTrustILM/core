@@ -1,7 +1,8 @@
 package com.otilm.core.service.handler;
 
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.core.dao.repository.CertificateRepository;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,7 +44,7 @@ class CertificateValidationStatusPollerTest {
     @Test
     void returnsTheDtoStatusWithoutReading_whenAlreadyResolved() {
         // given
-        CertificateDetailDto alreadyValid = detail(CertificateValidationStatus.VALID);
+        CertificateDetail alreadyValid = detail(CertificateValidationStatus.VALID);
 
         // when
         CertificateValidationStatus resolved = poller.resolveOrKeep(alreadyValid);
@@ -56,7 +57,7 @@ class CertificateValidationStatusPollerTest {
     @Test
     void returnsValid_whenValidationLandsDuringTheWait() {
         // given
-        CertificateDetailDto notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
         when(certificateRepository.findValidationStatusByUuid(any(UUID.class)))
                 .thenReturn(Optional.of(CertificateValidationStatus.NOT_CHECKED))
                 .thenReturn(Optional.of(CertificateValidationStatus.VALID));
@@ -71,7 +72,7 @@ class CertificateValidationStatusPollerTest {
     @Test
     void returnsNotChecked_whenTheBudgetRunsOut() {
         // given
-        CertificateDetailDto notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
         when(certificateRepository.findValidationStatusByUuid(any(UUID.class)))
                 .thenReturn(Optional.of(CertificateValidationStatus.NOT_CHECKED));
 
@@ -86,7 +87,7 @@ class CertificateValidationStatusPollerTest {
     @Test
     void returnsNotChecked_whenTheCertificateIsGone() {
         // given
-        CertificateDetailDto notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail notYetChecked = detail(CertificateValidationStatus.NOT_CHECKED);
         when(certificateRepository.findValidationStatusByUuid(any(UUID.class))).thenReturn(Optional.empty());
 
         // when
@@ -98,8 +99,8 @@ class CertificateValidationStatusPollerTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static CertificateDetailDto detail(CertificateValidationStatus status) {
-        CertificateDetailDto detail = new CertificateDetailDto();
+    private static CertificateDetail detail(CertificateValidationStatus status) {
+        CertificateDetail detail = new X509CertificateDetail();
         detail.setUuid(UUID.randomUUID().toString());
         detail.setValidationStatus(status);
         return detail;

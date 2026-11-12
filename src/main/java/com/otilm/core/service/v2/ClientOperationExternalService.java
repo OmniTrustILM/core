@@ -11,7 +11,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
 import com.otilm.api.model.client.certificate.ManuallyIssueCertificateRequestDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.v2.AvailableOperationsDto;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
@@ -37,7 +37,7 @@ public interface ClientOperationExternalService {
     void validateIssueCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException;
 
-    CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
+    CertificateDetail submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException;
 
@@ -78,14 +78,14 @@ public interface ClientOperationExternalService {
     void validateRevokeCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             List<RequestAttribute> attributes) throws ConnectorException, ValidationException, NotFoundException;
 
-    CertificateDetailDto manuallyIssueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+    CertificateDetail manuallyIssueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, ManuallyIssueCertificateRequestDto request) throws NotFoundException,
             CertificateException, AlreadyExistException, ConnectorException, AttributeException;
 
     void manuallyConfirmRevoke(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid, String certificateUuid)
             throws NotFoundException;
 
-    CertificateDetailDto cancelPendingCertificateOperation(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+    CertificateDetail cancelPendingCertificateOperation(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, CancelPendingCertificateRequestDto request) throws NotFoundException;
 
     ClientCertificateDataResponseDto registerCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,

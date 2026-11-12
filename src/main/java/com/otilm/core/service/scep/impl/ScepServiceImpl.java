@@ -11,7 +11,7 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -790,7 +790,7 @@ public class ScepServiceImpl implements ScepExternalService {
         } catch (IOException e) {
             throw new ScepException("Unable to decode PKCS#10 request", e, FailInfo.BAD_REQUEST);
         }
-        CertificateDetailDto response;
+        CertificateDetail response;
         try {
             response = clientOperationService
                     .submitCertificateRequest(requestDto, CertificateProtocolInfo.Scep(scepProfile.getUuid()));
@@ -907,7 +907,7 @@ public class ScepServiceImpl implements ScepExternalService {
             throws ScepException, NotFoundException {
         ArrayList<X509Certificate> certificateChain = new ArrayList<>();
         String leafUuid = leafCertificate.getUuid().toString();
-        for (CertificateDetailDto certificate : certificateService
+        for (CertificateDetail certificate : certificateService
                 .getCertificateChain(leafCertificate.getSecuredUuid(), true)
                 .getCertificates()) {
             // Only the freshly-issued leaf may be transiently NOT_CHECKED; CA / issuer certs
@@ -1541,7 +1541,7 @@ public class ScepServiceImpl implements ScepExternalService {
      * {@code false} — they are long-lived and must already be VALID/EXPIRING, so a NOT_CHECKED CA cert is rejected as
      * before and never waited on.
      */
-    private void checkCertificateValidity(CertificateDetailDto certificate, boolean tolerateNotChecked)
+    private void checkCertificateValidity(CertificateDetail certificate, boolean tolerateNotChecked)
             throws ScepException {
         CertificateValidationStatus validationStatus = tolerateNotChecked
                 ? validationStatusPoller.resolveOrKeep(certificate)

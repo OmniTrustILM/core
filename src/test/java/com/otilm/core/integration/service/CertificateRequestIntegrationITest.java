@@ -12,7 +12,7 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -298,7 +298,7 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
                                         .build()));
 
         // when
-        CertificateDetailDto result = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail result = clientOperationService.submitCertificateRequest(request, null);
 
         // then
         assertThat(result).isNotNull();
@@ -354,7 +354,7 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
                                         .build()));
 
         // when
-        CertificateDetailDto result = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail result = clientOperationService.submitCertificateRequest(request, null);
 
         // then
         Extensions storedExts = extensionsOfStoredCsr(result);
@@ -510,7 +510,7 @@ class CertificateRequestIntegrationITest extends BaseSpringBootTest {
                 .build();
     }
 
-    private static Extensions extensionsOfStoredCsr(CertificateDetailDto result) throws Exception {
+    private static Extensions extensionsOfStoredCsr(CertificateDetail result) throws Exception {
         byte[] storedDer = Base64.getDecoder().decode(result.getCertificateRequest().getContent());
         PKCS10CertificationRequest storedCsr = new PKCS10CertificationRequest(storedDer);
         Attribute[] extAttrs = storedCsr.getAttributes(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);

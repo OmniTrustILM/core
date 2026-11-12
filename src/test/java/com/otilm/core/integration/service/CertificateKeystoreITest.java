@@ -16,7 +16,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -464,7 +464,7 @@ class CertificateKeystoreITest extends BaseSpringBootTest {
     @Test
     void getCertificate_saysTheKeystoreIsAvailable() throws Exception {
         // when
-        CertificateDetailDto detail = certificateService.getCertificate(leaf.getSecuredUuid());
+        CertificateDetail detail = certificateService.getCertificate(leaf.getSecuredUuid());
 
         // then
         assertThat(detail.isKeystoreAvailable()).isTrue();
@@ -477,7 +477,7 @@ class CertificateKeystoreITest extends BaseSpringBootTest {
         persistKeyItem(KeyType.PRIVATE_KEY, false);
 
         // when
-        CertificateDetailDto detail = certificateService.getCertificate(leaf.getSecuredUuid());
+        CertificateDetail detail = certificateService.getCertificate(leaf.getSecuredUuid());
 
         // then
         assertThat(detail.isKeystoreAvailable()).isFalse();

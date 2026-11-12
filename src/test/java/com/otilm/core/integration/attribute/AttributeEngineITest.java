@@ -60,7 +60,7 @@ import com.otilm.api.model.common.attribute.v3.mapping.ValueSource;
 import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.certificate.GeneralNameType;
@@ -858,7 +858,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     @Test
     void testDeleteAllObjectAttributeContent() throws NotFoundException, CertificateException, IOException {
         attributeEngine.deleteObjectAttributeContent(Resource.CERTIFICATE, certificate.getUuid());
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
 
         Assertions.assertTrue(certificateDetailDto.getMetadata().isEmpty());
@@ -884,7 +884,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         SecurityResourceFilter filter = new SecurityResourceFilter(List.of(departmentCustomAttribute.getUuid()),
                 List.of(), true);
         attributeEngine.deleteObjectAllowedCustomAttributeContent(filter, Resource.CERTIFICATE, certificate.getUuid());
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
         Assertions.assertEquals(1, certificateDetailDto.getCustomAttributes().size());
         Assertions
@@ -975,7 +975,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     void testDeleteDefinitionAttributeContent() throws NotFoundException, CertificateException, IOException {
         attributeEngine
                 .deleteAttributeDefinition(AttributeType.CUSTOM, UUID.fromString(departmentCustomAttribute.getUuid()));
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
 
         Assertions.assertEquals(3, certificateDetailDto.getMetadata().size());

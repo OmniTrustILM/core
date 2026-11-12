@@ -22,7 +22,7 @@ import com.otilm.api.model.client.raprofile.RaProfileScepDetailResponseDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
@@ -831,7 +831,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public List<CertificateDetailDto> getAuthorityCertificateChain(SecuredParentUUID authorityUuid,
+    public List<CertificateDetail> getAuthorityCertificateChain(SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid) throws ConnectorException, NotFoundException {
         RaProfile raProfile = getRaProfileEntity(raProfileUuid);
         requireUnderAuthority(raProfile, authorityUuid, raProfileUuid);
@@ -841,7 +841,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         AuthorityProviderAdapter adapter = authorityProviderAdapterFactory.forAuthority(authorityInstanceReference);
         List<AdapterOperationResult> caCertificatesResponse = adapter
                 .getCaCertificates(authorityInstanceReference, raProfile);
-        List<CertificateDetailDto> certificateDetailDtos = new ArrayList<>();
+        List<CertificateDetail> certificateDetailDtos = new ArrayList<>();
         for (AdapterOperationResult certificateDataResponse : caCertificatesResponse) {
             X509Certificate certificate;
             String fingerprint;
@@ -998,7 +998,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
     private void setAuthorityCertificates(AuthorityInstanceReference authorityInstanceRef, RaProfile raProfile) {
         try {
-            List<CertificateDetailDto> certificateChain = getAuthorityCertificateChain(
+            List<CertificateDetail> certificateChain = getAuthorityCertificateChain(
                     SecuredParentUUID.fromUUID(authorityInstanceRef.getUuid()),
                     SecuredUUID.fromUUID(raProfile.getUuid()));
             raProfile
