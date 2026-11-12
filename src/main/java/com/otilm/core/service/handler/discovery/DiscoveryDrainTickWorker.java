@@ -243,12 +243,13 @@ public class DiscoveryDrainTickWorker {
             }
             return;
         }
-        if (advanced && isCheckpointed(run)) {
-            // A checkpointed connector says "nothing more" after its last slice, so its next status answer is likely
-            // the completion; asking now hands the run over without waiting for the status ladder's ceiling.
-            workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
-        }
         if (!DiscoveryRunState.COMPLETED.getCode().equals(run.getConnectorState())) {
+            if (isCheckpointed(run)) {
+                // Only the status says whether a checkpointed run has finished, and its connector may say "nothing
+                // more" on its last slice or only on the empty page after it. Asking now hands the run over without
+                // waiting for the status ladder; while the connector waits on its source, this follows the idle drains.
+                workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
+            }
             // The connector is still producing and has nothing ready this moment.
             budget.refreshAtSlowestRung(tick);
             return;

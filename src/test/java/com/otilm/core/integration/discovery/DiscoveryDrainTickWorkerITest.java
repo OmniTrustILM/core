@@ -299,6 +299,30 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
     }
 
     @Test
+    void expeditesTheStatusPoll_whenAnUnchangedCheckpointedPageSaysNothingMoreIsReady() throws Exception {
+        // given — the last slice moved the run but said more was coming; this answer moves nothing
+        Discovery run = checkpointedRunStillScanning();
+        List<MetadataAttribute> positionAfterTheLastSlice = position("past-the-last-target");
+        run.setCheckpoint(positionAfterTheLastSlice);
+        discoveryRepository.saveAndFlush(run);
+        armDrainRow(run, 0);
+        workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
+        when(client.results(any(), anyInt(), anyLong()))
+                .thenReturn(checkpointedPageWithNothingMore(positionAfterTheLastSlice));
+
+        // when
+        worker.tick(admitTick(run, 0));
+
+        // then
+        DiscoveryWork statusRow = agenda(run)
+                .stream()
+                .filter(row -> row.getWorkType() == DiscoveryWorkType.STATUS)
+                .findFirst()
+                .orElseThrow();
+        assertThat(statusRow.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    @Test
     void keepsTheStatusPollWhereItWas_whenABufferedPageSaysNothingMoreIsReady() throws Exception {
         // given
         Discovery run = runStillScanning();
