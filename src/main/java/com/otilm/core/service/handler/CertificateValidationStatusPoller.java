@@ -1,6 +1,6 @@
 package com.otilm.core.service.handler;
 
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.core.dao.repository.CertificateRepository;
 import java.util.Optional;
@@ -30,8 +30,8 @@ public class CertificateValidationStatusPoller {
     private static final long POLL_INTERVAL_MS = 250L;
 
     /**
-     * Default wait budget for {@link #resolveOrKeep(CertificateDetailDto)}. The validation listener typically lands
-     * within ~100 ms of issuance; 3 s covers slow OCSP/CRL checks without stretching the request unreasonably.
+     * Default wait budget for {@link #resolveOrKeep(CertificateDetail)}. The validation listener typically lands within
+     * ~100 ms of issuance; 3 s covers slow OCSP/CRL checks without stretching the request unreasonably.
      */
     private static final long DEFAULT_WAIT_MS = 3_000L;
 
@@ -76,16 +76,16 @@ public class CertificateValidationStatusPoller {
      * @return the validation status observed when the wait ended
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public CertificateValidationStatus resolveOrKeep(CertificateDetailDto certificate) {
+    public CertificateValidationStatus resolveOrKeep(CertificateDetail certificate) {
         return resolveOrKeep(certificate, DEFAULT_WAIT_MS);
     }
 
     /**
-     * Budget-parameterised variant of {@link #resolveOrKeep(CertificateDetailDto)}. Package-private so unit tests can
+     * Budget-parameterised variant of {@link #resolveOrKeep(CertificateDetail)}. Package-private so unit tests can
      * drive a short wait; not the transactional entry point — it is invoked from the public method, which has already
      * suspended the caller's transaction.
      */
-    CertificateValidationStatus resolveOrKeep(CertificateDetailDto certificate, long budgetMs) {
+    CertificateValidationStatus resolveOrKeep(CertificateDetail certificate, long budgetMs) {
         if (certificate.getValidationStatus() != CertificateValidationStatus.NOT_CHECKED) {
             return certificate.getValidationStatus();
         }

@@ -28,7 +28,7 @@ import com.otilm.api.model.core.certificate.BulkOperationStatus;
 import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateContentDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
@@ -101,7 +101,7 @@ public class CertificateControllerImpl implements CertificateController {
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.DETAIL)
-    public CertificateDetailDto getCertificate(@LogResource(uuid = true) @PathVariable UUID uuid)
+    public CertificateDetail getCertificate(@LogResource(uuid = true) @PathVariable UUID uuid)
             throws NotFoundException, CertificateException, IOException {
         return certificateService.getCertificate(SecuredUUID.fromUUID(uuid));
     }
@@ -260,7 +260,7 @@ public class CertificateControllerImpl implements CertificateController {
 
     @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.CERTIFICATE, operation = Operation.REQUEST)
-    public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request)
+    public CertificateDetail submitCertificateRequest(ClientCertificateRequestDto request)
             throws ValidationException, ConnectorException, CertificateException, NoSuchAlgorithmException,
             AttributeException, CertificateRequestException, NotFoundException {
         return clientOperationService.submitCertificateRequest(request, null);

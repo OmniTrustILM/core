@@ -12,6 +12,7 @@ import com.otilm.core.security.authz.ObjectActionRequirements.OnLinkedThrough;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObjectUnder;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnlyWhenEquals;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import com.otilm.core.security.authz.ObjectActionRequirements.WhenEmpty;
@@ -96,22 +97,28 @@ public class ObjectActionResolver {
         Stream
                 .of(Stream.of(objects.listing(), objects.viewing()), objects.actions().values().stream())
                 .flatMap(lists -> lists.flatMap(List::stream))
-                .forEach(requirement -> attributeRead(requirement).ifPresent(attributes::add));
+                .flatMap(ObjectActionResolver::attributesRead)
+                .forEach(attributes::add);
         return attributes;
     }
 
-    private static Optional<String> attributeRead(Requirement requirement) {
+    /** Inner requirements of the same object are read too; those of another resource are not. */
+    private static Stream<String> attributesRead(Requirement requirement) {
         return switch (requirement) {
-            case OnLinked(var linked, String attribute, var action, var metWhenEmpty) -> Optional.of(attribute);
+            case OnLinked(var linked, String attribute, var action, var metWhenEmpty) -> Stream.of(attribute);
             case OnObjectUnder(var action, var parent, String parentAttribute, var parentAction) ->
-                Optional.of(parentAttribute);
-            case OnLinkedThrough(var through, String attribute, var inner) -> Optional.of(attribute);
-            case WhenEmpty(String attribute, var inner) -> Optional.of(attribute);
-            case WhenEquals(String attribute, var value, var inner) -> Optional.of(attribute);
-            case OnObject onObject -> Optional.empty();
-            case OnResource onResource -> Optional.empty();
-            case OnAncestor onAncestor -> Optional.empty();
-            case OnEachChild onEachChild -> Optional.empty();
+                Stream.of(parentAttribute);
+            case OnLinkedThrough(var through, String attribute, var inner) -> Stream.of(attribute);
+            case WhenEmpty(String attribute, Requirement inner) ->
+                Stream.concat(Stream.of(attribute), attributesRead(inner));
+            case WhenEquals(String attribute, var value, Requirement inner) ->
+                Stream.concat(Stream.of(attribute), attributesRead(inner));
+            case OnlyWhenEquals(String attribute, var value) -> Stream.of(attribute);
+            case OnObject onObject -> Stream.empty();
+            case OnResource onResource -> Stream.empty();
+            case OnAncestor onAncestor -> Stream.empty();
+            case OnEachChild(var child, var childAttribute, var inner, List<Requirement> whenNone) ->
+                whenNone.stream().flatMap(ObjectActionResolver::attributesRead);
         };
     }
 
@@ -135,7 +142,9 @@ public class ObjectActionResolver {
             names.forEach(name -> selections.add(root.get(name)));
             List<Predicate> admitted = new ArrayList<>();
             admitted.add(root.get(UUID_ATTRIBUTE).in(objectUuids));
-            objects.admitted().forEach((attribute, values) -> admitted.add(root.get(attribute).in(values)));
+            objects
+                    .admitted()
+                    .forEach((attribute, admittedValues) -> admitted.add(root.get(attribute).in(admittedValues)));
             query.multiselect(selections).where(admitted.toArray(Predicate[]::new));
             Set<UUID> existing = new HashSet<>();
             for (Tuple row : read(reader -> reader.createQuery(query).getResultList())) {
@@ -178,6 +187,8 @@ public class ObjectActionResolver {
                 case WhenEquals(String attribute, Object value, Requirement inner) ->
                     value(resource, attribute, objectUuid).filter(value::equals).isEmpty()
                             || isMet(inner, resource, objectUuid);
+                case OnlyWhenEquals(String attribute, Object value) ->
+                    value(resource, attribute, objectUuid).filter(value::equals).isPresent();
                 case OnEachChild(Resource child, String childAttribute, List<Requirement> inner, List<Requirement> whenNone) -> {
                     List<UUID> childUuids = children(child, childAttribute, objectUuid);
                     yield childUuids.isEmpty()

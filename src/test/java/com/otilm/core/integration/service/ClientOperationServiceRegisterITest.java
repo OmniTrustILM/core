@@ -25,14 +25,15 @@ import com.otilm.api.model.connector.v3.certificate.CertificateExtension;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.auth.UserDetailDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.GeneralNameType;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.connector.ConnectorStatus;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.other.ResourceEvent;
 import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
@@ -125,6 +126,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.BasicConstraints;
@@ -150,6 +152,7 @@ import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute
 import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedDataAttribute;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -656,17 +659,22 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void issueRegisteredCertificateWithNullCsrFormatIsRejected() throws Exception {
-        // An explicit null format must surface a clear validation error rather than an NPE inside the
-        // CSR parser's format-selection logic.
+    void attachesAPkcs10Request_whenTheFormatIsOmitted() throws Exception {
+        // given
         String certUuid = registerSyncRegistered();
         ClientCertificateIssueRequestDto noFormat = new ClientCertificateIssueRequestDto();
         noFormat.setRequest(generateCsrBase64());
-        noFormat.setFormat(null);
 
-        Assertions
-                .assertThrows(ValidationException.class, () -> clientOperationService
-                        .issueExistingCertificate(authorityParent, securedRaProfile, certUuid, noFormat));
+        // when
+        clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, noFormat);
+
+        // then
+        UUID requestUuid = certificateRepository
+                .findByUuid(UUID.fromString(certUuid))
+                .orElseThrow()
+                .getCertificateRequestUuid();
+        CertificateRequestEntity request = certificateRequestRepository.findByUuid(requestUuid).orElseThrow();
+        assertThat(request.getCertificateRequestFormat()).isEqualTo(CertificateRequestFormat.PKCS10);
     }
 
     @Test
@@ -765,8 +773,8 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
-    void addCertificateRequestToExistingRejectsNonRegisteredCertificate() throws Exception {
-        // Defense-in-depth: the public attach method must refuse a non-REGISTERED certificate.
+    void throwsValidation_whenCertificateIsNotRegistered() throws Exception {
+        // given — defense in depth: the public attach method refuses a certificate that is not REGISTERED
         X509CertificateEntity requested = aCertificate()
                 .withState(CertificateState.REQUESTED)
                 .withRaProfile(raProfile)
@@ -775,10 +783,13 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         UUID uuid = requested.getUuid();
         ClientCertificateIssueRequestDto req = new ClientCertificateIssueRequestDto();
         req.setRequest(generateCsrBase64());
+        req.setFormat(CertificateRequestFormat.PKCS10);
 
-        Assertions
-                .assertThrows(ValidationException.class,
-                        () -> certificateService.addCertificateRequestToExisting(uuid, req));
+        // when
+        ThrowingCallable attach = () -> certificateService.addCertificateRequestToExisting(uuid, req);
+
+        // then
+        assertThatThrownBy(attach).isInstanceOf(ValidationException.class);
     }
 
     @Test
@@ -1230,7 +1241,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                         "the platform-level placeholder must record the requested SAN");
         // The certificate detail must expose the SAN for a content-less placeholder too — the detail mapper
         // reads the SAN column unconditionally, not only for certificates that already carry issued content.
-        CertificateDetailDto detail = certificateExternalService
+        X509CertificateDetail detail = (X509CertificateDetail) certificateExternalService
                 .getCertificate(SecuredUUID.fromString(response.getUuid()));
         Assertions
                 .assertEquals(List.of("device-1.example.com"), detail.getSubjectAlternativeNames().get("dNSName"),

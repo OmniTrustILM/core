@@ -451,6 +451,9 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
     private void forceDeleteAcmeProfile(SecuredUUID acmeProfileUuid) {
         List<BulkActionMessageDto> failures = acmeProfileService.bulkForceRemoveACMEProfiles(List.of(acmeProfileUuid));
         if (!failures.isEmpty()) {
+            assertThat(asked)
+                    .as("checks asked before force deletion failed with %s", failures.getFirst().getMessage())
+                    .contains(check(Resource.RA_PROFILE, ResourceAction.UPDATE));
             throw new AccessDeniedException(failures.getFirst().getMessage());
         }
     }

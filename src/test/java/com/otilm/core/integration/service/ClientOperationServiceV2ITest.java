@@ -45,7 +45,7 @@ import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -733,7 +733,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> clientOperationService.issueCertificate(authorityUuid, raProfileSecuredUuid, null, null));
+                        () -> clientOperationService
+                                .issueCertificate(authorityUuid, raProfileSecuredUuid,
+                                        new ClientCertificateIssueRequestDto(), null));
     }
 
     @Test
@@ -1615,14 +1617,44 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         request.setIssueAttributes(List.of());
 
         // when
-        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail submitted = clientOperationService.submitCertificateRequest(request, null);
 
         // then
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
         Assertions
                 .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void storesPkcs10_whenSubmittingARequestWithoutAFormat() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        when(cryptographicOperationService
+                .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), any(),
+                        any()))
+                .thenReturn(SAMPLE_PKCS10);
+        ClientCertificateRequestDto request = new ClientCertificateRequestDto();
+        request.setRaProfileUuid(raProfile.getUuid());
+        request.setKeyUuid(key.getUuid());
+        request.setTokenProfileUuid(key.getTokenProfileUuid());
+        request.setCsrAttributes(commonName("v2-no-format"));
+        request.setSignatureAttributes(sha256WithRsa());
+        request.setIssueAttributes(List.of());
+
+        // when
+        CertificateDetail submitted = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        CertificateDetail detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+        assertThat(detail.getCertificateRequest().getCertificateRequestFormat())
+                .isEqualTo(CertificateRequestFormat.PKCS10);
     }
 
     @Test
@@ -1646,8 +1678,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         ClientCertificateRequestDto request = uploadedRequest(key.getUuid(), signatureAttributes);
 
         // when
-        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail submitted = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
 
         // then
@@ -1670,10 +1702,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         ClientCertificateRequestDto request = uploadedRequest(key.getUuid(), sha256WithRsa());
 
         // when
-        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail submitted = clientOperationService.submitCertificateRequest(request, null);
 
         // then
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
         List<ResponseAttribute> storedAttributes = detail.getCertificateRequest().getSignatureAttributes();
         Assertions.assertEquals(SHA256_WITH_RSA_FIELDS, describe(storedAttributes));
@@ -1737,7 +1769,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CryptographicKey key = persistV2Key(token);
         when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        CertificateDetailDto predecessor = clientOperationService
+        CertificateDetail predecessor = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
         Certificate issuedPredecessor = certificateRepository
                 .findByUuid(UUID.fromString(predecessor.getUuid()))
@@ -1748,7 +1780,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         replay.setSourceCertificateUuid(UUID.fromString(predecessor.getUuid()));
 
         // when
-        CertificateDetailDto renewed = clientOperationService.submitCertificateRequest(replay, null);
+        CertificateDetail renewed = clientOperationService.submitCertificateRequest(replay, null);
 
         // then
         Assertions
@@ -1776,7 +1808,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
 
         // when
-        CertificateDetailDto resubmitted = clientOperationService
+        CertificateDetail resubmitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(null, null), null);
 
         // then
@@ -1791,7 +1823,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CryptographicKey key = persistV2Key(token);
         when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        CertificateDetailDto predecessor = clientOperationService
+        CertificateDetail predecessor = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
         Certificate issuedPredecessor = certificateRepository
                 .findByUuid(UUID.fromString(predecessor.getUuid()))
@@ -1807,7 +1839,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         rekeyed.setSourceCertificateUuid(UUID.fromString(predecessor.getUuid()));
 
         // when
-        CertificateDetailDto successor = clientOperationService.submitCertificateRequest(rekeyed, null);
+        CertificateDetail successor = clientOperationService.submitCertificateRequest(rekeyed, null);
 
         // then
         Assertions.assertTrue(successor.getCertificateRequest().getSignatureAttributes().isEmpty());
@@ -1824,7 +1856,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
 
         // when
-        CertificateDetailDto submitted = clientOperationService
+        CertificateDetail submitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(null, sha256WithRsa()), null);
 
         // then
@@ -1842,7 +1874,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CryptographicKey key = persistV2Key(token);
         when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        CertificateDetailDto submitted = clientOperationService
+        CertificateDetail submitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
         cryptographicKeyItemRepository
                 .deleteAll(cryptographicKeyItemRepository
@@ -1852,7 +1884,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         .toList());
 
         // when
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
 
         // then
@@ -1980,8 +2012,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions.assertEquals(SHA256_WITH_RSA_FIELDS, describeRequested(signatureAttributesGeneratedWith(newKey)));
-        CertificateDetailDto detail = certificateExternalService
-                .getCertificate(SecuredUUID.fromString(rekeyed.getUuid()));
+        CertificateDetail detail = certificateExternalService.getCertificate(SecuredUUID.fromString(rekeyed.getUuid()));
         Assertions
                 .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
@@ -2012,12 +2043,12 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CryptographicKey key = persistV2Key(token);
         when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        CertificateDetailDto submitted = clientOperationService
+        CertificateDetail submitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
         deleteKey(key);
 
         // when
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
 
         // then
@@ -2181,7 +2212,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         List.of(new StringAttributeContentV3(value))));
     }
 
-    private CertificateDetailDto submit(ClientCertificateRequestDto request) {
+    private CertificateDetail submit(ClientCertificateRequestDto request) {
         try {
             return clientOperationService.submitCertificateRequest(request, null);
         } catch (Exception e) {

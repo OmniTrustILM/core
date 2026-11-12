@@ -10,7 +10,7 @@ import com.otilm.api.interfaces.core.cmp.error.ImplFailureInfo;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
@@ -562,7 +562,7 @@ public class CmpServiceImpl implements CmpExternalService {
 
             String certificateContent = null;
             try {
-                for (CertificateDetailDto certificate : certificateService
+                for (CertificateDetail certificate : certificateService
                         .getCertificateChain(cmpCaCertificate.getSecuredUuid(), true)
                         .getCertificates()) {
                     // only certificate with valid status should be used
