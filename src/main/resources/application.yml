@@ -143,8 +143,9 @@ discovery:
     # How long a checkpointed run may receive nothing but "busy" answers on its drain before each one counts against
     # the drain budget again.
     max-busy-wait: ${DISCOVERY_SLICE_MAX_BUSY_WAIT:PT30M}
-  # Bounds on a single DRAIN tick's page, at least 100 items and 1 MiB. max-bytes is sized for the proxy envelope
-  # rather than the contract's 10 MiB transport cap, so a tunneled page has headroom.
+  # Bounds on a single DRAIN tick's page. While discovery.delivery.modes offers checkpointed, at least 100 items and
+  # 1 MiB; keep them there until runs started in checkpointed delivery have finished. max-bytes is sized for the proxy
+  # envelope rather than the contract's 10 MiB transport cap, so a tunneled page has headroom.
   drain:
     max-items: ${DISCOVERY_DRAIN_MAX_ITEMS:500}
     max-bytes: ${DISCOVERY_DRAIN_MAX_BYTES:5242880}
