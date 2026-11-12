@@ -584,7 +584,12 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         }
     }
 
+    /**
+     * A connector's refusal leaves the caller's transaction committable: callers treat the removal as best effort while
+     * they fail or reject the certificate in that transaction, and the refusal comes before this method writes.
+     */
     @Override
+    @Transactional(dontRollbackOn = ValidationException.class)
     public void removeRejectedOrFailedCertificateFromLocationAction(CertificateLocationId certificateLocationId)
             throws ConnectorException, NotFoundException {
         CertificateLocation certificateLocation = certificateLocationRepository
