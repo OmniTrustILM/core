@@ -179,6 +179,15 @@ class CertificateUtilTest {
     }
 
     @Test
+    void testPrepareIssuedCertificate_storesTheValidityOfTheCertificate() throws Exception {
+        X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
+        X509CertificateEntity entity = aCertificate().build();
+        CertificateUtil.prepareIssuedCertificate(entity, x509);
+        assertEquals(x509.getNotBefore(), entity.getNotBefore());
+        assertEquals(x509.getNotAfter(), entity.getNotAfter());
+    }
+
+    @Test
     void testPrepareIssuedCertificate_noEku_extendedKeyUsageCriticalIsNull() throws Exception {
         X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
         X509CertificateEntity entity = aCertificate().build();

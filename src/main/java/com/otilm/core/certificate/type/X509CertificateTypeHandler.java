@@ -266,10 +266,15 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         }
     }
 
+    /** The validity of an X.509 certificate, which always has a time. */
+    public static Validity validityOf(X509Certificate certificate) {
+        return new Validity(certificate.getNotBefore().toInstant(), certificate.getNotAfter().toInstant(),
+                ValidityPrecision.DATE_TIME);
+    }
+
     private static CertificateProperties propertiesOf(X509Certificate certificate)
             throws CertificateException, NoSuchAlgorithmException {
-        Validity validity = new Validity(certificate.getNotBefore().toInstant(), certificate.getNotAfter().toInstant(),
-                ValidityPrecision.DATE_TIME);
+        Validity validity = validityOf(certificate);
         return new CertificateProperties(certificate.getSerialNumber().toString(16),
                 certificate.getIssuerX500Principal().getName(), certificate.getSubjectX500Principal().getName(),
                 validity, certificate.getPublicKey(), CertificateUtil.getThumbprint(certificate.getEncoded()));

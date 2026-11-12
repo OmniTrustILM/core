@@ -1561,14 +1561,14 @@ public class CertificateServiceImpl
                 throw new com.otilm.api.exception.CertificateException(message);
             }
             try {
-                fingerprint = CertificateUtil.getThumbprint(certificate.getEncoded());
+                fingerprint = fingerprintOf(certificate);
                 Optional<Certificate> existingCertificate = certificateRepository.findByFingerprint(fingerprint);
 
                 if (existingCertificate.isPresent()) {
                     log.debug("Returning existing certificate with fingerprint {}", fingerprint);
                     return existingCertificate.get();
                 }
-            } catch (NoSuchAlgorithmException | CertificateException e) {
+            } catch (CertificateException e) {
                 String message = "Failed to get thumbprint for certificate " + certificate.getSerialNumber() + " > "
                         + e.getMessage();
                 log.error(message);
@@ -1601,13 +1601,13 @@ public class CertificateServiceImpl
         X509CertificateEntity modal = new X509CertificateEntity();
         String fingerprint = null;
         try {
-            fingerprint = CertificateUtil.getThumbprint(certificate.getEncoded());
+            fingerprint = fingerprintOf(certificate);
             Optional<Certificate> existingCertificate = certificateRepository.findByFingerprint(fingerprint);
 
             if (existingCertificate.isPresent()) {
                 return existingCertificate.get();
             }
-        } catch (CertificateEncodingException | NoSuchAlgorithmException e) {
+        } catch (CertificateEncodingException e) {
             log.error("Unable to calculate sha 256 thumbprint");
         }
 
@@ -1856,7 +1856,7 @@ public class CertificateServiceImpl
     public Certificate checkCreateCertificate(String certificate)
             throws AlreadyExistException, CertificateException, NoSuchAlgorithmException {
         X509Certificate x509Cert = CertificateUtil.parseCertificate(certificate);
-        String fingerprint = CertificateUtil.getThumbprint(x509Cert);
+        String fingerprint = fingerprintOf(x509Cert);
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
             throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);
         }
@@ -1896,7 +1896,7 @@ public class CertificateServiceImpl
             NotFoundException.class})
     public DiscoveredCertificateImport createDiscoveredCertificateAtomic(X509Certificate certificate)
             throws NoSuchAlgorithmException, CertificateEncodingException, NotFoundException {
-        String fingerprint = CertificateUtil.getThumbprint(certificate);
+        String fingerprint = fingerprintOf(certificate);
 
         Optional<Certificate> existing = certificateRepository.findByFingerprint(fingerprint);
         if (existing.isPresent()) {
@@ -1936,7 +1936,7 @@ public class CertificateServiceImpl
     public Certificate createCertificateAtomic(String certificate, boolean assignOwner)
             throws CertificateException, NoSuchAlgorithmException, NotFoundException {
         X509Certificate x509Cert = CertificateUtil.parseCertificate(certificate);
-        String fingerprint = CertificateUtil.getThumbprint(x509Cert);
+        String fingerprint = fingerprintOf(x509Cert);
 
         certificateContentRepository
                 .insertWithFingerprintConflictResolve(fingerprint,
@@ -2444,6 +2444,15 @@ public class CertificateServiceImpl
                                 .build()));
     }
 
+    private String fingerprintOf(X509Certificate certificate) throws CertificateEncodingException {
+        return typeHandlerRegistry
+                .require(CertificateType.X509.getCode())
+                .parseCertificate(certificate.getEncoded())
+                .orElseThrow(() -> new ValidationException("The certificate is not an X.509 certificate"))
+                .properties()
+                .fingerprint();
+    }
+
     private void setAlternativeSignatureAttributes(CertificateRequestDetail dto, List<ResponseAttribute> attributes) {
         typeHandlerRegistry
                 .find(dto.getCertificateType().getCode())
@@ -2745,7 +2754,7 @@ public class CertificateServiceImpl
             throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException,
             AttributeException {
         X509Certificate x509Cert = CertificateUtil.parseCertificate(certificateData);
-        String fingerprint = CertificateUtil.getThumbprint(x509Cert);
+        String fingerprint = fingerprintOf(x509Cert);
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
             throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);
         }

@@ -22,6 +22,8 @@ import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.core.certificate.type.Validity;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.container.KeystoreDetection;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
@@ -53,6 +55,7 @@ import java.security.spec.InvalidKeySpecException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -422,8 +425,9 @@ public class CertificateUtil {
         modal.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
 
         modal.setSerialNumber(certificate.getSerialNumber().toString(16));
-        modal.setNotAfter(certificate.getNotAfter());
-        modal.setNotBefore(certificate.getNotBefore());
+        Validity validity = X509CertificateTypeHandler.validityOf(certificate);
+        modal.setNotBefore(Date.from(validity.notBefore()));
+        modal.setNotAfter(Date.from(validity.expiry()));
         if (certificate.getPublicKey() == null) {
             throw new ValidationException(ValidationError.create("Invalid Certificate. Public Key is missing"));
         }
