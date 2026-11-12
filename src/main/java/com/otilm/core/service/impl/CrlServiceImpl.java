@@ -117,8 +117,8 @@ public class CrlServiceImpl implements CrlService {
      *
      * <p>
      * A certificate the stored base CRL lists stays revoked when only its delta CRL is due and cannot be read, also
-     * when a wait ends first ({@link #throwUnlessStoredCrlLists}). After a failure the stored CRL is read again, so one
-     * stored meanwhile is used unless it is older than a delta CRL this validation read.
+     * when a wait ends first ({@link #throwUnlessStoredCrlLists}). After a failure the stored CRL is read again, and
+     * one stored meanwhile is used unless this validation's write of a newer delta CRL was declined or failed.
      */
     @Override
     @OutsideTransaction
@@ -464,7 +464,7 @@ public class CrlServiceImpl implements CrlService {
                             deltaCrl.header().getNextUpdate(), lastRevocationDate);
         } catch (DataAccessException | TransactionException | PersistenceException e) {
             logger.error("Failed to store the delta CRL of issuer {}: {}", crl.getIssuerDn(), e.getMessage());
-            IOException failure = new IOException("The delta CRL could not be stored");
+            IOException failure = new StoredCrlOlderThanDeltaCrlException("The delta CRL could not be stored");
             crlDownloadGuard.rememberFailure(downloadKey, failure);
             throw failure;
         }
@@ -482,7 +482,7 @@ public class CrlServiceImpl implements CrlService {
         Crl stored = findStoredCrl(crl.getIssuerDn(), crl.getSerialNumber());
         boolean storedCrlIsAsNew = stored != null && newestStoredCrlNumber(stored).compareTo(deltaCrlNumber) >= 0;
         if (!storedCrlIsAsNew) {
-            throw new StoredCrlOlderThanDeltaCrlException();
+            throw new StoredCrlOlderThanDeltaCrlException("The stored CRL changed while its delta CRL was applied");
         }
     }
 
@@ -614,8 +614,8 @@ public class CrlServiceImpl implements CrlService {
     /** A stored CRL older than the delta CRL in hand. */
     static final class StoredCrlOlderThanDeltaCrlException extends IOException implements PlatformException {
 
-        StoredCrlOlderThanDeltaCrlException() {
-            super("The stored CRL changed while its delta CRL was applied");
+        StoredCrlOlderThanDeltaCrlException(String message) {
+            super(message);
         }
     }
 

@@ -381,6 +381,31 @@ class CrlServiceImplTest {
         }
 
         @Test
+        void failsCrlCheck_whenAnotherWriterAppliedAnOlderDeltaCrlWhileStoringTheDeltaCrlFailed() throws Exception {
+            // given
+            X509Certificate certificate = selfSignedCertificate(true);
+            Crl stored = currentBaseCrlWithDueDeltaCrl();
+            storedRow.set(stored);
+            byte[] deltaCrlOfStoredBase = deltaCrl(certificate, stored.getCrlNumber(), 7);
+            when(crlDownloader.download(eq(DELTA_CRL_URL), anyLong())).thenReturn(deltaCrlOfStoredBase);
+            Crl olderCurrentDeltaCrlApplied = copyOf(stored);
+            olderCurrentDeltaCrlApplied.setCrlNumberDelta("6");
+            olderCurrentDeltaCrlApplied.setNextUpdateDelta(Date.from(Instant.now().plus(Duration.ofDays(1))));
+            when(crlWriter.applyDeltaCrl(any(), any(), any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+                storedRow.set(olderCurrentDeltaCrlApplied);
+                throw new QueryTimeoutException("canceling statement due to statement timeout");
+            });
+
+            // when
+            ThrowingCallable check = () -> crlService.getCurrentCrl(certificate, certificate);
+
+            // then
+            assertThatThrownBy(check)
+                    .isInstanceOf(IOException.class)
+                    .hasMessageContaining("The delta CRL could not be stored");
+        }
+
+        @Test
         void failsWithoutDownloadingAgain_whenStoringTheDeltaCrlFailedJustBefore() throws Exception {
             // given
             X509Certificate certificate = selfSignedCertificate(true);
