@@ -270,9 +270,7 @@ class ClientOperationServiceImplIssueDispatchTest {
 
     @Test
     void rollsBackFailTransaction_whenReReadUnderLockFailsDuringFailureHandling() throws Exception {
-        // given — the connector call fails, and the subsequent re-read under lock inside
-        // failClaimedCertificate itself fails (e.g. the row vanished); the failure-handling
-        // transaction must roll back rather than leaving a half-applied FAILED transition
+        // given — the connector call fails, and the re-read under lock while failing the certificate fails too
         TransactionStatus claimTx = mock(TransactionStatus.class);
         TransactionStatus failTx = mock(TransactionStatus.class);
         when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(claimTx, failTx);
@@ -281,10 +279,11 @@ class ClientOperationServiceImplIssueDispatchTest {
         when(certificateRepository.findAndLockFreshByUuid(certUuid))
                 .thenThrow(new IllegalStateException("certificate row vanished"));
 
-        // when / then
-        assertThatThrownBy(() -> service.issueCertificateAction(certUuid, true))
-                .isInstanceOf(CertificateOperationException.class);
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
 
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
         verify(transactionManager).rollback(failTx);
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
