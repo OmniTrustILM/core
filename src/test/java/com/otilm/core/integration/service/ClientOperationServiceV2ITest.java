@@ -45,7 +45,7 @@ import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -131,6 +131,7 @@ import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.service.impl.LocationServiceImpl;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
@@ -245,6 +246,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     private static final String ISSUE_ATTRIBUTES_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes";
     private static final String VALIDATE_ISSUE_ATTRIBUTES_PATH = ISSUE_ATTRIBUTES_PATH + "/validate";
+    private static final String LOCATION_PUSH_PATH = "/v1/entityProvider/entities/[^/]+/locations/push";
 
     private static final String SAMPLE_PKCS10 = """
             -----BEGIN CERTIFICATE REQUEST-----
@@ -731,7 +733,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> clientOperationService.issueCertificate(authorityUuid, raProfileSecuredUuid, null, null));
+                        () -> clientOperationService
+                                .issueCertificate(authorityUuid, raProfileSecuredUuid,
+                                        new ClientCertificateIssueRequestDto(), null));
     }
 
     @Test
@@ -1613,14 +1617,44 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         request.setIssueAttributes(List.of());
 
         // when
-        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail submitted = clientOperationService.submitCertificateRequest(request, null);
 
         // then
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
         Assertions
                 .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
+    }
+
+    @Test
+    void storesPkcs10_whenSubmittingARequestWithoutAFormat() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        TokenInstanceReference token = persistV2Token();
+        CryptographicKey key = persistV2Key(token);
+        when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
+                .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
+        when(cryptographicOperationService
+                .generateCsr(eq(key.getUuid()), eq(key.getTokenProfileUuid()), any(), any(), anyList(), any(), any(),
+                        any()))
+                .thenReturn(SAMPLE_PKCS10);
+        ClientCertificateRequestDto request = new ClientCertificateRequestDto();
+        request.setRaProfileUuid(raProfile.getUuid());
+        request.setKeyUuid(key.getUuid());
+        request.setTokenProfileUuid(key.getTokenProfileUuid());
+        request.setCsrAttributes(commonName("v2-no-format"));
+        request.setSignatureAttributes(sha256WithRsa());
+        request.setIssueAttributes(List.of());
+
+        // when
+        CertificateDetail submitted = clientOperationService.submitCertificateRequest(request, null);
+
+        // then
+        CertificateDetail detail = certificateExternalService
+                .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
+        assertThat(detail.getCertificateRequest().getCertificateRequestFormat())
+                .isEqualTo(CertificateRequestFormat.PKCS10);
     }
 
     @Test
@@ -1644,8 +1678,8 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         ClientCertificateRequestDto request = uploadedRequest(key.getUuid(), signatureAttributes);
 
         // when
-        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail submitted = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
 
         // then
@@ -1668,10 +1702,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         ClientCertificateRequestDto request = uploadedRequest(key.getUuid(), sha256WithRsa());
 
         // when
-        CertificateDetailDto submitted = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail submitted = clientOperationService.submitCertificateRequest(request, null);
 
         // then
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
         List<ResponseAttribute> storedAttributes = detail.getCertificateRequest().getSignatureAttributes();
         Assertions.assertEquals(SHA256_WITH_RSA_FIELDS, describe(storedAttributes));
@@ -1735,7 +1769,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CryptographicKey key = persistV2Key(token);
         when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        CertificateDetailDto predecessor = clientOperationService
+        CertificateDetail predecessor = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
         Certificate issuedPredecessor = certificateRepository
                 .findByUuid(UUID.fromString(predecessor.getUuid()))
@@ -1746,7 +1780,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         replay.setSourceCertificateUuid(UUID.fromString(predecessor.getUuid()));
 
         // when
-        CertificateDetailDto renewed = clientOperationService.submitCertificateRequest(replay, null);
+        CertificateDetail renewed = clientOperationService.submitCertificateRequest(replay, null);
 
         // then
         Assertions
@@ -1774,7 +1808,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         clientOperationService.submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
 
         // when
-        CertificateDetailDto resubmitted = clientOperationService
+        CertificateDetail resubmitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(null, null), null);
 
         // then
@@ -1789,7 +1823,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CryptographicKey key = persistV2Key(token);
         when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        CertificateDetailDto predecessor = clientOperationService
+        CertificateDetail predecessor = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
         Certificate issuedPredecessor = certificateRepository
                 .findByUuid(UUID.fromString(predecessor.getUuid()))
@@ -1805,7 +1839,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         rekeyed.setSourceCertificateUuid(UUID.fromString(predecessor.getUuid()));
 
         // when
-        CertificateDetailDto successor = clientOperationService.submitCertificateRequest(rekeyed, null);
+        CertificateDetail successor = clientOperationService.submitCertificateRequest(rekeyed, null);
 
         // then
         Assertions.assertTrue(successor.getCertificateRequest().getSignatureAttributes().isEmpty());
@@ -1822,7 +1856,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
 
         // when
-        CertificateDetailDto submitted = clientOperationService
+        CertificateDetail submitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(null, sha256WithRsa()), null);
 
         // then
@@ -1840,7 +1874,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CryptographicKey key = persistV2Key(token);
         when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        CertificateDetailDto submitted = clientOperationService
+        CertificateDetail submitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
         cryptographicKeyItemRepository
                 .deleteAll(cryptographicKeyItemRepository
@@ -1850,7 +1884,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         .toList());
 
         // when
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
 
         // then
@@ -1978,8 +2012,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         Assertions.assertEquals(SHA256_WITH_RSA_FIELDS, describeRequested(signatureAttributesGeneratedWith(newKey)));
-        CertificateDetailDto detail = certificateExternalService
-                .getCertificate(SecuredUUID.fromString(rekeyed.getUuid()));
+        CertificateDetail detail = certificateExternalService.getCertificate(SecuredUUID.fromString(rekeyed.getUuid()));
         Assertions
                 .assertEquals(SHA256_WITH_RSA_FIELDS,
                         describe(detail.getCertificateRequest().getSignatureAttributes()));
@@ -2010,12 +2043,12 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         CryptographicKey key = persistV2Key(token);
         when(cryptographicOperationService.validateAttributesAndGetSchema(eq(key.getUuid()), anyList()))
                 .thenReturn(signatureAlgorithmSchema(token.getConnectorUuid()));
-        CertificateDetailDto submitted = clientOperationService
+        CertificateDetail submitted = clientOperationService
                 .submitCertificateRequest(uploadedRequest(key.getUuid(), sha256WithRsa()), null);
         deleteKey(key);
 
         // when
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(submitted.getUuid()));
 
         // then
@@ -2179,7 +2212,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         List.of(new StringAttributeContentV3(value))));
     }
 
-    private CertificateDetailDto submit(ClientCertificateRequestDto request) {
+    private CertificateDetail submit(ClientCertificateRequestDto request) {
         try {
             return clientOperationService.submitCertificateRequest(request, null);
         } catch (Exception e) {
@@ -4927,7 +4960,51 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             verify(actionProducer, never()).produceMessage(any());
         }
 
+        @Test
+        void rethrowsTheFailure_whenTheComplianceCheckFailsAfterRejectingTheCertificate() {
+            // given
+            stubComplianceCheckRejectingThenFailing();
+            SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+            SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+            ClientCertificateIssueRequestDto request = issueRequest();
+
+            // when
+            ThrowingCallable issue = () -> clientOperationService
+                    .issueCertificate(authorityUuid, raProfileUuid, request, null);
+
+            // then
+            assertThatThrownBy(issue).isInstanceOf(IllegalStateException.class);
+            assertThat(findSubmittedCertificate().getState()).isEqualTo(CertificateState.REJECTED);
+            verify(actionProducer, never()).produceMessage(any());
+        }
+
+        @Test
+        void logsNoPickUp_whenTheComplianceCheckFailsAfterRejectingTheCertificate() {
+            // given
+            stubComplianceCheckRejectingThenFailing();
+            SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+            SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+            ClientCertificateIssueRequestDto request = issueRequest();
+
+            // when
+            List<String> logged = captureServiceLogsDuring(
+                    () -> clientOperationService.issueCertificate(authorityUuid, raProfileUuid, request, null));
+
+            // then
+            assertThat(logged).noneMatch(line -> line.contains("picked it up"));
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void stubComplianceCheckRejectingThenFailing() {
+            doAnswer(invocation -> {
+                UUID checked = invocation.getArgument(1);
+                Certificate rejected = certificateRepository.findByUuid(checked).orElseThrow();
+                rejected.setState(CertificateState.REJECTED);
+                certificateRepository.save(rejected);
+                throw new IllegalStateException("compliance results unavailable");
+            }).when(complianceService).checkResourceObjectComplianceAsSystem(any(), any());
+        }
 
         private Certificate findSubmittedCertificate() {
             List<Certificate> submitted = certificateRepository
@@ -5885,6 +5962,29 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
+        void doesNotLogConnectorText_whenTheLocationRefusesThePush() throws Exception {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            UUID predecessorUuid = prepareCertificateForRenewal();
+            placeOnLocation(predecessorUuid, "renew-location");
+            stubRenewEndpointAccepting();
+            stubLocationRemovalAccepting();
+            stubLocationPushRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = ClientCertificateRenewRequestDto.builder().build();
+            request.setReplaceInLocations(true);
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+            List<String> logged = captureServiceLogsDuring(renew);
+
+            // then
+            mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PUSH_PATH)));
+            assertThat(logged).isNotEmpty().noneMatch(line -> line.contains(connectorEcho));
+        }
+
+        @Test
         void throwsWithoutConnectorText_whenTheLocationRefusesTheRemoval() throws Exception {
             // given
             var connectorEcho = "connector-echo-7f3a";
@@ -6126,16 +6226,19 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .toList();
     }
 
+    /** What the client operation service and the location service it drives log while the call runs. */
     private static List<String> captureServiceLogsDuring(ThrowingCallable call) {
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
-        ch.qos.logback.classic.Logger serviceLogger = (ch.qos.logback.classic.Logger) LoggerFactory
-                .getLogger(ClientOperationServiceImpl.class);
-        serviceLogger.addAppender(appender);
+        List<ch.qos.logback.classic.Logger> serviceLoggers = Stream
+                .of(ClientOperationServiceImpl.class, LocationServiceImpl.class)
+                .map(service -> (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(service))
+                .toList();
+        serviceLoggers.forEach(serviceLogger -> serviceLogger.addAppender(appender));
         try {
             catchThrowable(call);
         } finally {
-            serviceLogger.detachAppender(appender);
+            serviceLoggers.forEach(serviceLogger -> serviceLogger.detachAppender(appender));
         }
         return appender.list
                 .stream()
@@ -6158,6 +6261,20 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
                         .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+    }
+
+    private void stubLocationRemovalAccepting() {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.okJson("{}")));
+    }
+
+    private void stubLocationPushRefusing(String connectorText) {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(LOCATION_PUSH_PATH))
+                        .willReturn(WireMock.jsonResponse("{\"message\": \"refused: " + connectorText + "\"}", 400)));
     }
 
     private void stubLocationRemovalRefusing(String connectorText) {

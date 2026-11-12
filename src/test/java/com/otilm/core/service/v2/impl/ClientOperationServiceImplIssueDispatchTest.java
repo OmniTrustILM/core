@@ -13,6 +13,12 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
+import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.RequestFormatResolver;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
@@ -20,8 +26,11 @@ import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.repository.CertificateLocationRepository;
 import com.otilm.core.dao.repository.CertificateRegistrationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.exception.ConnectorAcceptedButLocalFailureException;
 import com.otilm.core.messaging.jms.producers.EventProducer;
+import com.otilm.core.security.authz.SecuredParentUUID;
+import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CertificateEventHistoryInternalService;
 import com.otilm.core.service.CertificateInternalService;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
@@ -62,6 +71,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Unit coverage for plain (non-register) issuance dispatched through {@link AuthorityProviderAdapterFactory}. */
@@ -80,6 +90,7 @@ class ClientOperationServiceImplIssueDispatchTest {
     private EventProducer eventProducer;
     private CertificateLocationRepository certificateLocationRepository;
     private CertificatePendingIssueClaimWriter claimWriter;
+    private RaProfileRepository raProfileRepository;
 
     private UUID certUuid;
     private Certificate certificate;
@@ -101,6 +112,11 @@ class ClientOperationServiceImplIssueDispatchTest {
 
         service = new ClientOperationServiceImpl();
         service.setCertificateRepository(certificateRepository);
+        raProfileRepository = mock(RaProfileRepository.class);
+        service.setRaProfileRepository(raProfileRepository);
+        service
+                .setRequestFormatResolver(new RequestFormatResolver(
+                        new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler()))));
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
         service.setCertificateLocationRepository(certificateLocationRepository);
         service.setAdapterFactory(adapterFactory);
@@ -139,7 +155,27 @@ class ClientOperationServiceImplIssueDispatchTest {
         when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(adapter);
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
         when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findAndLockFreshByUuid(certUuid)).thenReturn(Optional.of(certificate));
         when(certificateRepository.findWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+    }
+
+    @Test
+    void throwsUnsupportedNamingTheType_whenIssuingForATypeWithoutAHandlerThatNamesAFormat() {
+        // given — the request names pkcs10, so only the type can refuse it
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
+        request.setCertificateType(CertificateType.SSH);
+        request.setFormat(CertificateRequestFormat.PKCS10);
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(UUID.randomUUID());
+        SecuredUUID raProfileUuid = SecuredUUID.fromUUID(UUID.randomUUID());
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificate(authorityUuid, raProfileUuid, request, null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(CertificateType.SSH.getCode());
+        verifyNoInteractions(raProfileRepository);
     }
 
     @Test
@@ -269,22 +305,20 @@ class ClientOperationServiceImplIssueDispatchTest {
 
     @Test
     void rollsBackFailTransaction_whenReReadUnderLockFailsDuringFailureHandling() throws Exception {
-        // given — the connector call fails, and the subsequent re-read under lock inside
-        // failClaimedCertificate itself fails (e.g. the row vanished); the failure-handling
-        // transaction must roll back rather than leaving a half-applied FAILED transition
+        // given — the connector call fails, and the re-read under lock while failing the certificate fails too
         TransactionStatus claimTx = mock(TransactionStatus.class);
         TransactionStatus failTx = mock(TransactionStatus.class);
         when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(claimTx, failTx);
         when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
-        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid))
-                .thenReturn(Optional.of(certificate))
+        when(certificateRepository.findAndLockFreshByUuid(certUuid))
                 .thenThrow(new IllegalStateException("certificate row vanished"));
 
-        // when / then
-        assertThatThrownBy(() -> service.issueCertificateAction(certUuid, true))
-                .isInstanceOf(CertificateOperationException.class);
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
 
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class);
         verify(transactionManager).rollback(failTx);
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),

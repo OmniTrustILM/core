@@ -26,7 +26,7 @@ import com.otilm.api.model.connector.v3.certificate.CertificateRequestContent;
 import com.otilm.api.model.connector.v3.certificate.X509RequestContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -61,6 +61,7 @@ import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RegisterWireBuilder;
 import com.otilm.core.certificate.request.RenewContentSeeder;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.RequestFormatResolver;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
@@ -218,6 +219,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     private RaProfileRepository raProfileRepository;
     private CertificateRepository certificateRepository;
+    private RequestFormatResolver requestFormatResolver;
     private LocationExternalService locationService;
     private LocationInternalService locationInternalService;
     private CertificateInternalService certificateService;
@@ -368,6 +370,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     }
 
     @Autowired
+    public void setRequestFormatResolver(RequestFormatResolver requestFormatResolver) {
+        this.requestFormatResolver = requestFormatResolver;
+    }
+
+    @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
     }
@@ -503,7 +510,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
     @Transactional(propagation = Propagation.SUPPORTS, rollbackFor = Exception.class)
-    public CertificateDetailDto submitCertificateRequest(ClientCertificateRequestDto request,
+    public CertificateDetail submitCertificateRequest(ClientCertificateRequestDto request,
             CertificateProtocolInfo protocolInfo) throws ConnectorException, CertificateException,
             NoSuchAlgorithmException, AttributeException, CertificateRequestException, NotFoundException {
         return submitCertificateRequestInternal(request, protocolInfo).certificate();
@@ -520,6 +527,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // Issue/renew/rekey reach this body by self-invocation, bypassing the annotation above, so without this probe
         // a platform key signs a CSR before the nested CREATE gate can deny. Denies nobody that gate would admit.
         certificateService.checkCreatePermissions();
+        request.setFormat(requestFormatResolver.resolve(request.getFormat(), null));
         boolean createCustomAttributes = !AuthHelper.isLoggedProtocolUser();
         if (createCustomAttributes) {
             attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, request.getCustomAttributes());
@@ -555,7 +563,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
 
         TransactionStatus status = transactionManager.getTransaction(new DefaultTransactionDefinition());
-        CertificateDetailDto certificate;
+        CertificateDetail certificate;
         try {
             certificate = certificateService
                     .submitCertificateRequest(certificateRequest, request.getFormat(), request.getSignatureAttributes(),
@@ -583,7 +591,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private record PreparedRequest(String csr, List<String> requestAttributeWarnings) {
     }
 
-    private record SubmittedRequest(CertificateDetailDto certificate, List<String> requestAttributeWarnings) {
+    private record SubmittedRequest(CertificateDetail certificate, List<String> requestAttributeWarnings) {
     }
 
     /**
@@ -641,6 +649,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch)
             throws NotFoundException, CertificateOperationException {
+        request.setFormat(requestFormatResolver.resolve(request.getFormat(), request.getCertificateType()));
         // validate RA profile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
@@ -668,7 +677,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, protocolInfo,
                 "Failed to submit certificate request");
-        CertificateDetailDto certificate = submitted.certificate();
+        CertificateDetail certificate = submitted.certificate();
 
         final ClientCertificateDataResponseDto response = new ClientCertificateDataResponseDto();
         response.setCertificateData("");
@@ -676,15 +685,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         response.setRequestAttributeWarnings(submitted.requestAttributeWarnings());
 
         final UUID certificateUuid = UUID.fromString(certificate.getUuid());
+        if (isRequestNotCompliantOrFail(certificateUuid, certificate.getCertificateRequest().getUuid())) {
+            logger.warn("Certificate request is not compliant, not issuing certificate {}", certificateUuid);
+            return response;
+        }
+        runBeforeDispatch(beforeDispatch, certificateUuid);
         try {
-            if (isRequestNotCompliant(certificateUuid, certificate.getCertificateRequest().getUuid(),
-                    CertificateEvent.ISSUE)) {
-                logger.warn("Certificate request is not compliant, not issuing certificate {}", certificateUuid);
-                return response;
-            }
-            runBeforeDispatch(beforeDispatch, certificateUuid);
             queueIssue(raProfileUuid.getValue(), certificateUuid, certificate.getCertificateRequest().getUuid());
-        } catch (NotFoundException | RuntimeException e) {
+        } catch (RuntimeException e) {
             // Nothing would ever issue a certificate whose issue was not queued, so it is failed. A publish that threw
             // may still have reached the broker, though: once its action has picked the certificate up, it is queued.
             boolean pickedUp = failUnlessPickedUp(certificateUuid, e);
@@ -696,6 +704,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             certificateUuid);
         }
         return response;
+    }
+
+    /**
+     * Checks the new request's compliance. A check that fails fails the certificate if it is still REQUESTED and is
+     * rethrown: only a publish can have handed the certificate to its issue action.
+     */
+    private boolean isRequestNotCompliantOrFail(UUID certificateUuid, UUID certificateRequestUuid)
+            throws NotFoundException {
+        try {
+            return isRequestNotCompliant(certificateUuid, certificateRequestUuid, CertificateEvent.ISSUE);
+        } catch (NotFoundException | RuntimeException e) {
+            failIfStillRequested(certificateUuid, e, "checking the compliance of the request failed");
+            throw e;
+        }
     }
 
     /**
@@ -711,7 +733,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             beforeDispatch.accept(certificateUuid);
         } catch (RuntimeException e) {
             logger.warn("Step before queuing the issue of certificate {} failed; not issuing it", certificateUuid, e);
-            failClaimedCertificate(certificateUuid, e, "preparing the certificate for issuance failed");
+            failIfStillRequested(certificateUuid, e, "preparing the certificate for issuance failed");
             throw new CertificateOperationException(
                     "Failed to prepare certificate %s for issuance: ".formatted(certificateUuid)
                             + safeMessage(e, INTERNAL_ERROR));
@@ -1661,9 +1683,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * @return whether the issue action had picked the certificate up, so that the issue was queued after all
      */
     private boolean failUnlessPickedUp(final UUID certificateUuid, Exception cause) {
-        boolean failable = failCertificate(certificateUuid, cause, "queuing the issue failed",
+        return !failIfStillRequested(certificateUuid, cause, "queuing the issue failed");
+    }
+
+    /**
+     * Fails a certificate whose issue was not queued while it is still REQUESTED.
+     *
+     * @return false only when the certificate was read and found no longer REQUESTED
+     */
+    private boolean failIfStillRequested(final UUID certificateUuid, Exception cause, String fallbackReason) {
+        return failCertificate(certificateUuid, cause, fallbackReason,
                 unqueued -> unqueued.getState() == CertificateState.REQUESTED);
-        return !failable;
     }
 
     /**
@@ -1677,7 +1707,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         TransactionStatus failTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             Certificate managed = certificateRepository
-                    .findAndLockWithAssociationsByUuid(certificateUuid)
+                    .findAndLockFreshByUuid(certificateUuid)
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
             boolean isFailable = failable.test(managed);
             if (isFailable) {
@@ -2196,6 +2226,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         assertRaProfileUnderAuthority(raProfile, authorityUuid);
         Certificate certificate = certificateService.getCertificateEntity(SecuredUUID.fromString(certificateUuid));
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), certificate.getCertificateType()));
+        }
         if (!raProfileUuid.getValue().equals(certificate.getRaProfileUuid())) {
             throw new ValidationException(
                     "Cannot issue a certificate that belongs to a different RA profile. Certificate: %s"
@@ -2358,7 +2391,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         TransactionStatus undoTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             Optional<Certificate> completed = certificateRepository
-                    .findAndLockWithAssociationsByUuid(certificateUuid)
+                    .findAndLockFreshByUuid(certificateUuid)
                     .filter(registration -> certificateRequestUuid.equals(registration.getCertificateRequestUuid()));
             boolean pickedUp = completed.isPresent() && completed.get().getState() != CertificateState.REGISTERED;
             if (!pickedUp) {
@@ -2449,6 +2482,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.RENEW, authorityUuid);
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
+        }
 
         // Self-service gate: a certificate with a live registration authorization renews only against its
         // challenge; a wrong or missing secret is denied before any successor exists. A verified challenge
@@ -2490,7 +2526,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, null,
                 "Failed to submit certificate request for certificate renewal");
-        CertificateDetailDto newCertificate = submitted.certificate();
+        CertificateDetail newCertificate = submitted.certificate();
         persistRenewAttributes(oldCertificate.getRaProfile(), UUID.fromString(newCertificate.getUuid()),
                 request.getAttributes());
 
@@ -2589,7 +2625,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             logger.info("Certificate {} was renewed by authority", certificateUuid);
 
-            CertificateDetailDto certificateDetailDto = certificateService
+            CertificateDetail certificateDetailDto = certificateService
                     .issueRequestedCertificate(certificateUuid, renewResult.certificateData(), renewResult.meta());
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
@@ -2653,6 +2689,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
+        if (request != null) {
+            request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
+        }
 
         // Self-service gate, symmetric with renew: a certificate with a live registration authorization rekeys
         // only against its challenge, and a verified challenge lets the authorization follow the successor.
@@ -2691,7 +2730,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         SubmittedRequest submitted = submitAndShapeFailure(certificateRequestDto, null,
                 "Failed to submit certificate request for certificate rekey");
-        CertificateDetailDto newCertificate = submitted.certificate();
+        CertificateDetail newCertificate = submitted.certificate();
         persistRenewAttributes(oldCertificate.getRaProfile(), UUID.fromString(newCertificate.getUuid()),
                 request.getAttributes());
 
@@ -2854,7 +2893,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
             logger.info("Certificate {} was rekeyed by authority", certificateUuid);
 
-            CertificateDetailDto certificateDetailDto = certificateService
+            CertificateDetail certificateDetailDto = certificateService
                     .issueRequestedCertificate(certificateUuid, rekeyResult.certificateData(), rekeyResult.meta());
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
@@ -3635,15 +3674,12 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * Validates the operator's completion CSR for a registered certificate against the resolved request-attribute set.
      *
      * <p>
-     * A null format is not validated: the parser selects on format, and the CSR attach rejects it with a clear message.
+     * The format is already resolved to the default of the type by {@code issueExistingCertificate}, the only caller.
      * Only the parse is a client fault — a strict profile whose attribute set cannot be resolved is a server-side
      * inability, so that {@link CertificateException} propagates to the caller unshaped.
      */
     private List<String> validateCompletionRequestAttributes(ClientCertificateIssueRequestDto request,
             RaProfile raProfile) throws CertificateException {
-        if (request.getFormat() == null) {
-            return List.of();
-        }
         CertificateRequest parsedRequest;
         try {
             parsedRequest = CertificateRequestUtils.createCertificateRequest(request.getRequest(), request.getFormat());
@@ -3759,7 +3795,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public CertificateDetailDto manuallyIssueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+    public CertificateDetail manuallyIssueCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, ManuallyIssueCertificateRequestDto request) throws NotFoundException,
             CertificateException, AlreadyExistException, ConnectorException, AttributeException {
         certificateService.checkIssuePermissions();
@@ -4030,7 +4066,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    public CertificateDetailDto cancelPendingCertificateOperation(SecuredParentUUID authorityUuid,
+    public CertificateDetail cancelPendingCertificateOperation(SecuredParentUUID authorityUuid,
             SecuredUUID raProfileUuid, String certificateUuid, CancelPendingCertificateRequestDto request)
             throws NotFoundException {
         Certificate cert = certificateRepository
@@ -4042,7 +4078,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         String reason = request != null && request.getReason() != null ? request.getReason() : "";
 
         invokeConnectorCancelOrThrow(cert, target);
-        CertificateDetailDto result = commitLocalCancel(cert, target, reason);
+        CertificateDetail result = commitLocalCancel(cert, target, reason);
 
         eventProducer
                 .produceMessage(CertificateActionPerformedEventHandler
@@ -4256,7 +4292,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * successor.
      * </p>
      */
-    private CertificateDetailDto commitLocalCancel(Certificate cert, CancelTarget target, String reason) {
+    private CertificateDetail commitLocalCancel(Certificate cert, CancelTarget target, String reason) {
         TransactionStatus cleanupTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             // Re-read the cert under the new transaction. The method runs as
@@ -4303,7 +4339,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             // Build the response DTO while the session is open so it reflects the committed
             // post-cancel state (the locked `fresh`, not the stale pre-cancel `cert`) and its lazy
             // associations resolve here rather than after the session closes.
-            CertificateDetailDto dto = fresh.mapToDto();
+            CertificateDetail dto = fresh.mapToDto();
             transactionManager.commit(cleanupTx);
             return dto;
         } catch (RuntimeException e) {

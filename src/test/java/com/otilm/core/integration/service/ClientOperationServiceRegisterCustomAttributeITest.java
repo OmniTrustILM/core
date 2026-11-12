@@ -14,7 +14,7 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.mapping.FieldType;
 import com.otilm.api.model.common.attribute.v3.mapping.RdnMappedField;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -258,7 +258,7 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
         ClientCertificateDataResponseDto response = clientOperationService
                 .registerCertificate(authorityParent, securedRaProfile, request);
 
-        CertificateDetailDto detail = certificateExternalService
+        CertificateDetail detail = certificateExternalService
                 .getCertificate(SecuredUUID.fromString(response.getUuid()));
         List<ResponseAttribute> persisted = detail.getRegistrationRequestAttributes();
         Assertions
@@ -304,7 +304,7 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
                                 List.<BaseAttributeContentV3<?>>of(new StringAttributeContentV3("device-complete")))));
         clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, completion);
 
-        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromString(certUuid));
+        CertificateDetail detail = certificateExternalService.getCertificate(SecuredUUID.fromString(certUuid));
         List<ResponseAttribute> reqAttrs = detail.getCertificateRequest().getAttributes();
         Assertions
                 .assertEquals(1, reqAttrs.size(),
@@ -353,7 +353,7 @@ class ClientOperationServiceRegisterCustomAttributeITest extends BaseSpringBootT
         // Must not throw — the completion succeeds despite the unpersistable request attribute.
         clientOperationService.issueExistingCertificate(authorityParent, securedRaProfile, certUuid, completion);
 
-        CertificateDetailDto detail = certificateExternalService.getCertificate(SecuredUUID.fromString(certUuid));
+        CertificateDetail detail = certificateExternalService.getCertificate(SecuredUUID.fromString(certUuid));
         Assertions
                 .assertNotNull(detail.getCertificateRequest(),
                         "the CSR must be attached even though the attribute was skipped");

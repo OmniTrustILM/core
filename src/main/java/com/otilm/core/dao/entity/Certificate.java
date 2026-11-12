@@ -3,7 +3,7 @@ package com.otilm.core.dao.entity;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.enums.IPlatformEnum;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -103,7 +103,7 @@ import org.hibernate.type.descriptor.java.Immutability;
 public abstract class Certificate extends UniquelyIdentifiedAndAudited
         implements
             ComplianceSubject,
-            DtoMapper<CertificateDetailDto> {
+            DtoMapper<CertificateDetail> {
 
     @Serial
     private static final long serialVersionUID = -3048734620156664554L;
@@ -291,14 +291,14 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
     private Set<CertificateRelation> predecessorRelations = new HashSet<>();
 
     @Override
-    public CertificateDetailDto mapToDto() {
+    public CertificateDetail mapToDto() {
         return CertificateDetailDtoMapper.toDetailDto(this);
     }
 
     /**
      * Chain-aware variant of {@link #mapToDto()} for use in {@code getCertificateChain}.
      */
-    public CertificateDetailDto mapToChainDto() {
+    public CertificateDetail mapToChainDto() {
         return CertificateDetailDtoMapper.toChainDto(this);
     }
 

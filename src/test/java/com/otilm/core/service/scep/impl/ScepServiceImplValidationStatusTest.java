@@ -1,8 +1,9 @@
 package com.otilm.core.service.scep.impl;
 
 import com.otilm.api.exception.ScepException;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.util.UUID;
@@ -39,7 +40,7 @@ class ScepServiceImplValidationStatusTest {
 
     @Test
     void acceptsLeaf_whenResolveOrKeepReturnsValid() {
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
         when(validationStatusPoller.resolveOrKeep(dto)).thenReturn(CertificateValidationStatus.VALID);
 
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, true))
@@ -48,7 +49,7 @@ class ScepServiceImplValidationStatusTest {
 
     @Test
     void acceptsLeaf_whenResolveOrKeepReturnsExpiring() {
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
         when(validationStatusPoller.resolveOrKeep(dto)).thenReturn(CertificateValidationStatus.EXPIRING);
 
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, true))
@@ -59,7 +60,7 @@ class ScepServiceImplValidationStatusTest {
     void acceptsLeaf_whenResolveOrKeepReturnsNotChecked() {
         // NOT_CHECKED is a transient state, not a verdict (issue #1834): even if the poller
         // cannot resolve it within the budget, an issuance that already succeeded must not fail.
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
         when(validationStatusPoller.resolveOrKeep(dto)).thenReturn(CertificateValidationStatus.NOT_CHECKED);
 
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, true))
@@ -68,7 +69,7 @@ class ScepServiceImplValidationStatusTest {
 
     @Test
     void rejectsLeaf_whenResolveOrKeepReturnsInvalid() {
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
         when(validationStatusPoller.resolveOrKeep(dto)).thenReturn(CertificateValidationStatus.INVALID);
 
         assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, true))
@@ -80,7 +81,7 @@ class ScepServiceImplValidationStatusTest {
 
     @Test
     void acceptsCaCertificate_whenValid_withoutWaiting() {
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.VALID);
+        CertificateDetail dto = certificateDto(CertificateValidationStatus.VALID);
 
         assertThatCode(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, false))
                 .doesNotThrowAnyException();
@@ -93,7 +94,7 @@ class ScepServiceImplValidationStatusTest {
         // Security (PR #1839 review): the NOT_CHECKED tolerance is ONLY for the freshly-issued
         // leaf (tolerateNotChecked=false here). A CA / issuer cert that is still NOT_CHECKED
         // must be rejected, not waited on.
-        CertificateDetailDto dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail dto = certificateDto(CertificateValidationStatus.NOT_CHECKED);
 
         assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "checkCertificateValidity", dto, false))
                 .isInstanceOf(UndeclaredThrowableException.class)
@@ -104,8 +105,8 @@ class ScepServiceImplValidationStatusTest {
         verifyNoInteractions(validationStatusPoller);
     }
 
-    private static CertificateDetailDto certificateDto(CertificateValidationStatus status) {
-        CertificateDetailDto dto = new CertificateDetailDto();
+    private static CertificateDetail certificateDto(CertificateValidationStatus status) {
+        CertificateDetail dto = new X509CertificateDetail();
         dto.setUuid(UUID.randomUUID().toString());
         dto.setFingerprint("aa:bb:cc");
         dto.setValidationStatus(status);

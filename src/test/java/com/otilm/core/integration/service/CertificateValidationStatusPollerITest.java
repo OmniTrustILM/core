@@ -1,8 +1,9 @@
 package com.otilm.core.integration.service;
 
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.service.handler.CertificateValidationStatusPoller;
@@ -72,7 +73,7 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
         // given
         UUID certificateUuid = seedCertificateNotYetValidated();
         Certificate heldByRequest = requestEntityManager.find(Certificate.class, certificateUuid);
-        CertificateDetailDto issued = detailOf(heldByRequest);
+        CertificateDetail issued = detailOf(heldByRequest);
         CompletableFuture<Void> validationLands = markValidAfter(certificateUuid, VALIDATION_DELAY_MS);
 
         // when
@@ -112,7 +113,7 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
 
         // when
         ConnectionCounts counts = callerTransaction.execute(status -> {
-            CertificateDetailDto unchecked = detailOf(requestEntityManager.find(Certificate.class, certificateUuid));
+            CertificateDetail unchecked = detailOf(requestEntityManager.find(Certificate.class, certificateUuid));
             long heldByTheCaller = pool.getActiveConnections();
             ActiveConnectionWatch watch = ActiveConnectionWatch.startAfterFirstSample(pool);
             try {
@@ -149,8 +150,8 @@ class CertificateValidationStatusPollerITest extends BaseSpringBootTest {
         }), delayed);
     }
 
-    private static CertificateDetailDto detailOf(Certificate certificate) {
-        CertificateDetailDto detail = new CertificateDetailDto();
+    private static CertificateDetail detailOf(Certificate certificate) {
+        CertificateDetail detail = new X509CertificateDetail();
         detail.setUuid(certificate.getUuid().toString());
         detail.setValidationStatus(certificate.getValidationStatus());
         return detail;

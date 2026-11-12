@@ -4,7 +4,7 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.cmp.error.CmpBaseException;
 import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
@@ -397,7 +397,7 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
         ArrayList<X509Certificate> certificateChain = new ArrayList<>();
 
         // -- try to find CA chain from leaf certificate (can be null/empty==not found)
-        List<CertificateDetailDto> caChain;
+        List<CertificateDetail> caChain;
         String leafCertificateSerialNumber = leafCertificate.getSerialNumber();
         try {
             caChain = certificateService.getCertificateChain(leafCertificate.getSecuredUuid(), true).getCertificates();
@@ -408,7 +408,7 @@ public class CrmfMessageHandler implements MessageHandler<PKIMessage> {
 
         // -- parse found CA certificate(s)
         String leafCertificateUuid = leafCertificate.getUuid().toString();
-        for (CertificateDetailDto certificate : caChain) {
+        for (CertificateDetail certificate : caChain) {
             // Only the freshly-issued leaf may legitimately be NOT_CHECKED: its async
             // validation may not have landed yet, so wait briefly and tolerate NOT_CHECKED
             // if it never resolves (the response must reflect issuance success, not the
