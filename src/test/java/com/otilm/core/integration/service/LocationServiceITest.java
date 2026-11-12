@@ -69,6 +69,7 @@ import com.otilm.core.service.registration.RegistrationChallengeStore;
 import com.otilm.core.service.v2.impl.ClientOperationServiceImpl;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.SecretLeakProbe;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -90,8 +91,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -102,6 +106,12 @@ class LocationServiceITest extends BaseSpringBootTest {
     private static final String LOCATION_NAME = "testLocation1";
     private static final String LOCATION_NAME_NOMULTIENTRIES = "testLocation-noMultiEntries";
     private static final String LOCATION_NAME_NOKEYMANAGEMENT = "testLocation-noKeyManagement";
+    private static final String LOCATION_REMOVE_PATH = "/v1/entityProvider/entities/[^/]+/locations/remove";
+    private static final String LOCATION_PUSH_PATH = "/v1/entityProvider/entities/[^/]+/locations/push";
+    private static final String LOCATIONS_PATH = "/v1/entityProvider/entities/[^/]+/locations";
+    private static final String PUSH_ATTRIBUTES_PATH = "/v1/entityProvider/entities/[^/]+/locations/push/attributes";
+    private static final String CSR_ATTRIBUTES_PATH = "/v1/entityProvider/entities/[^/]+/locations/csr/attributes";
+    private static final String CSR_PATH = "/v1/entityProvider/entities/[^/]+/locations/csr";
 
     @Autowired
     private LocationExternalService locationService;
@@ -702,6 +712,79 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .filter(cl -> cl.getLocation().getUuid().equals(location.getUuid()))
                 .count();
         Assertions.assertEquals(rowsBefore, rowsAfter);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("connectorRefusals")
+    void doesNotLogConnectorText_whenTheConnectorRefuses(String operation, String refusedPath, String loggedFailure,
+            LocationCall call) {
+        // given
+        var connectorEcho = "connector-echo-7f3a";
+        stubConnectorAccepting();
+        stubLocationRefusing(refusedPath, connectorEcho);
+
+        // when
+        List<String> logged = logsDuring(() -> call.call(this));
+
+        // then
+        assertThat(logged).anyMatch(line -> line.contains(loggedFailure));
+        SecretLeakProbe.assertNoneReveals(logged, connectorEcho);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("unreadableCertificateCalls")
+    void logsTheFailure_whenTheLocationHoldsAnUnreadableCertificate(String operation, String loggedFailure,
+            LocationCall call) {
+        // given
+        var unreadableCertificateData = "bm90LWEtY2VydGlmaWNhdGU=";
+        stubConnectorAccepting();
+        stubLocationDetailHolding(unreadableCertificateData);
+
+        // when
+        List<String> logged = logsDuring(() -> call.call(this));
+
+        // then
+        assertThat(logged)
+                .anyMatch(line -> line.contains(loggedFailure))
+                .anyMatch(line -> line.contains("CertificateException"));
+    }
+
+    @Test
+    void logsTheFailure_whenTheAuthorityRefusesTheIssue() throws Exception {
+        // given
+        var authorityRefusal = new CertificateOperationException("refused by the authority");
+        stubConnectorAccepting();
+        when(clientOperationService.issueCertificate(any(), any(), any(), any(), any())).thenThrow(authorityRefusal);
+        String raProfileUuid = getRaProfile().getUuid().toString();
+
+        // when
+        List<String> logged = logsDuring(() -> locationService
+                .issueCertificateToLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        raProfileUuid, new IssueToLocationRequestDto()));
+
+        // then
+        assertThat(logged)
+                .anyMatch(line -> line.contains("Failed to issue Certificate for Location " + LOCATION_NAME))
+                .anyMatch(line -> line.contains(authorityRefusal.getMessage()));
+    }
+
+    @Test
+    void logsTheFailure_whenTheAuthorityRefusesTheRenewal() throws Exception {
+        // given
+        var authorityRefusal = new CertificateOperationException("refused by the authority");
+        stubConnectorAccepting();
+        prepareCertificateForRenewalInLocation();
+        when(clientOperationService.renewCertificate(any(), any(), any(), any())).thenThrow(authorityRefusal);
+
+        // when
+        List<String> logged = logsDuring(() -> locationService
+                .renewCertificateInLocation(entityInstanceReference.getSecuredParentUuid(), location.getSecuredUuid(),
+                        certificate.getUuid().toString()));
+
+        // then
+        assertThat(logged)
+                .anyMatch(line -> line.contains("Failed to renew Certificate for Location " + LOCATION_NAME))
+                .anyMatch(line -> line.contains(authorityRefusal.getMessage()));
     }
 
     @Test
@@ -1469,6 +1552,150 @@ class LocationServiceITest extends BaseSpringBootTest {
         request.setDescription("edited");
         request.setAttributes(List.of());
         return request;
+    }
+
+    @FunctionalInterface
+    private interface LocationCall {
+        void call(LocationServiceITest test) throws Exception;
+    }
+
+    private static Stream<Arguments> connectorRefusals() {
+        return Stream
+                .of(Arguments
+                        .of("list push attributes", PUSH_ATTRIBUTES_PATH, "Failed to list push Attributes",
+                                (LocationCall) test -> test.locationService
+                                        .listPushAttributes(test.getEntityUuid(), test.location.getSecuredUuid())),
+                        Arguments
+                                .of("list CSR attributes", CSR_ATTRIBUTES_PATH, "Failed to list CSR Attributes",
+                                        (LocationCall) test -> test.locationService
+                                                .listCsrAttributes(test.getEntityUuid(),
+                                                        test.location.getSecuredUuid())),
+                        Arguments
+                                .of("edit", LOCATIONS_PATH, "Failed to get Location " + LOCATION_NAME + " details",
+                                        (LocationCall) test -> test.locationService
+                                                .editLocation(test.getEntityUuid(), test.location.getSecuredUuid(),
+                                                        editRequest())),
+                        Arguments
+                                .of("sync", LOCATIONS_PATH, "Failed to get Location details",
+                                        (LocationCall) test -> test.locationService
+                                                .updateLocationContent(test.getEntityUuid(),
+                                                        test.location.getSecuredUuid())),
+                        Arguments
+                                .of("issue", CSR_PATH, "Failed to generate CSR for the Location",
+                                        (LocationCall) test -> test.locationService
+                                                .issueCertificateToLocation(test.getEntityUuid(),
+                                                        test.location.getSecuredUuid(),
+                                                        test.getRaProfile().getUuid().toString(),
+                                                        new IssueToLocationRequestDto())),
+                        Arguments
+                                .of("push", LOCATION_PUSH_PATH, "Failed to push Certificate",
+                                        (LocationCall) LocationServiceITest::pushIssuedCertificate),
+                        Arguments
+                                .of("remove", LOCATION_REMOVE_PATH, "Failed to remove Certificate",
+                                        (LocationCall) test -> test.locationService
+                                                .removeCertificateFromLocation(test.getEntityUuid(),
+                                                        test.location.getSecuredUuid(),
+                                                        test.certificate.getUuid().toString())),
+                        Arguments
+                                .of("remove on certificate deletion", LOCATION_REMOVE_PATH,
+                                        "Failed to remove Certificate",
+                                        (LocationCall) test -> test.locationInternalService
+                                                .removeCertificatesFromLocationsOnDelete(
+                                                        List.of(test.certificate.getSecuredUuid()))));
+    }
+
+    private static Stream<Arguments> unreadableCertificateCalls() {
+        return Stream
+                .of(Arguments
+                        .of("add", "Failed to create Location",
+                                (LocationCall) test -> test.locationService
+                                        .addLocation(test.getEntityUuid(), test.addRequest("unreadable-location"))),
+                        Arguments
+                                .of("edit", "Failed to update Location " + LOCATION_NAME,
+                                        (LocationCall) test -> test.locationService
+                                                .editLocation(test.getEntityUuid(), test.location.getSecuredUuid(),
+                                                        editRequest())),
+                        Arguments
+                                .of("sync", "Failed to update Location " + LOCATION_NAME,
+                                        (LocationCall) test -> test.locationService
+                                                .updateLocationContent(test.getEntityUuid(),
+                                                        test.location.getSecuredUuid())));
+    }
+
+    private SecuredParentUUID getEntityUuid() {
+        return entityInstanceReference.getSecuredParentUuid();
+    }
+
+    private void pushIssuedCertificate() throws Exception {
+        certificate.setCertificateContent(certificateContentRepository.save(aCertificateContent().build()));
+        certificate.setState(CertificateState.ISSUED);
+        certificateRepository.save(certificate);
+        PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
+        pushRequest.setAttributes(new ArrayList<>());
+        locationService
+                .pushCertificateToLocation(getEntityUuid(), location.getSecuredUuid(), certificate.getUuid().toString(),
+                        pushRequest);
+    }
+
+    private void prepareCertificateForRenewalInLocation() {
+        CertificateLocation certificateLocation = location.getCertificates().stream().findFirst().orElseThrow();
+        DataAttributeV2 pushAttribute = new DataAttributeV2();
+        pushAttribute.setUuid(UUID.randomUUID().toString());
+        pushAttribute.setContent(List.of(new StringAttributeContentV2("data", "ref")));
+        DataAttributeV3 csrAttribute = new DataAttributeV3();
+        csrAttribute.setUuid(UUID.randomUUID().toString());
+        csrAttribute.setContent(List.of(new StringAttributeContentV3("data", "ref")));
+        certificateLocation.setPushAttributes(List.of(pushAttribute));
+        certificateLocation.setCsrAttributes(List.of(csrAttribute));
+        locationRepository.save(location);
+        certificate.setRaProfile(getRaProfile());
+        certificateRepository.save(certificate);
+    }
+
+    private AddLocationRequestDto addRequest(String name) {
+        RequestAttributeV2 requestAttribute = new RequestAttributeV2();
+        requestAttribute.setUuid(UUID.fromString(testAttribute2.getUuid()));
+        requestAttribute.setName(testAttribute2.getName());
+        requestAttribute.setContent(List.of(new StringAttributeContentV2("test")));
+        AddLocationRequestDto request = new AddLocationRequestDto();
+        request.setName(name);
+        request.setAttributes(List.of(requestAttribute));
+        return request;
+    }
+
+    private void stubConnectorAccepting() {
+        stubLocationDetail();
+        mockServer
+                .stubFor(
+                        WireMock.get(WireMock.urlPathMatching(PUSH_ATTRIBUTES_PATH)).willReturn(WireMock.okJson("[]")));
+        mockServer
+                .stubFor(WireMock.get(WireMock.urlPathMatching(CSR_ATTRIBUTES_PATH)).willReturn(WireMock.okJson("[]")));
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching(CSR_PATH)).willReturn(WireMock.okJson("{}")));
+    }
+
+    private void stubLocationDetailHolding(String certificateData) {
+        mockServer.stubFor(WireMock.post(WireMock.urlPathMatching(LOCATIONS_PATH)).willReturn(WireMock.okJson("""
+                {
+                  "certificates": [
+                    {"certificateData": "%s", "withKey": true, "certificateType": "X.509"}
+                  ],
+                  "multipleEntries": true,
+                  "supportKeyManagement": true
+                }""".formatted(certificateData))));
+    }
+
+    private void stubLocationRefusing(String path, String connectorText) {
+        mockServer
+                .stubFor(WireMock
+                        .any(WireMock.urlPathMatching(path))
+                        .willReturn(WireMock.jsonResponse("{\"message\": \"refused: " + connectorText + "\"}", 400)));
+    }
+
+    private static List<String> logsDuring(ThrowingCallable call) {
+        try (SecretLeakProbe probe = SecretLeakProbe.capture()) {
+            catchThrowable(call);
+            return probe.logged();
+        }
     }
 
     private void stubLocationDetail() {
