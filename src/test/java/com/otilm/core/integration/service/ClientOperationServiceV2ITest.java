@@ -131,6 +131,7 @@ import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.service.impl.LocationServiceImpl;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
@@ -245,6 +246,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     private static final String ISSUE_ATTRIBUTES_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes";
     private static final String VALIDATE_ISSUE_ATTRIBUTES_PATH = ISSUE_ATTRIBUTES_PATH + "/validate";
+    private static final String LOCATION_PUSH_PATH = "/v1/entityProvider/entities/[^/]+/locations/push";
 
     private static final String SAMPLE_PKCS10 = """
             -----BEGIN CERTIFICATE REQUEST-----
@@ -5929,6 +5931,29 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @Test
+        void doesNotLogConnectorText_whenTheLocationRefusesThePush() throws Exception {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            UUID predecessorUuid = prepareCertificateForRenewal();
+            placeOnLocation(predecessorUuid, "renew-location");
+            stubRenewEndpointAccepting();
+            stubLocationRemovalAccepting();
+            stubLocationPushRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = ClientCertificateRenewRequestDto.builder().build();
+            request.setReplaceInLocations(true);
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+            List<String> logged = captureServiceLogsDuring(renew);
+
+            // then
+            mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlPathMatching(LOCATION_PUSH_PATH)));
+            assertThat(logged).isNotEmpty().noneMatch(line -> line.contains(connectorEcho));
+        }
+
+        @Test
         void throwsWithoutConnectorText_whenTheLocationRefusesTheRemoval() throws Exception {
             // given
             var connectorEcho = "connector-echo-7f3a";
@@ -6170,16 +6195,19 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .toList();
     }
 
+    /** What the client operation service and the location service it drives log while the call runs. */
     private static List<String> captureServiceLogsDuring(ThrowingCallable call) {
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
-        ch.qos.logback.classic.Logger serviceLogger = (ch.qos.logback.classic.Logger) LoggerFactory
-                .getLogger(ClientOperationServiceImpl.class);
-        serviceLogger.addAppender(appender);
+        List<ch.qos.logback.classic.Logger> serviceLoggers = Stream
+                .of(ClientOperationServiceImpl.class, LocationServiceImpl.class)
+                .map(service -> (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(service))
+                .toList();
+        serviceLoggers.forEach(serviceLogger -> serviceLogger.addAppender(appender));
         try {
             catchThrowable(call);
         } finally {
-            serviceLogger.detachAppender(appender);
+            serviceLoggers.forEach(serviceLogger -> serviceLogger.detachAppender(appender));
         }
         return appender.list
                 .stream()
@@ -6202,6 +6230,20 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .stubFor(WireMock
                         .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
                         .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+    }
+
+    private void stubLocationRemovalAccepting() {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.okJson("{}")));
+    }
+
+    private void stubLocationPushRefusing(String connectorText) {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(LOCATION_PUSH_PATH))
+                        .willReturn(WireMock.jsonResponse("{\"message\": \"refused: " + connectorText + "\"}", 400)));
     }
 
     private void stubLocationRemovalRefusing(String connectorText) {
