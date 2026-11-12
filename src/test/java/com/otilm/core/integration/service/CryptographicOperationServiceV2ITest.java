@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.ValidationException;
@@ -36,6 +37,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyFormat;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.RsaSignatureScheme;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.EncryptionAlgorithmAttribute;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
@@ -279,6 +281,38 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
         // then
         assertThrows(ValidationException.class, sign);
         connectorMock.verifyNoOperationRequest("sign");
+    }
+
+    @Test
+    void putsPrehashedDigestOnTheWire_whenModeIsPrehashedDigest() throws Exception {
+        // given
+        advertisePrehashedSigning();
+        stubSignResponse();
+
+        // when
+        internalOperationService
+                .signDataWithoutEventHistory(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                        privateKey.getUuid(), signRequest(), SignatureInputMode.PREHASHED_DIGEST);
+
+        // then
+        JsonNode sent = connectorMock.operationRequestBodies("sign").get(0);
+        assertThat(sent.get("signatureInputMode").asText()).isEqualTo("prehashedDigest");
+    }
+
+    @Test
+    void omitsTheMode_whenModeIsData() throws Exception {
+        // given
+        advertisePrehashedSigning();
+        stubSignResponse();
+
+        // when
+        internalOperationService
+                .signDataWithoutEventHistory(token.getSecuredParentUuid(), profile.getSecuredUuid(), key.getUuid(),
+                        privateKey.getUuid(), signRequest());
+
+        // then
+        JsonNode sent = connectorMock.operationRequestBodies("sign").get(0);
+        assertThat(sent.has("signatureInputMode")).isFalse();
     }
 
     @Test
@@ -915,6 +949,18 @@ class CryptographicOperationServiceV2ITest extends BaseSpringBootTest {
     private static RequestAttributeV3 stringAttribute(UUID attributeUuid, String name, String content) {
         return new RequestAttributeV3(attributeUuid, name, AttributeContentType.STRING,
                 List.of(new StringAttributeContentV3(content)));
+    }
+
+    private void advertisePrehashedSigning() {
+        connectorMock.stubInfoAdvertising(FeatureFlag.PREHASHED_SIGNING);
+        cryptographyInterface.setFeatures(List.of(FeatureFlag.STATELESS, FeatureFlag.PREHASHED_SIGNING));
+        connectorInterfaceRepository.save(cryptographyInterface);
+    }
+
+    private void stubSignResponse() {
+        connectorMock
+                .stubOperationAttributes("sign", signSchema())
+                .stubOperation("sign", "{\"signatures\":[{\"identifier\":\"0\",\"data\":\"" + SIGNATURE + "\"}]}");
     }
 
     private static SignDataRequestDto signRequest() {

@@ -14,6 +14,7 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.common.signature.SignatureParameterGroup;
@@ -25,6 +26,7 @@ import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
+import com.otilm.core.config.ConnectorApiClientProperties;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
@@ -135,6 +137,9 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorMockFactory connectorMockFactory;
+
+    @Autowired
+    private ConnectorApiClientProperties connectorApiClientProperties;
 
     @Autowired
     private TestCertificateAuthority testCertificateAuthority;
@@ -438,6 +443,73 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                             .isEqualTo(SigningEngineFailure.BINDING_VIOLATION));
             cryptographyProviderMock.verifyNoDataWasSigned();
             assertThat(recordsFor(contentProfile.getName())).isEmpty();
+        }
+    }
+
+    // ── ConnectorRefusals ─────────────────────────────────────────────────────
+
+    @Nested
+    class ConnectorRefusals {
+
+        private static final byte[] DOCUMENT = "the document to sign".getBytes(StandardCharsets.UTF_8);
+
+        @Test
+        void reportsMalformedInput_whenTheFormatterRefusesTheDocumentAsMalformed() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("malformed-document-pades",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            contentSigningFormattingMock.stubComputeDtbsRefusal(ErrorCode.DOCUMENT_MALFORMED);
+
+            // when
+            ThrowingCallable sign = () -> signDocument(contentProfile);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, failure -> {
+                assertThat(failure.failure()).isEqualTo(SigningEngineFailure.MALFORMED_INPUT);
+                assertThat(failure.clientMessage()).isEqualTo(ErrorCode.DOCUMENT_MALFORMED.getTitle());
+            });
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        @Test
+        void reportsMisconfigured_whenTheSignerAnswersALegacy422() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("legacy-refusal-pades",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            cryptographyProviderMock.stubSignDataLegacyRefusal("Signature attribute is not supported");
+
+            // when
+            ThrowingCallable sign = () -> signDocument(contentProfile);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            failure -> assertThat(failure.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+        }
+
+        @Test
+        void reportsInvalidInput_whenTheFormattedDocumentExceedsTheReadLimit() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("oversized-document-pades",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            contentSigningFormattingMock.stubComputeDtbsExceeding(connectorApiClientProperties.maxInMemorySize());
+
+            // when
+            ThrowingCallable sign = () -> signDocument(contentProfile);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, failure -> {
+                assertThat(failure.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            });
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void signDocument(SigningProfileDto contentProfile) throws Exception {
+            engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, DOCUMENT), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
         }
     }
 

@@ -2,6 +2,7 @@ package com.otilm.core.util.mocks;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.clients.signing.contentsigning.ContentSigningFormattingPaths;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
@@ -9,6 +10,8 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
@@ -16,11 +19,13 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocu
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.ContentSigningDeclarationDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.util.unit.DataSize;
 
 /**
  * Mock of a V2 content-signing formatting connector, backing {@code CONTENT_SIGNING} workflow profiles. It serves
@@ -80,6 +85,33 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return this;
     }
 
+    /** Answers {@code computeDtbs} with a problem+json refusal carrying {@code errorCode}. */
+    public ContentSigningFormattingMock stubComputeDtbsRefusal(ErrorCode errorCode) {
+        ProblemDetailExtended problem = ProblemDetailExtended
+                .fromErrorCode(errorCode, "refused by the mock", null, null);
+        server
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(".*" + ContentSigningFormattingPaths
+                                        .operation(ContentSigningFormattingOperation.COMPUTE_DTBS)))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(problem.getStatus())
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody(serialize(ObjectMapperFactory.wire(), problem, "problem document"))));
+        return this;
+    }
+
+    /**
+     * Answers {@code computeDtbs} with a formattingContext larger than {@code readLimit}, as from a large document.
+     */
+    public ContentSigningFormattingMock stubComputeDtbsExceeding(DataSize readLimit) {
+        String oversizedFormattingContext = "A".repeat(Math.toIntExact(readLimit.toBytes()));
+        stubOperation(ContentSigningFormattingOperation.COMPUTE_DTBS,
+                "{\"formattingContext\":\"" + oversizedFormattingContext + "\"}");
+        return this;
+    }
+
     private void stubComputeDtbs(String transformerName) {
         server
                 .stubFor(WireMock
@@ -114,8 +146,12 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
     }
 
     private static String serialize(Object response, String what) {
+        return serialize(OBJECT_MAPPER, response, what);
+    }
+
+    private static String serialize(ObjectMapper objectMapper, Object response, String what) {
         try {
-            return OBJECT_MAPPER.writeValueAsString(response);
+            return objectMapper.writeValueAsString(response);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Failed to serialize " + what + " for WireMock stub", e);
         }

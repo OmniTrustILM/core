@@ -3,6 +3,7 @@ package com.otilm.core.service.writer;
 import com.otilm.api.model.core.acme.AuthorizationStatus;
 import com.otilm.api.model.core.acme.ChallengeStatus;
 import com.otilm.api.model.core.acme.OrderStatus;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.acme.AcmeAuthorization;
 import com.otilm.core.dao.entity.acme.AcmeChallenge;
 import com.otilm.core.dao.entity.acme.AcmeOrder;
@@ -185,6 +186,55 @@ public class AcmeChallengeWriter {
     }
 
     /**
+     * Moves a ready order with no certificate requested yet to processing for its finalize request. A second finalize
+     * request for the order finds it taken and submits nothing.
+     *
+     * @return whether the order was ready and this call moved it to processing
+     */
+    @Transactional
+    public boolean claimForFinalize(UUID orderUuid) {
+        AcmeOrder order = lockOrderRow(orderUuid);
+        if (order.getStatus() != OrderStatus.READY || order.getCertificateReferenceUuid() != null) {
+            return false;
+        }
+        order.setStatus(OrderStatus.PROCESSING);
+        acmeOrderRepository.save(order);
+        return true;
+    }
+
+    /**
+     * Links the certificate a finalize request submitted to its order. The status stays as it stands: processing while
+     * the certificate is issued, or invalid if an account deactivation closed the order during the submission.
+     *
+     * @return the order as it stands after this call
+     */
+    @Transactional
+    public AcmeOrder recordFinalizeSubmission(UUID orderUuid, String certificateId, Certificate certificate) {
+        AcmeOrder order = lockOrderRow(orderUuid);
+        order.setCertificateId(certificateId);
+        order.setCertificateReference(certificate);
+        acmeOrderRepository.save(order);
+        return order;
+    }
+
+    /**
+     * Closes an order whose finalize submission failed and counts the failure, unless an account deactivation during
+     * the submission closed it first.
+     *
+     * @return the order as it stands after this call
+     */
+    @Transactional
+    public AcmeOrder failFinalizeSubmission(UUID orderUuid) {
+        AcmeOrder order = lockOrderRow(orderUuid);
+        OrderStatus statusBefore = order.getStatus();
+        if (statusBefore == OrderStatus.PROCESSING) {
+            order.setStatus(OrderStatus.INVALID);
+        }
+        recordOrderTransition(order, statusBefore);
+        return order;
+    }
+
+    /**
      * Counts a failed order against its account.
      */
     @Transactional
@@ -203,20 +253,25 @@ public class AcmeChallengeWriter {
     }
 
     /**
-     * Counts a valid order against its account.
-     */
-    @Transactional
-    public void countValidOrder(UUID accountUuid) {
-        acmeAccountRepository.incrementValidOrders(accountUuid, OffsetDateTime.now(ZoneOffset.UTC));
-    }
-
-    /**
      * Locks the order row and re-reads the order, all of its authorizations and all of their challenges. The
      * persistence context may already hold any of these rows from reads made before the lock was taken, and every
      * decision below depends on their current state, not on what a sibling looked like before another request
      * committed.
      */
     private AcmeOrder lockOrder(UUID orderUuid) {
+        AcmeOrder order = lockOrderRow(orderUuid);
+        for (AcmeAuthorization authorization : order.getAuthorizations()) {
+            entityManager.refresh(authorization);
+            authorization.getChallenges().forEach(entityManager::refresh);
+        }
+        return order;
+    }
+
+    /**
+     * Locks the order row and re-reads the order alone, for a decision that rests only on the order's own status and
+     * certificate.
+     */
+    private AcmeOrder lockOrderRow(UUID orderUuid) {
         AcmeOrder order = acmeOrderRepository
                 .findWithLockByUuid(orderUuid)
                 .orElseThrow(() -> new IllegalStateException("ACME order " + orderUuid + " no longer exists"));
@@ -224,10 +279,6 @@ public class AcmeChallengeWriter {
         // what is still pending, and a query on the order table alone need not have flushed them.
         entityManager.flush();
         entityManager.refresh(order);
-        for (AcmeAuthorization authorization : order.getAuthorizations()) {
-            entityManager.refresh(authorization);
-            authorization.getChallenges().forEach(entityManager::refresh);
-        }
         return order;
     }
 
