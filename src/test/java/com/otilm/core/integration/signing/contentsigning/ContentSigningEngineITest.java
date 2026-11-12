@@ -812,6 +812,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             cryptographyProviderMock.verifyNoDataWasSigned();
         }
 
+        // ── Helpers ───────────────────────────────────────────────────────────
+
         private void reconnectContentSigningFormatting() throws Exception {
             connectorService.reconnect(SecuredUUID.fromString(contentSigningFormattingConnector.getUuid()));
         }
