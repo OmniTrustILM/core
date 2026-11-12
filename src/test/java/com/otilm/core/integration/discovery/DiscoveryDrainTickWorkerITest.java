@@ -3,12 +3,14 @@ package com.otilm.core.integration.discovery;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
@@ -194,6 +196,89 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         // then
         assertThat(stagedRefs(run)).isEmpty();
         assertThat(reload(run).getLastAppliedSequence()).isZero();
+    }
+
+    @Test
+    void releasesTheRowWithoutStaging_whenTheRunsRevisionMovedDuringTheConnectorCall() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        armDrainRow(run, 0);
+        DiscoveryWorkTick tick = admitTick(run, 0);
+        long revisionRaisedBehindTheTick = run.getCheckpointRevision() + 1;
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            raiseTheRevisionBehindTheTick(run);
+            return checkpointedPage(position("cursor-1"), keyItem(1, "key-a"));
+        });
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(stagedRefs(run)).isEmpty();
+        assertThat(reload(run).getCheckpointRevision()).isEqualTo(revisionRaisedBehindTheTick);
+        DiscoveryWork row = drainRow(run);
+        assertThat(row.getLeaseToken()).as("a stale tick frees its row for the sweep at once").isNull();
+        assertThat(row.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));
+        verify(workProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void givesBackTheClaimsAttempt_whenThePageIsStale() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        var attemptTheTickCarries = 4;
+        armDrainRow(run, attemptTheTickCarries + 1);
+        DiscoveryWorkTick tick = admitTick(run, attemptTheTickCarries);
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            raiseTheRevisionBehindTheTick(run);
+            return checkpointedPage(position("cursor-1"), keyItem(1, "key-a"));
+        });
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(drainRow(run).getAttempt()).isEqualTo(attemptTheTickCarries);
+    }
+
+    @Test
+    void endsTheRun_whenACheckpointedConnectorKeepsOmittingTheCheckpoint() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        armDrainRow(run, 0);
+        var lastAllowedAttempt = 99;
+        DiscoveryResultsResponseDto noCheckpoint = page(1L, true, keyItem(1, "key-a"));
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(noCheckpoint);
+
+        // when
+        worker.tick(admitTick(run, lastAllowedAttempt));
+
+        // then
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(reloaded.getMessage()).contains("omitted a field the contract requires");
+        assertThat(stagedRefs(run)).isEmpty();
+    }
+
+    /** The tick's own page raised the revision, so its ending must be judged against the raised one. */
+    @Test
+    void endsTheRun_whenACheckpointedConnectorRepeatsItsPositionOnTheLastAttempt() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        List<MetadataAttribute> storedPosition = position("cursor-120");
+        run.setCheckpoint(storedPosition);
+        discoveryRepository.saveAndFlush(run);
+        armDrainRow(run, 0);
+        var lastAllowedAttempt = 99;
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(checkpointedPage(storedPosition));
+
+        // when
+        worker.tick(admitTick(run, lastAllowedAttempt));
+
+        // then
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(reloaded.getMessage()).contains("never handed them all over");
     }
 
     @Test
@@ -511,6 +596,24 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         return page;
     }
 
+    private static DiscoveryResultsResponseDto checkpointedPage(List<MetadataAttribute> checkpoint,
+            DiscoveredItemDto... items) {
+        DiscoveryResultsResponseDto page = page(items.length, true, items);
+        page.setCheckpoint(checkpoint);
+        return page;
+    }
+
+    private static List<MetadataAttribute> position(String value) {
+        return DiscoveryCheckpointFixture.checkpoint("position", value);
+    }
+
+    /** What a stop, a resume or another tick applying its page does to the run while this tick is at the connector. */
+    private void raiseTheRevisionBehindTheTick(Discovery run) {
+        Discovery current = reload(run);
+        current.setCheckpointRevision(current.getCheckpointRevision() + 1);
+        discoveryRepository.saveAndFlush(current);
+    }
+
     /** Conformant on the wire and still unstorable: its payload refuses to serialize, on every attempt. */
     private static DiscoveredItemDto unstageableKeyItem(long sequence) {
         DiscoveredKeyDto payload = new DiscoveredKeyDto() {
@@ -583,6 +686,13 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
 
     private Discovery runStillScanning() {
         return v2Run("running");
+    }
+
+    private Discovery checkpointedRunStillScanning() {
+        Discovery run = runStillScanning();
+        run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        run.setCheckpointRevision(3);
+        return discoveryRepository.saveAndFlush(run);
     }
 
     private Discovery runTheConnectorFinished() {

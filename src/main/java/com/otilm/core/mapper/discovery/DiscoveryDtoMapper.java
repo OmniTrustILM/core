@@ -7,6 +7,7 @@ import com.otilm.api.model.client.discovery.DiscoveryListDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.v2.ConnectorInterfaceDto;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
@@ -71,6 +72,7 @@ public class DiscoveryDtoMapper {
         // Null for a v1 run and for a connector that reports no progress; not defaulted.
         dto.setProgress(discovery.getProgress());
         dto.setConnectorInterface(connectorInterfaceOf(discovery));
+        dto.setDeliveryMode(deliveryModeOf(discovery));
         // Drain cursor: sequences are dense per run, so the highest received is how many items the connector sent.
         // An unstageable, malformed or repeated item advances it without adding a row. Null for a v1 run, which never
         // moves it, and for a run its connector's delete released before any item arrived.
@@ -97,6 +99,20 @@ public class DiscoveryDtoMapper {
         dto.setTotalItemsDiscovered(discovery.getTotalItemsDiscovered());
         dto.setResources(List.copyOf(discovery.getResources()));
         return dto;
+    }
+
+    /**
+     * The mode the connector chose, or buffered for a v2 run whose connector chose none, including one whose initiate
+     * was refused or never answered; null for a v1 run. A v2 run is recognised by its interface, its stoppability
+     * declaration or its drain cursor, since a connector's delete clears the interface of its ended runs.
+     */
+    private static DiscoveryDeliveryMode deliveryModeOf(Discovery discovery) {
+        if (discovery.getDeliveryMode() != null) {
+            return discovery.getDeliveryMode();
+        }
+        boolean isV2Run = discovery.getConnectorInterfaceUuid() != null || discovery.getStoppable() != null
+                || discovery.getLastAppliedSequence() > 0;
+        return isV2Run ? DiscoveryDeliveryMode.BUFFERED : null;
     }
 
     /** The interface driving the run; null for a v1 run, and for an ended v2 run whose connector was deleted. */

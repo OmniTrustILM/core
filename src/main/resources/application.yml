@@ -135,8 +135,17 @@ discovery:
     # How long a stopped run waits for resume before the reaper cancels it: past this the connector's checkpoint
     # cannot be assumed to exist.
     stopped-max-duration: ${DISCOVERY_RUN_STOPPED_MAX_DURATION:P7D}
-  # Bounds on a single DRAIN tick's page. max-bytes is sized for the proxy envelope rather than the contract's
-  # 10 MiB transport cap, so a tunneled page has headroom.
+  # Delivery modes offered to Discovery v2 connectors, most preferred first (wire codes, comma-separated). Removing
+  # checkpointed makes a connector that supports only checkpointed delivery refuse every new run and every resume.
+  delivery:
+    modes: ${DISCOVERY_DELIVERY_MODES:buffered}
+  slice:
+    # How long a checkpointed run may receive nothing but "busy" answers on its drain before each one counts against
+    # the drain budget again.
+    max-busy-wait: ${DISCOVERY_SLICE_MAX_BUSY_WAIT:PT30M}
+  # Bounds on a single DRAIN tick's page. While discovery.delivery.modes offers checkpointed, at least 100 items and
+  # 1 MiB; keep them there until runs started in checkpointed delivery have finished. max-bytes is sized for the proxy
+  # envelope rather than the contract's 10 MiB transport cap, so a tunneled page has headroom.
   drain:
     max-items: ${DISCOVERY_DRAIN_MAX_ITEMS:500}
     max-bytes: ${DISCOVERY_DRAIN_MAX_BYTES:5242880}

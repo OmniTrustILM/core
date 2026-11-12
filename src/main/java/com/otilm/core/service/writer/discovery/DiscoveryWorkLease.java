@@ -72,8 +72,17 @@ public class DiscoveryWorkLease {
         return workWriter.renewLease(tick.discoveryUuid(), tick.workType(), tick.token(), now().plus(leaseDuration));
     }
 
+    boolean holds(DiscoveryWorkTick tick) {
+        return workWriter.isLeasedTo(tick.discoveryUuid(), tick.workType(), tick.token());
+    }
+
     void reschedule(DiscoveryWorkTick tick, int attempt, OffsetDateTime nextDueAt) {
         workWriter.rescheduleLeased(tick.discoveryUuid(), tick.workType(), tick.token(), attempt, nextDueAt);
+    }
+
+    void deferBusy(DiscoveryWorkTick tick, OffsetDateTime nextDueAt) {
+        workWriter
+                .deferBusyLeased(tick.discoveryUuid(), tick.workType(), tick.token(), tick.attempt(), nextDueAt, now());
     }
 
     void release(DiscoveryWorkTick tick) {

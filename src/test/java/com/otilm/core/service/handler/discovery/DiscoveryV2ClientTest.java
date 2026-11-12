@@ -15,11 +15,15 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStatusResponseDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryStopResponseDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryV2ScopedRequestDto;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorDto;
@@ -41,6 +45,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -83,13 +89,16 @@ class DiscoveryV2ClientTest {
     @Mock
     private DiscoverySyncApiClient apiClient;
 
+    private static final String OFFERED_MODES = "checkpointed,buffered";
+
     private DiscoveryV2Client client;
     private Discovery run;
 
     @BeforeEach
     void setUp() {
         client = new DiscoveryV2Client(connectorApiFactory, connectorRepository, attributeEngine, credentialService,
-                resourceService, authHelper, new OutboundSecretContainment(new ObjectMapper()));
+                resourceService, authHelper, new OutboundSecretContainment(new ObjectMapper()),
+                new DiscoveryDeliveryModeOffer(OFFERED_MODES));
         // Runs the elevated body inline: the bare mock returns null without invoking it, so every assertion about
         // what the loaders received would pass while resolving nothing.
         lenient()
@@ -128,6 +137,19 @@ class DiscoveryV2ClientTest {
                 .isEqualTo(run.getCheckpoint());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"initiate", "status", "results", "stop", "resume", "cancel"})
+    void offersTheConfiguredModes_whenSendingAnyCall(String operation) throws Exception {
+        // given — the client offers checkpointed, then buffered
+
+        // when
+        DiscoveryV2ScopedRequestDto sent = sendAndCapture(operation);
+
+        // then
+        assertThat(sent.getDeliveryModes())
+                .containsExactly(DiscoveryDeliveryMode.CHECKPOINTED, DiscoveryDeliveryMode.BUFFERED);
+    }
+
     @Test
     void aNonInitiateCall_stillCarriesTheRunsResourceSet() throws Exception {
         run.setResources(List.of(Resource.CERTIFICATE, Resource.CRYPTOGRAPHIC_KEY));
@@ -164,6 +186,34 @@ class DiscoveryV2ClientTest {
         // Unclamped, a misconfigured value produces a request the connector rejects on every single drain --
         // and over MQ that rejection arrives as an unchecked exception.
         assertThat(capturedDrain().getMaxBytes()).isEqualTo(DiscoveryDrainRequestDto.MAX_BYTES_CAP);
+    }
+
+    @Test
+    void asksForTenMebibytesLessTheReserve_whenACheckpointedRunDrainsAtTheTransportCap() throws Exception {
+        // given
+        var tenMebibytes = 10_485_760L;
+        run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
+
+        // when
+        client.results(run, 500, tenMebibytes);
+
+        // then
+        assertThat(capturedDrain().getMaxBytes()).isEqualTo(10_354_688L);
+    }
+
+    @Test
+    void asksForTheConfiguredBytes_whenABufferedRunDrainsAtTheTransportCap() throws Exception {
+        // given
+        var tenMebibytes = 10_485_760L;
+        run.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+        when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
+
+        // when
+        client.results(run, 500, tenMebibytes);
+
+        // then
+        assertThat(capturedDrain().getMaxBytes()).isEqualTo(tenMebibytes);
     }
 
     @Test
@@ -401,6 +451,47 @@ class DiscoveryV2ClientTest {
         ArgumentCaptor<DiscoveryRunRequestDto> sent = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
         verify(apiClient).status(any(ConnectorDto.class), sent.capture());
         return sent.getValue();
+    }
+
+    /** Sends the named call for the run and returns the request the connector received. */
+    private DiscoveryV2ScopedRequestDto sendAndCapture(String operation) throws Exception {
+        ArgumentCaptor<DiscoveryRunRequestDto> runRequest = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
+        switch (operation) {
+            case "initiate" -> {
+                ArgumentCaptor<DiscoveryInitiateRequestDto> sent = ArgumentCaptor
+                        .forClass(DiscoveryInitiateRequestDto.class);
+                when(apiClient.initiate(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+                client.initiate(run);
+                verify(apiClient).initiate(any(ConnectorDto.class), sent.capture());
+                return sent.getValue();
+            }
+            case "results" -> {
+                when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
+                client.results(run, 500, 5_242_880L);
+                return capturedDrain();
+            }
+            case "status" -> {
+                when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
+                client.status(run);
+                verify(apiClient).status(any(ConnectorDto.class), runRequest.capture());
+            }
+            case "stop" -> {
+                when(apiClient.stop(any(), any())).thenReturn(new DiscoveryStopResponseDto());
+                client.stop(run);
+                verify(apiClient).stop(any(ConnectorDto.class), runRequest.capture());
+            }
+            case "resume" -> {
+                when(apiClient.resume(any(), any())).thenReturn(new DiscoveryInitiateResponseDto());
+                client.resume(run);
+                verify(apiClient).resume(any(ConnectorDto.class), runRequest.capture());
+            }
+            case "cancel" -> {
+                client.cancel(run);
+                verify(apiClient).cancel(any(ConnectorDto.class), runRequest.capture());
+            }
+            default -> throw new IllegalArgumentException("No such call: " + operation);
+        }
+        return runRequest.getValue();
     }
 
     private DiscoveryDrainRequestDto capturedDrain() throws Exception {
