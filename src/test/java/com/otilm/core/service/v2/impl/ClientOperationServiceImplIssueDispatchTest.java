@@ -33,7 +33,6 @@ import com.otilm.core.service.handler.authority.CertificateOperation;
 import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachine;
 import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
-import jakarta.persistence.EntityManager;
 import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -107,7 +106,6 @@ class ClientOperationServiceImplIssueDispatchTest {
         service.setAdapterFactory(adapterFactory);
         service.setCertificateService(certificateService);
         service.setTransactionManager(transactionManager);
-        service.setEntityManager(mock(EntityManager.class));
         service.setStateMachine(stateMachine);
         service.setPollWriter(pollWriter);
         service.setCapabilityService(capabilityService);
@@ -141,6 +139,7 @@ class ClientOperationServiceImplIssueDispatchTest {
         when(adapterFactory.forAuthority(ArgumentMatchers.any())).thenReturn(adapter);
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.empty());
         when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findAndLockFreshByUuid(certUuid)).thenReturn(Optional.of(certificate));
         when(certificateRepository.findWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
     }
 
@@ -279,8 +278,7 @@ class ClientOperationServiceImplIssueDispatchTest {
         when(transactionManager.getTransaction(ArgumentMatchers.any())).thenReturn(claimTx, failTx);
         when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenThrow(new ConnectorException("upstream refused"));
-        when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid))
-                .thenReturn(Optional.of(certificate))
+        when(certificateRepository.findAndLockFreshByUuid(certUuid))
                 .thenThrow(new IllegalStateException("certificate row vanished"));
 
         // when / then

@@ -142,8 +142,6 @@ import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.MetaDefinitions;
 import com.otilm.core.util.PlatformX500NameStyle;
 import com.otilm.core.util.X509RequestContentRenderer;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
@@ -217,7 +215,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             Module.CERTIFICATES, Resource.CERTIFICATE);
 
     private PlatformTransactionManager transactionManager;
-    private EntityManager entityManager;
 
     private RaProfileRepository raProfileRepository;
     private CertificateRepository certificateRepository;
@@ -353,11 +350,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setTransactionManager(PlatformTransactionManager transactionManager) {
         this.transactionManager = transactionManager;
-    }
-
-    @PersistenceContext
-    public void setEntityManager(EntityManager entityManager) {
-        this.entityManager = entityManager;
     }
 
     @Autowired
@@ -1706,8 +1698,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         TransactionStatus failTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             Certificate managed = certificateRepository
-                    .findAndLockWithAssociationsByUuid(certificateUuid)
-                    .map(this::rereadLocked)
+                    .findAndLockFreshByUuid(certificateUuid)
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
             boolean isFailable = failable.test(managed);
             if (isFailable) {
@@ -1723,15 +1714,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             failEx.getMessage(), failEx);
             return true;
         }
-    }
-
-    /**
-     * The locked certificate as the database holds it. The lock query returns the copy a request-wide EntityManager
-     * already holds when the transaction runs on it, and that copy may predate the issue action's claim.
-     */
-    private Certificate rereadLocked(Certificate locked) {
-        entityManager.refresh(locked);
-        return locked;
     }
 
     /**
@@ -2397,8 +2379,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         TransactionStatus undoTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             Optional<Certificate> completed = certificateRepository
-                    .findAndLockWithAssociationsByUuid(certificateUuid)
-                    .map(this::rereadLocked)
+                    .findAndLockFreshByUuid(certificateUuid)
                     .filter(registration -> certificateRequestUuid.equals(registration.getCertificateRequestUuid()));
             boolean pickedUp = completed.isPresent() && completed.get().getState() != CertificateState.REGISTERED;
             if (!pickedUp) {
