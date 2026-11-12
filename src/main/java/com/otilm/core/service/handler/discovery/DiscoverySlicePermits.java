@@ -14,11 +14,26 @@ public class DiscoverySlicePermits {
 
     private final Semaphore permits;
 
-    public DiscoverySlicePermits(@Value("${discovery.slice.max-concurrent-per-node:8}") int maxConcurrentPerNode) {
+    public DiscoverySlicePermits(@Value("${discovery.slice.max-concurrent-per-node:8}") int maxConcurrentPerNode,
+            @Value("${messaging.concurrency.provider-discovery-work}") String discoveryWorkConsumers) {
         if (maxConcurrentPerNode < 1) {
             throw new IllegalArgumentException("discovery.slice.max-concurrent-per-node must be at least 1");
         }
+        // Slices share the discovery-work consumers with status, processing and buffered drains; a cap that can take
+        // them all stalls those for as long as the scans run.
+        int mostConsumers = upperBound(discoveryWorkConsumers);
+        if (maxConcurrentPerNode >= mostConsumers) {
+            throw new IllegalArgumentException("discovery.slice.max-concurrent-per-node (" + maxConcurrentPerNode
+                    + ") must be below the upper bound of messaging.concurrency.provider-discovery-work ("
+                    + discoveryWorkConsumers + ")");
+        }
         this.permits = new Semaphore(maxConcurrentPerNode);
+    }
+
+    /** The most consumers a listener concurrency of {@code "5"} or {@code "3-10"} runs. */
+    private static int upperBound(String concurrency) {
+        String[] bounds = concurrency.trim().split("-");
+        return Integer.parseInt(bounds[bounds.length - 1].trim());
     }
 
     /** Takes a permit when one is free, without waiting. */

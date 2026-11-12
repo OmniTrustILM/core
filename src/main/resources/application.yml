@@ -146,8 +146,9 @@ discovery:
     # the drain budget again.
     max-busy-wait: ${DISCOVERY_SLICE_MAX_BUSY_WAIT:PT30M}
     # How many checkpointed drains one Core node has at their connectors at once, which bounds the checkpointed runs
-    # scanning at once per node. A run over the cap waits for the next sweep. Keep it below the upper bound of
-    # messaging.concurrency.provider-discovery-work, so status, processing and buffered drains keep consumers.
+    # scanning at once per node. A run over the cap waits for the next sweep. Core refuses to start unless it is below
+    # the upper bound of messaging.concurrency.provider-discovery-work, so status, processing and buffered drains keep
+    # consumers.
     max-concurrent-per-node: ${DISCOVERY_SLICE_MAX_CONCURRENT_PER_NODE:8}
   # Bounds on a single DRAIN tick's page, at least 100 items and 1 MiB. max-bytes is sized for the proxy envelope
   # rather than the contract's 10 MiB transport cap, so a tunneled page has headroom.
