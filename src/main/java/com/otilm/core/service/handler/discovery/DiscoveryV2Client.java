@@ -284,9 +284,8 @@ public class DiscoveryV2Client {
     }
 
     /**
-     * The configured offer, with checkpointed first for a run already in checkpointed delivery: such a run can only
-     * continue that way, and a connector answers a drain that does not offer it as busy. The setting decides what new
-     * runs and resumes are offered.
+     * The configured offer, with checkpointed prepended when it lacks it and the run is already in checkpointed
+     * delivery: such a run can only continue that way, and a connector answers a drain that does not offer it as busy.
      */
     private List<DiscoveryDeliveryMode> drainOffer(Discovery run) {
         List<DiscoveryDeliveryMode> configured = deliveryModeOffer.offered();

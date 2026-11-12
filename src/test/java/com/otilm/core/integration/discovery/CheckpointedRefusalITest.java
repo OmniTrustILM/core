@@ -369,7 +369,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
 
         // then
         DiscoveryWork row = row(run, DiscoveryWorkType.DRAIN);
-        assertThat(row.getAttempt()).as("the claim's charge is given back").isEqualTo(attemptTheTickCarries);
+        assertThat(row.getAttempt()).isEqualTo(attemptTheTickCarries);
         assertThat(row.getLeaseToken()).isNull();
         assertThat(row.getBusySince()).isNotNull();
         assertThat(Duration.between(before, row.getNextDueAt()))
@@ -615,7 +615,6 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         discoveryRepository.saveAndFlush(current);
     }
 
-    /** {@link #commitTheResume} for a connector that answered in buffered mode. */
     private void commitTheResumeAsBuffered(Discovery run) {
         commitTheResume(run);
         Discovery current = reload(run);
@@ -623,7 +622,6 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         discoveryRepository.saveAndFlush(current);
     }
 
-    /** {@link #commitTheResume} for a connector that answered in checkpointed mode. */
     private void commitTheResumeAsCheckpointed(Discovery run) {
         commitTheResume(run);
         Discovery current = reload(run);
@@ -651,10 +649,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         discoveryRepository.saveAndFlush(current);
     }
 
-    /**
-     * A stop, which deletes the drain row, and a resume whose connector answered in buffered mode, which re-creates it:
-     * two raised revisions and a run that is no longer checkpointed.
-     */
+    /** A stop, which deletes the drain row, and a resume into buffered delivery, which re-creates it. */
     private void stopAndResumeAsBuffered(Discovery run) {
         workWriter.deleteForRun(run.getUuid(), DiscoveryWorkType.DRAIN);
         Discovery current = reload(run);

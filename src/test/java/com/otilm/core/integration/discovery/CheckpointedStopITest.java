@@ -50,10 +50,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * How ticks treat a checkpointed run that is stopped, resumed or cancelled around them. For such a run a drain is the
- * scan itself, so nothing may reach the connector while the run is stopped. Stop, cancel and resume go through the real
- * adapter or mirror what it commits. The connector and the broker are mocked as in
- * {@link DiscoveryDrainTickWorkerITest}, whose context this shares.
+ * How ticks treat a checkpointed run that the real adapter stops, resumes or cancels around them. For such a run a
+ * drain is the scan itself, so nothing may reach the connector while the run is stopped. The connector and the broker
+ * are mocked as in {@link DiscoveryDrainTickWorkerITest}, whose context this shares.
  */
 class CheckpointedStopITest extends BaseSpringBootTest {
 

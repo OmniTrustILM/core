@@ -510,7 +510,6 @@ class DiscoveryV2ClientTest {
         return sent.getValue();
     }
 
-    /** Sends the named call for the run and returns the request the connector received. */
     private DiscoveryV2ScopedRequestDto sendAndCapture(String operation) throws Exception {
         ArgumentCaptor<DiscoveryRunRequestDto> runRequest = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
         switch (operation) {

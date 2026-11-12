@@ -219,7 +219,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         assertThat(stagedRefs(run)).isEmpty();
         assertThat(reload(run).getCheckpointRevision()).isEqualTo(revisionRaisedBehindTheTick);
         DiscoveryWork row = drainRow(run);
-        assertThat(row.getLeaseToken()).as("a stale tick frees its row for the sweep at once").isNull();
+        assertThat(row.getLeaseToken()).isNull();
         assertThat(row.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));
         verify(workProducer, never()).produceMessage(any());
     }
@@ -724,10 +724,7 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         return page;
     }
 
-    /**
-     * A checkpointed page with {@code more} false: a last slice, or a pending answer when it repeats the stored
-     * checkpoint with no items.
-     */
+    /** A last slice, or a pending answer when it repeats the stored checkpoint with no items. */
     private static DiscoveryResultsResponseDto checkpointedPageWithNothingMore(List<MetadataAttribute> checkpoint,
             DiscoveredItemDto... items) {
         DiscoveryResultsResponseDto page = page(items.length, false, items);

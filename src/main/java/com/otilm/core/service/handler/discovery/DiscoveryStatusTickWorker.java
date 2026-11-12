@@ -140,9 +140,9 @@ public class DiscoveryStatusTickWorker {
     }
 
     /**
-     * For a checkpointed run, a status tick may end the run only while the run keeps the status the tick read and the
-     * tick still holds its row; a stop or a resume breaks both. Not the checkpoint revision: every drain page raises
-     * it, so a status tick failing its last attempt while slices land could never end the run. As in
+     * For a checkpointed run, a status tick may end the run or apply its answer only while the run keeps the status the
+     * tick read and the tick still holds its row; a stop or a resume breaks both. Not the checkpoint revision: every
+     * drain page raises it, so a status tick failing its last attempt while slices land could never end the run. As in
      * {@link CheckpointRevision#movedOn}, a run checkpointed when read or now is fenced, so a mode-switching resume
      * still revokes the tick.
      */

@@ -144,10 +144,9 @@ discovery:
     # How long a checkpointed run may receive nothing but "busy" answers on its drain before each one counts against
     # the drain budget again.
     max-busy-wait: ${DISCOVERY_SLICE_MAX_BUSY_WAIT:PT30M}
-    # How many checkpointed drains one Core node has at their connectors at once, which bounds the checkpointed runs
-    # scanning at once per node. A run over the cap waits for the next sweep. Core refuses to start unless it is below
-    # the upper bound of messaging.concurrency.provider-discovery-work, so status, processing and buffered drains keep
-    # consumers.
+    # How many checkpointed runs one Core node drains, and so has scanning, at once; a run over the cap waits for the
+    # next sweep. Must be below the upper bound of messaging.concurrency.provider-discovery-work (Core refuses to start
+    # otherwise), so status, processing and buffered drains keep consumers.
     max-concurrent-per-node: ${DISCOVERY_SLICE_MAX_CONCURRENT_PER_NODE:8}
   # Bounds on a single DRAIN tick's page. While discovery.delivery.modes offers checkpointed, at least 100 items and
   # 1 MiB; keep them there until runs started in checkpointed delivery have finished. max-bytes is sized for the proxy

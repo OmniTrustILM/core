@@ -10,13 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * The delivery modes Core offers a Discovery v2 connector on every request, in preference order. The connector picks
- * one at initiate and at resume.
- *
- * <p>
- * Configured as {@code discovery.delivery.modes}, documented in application.yml. Dropping {@code checkpointed} there is
- * the operator's switch for a broken release: no new run or resume gets checkpointed delivery, while drains of runs
- * already in it still offer it.
+ * The delivery modes Core offers a Discovery v2 connector, in preference order; the connector picks one at initiate and
+ * at resume. Configured as {@code discovery.delivery.modes}, documented in application.yml, where dropping
+ * {@code checkpointed} is the operator's switch for a broken release.
  */
 @Component
 public class DiscoveryDeliveryModeOffer {
