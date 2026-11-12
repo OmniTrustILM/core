@@ -3,12 +3,14 @@ package com.otilm.core.integration.discovery;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.model.common.attribute.common.MetadataAttribute;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
@@ -39,6 +41,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -54,6 +57,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -194,6 +198,208 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         // then
         assertThat(stagedRefs(run)).isEmpty();
         assertThat(reload(run).getLastAppliedSequence()).isZero();
+    }
+
+    @Test
+    void releasesTheRowWithoutStaging_whenTheRunsRevisionMovedDuringTheConnectorCall() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        armDrainRow(run, 0);
+        DiscoveryWorkTick tick = admitTick(run, 0);
+        long revisionRaisedBehindTheTick = run.getCheckpointRevision() + 1;
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            raiseTheRevisionBehindTheTick(run);
+            return checkpointedPage(position("cursor-1"), keyItem(1, "key-a"));
+        });
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(stagedRefs(run)).isEmpty();
+        assertThat(reload(run).getCheckpointRevision()).isEqualTo(revisionRaisedBehindTheTick);
+        DiscoveryWork row = drainRow(run);
+        assertThat(row.getLeaseToken()).isNull();
+        assertThat(row.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));
+        verify(workProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void keepsAFreshBudget_whenMoreDarkSlicesThanTheBudgetFollowEachOther() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        armDrainRow(run, 0);
+        var moreSlicesThanTheDrainBudget = workProperties.scheduleFor(DiscoveryWorkType.DRAIN).maxAttempts() + 20;
+        int[] slicesServed = {0};
+        when(client.results(any(), anyInt(), anyLong()))
+                .thenAnswer(call -> checkpointedPage(position("target-" + (++slicesServed[0]) * 37)));
+        DiscoveryWorkTick tick = admitTick(run, 0);
+
+        // when
+        List<Integer> attemptsAfterEachSlice = new ArrayList<>();
+        for (int slice = 0; slice < moreSlicesThanTheDrainBudget; slice++) {
+            worker.tick(tick);
+            DiscoveryWork row = drainRow(run);
+            attemptsAfterEachSlice.add(row.getAttempt());
+            tick = lease
+                    .admit(new DiscoveryWorkMessage(run.getUuid(), DiscoveryWorkType.DRAIN, 0, row.getLeaseToken()))
+                    .orElseThrow();
+        }
+
+        // then
+        assertThat(attemptsAfterEachSlice).hasSize(moreSlicesThanTheDrainBudget).containsOnly(0);
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        verify(workProducer, times(moreSlicesThanTheDrainBudget)).produceMessage(any());
+    }
+
+    @Test
+    void idlesAtTheSlowestRungWithoutSpendingTheBudget_whenTheConnectorHasNothingReadyYet() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        List<MetadataAttribute> storedPosition = position("waiting-for-the-source");
+        run.setCheckpoint(storedPosition);
+        discoveryRepository.saveAndFlush(run);
+        var nearTheEndOfTheBudget = 98;
+        armDrainRow(run, nearTheEndOfTheBudget + 1);
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(checkpointedPageWithNothingMore(storedPosition));
+        PollSchedule ladder = workProperties.scheduleFor(DiscoveryWorkType.DRAIN);
+        OffsetDateTime before = OffsetDateTime.now(ZoneOffset.UTC);
+
+        // when
+        worker.tick(admitTick(run, nearTheEndOfTheBudget));
+
+        // then
+        DiscoveryWork row = drainRow(run);
+        assertThat(row.getAttempt()).isEqualTo(ladder.ceilingAttempt());
+        assertThat(row.getNextDueAt()).isAfterOrEqualTo(before.plus(ladder.delayFor(ladder.ceilingAttempt())));
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
+        verify(workProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void expeditesTheStatusPoll_whenAnAdvancingCheckpointedPageSaysNothingMoreIsReady() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        armDrainRow(run, 0);
+        workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
+        when(client.results(any(), anyInt(), anyLong()))
+                .thenReturn(checkpointedPageWithNothingMore(position("past-the-last-target"), keyItem(1, "key-a")));
+
+        // when
+        worker.tick(admitTick(run, 0));
+
+        // then
+        DiscoveryWork statusRow = agenda(run)
+                .stream()
+                .filter(row -> row.getWorkType() == DiscoveryWorkType.STATUS)
+                .findFirst()
+                .orElseThrow();
+        assertThat(statusRow.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));
+        assertThat(stagedRefs(run)).containsExactly("key-a");
+    }
+
+    @Test
+    void expeditesTheStatusPoll_whenAnUnchangedCheckpointedPageSaysNothingMoreIsReady() throws Exception {
+        // given — the last slice moved the run but said more was coming; this answer moves nothing
+        Discovery run = checkpointedRunStillScanning();
+        List<MetadataAttribute> positionAfterTheLastSlice = position("past-the-last-target");
+        run.setCheckpoint(positionAfterTheLastSlice);
+        discoveryRepository.saveAndFlush(run);
+        armDrainRow(run, 0);
+        workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC).plusHours(1));
+        when(client.results(any(), anyInt(), anyLong()))
+                .thenReturn(checkpointedPageWithNothingMore(positionAfterTheLastSlice));
+
+        // when
+        worker.tick(admitTick(run, 0));
+
+        // then
+        DiscoveryWork statusRow = agenda(run)
+                .stream()
+                .filter(row -> row.getWorkType() == DiscoveryWorkType.STATUS)
+                .findFirst()
+                .orElseThrow();
+        assertThat(statusRow.getNextDueAt()).isBeforeOrEqualTo(OffsetDateTime.now(ZoneOffset.UTC));
+    }
+
+    @Test
+    void keepsTheStatusPollWhereItWas_whenABufferedPageSaysNothingMoreIsReady() throws Exception {
+        // given
+        Discovery run = runStillScanning();
+        armDrainRow(run, 0);
+        OffsetDateTime statusDue = OffsetDateTime.now(ZoneOffset.UTC).plusHours(1);
+        workWriter.schedule(run.getUuid(), DiscoveryWorkType.STATUS, statusDue);
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(page(1L, false, keyItem(1, "key-a")));
+
+        // when
+        worker.tick(admitTick(run, 0));
+
+        // then
+        DiscoveryWork statusRow = agenda(run)
+                .stream()
+                .filter(row -> row.getWorkType() == DiscoveryWorkType.STATUS)
+                .findFirst()
+                .orElseThrow();
+        assertThat(statusRow.getNextDueAt()).isAfter(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(30));
+    }
+
+    @Test
+    void givesBackTheClaimsAttempt_whenThePageIsStale() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        var attemptTheTickCarries = 4;
+        armDrainRow(run, attemptTheTickCarries + 1);
+        DiscoveryWorkTick tick = admitTick(run, attemptTheTickCarries);
+        when(client.results(any(), anyInt(), anyLong())).thenAnswer(call -> {
+            raiseTheRevisionBehindTheTick(run);
+            return checkpointedPage(position("cursor-1"), keyItem(1, "key-a"));
+        });
+
+        // when
+        worker.tick(tick);
+
+        // then
+        assertThat(drainRow(run).getAttempt()).isEqualTo(attemptTheTickCarries);
+    }
+
+    @Test
+    void endsTheRun_whenACheckpointedConnectorKeepsOmittingTheCheckpoint() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        armDrainRow(run, 0);
+        var lastAllowedAttempt = 99;
+        DiscoveryResultsResponseDto noCheckpoint = page(1L, true, keyItem(1, "key-a"));
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(noCheckpoint);
+
+        // when
+        worker.tick(admitTick(run, lastAllowedAttempt));
+
+        // then
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(reloaded.getMessage()).contains("omitted a field the contract requires");
+        assertThat(stagedRefs(run)).isEmpty();
+    }
+
+    /** The tick's own page raised the revision, so its ending must be judged against the raised one. */
+    @Test
+    void endsTheRun_whenACheckpointedConnectorRepeatsItsPositionOnTheLastAttempt() throws Exception {
+        // given
+        Discovery run = checkpointedRunStillScanning();
+        List<MetadataAttribute> storedPosition = position("cursor-120");
+        run.setCheckpoint(storedPosition);
+        discoveryRepository.saveAndFlush(run);
+        armDrainRow(run, 0);
+        var lastAllowedAttempt = 99;
+        when(client.results(any(), anyInt(), anyLong())).thenReturn(checkpointedPage(storedPosition));
+
+        // when
+        worker.tick(admitTick(run, lastAllowedAttempt));
+
+        // then
+        Discovery reloaded = reload(run);
+        assertThat(reloaded.getStatus()).isEqualTo(DiscoveryStatus.FAILED);
+        assertThat(reloaded.getMessage()).contains("never handed them all over");
     }
 
     @Test
@@ -511,6 +717,32 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
         return page;
     }
 
+    private static DiscoveryResultsResponseDto checkpointedPage(List<MetadataAttribute> checkpoint,
+            DiscoveredItemDto... items) {
+        DiscoveryResultsResponseDto page = page(items.length, true, items);
+        page.setCheckpoint(checkpoint);
+        return page;
+    }
+
+    /** A last slice, or a pending answer when it repeats the stored checkpoint with no items. */
+    private static DiscoveryResultsResponseDto checkpointedPageWithNothingMore(List<MetadataAttribute> checkpoint,
+            DiscoveredItemDto... items) {
+        DiscoveryResultsResponseDto page = page(items.length, false, items);
+        page.setCheckpoint(checkpoint);
+        return page;
+    }
+
+    private static List<MetadataAttribute> position(String value) {
+        return DiscoveryCheckpointFixture.checkpoint("position", value);
+    }
+
+    /** What a stop, a resume or another tick applying its page does to the run while this tick is at the connector. */
+    private void raiseTheRevisionBehindTheTick(Discovery run) {
+        Discovery current = reload(run);
+        current.setCheckpointRevision(current.getCheckpointRevision() + 1);
+        discoveryRepository.saveAndFlush(current);
+    }
+
     /** Conformant on the wire and still unstorable: its payload refuses to serialize, on every attempt. */
     private static DiscoveredItemDto unstageableKeyItem(long sequence) {
         DiscoveredKeyDto payload = new DiscoveredKeyDto() {
@@ -583,6 +815,13 @@ class DiscoveryDrainTickWorkerITest extends BaseSpringBootTest {
 
     private Discovery runStillScanning() {
         return v2Run("running");
+    }
+
+    private Discovery checkpointedRunStillScanning() {
+        Discovery run = runStillScanning();
+        run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        run.setCheckpointRevision(3);
+        return discoveryRepository.saveAndFlush(run);
     }
 
     private Discovery runTheConnectorFinished() {

@@ -48,7 +48,7 @@ class DiscoveryProviderV2AdapterStartTest {
             connectorInterfaceRepository, client, workWriter, terminator, capabilityService, new TransactionHandler(),
             new DiscoveryWorkProperties(new StatusPollProperties.PollSchedule(List.of(Duration.ofSeconds(1)), 3),
                     Map.of()),
-            mock(DiscoveryRunWriter.class));
+            mock(DiscoveryRunWriter.class), new DiscoveryDeliveryModeOffer("buffered"));
 
     /**
      * A failure after both agenda rows are committed still has to tell the connector to drop the run: the run ends

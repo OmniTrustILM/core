@@ -234,7 +234,7 @@ messaging:
     time-quality-config-request: 1
     time-quality-results: 1
     provider-status-poll: 1-5
-    provider-discovery-work: 1-3
+    provider-discovery-work: 1-12
 
 otel:
   instrumentation:

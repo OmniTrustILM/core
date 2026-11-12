@@ -3,6 +3,7 @@ package com.otilm.core.mapper.discovery;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.client.discovery.DiscoveryListDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredKeyDto;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
 import com.otilm.core.dao.entity.Discovery;
@@ -48,6 +49,45 @@ class DiscoveryDtoMapperTest {
         assertThat(DiscoveryDtoMapper
                 .toDetailDto(run(), new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0))
                 .getItemsDiscovered()).isNull();
+    }
+
+    @Test
+    void reportsTheRecordedMode_whenTheConnectorChoseOne() {
+        // given
+        Discovery checkpointed = run();
+        checkpointed.setConnectorInterfaceUuid(UUID.randomUUID());
+        checkpointed.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+
+        // when
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(checkpointed, noCounts());
+
+        // then
+        assertThat(dto.getDeliveryMode()).isEqualTo(DiscoveryDeliveryMode.CHECKPOINTED);
+    }
+
+    @Test
+    void reportsBuffered_whenAV2RunRecordedNoMode() {
+        // given
+        Discovery neverAnswered = run();
+        neverAnswered.setConnectorInterfaceUuid(UUID.randomUUID());
+
+        // when
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(neverAnswered, noCounts());
+
+        // then
+        assertThat(dto.getDeliveryMode()).isEqualTo(DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    @Test
+    void reportsNoMode_whenTheRunIsV1() {
+        // given — a run with no connector interface, no stoppable declaration and no drained item
+        Discovery v1Run = run();
+
+        // when
+        DiscoveryDetailDto dto = DiscoveryDtoMapper.toDetailDto(v1Run, noCounts());
+
+        // then
+        assertThat(dto.getDeliveryMode()).isNull();
     }
 
     @Test
@@ -183,6 +223,10 @@ class DiscoveryDtoMapperTest {
                 return null;
             }
         };
+    }
+
+    private static DiscoveryDtoMapper.DetailCounts noCounts() {
+        return new DiscoveryDtoMapper.DetailCounts(0, 0, 0, 0);
     }
 
     private static Discovery run() {
