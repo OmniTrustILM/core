@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -193,6 +194,24 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
         Discovery persisted = reload(run);
         assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
         assertThat(persisted.getCheckpointRevision()).isEqualTo(run.getCheckpointRevision());
+        verify(client, never()).cancel(any());
+    }
+
+    @Test
+    void cancelsTheRunAtItsConnector_whenABufferedResumeCannotScheduleItsWork() throws Exception {
+        // given
+        Discovery run = stoppableV2Run(DiscoveryStatus.STOPPED, DiscoveryDeliveryMode.BUFFERED);
+        when(client.resume(any())).thenReturn(resumeAnswering(DiscoveryDeliveryMode.BUFFERED));
+        var agendaUnavailable = new IllegalStateException("the drain row could not be written");
+        doThrow(agendaUnavailable).when(workWriter).expedite(any(), eq(DiscoveryWorkType.DRAIN), any());
+
+        // when
+        ThrowingCallable resume = () -> adapter.resume(run);
+
+        // then
+        assertThatThrownBy(resume).isSameAs(agendaUnavailable);
+        verify(client).cancel(any());
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
     }
 
     @Test
