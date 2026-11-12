@@ -45,7 +45,7 @@ class CrlWriterITest extends BaseSpringBootTest {
     private static final String ISSUER_SERIAL = "1a2b";
     private static final Date REVOKED_AT = Date.from(Instant.parse("2026-01-02T03:04:05Z"));
     private static final Date NEXT_UPDATE = Date.from(Instant.now().plus(7, ChronoUnit.DAYS));
-    /** Above CrlWriter.ENTRIES_PER_STATEMENT (1,000), so writing them takes several statements. */
+    /** Above CrlWriter.ENTRIES_PER_STATEMENT, so writing them takes several statements. */
     private static final int ENTRIES_OVER_SEVERAL_STATEMENTS = 2_500;
     /** Far below one statement per entry, and above the few statements the fixed statement sizes add. */
     private static final int FEW_STATEMENTS = 20;

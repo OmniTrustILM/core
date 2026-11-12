@@ -490,7 +490,6 @@ public class CrlServiceImpl implements CrlService {
         return CRLReason.REMOVE_FROM_CRL.equals(entry.reason());
     }
 
-    /** The CRL's entries matching the filter, decoded as the writer takes them. */
     private static Iterable<CrlEntryData> entryData(EncodedCrl crl, Predicate<RevokedCertificate> filter) {
         return () -> stream(crl).filter(filter).map(CrlServiceImpl::toEntryData).iterator();
     }
@@ -618,17 +617,14 @@ public class CrlServiceImpl implements CrlService {
         }
     }
 
-    /**
-     * One read of an issuer's CRLs: the name a CRL must carry, the key its signature must verify with, and the download
-     * budget its downloads share.
-     */
+    /** One read of an issuer's CRLs. */
     private record CrlRead(X500Principal issuerName, PublicKey issuerKey, DownloadBudget budget) {
     }
 
     /**
      * The download time a read of an issuer's CRLs has left. All its downloads share it, so a permit is held for at
-     * most one download timeout of downloading, however many URLs the certificate names. Parsing and storing do not
-     * spend it, so storing a large base CRL leaves its delta CRL time to be read.
+     * most one download timeout, however many URLs the certificate names. Parsing and storing do not spend it, so
+     * storing a large base CRL leaves its delta CRL time to be read.
      */
     static final class DownloadBudget {
 

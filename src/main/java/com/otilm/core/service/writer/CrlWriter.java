@@ -74,10 +74,8 @@ public class CrlWriter {
      * Persists a base CRL plus all of its entries in a single transaction.
      *
      * <p>
-     * For a new CRL: inserts the CRL row (ON CONFLICT DO NOTHING) and inserts the entries into it. For an updated CRL:
-     * deletes the old entries of the existing row and inserts the new ones. Either way it then writes the base-metadata
-     * columns, which clears the delta-metadata columns, since the entries of a delta CRL applied to the old base CRL
-     * are gone with it.
+     * Inserts a new CRL's row, or deletes an existing row's entries, then inserts the entries and writes the base-CRL
+     * columns. That clears the delta-CRL columns, since a delta CRL's entries went with the base CRL it extended.
      *
      * <p>
      * Nothing is written when the row already holds this CRL or a newer one, which a concurrent writer stored first:
