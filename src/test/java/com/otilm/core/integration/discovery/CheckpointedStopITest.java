@@ -9,12 +9,9 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStopResponseDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
-import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.entity.DiscoveryItem;
 import com.otilm.core.dao.entity.DiscoveryWork;
-import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
-import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryItemRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.dao.repository.DiscoveryWorkRepository;
@@ -28,14 +25,13 @@ import com.otilm.core.service.writer.discovery.DiscoveryWorkTick;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
-import com.otilm.core.util.DiscoveryInterfaceFixture;
+import com.otilm.core.util.seeders.DiscoveryRunSeeder;
 import com.otilm.core.util.seeders.DiscoveryWorkTickSeeder;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -83,9 +79,7 @@ class CheckpointedStopITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryWorkTickSeeder tickSeeder;
     @Autowired
-    private ConnectorRepository connectorRepository;
-    @Autowired
-    private ConnectorInterfaceRepository connectorInterfaceRepository;
+    private DiscoveryRunSeeder runSeeder;
 
     @Value("${discovery.work.stopped-poll-interval:PT5M}")
     private Duration stoppedPollInterval;
@@ -251,17 +245,8 @@ class CheckpointedStopITest extends BaseSpringBootTest {
     }
 
     private Discovery checkpointedRun() {
-        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
-                .v2Interface(connectorRepository, connectorInterfaceRepository, FeatureFlag.DISCOVERY_STOP_RESUME);
-        Discovery run = new Discovery();
-        run.setName("v2-scan-" + UUID.randomUUID());
-        run.setKind("IP-HostName");
-        run.setStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
+        Discovery run = runSeeder.seedV2Run(DiscoveryStatus.IN_PROGRESS, FeatureFlag.DISCOVERY_STOP_RESUME);
         run.setConnectorState("running");
-        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
-        run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
         run.setStoppable(true);
         run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
         run.setCheckpointRevision(3);
