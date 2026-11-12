@@ -47,6 +47,7 @@ import com.otilm.core.service.handler.authority.lifecycle.CertificateStateMachin
 import com.otilm.core.service.writer.CertificatePendingIssueClaimWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationWriter;
 import com.otilm.core.service.writer.statuspoll.CertificateStatusPollWriter;
+import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.HashMap;
@@ -167,6 +168,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         service.setCapabilityService(capabilityService);
         service.setCertificateService(certificateService);
         service.setTransactionManager(transactionManager);
+        service.setEntityManager(mock(EntityManager.class));
         service.setStateMachine(stateMachine);
         service.setAttributeEngine(attributeEngine);
         service.setCertificateEventHistoryService(certificateEventHistoryService);
