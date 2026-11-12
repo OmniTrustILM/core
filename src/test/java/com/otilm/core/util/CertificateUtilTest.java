@@ -63,6 +63,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -179,12 +180,17 @@ class CertificateUtilTest {
     }
 
     @Test
-    void testPrepareIssuedCertificate_storesTheValidityOfTheCertificate() throws Exception {
+    void storesTheCertificateValidity_whenPreparingAnIssuedCertificate() throws Exception {
+        // given
         X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
         X509CertificateEntity entity = aCertificate().build();
+
+        // when
         CertificateUtil.prepareIssuedCertificate(entity, x509);
-        assertEquals(x509.getNotBefore(), entity.getNotBefore());
-        assertEquals(x509.getNotAfter(), entity.getNotAfter());
+
+        // then
+        assertThat(entity.getNotBefore()).isEqualTo(x509.getNotBefore());
+        assertThat(entity.getNotAfter()).isEqualTo(x509.getNotAfter());
     }
 
     @Test
