@@ -97,7 +97,7 @@ class DiscoveryV2ClientTest {
     private Discovery run;
 
     @BeforeEach
-    void setUp() {
+    void createClientAndRun() {
         client = clientOffering(OFFERED_MODES);
         // Runs the elevated body inline: the bare mock returns null without invoking it, so every assertion about
         // what the loaders received would pass while resolving nothing.
