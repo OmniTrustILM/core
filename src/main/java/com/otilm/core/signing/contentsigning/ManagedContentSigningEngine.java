@@ -93,7 +93,7 @@ public class ManagedContentSigningEngine {
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, List<BigInteger> serials)
             throws SigningEngineException {
         requireReachableLevel(request.targetLevel(), profile);
-        requireDeclaredLevel(request.targetLevel(), profile);
+        requireDeclaredCeiling(profile);
         requireAcceptedTransfer(profile.familyDeclaration(), request.document());
         requireAcceptableSigningCertificate(profile);
         Instant signingTime = clockSource.wallTimeInstant();
@@ -142,7 +142,7 @@ public class ManagedContentSigningEngine {
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, List<BigInteger> serials)
             throws SigningEngineException {
         requireReachableLevel(request.targetLevel(), profile);
-        requireDeclaredLevel(request.targetLevel(), profile);
+        requireDeclaredCeiling(profile);
         if (request.targetLevel() == SignatureLevel.SIGNED) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
                     "augmentation to SIGNED was requested, but the document already carries a signature",
@@ -178,15 +178,18 @@ public class ManagedContentSigningEngine {
         }
     }
 
-    /** A reconnect may have lowered the family's levels since the profile was saved. */
-    private static void requireDeclaredLevel(SignatureLevel target, ResolvedManagedContentSigningProfile profile)
+    /**
+     * A reconnect may have lowered the family's ceiling since the profile was saved. The declared levels have no gap,
+     * so a declared ceiling covers every level beneath it.
+     */
+    private static void requireDeclaredCeiling(ResolvedManagedContentSigningProfile profile)
             throws SigningEngineException {
         SignatureFamilyDeclarationDto family = profile.familyDeclaration();
-        boolean declared = family.getLevels().stream().anyMatch(level -> level.getLevel() == target);
+        boolean declared = family.getLevels().stream().anyMatch(level -> level.getLevel() == profile.maxLevel());
         if (!declared) {
             throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
-                    "level %s was requested, which the formatting connector of Signing Profile '%s' no longer declares for %s"
-                            .formatted(target, profile.name(), family.getLabel()),
+                    "Signing Profile '%s' permits up to %s, which its formatting connector no longer declares for %s"
+                            .formatted(profile.name(), profile.maxLevel(), family.getLabel()),
                     CLIENT_MESSAGE);
         }
     }

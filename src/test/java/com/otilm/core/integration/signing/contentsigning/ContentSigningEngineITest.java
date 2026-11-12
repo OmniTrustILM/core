@@ -174,7 +174,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         timestampingFormattingMock = connectorMockFactory.startTimestampingFormatting();
         contentSigningFormattingMock = connectorMockFactory
                 .startContentSigningFormatting()
-                .declareAdesFamiliesUpTo(SignatureLevel.TIMESTAMPED)
+                .stubAdesFamiliesUpTo(SignatureLevel.TIMESTAMPED)
                 .stubPerOperationFormattingAttributes()
                 .stubBaselineAndTimestampOperations();
 
@@ -746,7 +746,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void signsAFamilyThePlatformDoesNotKnow_whenTheConnectorDeclaresIt() throws Exception {
             // given
             contentSigningFormattingMock
-                    .declare(aFamilyDeclaration(CONNECTOR_ONLY_FAMILY)
+                    .stubDeclaration(aFamilyDeclaration(CONNECTOR_ONLY_FAMILY)
                             .withHighestLevel(SignatureLevel.SIGNED)
                             .buildDeclaration());
             reconnectContentSigningFormatting();
@@ -771,7 +771,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     SignatureLevel.SIGNED, null);
             var onlyAcceptedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
             contentSigningFormattingMock
-                    .declare(aFamilyDeclaration(SignatureFamily.PADES)
+                    .stubDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
                             .withHighestLevel(SignatureLevel.SIGNED)
                             .withSignatureAlgorithms(Set.of(onlyAcceptedAlgorithm))
                             .buildDeclaration());
@@ -796,7 +796,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             SigningProfileDto tsaProfile = createTimestampingProfile("lowered-levels-tsa");
             SigningProfileDto contentProfile = createContentSigningProfile("lowered-levels", SignatureFamily.PADES,
                     SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
-            contentSigningFormattingMock.declareAdesFamiliesUpTo(SignatureLevel.SIGNED);
+            contentSigningFormattingMock.stubAdesFamiliesUpTo(SignatureLevel.SIGNED);
             reconnectContentSigningFormatting();
             byte[] document = "a document".getBytes(StandardCharsets.UTF_8);
 

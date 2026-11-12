@@ -1,5 +1,6 @@
 package com.otilm.core.integration.service.signingprofile;
 
+import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.profile.SigningProfileRequestDto;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -45,8 +46,8 @@ class ContentSigningSignerKeyITest extends SigningProfileTestBase {
         // then
         assertThatThrownBy(create)
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("is not eligible for signing workflow type")
-                .hasMessageContaining("No cryptographic key associated with certificate");
+                .hasMessageContaining(keyNotFoundRefusal(signer))
+                .hasMessageNotContaining("No cryptographic key associated with certificate");
     }
 
     @Test
@@ -64,8 +65,8 @@ class ContentSigningSignerKeyITest extends SigningProfileTestBase {
         // then
         assertThatThrownBy(create)
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("is not eligible for signing workflow type")
-                .hasMessageContaining("referenced by signing certificate " + signer.getUuid() + " not found");
+                .hasMessageContaining(keyNotFoundRefusal(signer))
+                .hasMessageNotContaining("referenced by signing certificate");
     }
 
     @ParameterizedTest
@@ -83,16 +84,36 @@ class ContentSigningSignerKeyITest extends SigningProfileTestBase {
         // then
         assertThatThrownBy(create)
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("is not eligible for signing workflow type")
-                .hasMessageContaining("No " + missingHalf + " key item found");
+                .hasMessageContaining(keyNotFoundRefusal(signer))
+                .hasMessageNotContaining("No " + missingHalf + " key item found");
+    }
+
+    @Test
+    void throwsNotFound_whenTheSignerCertificateDoesNotExist() {
+        // given
+        UUID unknownCertificate = UUID.randomUUID();
+        SigningProfileRequestDto request = managedPadesSigningRequest(unknownCertificate);
+
+        // when
+        ThrowingCallable create = () -> signingProfileService.createSigningProfile(request);
+
+        // then
+        assertThatThrownBy(create)
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining(unknownCertificate.toString());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    static Stream<Arguments> keysHoldingOneHalf() {
+    private static Stream<Arguments> keysHoldingOneHalf() {
         return Stream
                 .of(Arguments.of(named("only a public key", verifyingPublicKey(KeyAlgorithm.RSA)), "private"),
                         Arguments.of(named("only a private key", signingPrivateKey(KeyAlgorithm.RSA)), "public"));
+    }
+
+    private static String keyNotFoundRefusal(X509CertificateEntity signer) {
+        return "Signature algorithm cannot be resolved for certificate %s: Signing key could not be found."
+                .formatted(signer.getUuid());
     }
 
     private X509CertificateEntity seedSigner(CryptographicKey key) throws Exception {

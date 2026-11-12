@@ -232,6 +232,8 @@ class ContentSigningWorkflowValidatorTest {
         }
     }
 
+    // ── FamilyRestrictions ───────────────────────────────────────────────────
+
     @Nested
     class FamilyRestrictions {
 

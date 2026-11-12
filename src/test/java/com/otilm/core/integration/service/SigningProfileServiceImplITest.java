@@ -331,7 +331,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     private ConnectorDetailDto registerTimestampedRungConnector(ContentSigningFormattingMock mock, String name)
             throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
-        mock.declareAdesFamiliesUpTo(SignatureLevel.TIMESTAMPED).stubPerOperationFormattingAttributes();
+        mock.stubAdesFamiliesUpTo(SignatureLevel.TIMESTAMPED).stubPerOperationFormattingAttributes();
         return connectorService.createConnector(aV2ConnectorRequest().withName(name).withUrl(mock.getUrl()).build());
     }
 
@@ -1535,7 +1535,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void managedContentSigning_refusesTheProfile_whenTheFamilyListsOnlyOtherAlgorithms() {
+        void refusesTheProfile_whenTheFamilyListsOnlyOtherAlgorithms() {
             // given — the default signing attributes select SHA256withRSA
             var listedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
             declarationRepository
@@ -1559,7 +1559,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void managedContentSigning_createsTheProfile_whenTheFamilyListsTheResolvedAlgorithm() throws Exception {
+        void createsTheProfile_whenTheFamilyListsTheResolvedAlgorithm() throws Exception {
             // given — the default signing attributes select SHA256withRSA
             var resolvedAlgorithm = SignatureAlgorithm.SHA256_WITH_RSA;
             declarationRepository
@@ -1759,12 +1759,11 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesAContentSigningWorkflow_whenTheConnectorDoesNotDeclareTheFamily()
-                throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        void refusesAContentSigningWorkflow_whenTheConnectorDoesNotDeclareTheFamily() throws Exception {
             // given: a formatting connector declaring only the xades family
             ContentSigningFormattingMock xadesOnlyMock = connectorMockFactory.startContentSigningFormatting();
             try {
-                xadesOnlyMock.declare(aFamilyDeclaration(SignatureFamily.XADES).buildDeclaration());
+                xadesOnlyMock.stubDeclaration(aFamilyDeclaration(SignatureFamily.XADES).buildDeclaration());
                 ConnectorDetailDto xadesOnly = connectorService
                         .createConnector(aV2ConnectorRequest()
                                 .withName("content-signing-formatting-xades-only")
@@ -3796,7 +3795,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void discovery_atALevelTheProviderDoesNotReach_isRefusedTheWaySaveWouldRefuseIt() {
+        void refusesAsSaveWould_whenTheProviderDoesNotReachTheLevel() {
             // given: the registered provider declares the AdES families up to SIGNED only
             // when: the form asks for the descriptors of a TIMESTAMPED ceiling
             ThrowableAssert.ThrowingCallable discover = () -> signingProfileService
@@ -3843,12 +3842,11 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void discovery_forAFamilyTheProviderDoesNotServe_isRefusedTheWaySaveWouldRefuseIt()
-                throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
+        void refusesAsSaveWould_whenTheProviderDoesNotDeclareTheFamily() throws Exception {
             // given: a provider declaring only the xades family
             ContentSigningFormattingMock xadesOnlyMock = connectorMockFactory.startContentSigningFormatting();
             try {
-                xadesOnlyMock.declare(aFamilyDeclaration(SignatureFamily.XADES).buildDeclaration());
+                xadesOnlyMock.stubDeclaration(aFamilyDeclaration(SignatureFamily.XADES).buildDeclaration());
                 ConnectorDetailDto xadesOnly = connectorService
                         .createConnector(aV2ConnectorRequest()
                                 .withName("content-signing-formatting-xades-only-discovery")

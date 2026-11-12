@@ -797,56 +797,80 @@ class ManagedContentSigningEngineTest {
 
     }
 
+    // ── DeclarationGate ──────────────────────────────────────────────────────
+
     @Nested
     class DeclarationGate {
 
         @Test
-        void refusesBeforeComputeDtbs_whenTheConnectorNoLongerDeclaresTheTargetLevel() {
+        void refusesBeforeComputeDtbs_whenTheConnectorNoLongerDeclaresTheProfileCeiling() {
             // given — a reconnect lowered the family's levels below the profile's ceiling
+            var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                    .withMaxLevel(withdrawnCeiling)
                     .withFamilyDeclaration(
                             aFamilyDeclaration(SignatureFamily.PADES).withHighestLevel(SignatureLevel.SIGNED).build())
                     .build();
-            var undeclaredLevel = SignatureLevel.TIMESTAMPED;
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request(undeclaredLevel), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+                    .sign(request(withdrawnCeiling), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
                 assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                assertThat(refusal.operatorMessage()).contains(undeclaredLevel.name());
+                assertThat(refusal.operatorMessage()).contains(withdrawnCeiling.name());
             });
             verifyNoInteractions(formattingClient, acquisitions);
         }
 
         @Test
-        void refusesToAugment_whenTheConnectorNoLongerDeclaresTheTargetLevel() {
-            // given
+        void refusesBeforeComputeDtbs_whenTheTargetIsBelowTheWithdrawnCeiling() {
+            // given — a reconnect lowered the family's levels to SIGNED, which the request still targets
+            var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withMaxLevel(SignatureLevel.TIMESTAMPED)
+                    .withMaxLevel(withdrawnCeiling)
                     .withFamilyDeclaration(
                             aFamilyDeclaration(SignatureFamily.PADES).withHighestLevel(SignatureLevel.SIGNED).build())
                     .build();
-            var undeclaredLevel = SignatureLevel.TIMESTAMPED;
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+                assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+                assertThat(refusal.operatorMessage()).contains(withdrawnCeiling.name());
+            });
+            verifyNoInteractions(formattingClient, acquisitions);
+        }
+
+        @Test
+        void refusesToAugment_whenTheConnectorNoLongerDeclaresTheProfileCeiling() {
+            // given
+            var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
+            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
+                    .withMaxLevel(withdrawnCeiling)
+                    .withFamilyDeclaration(
+                            aFamilyDeclaration(SignatureFamily.PADES).withHighestLevel(SignatureLevel.SIGNED).build())
+                    .build();
 
             // when
             ThrowingCallable augment = () -> engine
-                    .augment(new AugmentationRequest(undeclaredLevel, "foreign document".getBytes(), null),
+                    .augment(new AugmentationRequest(withdrawnCeiling, "foreign document".getBytes(), null),
                             aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
             assertThatThrownBy(augment).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
                 assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
-                assertThat(refusal.operatorMessage()).contains(undeclaredLevel.name());
+                assertThat(refusal.operatorMessage()).contains(withdrawnCeiling.name());
             });
             verifyNoInteractions(formattingClient, acquisitions);
         }
 
         @Test
-        void refusesToReleaseTheKey_whenTheFamilyNoLongerAcceptsTheSignersAlgorithm() throws SigningEngineException {
+        void refusesToReleaseTheKey_whenTheFamilyNoLongerAcceptsTheSignersAlgorithm() throws Exception {
             // given
             var onlyAcceptedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
@@ -870,7 +894,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void signs_whenTheFamilyAcceptsTheSignersAlgorithm() throws SigningEngineException {
+        void signs_whenTheFamilyAcceptsTheSignersAlgorithm() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(SignatureLevel.SIGNED)

@@ -46,11 +46,11 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
                         interfaceInfo(ConnectorInterface.METRICS, List.of()),
                         interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of()),
                         interfaceInfo(ConnectorInterface.CONTENT_SIGNING_FORMATTING, List.of())));
-        declareAdesFamiliesUpTo(SignatureLevel.SIGNED);
+        stubAdesFamiliesUpTo(SignatureLevel.SIGNED);
     }
 
     /** Stubs the declaration route with the four AdES families up to {@code highestLevel}. */
-    public ContentSigningFormattingMock declareAdesFamiliesUpTo(SignatureLevel highestLevel) {
+    public ContentSigningFormattingMock stubAdesFamiliesUpTo(SignatureLevel highestLevel) {
         List<SignatureFamilyDeclarationDto> families = ADES_FAMILIES
                 .stream()
                 .map(family -> SignatureFamilyDeclarationDtoBuilder
@@ -58,11 +58,11 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
                         .withHighestLevel(highestLevel)
                         .build())
                 .toList();
-        return declare(new ContentSigningDeclarationDto(new ArrayList<>(families)));
+        return stubDeclaration(new ContentSigningDeclarationDto(new ArrayList<>(families)));
     }
 
     /** Stubs the declaration route Core reads when it connects or reconnects the connector. */
-    public ContentSigningFormattingMock declare(ContentSigningDeclarationDto declaration) {
+    public ContentSigningFormattingMock stubDeclaration(ContentSigningDeclarationDto declaration) {
         server
                 .stubFor(WireMock
                         .get(WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.DECLARATION))

@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
 
-    private static final String MIGRATION_RESOURCE = "db/migration/V202611111200__content_signing_declaration.sql";
+    private static final String MIGRATION_RESOURCE = "db/migration/V202611111300__content_signing_declaration.sql";
 
     @Autowired
     private DataSource dataSource;
@@ -43,7 +43,7 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
     private SigningProfileVersionRepository profileVersionRepository;
 
     @Test
-    void createsTheDeclarationTableWhoseRowsGoWithTheirConnector() throws Exception {
+    void deletesTheDeclarationRow_whenItsConnectorIsDeleted() throws Exception {
         // given
         UUID connectorUuid = insertConnector();
         try (Connection connection = dataSource.getConnection()) {
@@ -62,7 +62,8 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"PADES_FORMATTING", "XADES_FORMATTING", "CADES_FORMATTING", "JADES_FORMATTING"})
-    void unifiesTheFormattingInterfaceCode(String familyInterfaceCode) throws Exception {
+    void unifiesTheInterfaceCode_whenTheConnectorHasAFamilyFormattingInterface(String familyInterfaceCode)
+            throws Exception {
         // given
         UUID connectorUuid = insertConnector();
         try (Connection connection = dataSource.getConnection()) {
@@ -78,7 +79,7 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
     }
 
     @Test
-    void keepsAnInterfaceCodeOutsideFormatting() throws Exception {
+    void keepsTheInterfaceCode_whenItIsOutsideFormatting() throws Exception {
         // given
         UUID connectorUuid = insertConnector();
         try (Connection connection = dataSource.getConnection()) {
@@ -94,7 +95,7 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
     }
 
     @Test
-    void removesOnlyTheContentSigningFeatureFlags() throws Exception {
+    void removesOnlyTheContentSigningFlags_whenTheInterfaceAlsoHasOtherFeatures() throws Exception {
         // given
         UUID connectorUuid = insertConnector();
         try (Connection connection = dataSource.getConnection()) {
@@ -111,7 +112,7 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
     }
 
     @Test
-    void lowersTheSignatureFamilyToItsCode() throws Exception {
+    void lowersTheSignatureFamilyToItsCode_whenTheVersionHoldsTheEnumName() throws Exception {
         // given
         UUID versionUuid = insertProfileVersionOfFamily(SignatureFamily.PADES);
         try (Connection connection = dataSource.getConnection()) {

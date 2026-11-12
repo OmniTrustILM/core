@@ -1047,8 +1047,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         StaticKeyManagedSigningRequestDto scheme = requireStaticKeyManagedSigning(request.getSigningScheme());
         Connector formattingConnector = connectorService
                 .getConnectorEntity(SecuredUUID.fromUUID(requireSignatureFormattingConnectorUuid(w)));
+        requireCertificateAccess(scheme.getCertificateUuid());
         SignatureAlgorithm signatureAlgorithm = signatureAlgorithmOf(request.getName(), scheme);
         contentSigningWorkflowValidator.validate(w, formattingConnector, signatureAlgorithm, targetProfileUuid);
+    }
+
+    /** Signer resolution reads the certificate and its key items without access checks, so the caller's comes first. */
+    private void requireCertificateAccess(UUID certificateUuid) throws NotFoundException {
+        certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
     }
 
     /** Signing resolves the algorithm the same way, so save checks the algorithm the profile signs with. */
@@ -1058,8 +1064,11 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         try {
             return signerFactory.signatureAlgorithm(managedSchemeResolver.resolve(profileName, signing));
         } catch (SigningEngineException e) {
-            throw new ValidationException(notEligibleMessage(scheme.getCertificateUuid(),
-                    SigningWorkflowType.CONTENT_SIGNING, e.operatorMessage()));
+            log
+                    .info("Signing Profile '{}' cannot resolve its signature algorithm: {}", profileName,
+                            e.operatorMessage());
+            throw new ValidationException("Signature algorithm cannot be resolved for certificate %s: %s"
+                    .formatted(scheme.getCertificateUuid(), e.clientMessage()));
         }
     }
 
@@ -1151,17 +1160,11 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
 
     private static String notEligibleMessage(Certificate certificate, SigningWorkflowType workflowType,
             CertificatePurposeRequirements certificatePurpose) {
-        String reason = CertificateEligibilityUtil
-                .describeSigningPurposeMismatch(certificate, workflowType, certificatePurpose)
-                .orElse(null);
-        return notEligibleMessage(certificate.getUuid(), workflowType, reason);
-    }
-
-    private static String notEligibleMessage(UUID certificateUuid, SigningWorkflowType workflowType,
-            @Nullable String reason) {
-        String refusal = "Certificate %s is not eligible for signing workflow type %s"
-                .formatted(certificateUuid, workflowType);
-        return reason == null ? refusal : refusal + ": " + reason;
+        return "Certificate " + certificate.getUuid() + " is not eligible for signing workflow type " + workflowType
+                + CertificateEligibilityUtil
+                        .describeSigningPurposeMismatch(certificate, workflowType, certificatePurpose)
+                        .map(reason -> ": " + reason)
+                        .orElse("");
     }
 
     private static CertificatePurposeRequirements certificatePurposeOf(SigningProfileVersion version) {
