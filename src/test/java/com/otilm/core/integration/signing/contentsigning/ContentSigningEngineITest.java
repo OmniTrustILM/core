@@ -246,7 +246,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                 SignatureFamily.Codes.XADES,
                 SignatureFamily.Codes.CADES,
                 SignatureFamily.Codes.JADES})
-        void signsToTimestampedLevel_andTracesToItsTimestampRecord(SignatureFamily family) throws Exception {
+        void signsToTimestampedLevel_whenTheCeilingIsTimestamped(SignatureFamily family) throws Exception {
             // given: a profile of this family whose ceiling is TIMESTAMPED, pointing at an ILM-managed TSA profile
             SigningProfileDto tsaProfile = createTimestampingProfile("timestamped-run-tsa");
             SigningProfileDto contentProfile = createContentSigningProfile(profileName("timestamped-run", family),
@@ -282,7 +282,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                 SignatureFamily.Codes.XADES,
                 SignatureFamily.Codes.CADES,
                 SignatureFamily.Codes.JADES})
-        void signsToSignedLevel_andLeavesARecord(SignatureFamily family) throws Exception {
+        void signsToSignedLevel_whenTheCeilingIsSigned(SignatureFamily family) throws Exception {
             // given: a profile of this family whose ceiling is SIGNED, which names no timestamp source
             SigningProfileDto contentProfile = createContentSigningProfile(profileName("signed-run", family), family,
                     SignatureLevel.SIGNED, null);

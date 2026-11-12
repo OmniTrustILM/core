@@ -3796,7 +3796,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         @Test
         void refusesAsSaveWould_whenTheProviderDoesNotReachTheLevel() {
-            // given: the registered provider declares the AdES families up to SIGNED only
+            // given — the registered provider declares the AdES families up to SIGNED only
+
             // when: the form asks for the descriptors of a TIMESTAMPED ceiling
             ThrowableAssert.ThrowingCallable discover = () -> signingProfileService
                     .listContentSigningFormattingConnectorAttributes(

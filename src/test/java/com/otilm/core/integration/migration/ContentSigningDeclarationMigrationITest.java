@@ -48,14 +48,14 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
         UUID connectorUuid = insertConnector();
         try (Connection connection = dataSource.getConnection()) {
             simulateOldSchema(connection);
-
-            // when
             runMigration(connection);
-
-            // then
             execute(connection, "INSERT INTO connector_content_signing_declaration VALUES ('%s', '{\"families\": []}')"
                     .formatted(connectorUuid));
+
+            // when
             execute(connection, "DELETE FROM connector WHERE uuid = '%s'".formatted(connectorUuid));
+
+            // then
             assertThat(count(connection, "SELECT count(*) FROM connector_content_signing_declaration")).isZero();
         }
     }

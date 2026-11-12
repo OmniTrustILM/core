@@ -666,7 +666,7 @@ class ContentSigningWorkflowValidatorTest {
         }
 
         @Test
-        void reportsEveryInapplicableGroupTogether() {
+        void reportsEveryInapplicableGroup_whenSeveralAllowedGroupsDoNotApplyToTheFamily() {
             // given
             Connector connector = connectorDeclaring(SignatureFamily.XADES, SignatureLevel.SIGNED);
             ContentSigningWorkflowRequestDto request = request(SignatureFamily.XADES, SignatureLevel.SIGNED, null);
@@ -776,7 +776,7 @@ class ContentSigningWorkflowValidatorTest {
         }
 
         @Test
-        void reportsEveryUnsatisfiableGroupTogether() {
+        void reportsEveryUnsatisfiableGroup_whenAVisibleDefaultLacksPlacementAndContent() {
             // given
             Connector connector = connectorDeclaring(SignatureFamily.PADES, SignatureLevel.SIGNED);
             ContentSigningWorkflowRequestDto request = request(SignatureFamily.PADES, SignatureLevel.SIGNED, null);

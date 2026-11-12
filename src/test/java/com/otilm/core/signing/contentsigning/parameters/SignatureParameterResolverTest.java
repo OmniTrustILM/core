@@ -446,7 +446,7 @@ class SignatureParameterResolverTest {
 
     /** Violations are collected, so a mismatched family does not hide the groups the request also could not touch. */
     @Test
-    void reportsFamilyMismatchAlongsideDeniedGroups() {
+    void reportsFamilyMismatchAlongsideDeniedGroups_whenAWrongFamilyRequestTouchesADeniedGroup() {
         // given — a request touching a group the profile denies, on the wrong family
         PadesSignatureParametersDto requested = aPadesParameters().withSignerName("Jane Doe").build();
 
