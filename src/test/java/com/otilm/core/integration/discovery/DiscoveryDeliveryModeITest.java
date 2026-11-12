@@ -7,10 +7,7 @@ import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStopResponseDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
-import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
-import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
-import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
 import com.otilm.core.service.handler.discovery.DiscoveryDeliveryModeOffer;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderV2Adapter;
@@ -18,11 +15,10 @@ import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
 import com.otilm.core.service.writer.discovery.DiscoveryWorkWriter;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
-import com.otilm.core.util.DiscoveryInterfaceFixture;
+import com.otilm.core.util.seeders.DiscoveryRunSeeder;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,9 +52,7 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
     @Autowired
     private DiscoveryRepository discoveryRepository;
     @Autowired
-    private ConnectorRepository connectorRepository;
-    @Autowired
-    private ConnectorInterfaceRepository connectorInterfaceRepository;
+    private DiscoveryRunSeeder runSeeder;
 
     @AfterEach
     void restoreTheShippedOffer() {
@@ -69,7 +63,7 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
     void recordsTheChosenMode_whenInitiateAnswersWithAnOfferedMode() throws Exception {
         // given
         offerCheckpointedAndBuffered();
-        Discovery run = unstartedV2Run();
+        Discovery run = runSeeder.seedUnstartedV2Run();
         stubInitiateAnswering(DiscoveryDeliveryMode.CHECKPOINTED);
 
         // when
@@ -84,7 +78,7 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
     @Test
     void recordsBuffered_whenInitiateAnswersWithNoMode() throws Exception {
         // given
-        Discovery run = unstartedV2Run();
+        Discovery run = runSeeder.seedUnstartedV2Run();
         DiscoveryDeliveryMode noModeAnswered = null;
         stubInitiateAnswering(noModeAnswered);
 
@@ -100,7 +94,7 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
     @Test
     void failsTheRun_whenInitiateAnswersWithAModeThatWasNotOffered() throws Exception {
         // given — the shipped offer, which names buffered only
-        Discovery run = unstartedV2Run();
+        Discovery run = runSeeder.seedUnstartedV2Run();
         var notOffered = DiscoveryDeliveryMode.CHECKPOINTED;
         stubInitiateAnswering(notOffered);
 
@@ -259,29 +253,8 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
         return discoveryRepository.findByUuid(run.getUuid()).orElseThrow();
     }
 
-    private Discovery unstartedV2Run() {
-        Discovery run = new Discovery();
-        run.setName("v2-scan-" + UUID.randomUUID());
-        run.setKind("IP-HostName");
-        run.setStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
-        run.setConnectorUuid(UUID.randomUUID());
-        run.setConnectorName("network-discovery");
-        run.setResources(List.of(Resource.CERTIFICATE));
-        return discoveryRepository.saveAndFlush(run);
-    }
-
     private Discovery stoppableV2Run(DiscoveryStatus status, DiscoveryDeliveryMode mode) {
-        ConnectorInterfaceEntity discoveryInterface = DiscoveryInterfaceFixture
-                .v2Interface(connectorRepository, connectorInterfaceRepository, FeatureFlag.DISCOVERY_STOP_RESUME);
-        Discovery run = new Discovery();
-        run.setName("v2-scan-" + UUID.randomUUID());
-        run.setKind("IP-HostName");
-        run.setStatus(status);
-        run.setConnectorStatus(status);
-        run.setConnectorUuid(discoveryInterface.getConnectorUuid());
-        run.setConnectorName("network-discovery");
-        run.setConnectorInterfaceUuid(discoveryInterface.getUuid());
+        Discovery run = runSeeder.seedV2Run(status, FeatureFlag.DISCOVERY_STOP_RESUME);
         run.setResources(List.of(Resource.CERTIFICATE));
         run.setStoppable(true);
         run.setDeliveryMode(mode);
