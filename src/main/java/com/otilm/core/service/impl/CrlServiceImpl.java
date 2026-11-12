@@ -1,6 +1,8 @@
 package com.otilm.core.service.impl;
 
+import com.otilm.api.exception.PlatformException;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Crl;
 import com.otilm.core.dao.entity.CrlEntry;
@@ -11,28 +13,35 @@ import com.otilm.core.dao.repository.CrlRepository;
 import com.otilm.core.service.CrlService;
 import com.otilm.core.service.writer.CrlEntryData;
 import com.otilm.core.service.writer.CrlWriter;
+import com.otilm.core.service.writer.CrlWriter.CrlWrite;
 import com.otilm.core.util.CrlUtil;
 import com.otilm.core.util.PlatformX500NameStyle;
+import com.otilm.core.util.crl.CrlDownloadException;
+import com.otilm.core.util.crl.CrlDownloadGuard;
+import com.otilm.core.util.crl.CrlDownloader;
+import com.otilm.core.util.crl.CrlRefusedException;
+import com.otilm.core.util.crl.EncodedCrl;
+import com.otilm.core.util.crl.RevokedCertificate;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
 import java.io.IOException;
 import java.math.BigInteger;
-import java.security.GeneralSecurityException;
 import java.security.PublicKey;
 import java.security.cert.CRLReason;
 import java.security.cert.X509CRL;
-import java.security.cert.X509CRLEntry;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 import javax.security.auth.x500.X500Principal;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -42,9 +51,9 @@ import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.TransactionException;
 
 @Service
 public class CrlServiceImpl implements CrlService {
@@ -62,6 +71,10 @@ public class CrlServiceImpl implements CrlService {
     private CrlWriter crlWriter;
 
     private EntityManager entityManager;
+
+    private CrlDownloader crlDownloader;
+
+    private CrlDownloadGuard crlDownloadGuard;
 
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
@@ -88,12 +101,73 @@ public class CrlServiceImpl implements CrlService {
         this.entityManager = entityManager;
     }
 
+    @Autowired
+    public void setCrlDownloader(CrlDownloader crlDownloader) {
+        this.crlDownloader = crlDownloader;
+    }
+
+    @Autowired
+    public void setCrlDownloadGuard(CrlDownloadGuard crlDownloadGuard) {
+        this.crlDownloadGuard = crlDownloadGuard;
+    }
+
+    /**
+     * Returns the stored CRL while it is current. Otherwise one validation of the issuer at a time downloads it, and
+     * those that waited find it stored.
+     *
+     * <p>
+     * A certificate the stored base CRL lists stays revoked when only its delta CRL is due and cannot be read, also
+     * when a wait ends first ({@link #throwUnlessStoredCrlLists}). After a failure the stored CRL is read again, and
+     * one stored meanwhile is used unless this validation read a delta CRL whose write failed, or was declined while
+     * the stored CRL was older.
+     */
     @Override
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @OutsideTransaction
     public UUID getCurrentCrl(X509Certificate certificate, X509Certificate issuerCertificate) throws IOException {
         byte[] issuerDnPrincipalEncoded = certificate.getIssuerX500Principal().getEncoded();
         String issuerDn = X500Name.getInstance(new PlatformX500NameStyle(true), issuerDnPrincipalEncoded).toString();
         String issuerSerialNumber = issuerCertificate.getSerialNumber().toString(16);
+        Crl storedCrl = findStoredCrl(issuerDn, issuerSerialNumber);
+        if (storedCrl != null && !isDue(storedCrl, certificate)) {
+            return storedCrl.getUuid();
+        }
+        try {
+            return crlDownloadGuard.underIssuerLock(issuerDn + "|" + issuerSerialNumber, () -> {
+                Crl crlStoredMeanwhile = findStoredCrl(issuerDn, issuerSerialNumber);
+                if (crlStoredMeanwhile != null && !isDue(crlStoredMeanwhile, certificate)) {
+                    return crlStoredMeanwhile.getUuid();
+                }
+                return crlDownloadGuard
+                        .withDownloadPermit(
+                                () -> readCurrentCrl(certificate, issuerCertificate, issuerDn, issuerSerialNumber));
+            });
+        } catch (IOException e) {
+            Crl crlStoredNow = findStoredCrl(issuerDn, issuerSerialNumber);
+            if (crlStoredNow == null || isBaseCrlDue(crlStoredNow)) {
+                throw e;
+            }
+            if (isDue(crlStoredNow, certificate) || e instanceof StoredCrlOlderThanDeltaCrlException) {
+                throwUnlessStoredCrlLists(certificate, crlStoredNow, e);
+            }
+            return crlStoredNow.getUuid();
+        }
+    }
+
+    private static boolean isDue(Crl crl, X509Certificate certificate) {
+        return isBaseCrlDue(crl)
+                || (certificate.getExtensionValue(Extension.freshestCRL.getId()) != null && isDeltaCrlDue(crl));
+    }
+
+    /**
+     * A stored base CRL is due once its next update has passed by more than the clock skew a downloaded CRL is allowed,
+     * so a CA publishing a little late does not make every validation download the same CRL again.
+     */
+    private static boolean isBaseCrlDue(Crl crl) {
+        return crl.getNextUpdate().toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
+    }
+
+    private UUID readCurrentCrl(X509Certificate certificate, X509Certificate issuerCertificate, String issuerDn,
+            String issuerSerialNumber) throws IOException {
         Crl crl = findStoredCrl(issuerDn, issuerSerialNumber);
         Certificate caCertificate = certificateRepository
                 .findBySubjectDnNormalizedAndSerialNumber(issuerDn, issuerSerialNumber)
@@ -101,25 +175,25 @@ public class CrlServiceImpl implements CrlService {
         byte[] crlDistributionPoints = certificate.getExtensionValue(Extension.cRLDistributionPoints.getId());
 
         UUID caCertificateUuid = caCertificate != null ? caCertificate.getUuid() : null;
-        CertificateIssuer issuer = new CertificateIssuer(certificate.getIssuerX500Principal(),
-                issuerCertificate.getPublicKey());
+        CrlRead read = new CrlRead(certificate.getIssuerX500Principal(), issuerCertificate.getPublicKey(),
+                new DownloadBudget(crlDownloader.downloadTimeout()));
         // If CRL is not present or current UTC time is past its next_update timestamp, download the CRL and save the
         // CRL and its entries in database
         if (crl == null) {
             Crl newCrl = downloadAndPersistNewCrl(crlDistributionPoints, issuerDn, issuerSerialNumber,
-                    caCertificateUuid, issuer);
+                    caCertificateUuid, read);
             if (newCrl != null) {
                 crl = newCrl;
             }
-        } else if (crl.getNextUpdate().before(new Date())) {
-            refreshExistingCrl(crl, crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid, issuer,
+        } else if (isBaseCrlDue(crl)) {
+            refreshExistingCrl(crl, crlDistributionPoints, issuerDn, issuerSerialNumber, caCertificateUuid, read,
                     BigInteger.ZERO);
         }
 
         if (crl != null && certificate.getExtensionValue(Extension.freshestCRL.getId()) != null && isDeltaCrlDue(crl)) {
             try {
                 updateCrlAndCrlEntriesFromDeltaCrl(certificate, crl, issuerDn, issuerSerialNumber, caCertificateUuid,
-                        issuer);
+                        read);
             } catch (IOException e) {
                 throwUnlessStoredCrlLists(certificate, crl, e);
             }
@@ -176,8 +250,8 @@ public class CrlServiceImpl implements CrlService {
      * @return the freshly persisted entity, or {@code null} if no configured URL returned a usable CRL.
      */
     private Crl downloadAndPersistNewCrl(byte[] crlDistributionPointsEncoded, String issuerDn,
-            String issuerSerialNumber, UUID caCertificateUuid, CertificateIssuer issuer) throws IOException {
-        return downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, null, issuer,
+            String issuerSerialNumber, UUID caCertificateUuid, CrlRead read) throws IOException {
+        return downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, null, read,
                 BigInteger.ZERO);
     }
 
@@ -187,34 +261,31 @@ public class CrlServiceImpl implements CrlService {
      * delta CRL extending a base CRL with that number proves that a newer CRL exists.
      */
     private void refreshExistingCrl(Crl existing, byte[] crlDistributionPointsEncoded, String issuerDn,
-            String issuerSerialNumber, UUID caCertificateUuid, CertificateIssuer issuer, BigInteger lowestCrlNumber)
+            String issuerSerialNumber, UUID caCertificateUuid, CrlRead read, BigInteger lowestCrlNumber)
             throws IOException {
-        downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, existing, issuer,
+        downloadCrl(crlDistributionPointsEncoded, issuerDn, issuerSerialNumber, caCertificateUuid, existing, read,
                 lowestCrlNumber);
     }
 
     private Crl downloadCrl(byte[] crlDistributionPointsEncoded, String issuerDn, String issuerSerialNumber,
-            UUID caCertificateUuid, Crl oldCrl, CertificateIssuer issuer, BigInteger lowestCrlNumber)
-            throws IOException {
+            UUID caCertificateUuid, Crl oldCrl, CrlRead read, BigInteger lowestCrlNumber) throws IOException {
         List<String> crlUrls = CrlUtil.getCDPFromCertificate(crlDistributionPointsEncoded, "cRLDistributionPoints");
+        String downloadKey = downloadKey("base", issuerDn, issuerSerialNumber, crlDistributionPointsEncoded);
+        crlDownloadGuard.rethrowRecentFailure(downloadKey);
 
         String lastReasonToIgnore = null;
         for (String crlUrl : crlUrls) {
-            X509CRL x509CRL;
-            try {
-                x509CRL = CrlUtil.getX509Crl(crlUrl);
-            } catch (Exception e) {
-                logger.error("Failed to read CRL content from URL: {}, {}", crlUrl, e.getMessage());
-                x509CRL = null;
-            }
-            String reasonToIgnore = x509CRL == null
-                    ? "it could not be read"
-                    : findReasonToIgnore(x509CRL, false, issuer, oldCrl, lowestCrlNumber, crlUrl);
+            DownloadedCrl downloaded = downloadCrl(crlUrl, false, read.budget());
+            EncodedCrl downloadedCrl = downloaded.crl();
+            String reasonToIgnore = downloadedCrl == null
+                    ? downloaded.reasonUnread()
+                    : findReasonToIgnore(downloadedCrl, false, read, oldCrl, lowestCrlNumber, crlUrl);
             if (reasonToIgnore != null) {
                 lastReasonToIgnore = reasonToIgnore;
                 continue;
             }
 
+            X509CRL x509CRL = downloadedCrl.header();
             String crlNumber = readCrlNumber(x509CRL).toString();
 
             boolean isNewCrl = oldCrl == null;
@@ -240,11 +311,22 @@ public class CrlServiceImpl implements CrlService {
             crl.setNextUpdate(x509CRL.getNextUpdate());
             crl.setCrlNumber(crlNumber);
 
-            List<CrlEntryData> entries = new ArrayList<>();
-            Date lastRevocationDate = collectEntries(x509CRL, entries);
+            Iterable<CrlEntryData> entries = entryData(downloadedCrl, entry -> true);
+            Date lastRevocationDate = downloadedCrl.lastRevocationDate();
 
-            UUID persistedUuid = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
-            crl.setUuid(persistedUuid);
+            CrlWrite write;
+            try {
+                write = crlWriter.persistCrlAndEntries(crl, isNewCrl, entries, lastRevocationDate);
+            } catch (DataAccessException | TransactionException | PersistenceException e) {
+                logger.error("Failed to store the CRL from {}: {}", crlUrl, e.getMessage());
+                IOException failure = new IOException("The CRL could not be stored");
+                crlDownloadGuard.rememberFailure(downloadKey, failure);
+                throw failure;
+            }
+            if (!write.written()) {
+                return adoptStoredState(crl, issuerDn, issuerSerialNumber);
+            }
+            crl.setUuid(write.crlUuid());
             crl.setLastRevocationDate(lastRevocationDate);
             // Storing a base CRL drops the delta CRL applied to the one it replaces.
             crl.setCrlNumberDelta(null);
@@ -253,27 +335,64 @@ public class CrlServiceImpl implements CrlService {
         }
 
         if (lastReasonToIgnore != null) {
-            throw new IOException(
+            IOException failure = new IOException(
                     "Failed to read a usable CRL from %d available URL(s); the last one was ignored because %s"
                             .formatted(crlUrls.size(), lastReasonToIgnore));
+            crlDownloadGuard.rememberFailure(downloadKey, failure);
+            throw failure;
         }
 
         return null;
     }
 
-    private Date collectEntries(X509CRL x509CRL, List<CrlEntryData> sink) {
-        Set<? extends X509CRLEntry> crlCertificates = x509CRL.getRevokedCertificates();
-        if (crlCertificates == null) {
-            return null;
-        }
-        Date lastRevocationDate = new Date(0);
-        for (X509CRLEntry x509CRLEntry : crlCertificates) {
-            sink.add(toEntryData(x509CRLEntry));
-            if (x509CRLEntry.getRevocationDate().after(lastRevocationDate)) {
-                lastRevocationDate = x509CRLEntry.getRevocationDate();
+    /**
+     * Identifies a download by the issuer and the extension naming its URLs, so certificates of the issuer pointing at
+     * other CRLs are not refused for a failure of this one.
+     */
+    private static String downloadKey(String kind, String issuerDn, String issuerSerialNumber,
+            byte[] distributionPointsEncoded) {
+        String distributionPoints = distributionPointsEncoded == null
+                ? ""
+                : Base64.getEncoder().encodeToString(distributionPointsEncoded);
+        return String.join("|", kind, issuerDn, issuerSerialNumber, distributionPoints);
+    }
+
+    private DownloadedCrl downloadCrl(String crlUrl, boolean delta, DownloadBudget budget) {
+        try {
+            byte[] encoded = budget.spendOn(deadline -> crlDownloader.download(crlUrl, deadline));
+            return new DownloadedCrl(EncodedCrl.parse(encoded), null);
+        } catch (CrlDownloadException e) {
+            logger.warn("Ignoring the CRL from {}: {}", crlUrl, e.reason());
+            return new DownloadedCrl(null, e.reason());
+        } catch (CrlRefusedException e) {
+            logger.warn("Ignoring the CRL from {}: {}", crlUrl, e.reason());
+            return new DownloadedCrl(null, e.reason());
+        } catch (Exception e) {
+            if (delta) {
+                logger.debug("Failed to read the delta CRL from {}: {}", crlUrl, e.getMessage());
+            } else {
+                logger.error("Failed to read CRL content from URL: {}, {}", crlUrl, e.getMessage());
             }
+            return new DownloadedCrl(null, "it could not be read");
         }
-        return lastRevocationDate;
+    }
+
+    /**
+     * Gives {@code crl} the state of the stored row, after a writer for another validation stored the same CRL or a
+     * newer one first. Callers refreshing a stored CRL read the refreshed state from the {@link Crl} they passed.
+     */
+    private Crl adoptStoredState(Crl crl, String issuerDn, String issuerSerialNumber) {
+        Crl stored = findStoredCrl(issuerDn, issuerSerialNumber);
+        if (stored == null) {
+            throw new IllegalStateException("CRL row of issuer " + issuerDn + " not found after it was stored");
+        }
+        crl.setUuid(stored.getUuid());
+        crl.setCrlNumber(stored.getCrlNumber());
+        crl.setNextUpdate(stored.getNextUpdate());
+        crl.setLastRevocationDate(stored.getLastRevocationDate());
+        crl.setCrlNumberDelta(stored.getCrlNumberDelta());
+        crl.setNextUpdateDelta(stored.getNextUpdateDelta());
+        return crl;
     }
 
     /**
@@ -284,82 +403,100 @@ public class CrlServiceImpl implements CrlService {
      * current one (RFC 5280 section 6.3.3)
      */
     private void updateCrlAndCrlEntriesFromDeltaCrl(X509Certificate certificate, Crl crl, String issuerDn,
-            String issuerSerialNumber, UUID caCertificateUuid, CertificateIssuer issuer) throws IOException {
-        List<String> deltaCrlUrls = CrlUtil
-                .getCDPFromCertificate(certificate.getExtensionValue(Extension.freshestCRL.getId()), "freshestCRL");
+            String issuerSerialNumber, UUID caCertificateUuid, CrlRead read) throws IOException {
+        byte[] freshestCrlEncoded = certificate.getExtensionValue(Extension.freshestCRL.getId());
+        List<String> deltaCrlUrls = CrlUtil.getCDPFromCertificate(freshestCrlEncoded, "freshestCRL");
         if (deltaCrlUrls.isEmpty()) {
             throw new IOException("The certificate names a delta CRL without a URL to read it from");
         }
+        String downloadKey = downloadKey("delta", issuerDn, issuerSerialNumber, freshestCrlEncoded);
+        crlDownloadGuard.rethrowRecentFailure(downloadKey);
         String lastReasonToIgnore = null;
         for (String deltaCrlUrl : deltaCrlUrls) {
-            X509CRL deltaCrl = readDeltaCrl(deltaCrlUrl);
+            DownloadedCrl downloaded = downloadCrl(deltaCrlUrl, true, read.budget());
+            EncodedCrl deltaCrl = downloaded.crl();
             String reasonToIgnore = deltaCrl == null
-                    ? "it could not be read"
-                    : findReasonToIgnore(deltaCrl, true, issuer, crl, BigInteger.ZERO, deltaCrlUrl);
-            if (reasonToIgnore == null && extendsNewerBaseCrl(deltaCrl, crl)) {
+                    ? downloaded.reasonUnread()
+                    : findReasonToIgnore(deltaCrl, true, read, crl, BigInteger.ZERO, deltaCrlUrl);
+            if (reasonToIgnore == null && extendsNewerBaseCrl(deltaCrl.header(), crl)) {
                 refreshExistingCrl(crl, certificate.getExtensionValue(Extension.cRLDistributionPoints.getId()),
-                        issuerDn, issuerSerialNumber, caCertificateUuid, issuer, readBaseCrlNumber(deltaCrl));
+                        issuerDn, issuerSerialNumber, caCertificateUuid, read, readBaseCrlNumber(deltaCrl.header()));
             }
             if (reasonToIgnore == null) {
-                reasonToIgnore = findBaseCrlMismatch(deltaCrl, crl, deltaCrlUrl);
+                reasonToIgnore = findBaseCrlMismatch(deltaCrl.header(), crl, deltaCrlUrl);
             }
             if (reasonToIgnore == null) {
-                updateDeltaCrl(crl, deltaCrl);
+                updateDeltaCrl(crl, deltaCrl, downloadKey);
                 return;
             }
             lastReasonToIgnore = reasonToIgnore;
         }
-        throw new IOException(
+        IOException failure = new IOException(
                 "Failed to read a usable delta CRL from %d available URL(s); the last one was ignored because %s"
                         .formatted(deltaCrlUrls.size(), lastReasonToIgnore));
+        crlDownloadGuard.rememberFailure(downloadKey, failure);
+        throw failure;
     }
 
-    private static X509CRL readDeltaCrl(String deltaCrlUrl) {
-        try {
-            return CrlUtil.getX509Crl(deltaCrlUrl);
-        } catch (Exception e) {
-            logger.debug("Failed to read the delta CRL from {}: {}", deltaCrlUrl, e.getMessage());
-            return null;
-        }
-    }
-
-    private void updateDeltaCrl(Crl crl, X509CRL deltaCrl) throws IOException {
-        BigInteger deltaCrlNumber = readCrlNumber(deltaCrl);
+    private void updateDeltaCrl(Crl crl, EncodedCrl deltaCrl, String downloadKey) throws IOException {
+        BigInteger deltaCrlNumber = readCrlNumber(deltaCrl.header());
         // The stored delta CRL is applied already, and findReasonToIgnore refused older ones.
         if (crl.getCrlNumberDelta() != null && deltaCrlNumber.compareTo(new BigInteger(crl.getCrlNumberDelta())) <= 0) {
             return;
         }
 
-        List<CrlEntryData> upserts = new ArrayList<>();
-        List<String> removals = new ArrayList<>();
-        classifyDeltaEntries(deltaCrl, upserts, removals);
+        // A delta CRL lists every change since its base CRL, so each entry is applied, also one dated before a
+        // revocation already stored, and removeFromCRL only ever removes an entry.
+        Iterable<String> removals = () -> stream(deltaCrl)
+                .filter(CrlServiceImpl::removesFromCrl)
+                .map(entry -> entry.serialNumber().toString(16))
+                .iterator();
+        Iterable<CrlEntryData> upserts = entryData(deltaCrl, entry -> !removesFromCrl(entry));
         Date lastRevocationDate = Stream
                 .concat(Stream.ofNullable(crl.getLastRevocationDate()),
-                        upserts.stream().map(CrlEntryData::revocationDate))
+                        StreamSupport.stream(upserts.spliterator(), false).map(CrlEntryData::revocationDate))
                 .max(Comparator.naturalOrder())
                 .orElse(null);
 
-        crlWriter
-                .applyDeltaCrl(crl.getUuid(), upserts, removals, deltaCrlNumber.toString(), deltaCrl.getNextUpdate(),
-                        lastRevocationDate);
+        boolean applied;
+        try {
+            applied = crlWriter
+                    .applyDeltaCrl(crl.getUuid(), crl.getCrlNumber(), removals, upserts, deltaCrlNumber.toString(),
+                            deltaCrl.header().getNextUpdate(), lastRevocationDate);
+        } catch (DataAccessException | TransactionException | PersistenceException e) {
+            logger.error("Failed to store the delta CRL of issuer {}: {}", crl.getIssuerDn(), e.getMessage());
+            IOException failure = new StoredCrlOlderThanDeltaCrlException("The delta CRL could not be stored");
+            crlDownloadGuard.rememberFailure(downloadKey, failure);
+            throw failure;
+        }
+        if (!applied) {
+            requireDeltaCrlStoredMeanwhile(crl, deltaCrlNumber);
+        }
     }
 
     /**
-     * A delta CRL lists every change since its base CRL, so each entry is applied, also one dated before a revocation
-     * already stored, and removeFromCRL only ever removes an entry.
+     * Another writer, possibly on another Core instance, changed the stored CRL first. Its entries answer the check
+     * only if numbered at or above this delta CRL, since complete and delta CRLs share one numbering sequence; an older
+     * base CRL would miss what this delta CRL lists.
      */
-    private static void classifyDeltaEntries(X509CRL deltaCrl, List<CrlEntryData> upserts, List<String> removals) {
-        Set<? extends X509CRLEntry> deltaCrlEntries = deltaCrl.getRevokedCertificates();
-        if (deltaCrlEntries == null) {
-            return;
+    private void requireDeltaCrlStoredMeanwhile(Crl crl, BigInteger deltaCrlNumber) throws IOException {
+        Crl stored = findStoredCrl(crl.getIssuerDn(), crl.getSerialNumber());
+        boolean storedCrlIsAsNew = stored != null && newestStoredCrlNumber(stored).compareTo(deltaCrlNumber) >= 0;
+        if (!storedCrlIsAsNew) {
+            throw new StoredCrlOlderThanDeltaCrlException("The stored CRL changed while its delta CRL was applied");
         }
-        for (X509CRLEntry deltaCrlEntry : deltaCrlEntries) {
-            if (CRLReason.REMOVE_FROM_CRL.equals(deltaCrlEntry.getRevocationReason())) {
-                removals.add(deltaCrlEntry.getSerialNumber().toString(16));
-            } else {
-                upserts.add(toEntryData(deltaCrlEntry));
-            }
-        }
+    }
+
+    private static boolean removesFromCrl(RevokedCertificate entry) {
+        return CRLReason.REMOVE_FROM_CRL.equals(entry.reason());
+    }
+
+    private static Iterable<CrlEntryData> entryData(EncodedCrl crl, Predicate<RevokedCertificate> filter) {
+        return () -> stream(crl).filter(filter).map(CrlServiceImpl::toEntryData).iterator();
+    }
+
+    private static Stream<RevokedCertificate> stream(EncodedCrl crl) {
+        return StreamSupport.stream(crl.entries().spliterator(), false);
     }
 
     /**
@@ -367,12 +504,13 @@ public class CrlServiceImpl implements CrlService {
      * certificate's issuer, after logging it at WARN, or {@code null} when it can. A CRL that would replace or update
      * {@code storedCrl} must not be older than it, nor numbered below {@code lowestCrlNumber}.
      */
-    private static String findReasonToIgnore(X509CRL crl, boolean delta, CertificateIssuer issuer, Crl storedCrl,
+    private static String findReasonToIgnore(EncodedCrl encodedCrl, boolean delta, CrlRead read, Crl storedCrl,
             BigInteger lowestCrlNumber, String crlUrl) throws IOException {
+        X509CRL crl = encodedCrl.header();
         String reason = null;
-        if (!crl.getIssuerX500Principal().equals(issuer.name())) {
+        if (!crl.getIssuerX500Principal().equals(read.issuerName())) {
             reason = "it names another issuer (%s)".formatted(crl.getIssuerX500Principal().getName());
-        } else if (!isSignedBy(crl, issuer.publicKey())) {
+        } else if (!encodedCrl.isSignedBy(read.issuerKey())) {
             reason = "its signature does not verify with the issuer's public key";
         } else if (isDeltaCrl(crl) != delta) {
             reason = delta ? "it is not a delta CRL" : "it is a delta CRL";
@@ -393,24 +531,15 @@ public class CrlServiceImpl implements CrlService {
         return reason;
     }
 
-    private static boolean isSignedBy(X509CRL crl, PublicKey publicKey) {
-        try {
-            crl.verify(publicKey);
-            return true;
-        } catch (GeneralSecurityException e) {
-            logger.debug("CRL signature does not verify with the key: {}", e.getMessage());
-            return false;
-        }
-    }
-
     /**
-     * A delta CRL is downloaded when none is stored, when the stored one is past its next update, or when the stored
-     * one is numbered below the stored base CRL, so it cannot extend it.
+     * A delta CRL is downloaded when none is stored, when the stored one is past its next update by more than the clock
+     * skew a stored base CRL is allowed too, or when the stored one is numbered below the stored base CRL, so it cannot
+     * extend it.
      */
     private static boolean isDeltaCrlDue(Crl crl) {
         return crl.getCrlNumberDelta() == null || crl.getNextUpdateDelta() == null
                 || new BigInteger(crl.getCrlNumberDelta()).compareTo(new BigInteger(crl.getCrlNumber())) < 0
-                || crl.getNextUpdateDelta().toInstant().isBefore(Instant.now());
+                || crl.getNextUpdateDelta().toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
     }
 
     private static boolean isDeltaCrl(X509CRL crl) {
@@ -469,15 +598,60 @@ public class CrlServiceImpl implements CrlService {
         return ASN1Integer.getInstance(JcaX509ExtensionUtils.parseExtensionValue(extensionValue)).getValue();
     }
 
-    private static CrlEntryData toEntryData(X509CRLEntry x509CRLEntry) {
-        String serialNumber = x509CRLEntry.getSerialNumber().toString(16);
-        String reason = x509CRLEntry.getRevocationReason() == null
-                ? CertificateRevocationReason.UNSPECIFIED.name()
-                : CertificateRevocationReason.fromCrlReason(x509CRLEntry.getRevocationReason()).name();
-        return new CrlEntryData(serialNumber, x509CRLEntry.getRevocationDate(), reason);
+    /**
+     * A reason the platform has no value for, such as aACompromise, or unused and removeFromCRL listed in a complete
+     * CRL, is stored as unspecified: the entry still revokes the certificate.
+     */
+    static CrlEntryData toEntryData(RevokedCertificate entry) {
+        String serialNumber = entry.serialNumber().toString(16);
+        CertificateRevocationReason platformReason = entry.reason() == null
+                ? null
+                : CertificateRevocationReason.fromCrlReason(entry.reason());
+        String reason = Objects.requireNonNullElse(platformReason, CertificateRevocationReason.UNSPECIFIED).name();
+        return new CrlEntryData(serialNumber, entry.revocationDate(), reason);
     }
 
-    /** The name a CRL must carry and the key its signature must verify with to count for a certificate. */
-    private record CertificateIssuer(X500Principal name, PublicKey publicKey) {
+    static final class StoredCrlOlderThanDeltaCrlException extends IOException implements PlatformException {
+
+        StoredCrlOlderThanDeltaCrlException(String message) {
+            super(message);
+        }
+    }
+
+    /** One read of an issuer's CRLs. */
+    private record CrlRead(X500Principal issuerName, PublicKey issuerKey, DownloadBudget budget) {
+    }
+
+    /**
+     * The download time a read of an issuer's CRLs has left. All its downloads share it, so a permit is held for at
+     * most one download timeout, however many URLs the certificate names. Parsing and storing do not spend it, so
+     * storing a large base CRL leaves its delta CRL time to be read.
+     */
+    static final class DownloadBudget {
+
+        private long remainingNanos;
+
+        DownloadBudget(Duration downloadTimeout) {
+            this.remainingNanos = downloadTimeout.toNanos();
+        }
+
+        /** Runs one download with a deadline of what is left, and spends the time it took. */
+        byte[] spendOn(Download download) throws IOException {
+            long start = System.nanoTime();
+            try {
+                return download.before(start + remainingNanos);
+            } finally {
+                remainingNanos -= System.nanoTime() - start;
+            }
+        }
+
+        @FunctionalInterface
+        interface Download {
+            byte[] before(long deadline) throws IOException;
+        }
+    }
+
+    /** A downloaded CRL, or why none could be read, worded to follow "it was ignored because". */
+    private record DownloadedCrl(EncodedCrl crl, String reasonUnread) {
     }
 }
