@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.bouncycastle.asn1.ASN1Encoding;
+import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.ASN1TaggedObject;
 import org.bouncycastle.asn1.DERIA5String;
 import org.bouncycastle.asn1.DEROctetString;
@@ -190,7 +192,7 @@ public class OcspUtil {
      * reports the revocation status as unavailable with that reason.
      */
     private static void requireTrustworthy(BasicOCSPResp response, OCSPReq request, X509Certificate certificate,
-            X509Certificate issuer, String serviceUrl) throws OCSPException {
+            X509Certificate issuer, String serviceUrl) throws OCSPException, IOException {
         SingleResp answer = response.getResponses()[0];
         String reason;
         if (!isSignedByIssuerOrResponder(response, issuer)) {
@@ -265,11 +267,19 @@ public class OcspUtil {
         return !thisUpdate.isAfter(now.plus(CLOCK_SKEW)) && !validUntil.isBefore(now.minus(CLOCK_SKEW));
     }
 
-    private static boolean nonceMatches(BasicOCSPResp response, OCSPReq request) {
+    /**
+     * The request carries the nonce bytes as the extension value. A responder copies that value back, or reads it as
+     * RFC 6960 defines the extension and returns the nonce as a DER OCTET STRING.
+     */
+    private static boolean nonceMatches(BasicOCSPResp response, OCSPReq request) throws IOException {
         Extension responseNonce = response.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce);
-        return responseNonce == null || responseNonce
-                .getExtnValue()
-                .equals(request.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce).getExtnValue());
+        if (responseNonce == null) {
+            return true;
+        }
+        ASN1OctetString requestNonce = request.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce).getExtnValue();
+        byte[] returnedNonce = responseNonce.getExtnValue().getOctets();
+        return Arrays.equals(returnedNonce, requestNonce.getOctets())
+                || Arrays.equals(returnedNonce, requestNonce.getEncoded(ASN1Encoding.DER));
     }
 
     private static OCSPReq generateOCSPRequest(X509Certificate issuerCert, BigInteger serialNumber)

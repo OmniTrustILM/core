@@ -98,8 +98,10 @@ import org.apache.commons.lang3.StringUtils;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERIA5String;
+import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERPrintableString;
 import org.bouncycastle.asn1.DERSequence;
+import org.bouncycastle.asn1.ocsp.OCSPObjectIdentifiers;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
@@ -3043,7 +3045,67 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
         }
 
+        @Test
+        void reportsValid_whenAnswerReturnsRequestNonceAsOctetString() throws Exception {
+            // given
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withNonce(asOctetString(requestNonce(request)))
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerReturnsAnotherNonceAsOctetString() throws Exception {
+            // given
+            byte[] nonceOfAnotherRequest = "another request".getBytes(StandardCharsets.US_ASCII);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withNonce(asOctetString(nonceOfAnotherRequest))
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsValid_whenAnswerReturnsNoNonce() throws Exception {
+            // given
+            byte[] noNonce = null;
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withNonce(noNonce)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static byte[] requestNonce(OCSPReq request) {
+            return request.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce).getExtnValue().getOctets();
+        }
+
+        /** Encodes the nonce as RFC 6960 defines the extension value, the form a responder that parses it returns. */
+        private static byte[] asOctetString(byte[] nonce) {
+            try {
+                return new DEROctetString(nonce).getEncoded();
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
 
         private CertificateValidationStatus checkOcspStatus() throws NotFoundException {
             return checkOcsp().getStatus();
