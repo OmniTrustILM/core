@@ -471,6 +471,23 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             endUndriveable(discovery, "resume", returnedHandle);
             return;
         }
+        try {
+            recordResume(discoveryUuid, response, mode.get(), returnedHandle);
+        } catch (ValidationException e) {
+            // Another resume or a cancel moved the run during the call; the connector's run is now theirs.
+            throw e;
+        } catch (RuntimeException e) {
+            // A buffered connector is scanning into a buffer that nothing drains while Core keeps the run stopped, so
+            // it is cancelled there; the next status poll then finds the run gone and ends it.
+            if (mode.get() == DiscoveryDeliveryMode.BUFFERED) {
+                dropAtConnector(discovery, returnedHandle != null ? returnedHandle : discovery.getCheckpoint());
+            }
+            throw e;
+        }
+    }
+
+    private void recordResume(UUID discoveryUuid, DiscoveryInitiateResponseDto response, DiscoveryDeliveryMode mode,
+            List<MetadataAttribute> returnedHandle) {
         transactionHandler.runInNewTransaction(() -> {
             Discovery locked = lock(discoveryUuid);
             // Same reason as stop: the legality check ran against a snapshot taken before the connector call.
@@ -481,15 +498,19 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             }
             // As in stop, and it also fences a resume that changes the mode: nothing built for the old one lands.
             locked.setCheckpointRevision(locked.getCheckpointRevision() + 1);
-            locked.setDeliveryMode(mode.get());
+            locked.setDeliveryMode(mode);
             locked.setStoppable(stoppable(locked, response));
             locked.setStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setStoppedAt(null);
-            return discoveryRepository.save(locked);
+            Discovery resumed = discoveryRepository.save(locked);
+            // In the same commit as the status: the stop deleted the drain row, and a run resumed without it would stay
+            // in progress for good, since a checkpointed connector scans only when it is drained.
+            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+            workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, now);
+            workWriter.expedite(discoveryUuid, DiscoveryWorkType.DRAIN, now);
+            return resumed;
         });
-        workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
-        workWriter.expedite(discoveryUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     @Override

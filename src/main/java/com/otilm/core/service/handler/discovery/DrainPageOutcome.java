@@ -10,8 +10,8 @@ public enum DrainPageOutcome {
     NOT_ADVANCED,
 
     /**
-     * A checkpointed page built from a position the run has since left ({@link CheckpointRevision}), dropped without
-     * writing anything. Whatever moved the run on has already scheduled what comes next.
+     * A page asked before the run moved on ({@link CheckpointRevision#movedOn}), dropped without writing anything.
+     * Whatever moved the run on has already scheduled what comes next.
      */
     STALE
 }
