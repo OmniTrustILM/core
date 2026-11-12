@@ -90,7 +90,7 @@ class DiscoveryTickWorkerConfigTest {
     }
 
     private static DiscoveryDrainTickWorker drainWorkerOffering(String modes, int maxItems, long maxBytes) {
-        return new DiscoveryDrainTickWorker(null, null, null, null, null, null, null, null, null, null, null,
+        return new DiscoveryDrainTickWorker(null, null, null, null, null, null, null, null, null, null, null, null,
                 new DiscoveryDeliveryModeOffer(modes), maxItems, maxBytes);
     }
 }
