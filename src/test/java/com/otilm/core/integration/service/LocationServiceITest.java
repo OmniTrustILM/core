@@ -91,6 +91,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -1563,25 +1564,26 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .of(Arguments
                         .of("list push attributes", PUSH_ATTRIBUTES_PATH, "Failed to list push Attributes",
                                 (LocationCall) test -> test.locationService
-                                        .listPushAttributes(test.entityUuid(), test.location.getSecuredUuid())),
+                                        .listPushAttributes(test.getEntityUuid(), test.location.getSecuredUuid())),
                         Arguments
                                 .of("list CSR attributes", CSR_ATTRIBUTES_PATH, "Failed to list CSR Attributes",
                                         (LocationCall) test -> test.locationService
-                                                .listCsrAttributes(test.entityUuid(), test.location.getSecuredUuid())),
+                                                .listCsrAttributes(test.getEntityUuid(),
+                                                        test.location.getSecuredUuid())),
                         Arguments
                                 .of("edit", LOCATIONS_PATH, "Failed to get Location " + LOCATION_NAME + " details",
                                         (LocationCall) test -> test.locationService
-                                                .editLocation(test.entityUuid(), test.location.getSecuredUuid(),
+                                                .editLocation(test.getEntityUuid(), test.location.getSecuredUuid(),
                                                         editRequest())),
                         Arguments
                                 .of("sync", LOCATIONS_PATH, "Failed to get Location details",
                                         (LocationCall) test -> test.locationService
-                                                .updateLocationContent(test.entityUuid(),
+                                                .updateLocationContent(test.getEntityUuid(),
                                                         test.location.getSecuredUuid())),
                         Arguments
                                 .of("issue", CSR_PATH, "Failed to generate CSR for the Location",
                                         (LocationCall) test -> test.locationService
-                                                .issueCertificateToLocation(test.entityUuid(),
+                                                .issueCertificateToLocation(test.getEntityUuid(),
                                                         test.location.getSecuredUuid(),
                                                         test.getRaProfile().getUuid().toString(),
                                                         new IssueToLocationRequestDto())),
@@ -1591,7 +1593,7 @@ class LocationServiceITest extends BaseSpringBootTest {
                         Arguments
                                 .of("remove", LOCATION_REMOVE_PATH, "Failed to remove Certificate",
                                         (LocationCall) test -> test.locationService
-                                                .removeCertificateFromLocation(test.entityUuid(),
+                                                .removeCertificateFromLocation(test.getEntityUuid(),
                                                         test.location.getSecuredUuid(),
                                                         test.certificate.getUuid().toString())),
                         Arguments
@@ -1607,31 +1609,31 @@ class LocationServiceITest extends BaseSpringBootTest {
                 .of(Arguments
                         .of("add", "Failed to create Location",
                                 (LocationCall) test -> test.locationService
-                                        .addLocation(test.entityUuid(), test.addRequest("unreadable-location"))),
+                                        .addLocation(test.getEntityUuid(), test.addRequest("unreadable-location"))),
                         Arguments
                                 .of("edit", "Failed to update Location " + LOCATION_NAME,
                                         (LocationCall) test -> test.locationService
-                                                .editLocation(test.entityUuid(), test.location.getSecuredUuid(),
+                                                .editLocation(test.getEntityUuid(), test.location.getSecuredUuid(),
                                                         editRequest())),
                         Arguments
                                 .of("sync", "Failed to update Location " + LOCATION_NAME,
                                         (LocationCall) test -> test.locationService
-                                                .updateLocationContent(test.entityUuid(),
+                                                .updateLocationContent(test.getEntityUuid(),
                                                         test.location.getSecuredUuid())));
     }
 
-    private SecuredParentUUID entityUuid() {
+    private SecuredParentUUID getEntityUuid() {
         return entityInstanceReference.getSecuredParentUuid();
     }
 
     private void pushIssuedCertificate() throws Exception {
-        certificate.setCertificateContent(certificateContentRepository.save(new CertificateContent()));
+        certificate.setCertificateContent(certificateContentRepository.save(aCertificateContent().build()));
         certificate.setState(CertificateState.ISSUED);
         certificateRepository.save(certificate);
         PushToLocationRequestDto pushRequest = new PushToLocationRequestDto();
         pushRequest.setAttributes(new ArrayList<>());
         locationService
-                .pushCertificateToLocation(entityUuid(), location.getSecuredUuid(), certificate.getUuid().toString(),
+                .pushCertificateToLocation(getEntityUuid(), location.getSecuredUuid(), certificate.getUuid().toString(),
                         pushRequest);
     }
 
