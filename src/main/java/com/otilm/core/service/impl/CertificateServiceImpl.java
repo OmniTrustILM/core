@@ -1414,6 +1414,7 @@ public class CertificateServiceImpl
         if (certificateContent.isEmpty()) {
             throw new ValidationException("Cannot download certificate chain, the end certificate is not issued.");
         }
+        CertificateType endCertificateType = getCertificateEntity(uuid).getCertificateType();
         CertificateChainResponseDto certificateChainResponseDto = getCertificateChain(uuid, withEndCertificate);
         List<CertificateDetail> certificateChain = certificateChainResponseDto.getCertificates();
         CertificateChainDownloadResponseDto certificateChainDownloadResponseDto = new CertificateChainDownloadResponseDto();
@@ -1421,7 +1422,8 @@ public class CertificateServiceImpl
         certificateChainDownloadResponseDto.setFormat(certificateFormat);
         certificateChainDownloadResponseDto.setEncoding(encoding);
         certificateChainDownloadResponseDto
-                .setContent(getDownloadedContent(certificateChain, certificateFormat, encoding, true));
+                .setContent(
+                        getDownloadedContent(endCertificateType, certificateChain, certificateFormat, encoding, true));
         return certificateChainDownloadResponseDto;
     }
 
@@ -1437,18 +1439,19 @@ public class CertificateServiceImpl
         certificateDownloadResponseDto.setFormat(certificateFormat);
         certificateDownloadResponseDto.setEncoding(encoding);
         certificateDownloadResponseDto
-                .setContent(getDownloadedContent(List.of(certificate), certificateFormat, encoding, false));
+                .setContent(getDownloadedContent(certificate.getCertificateType(), List.of(certificate),
+                        certificateFormat, encoding, false));
         return certificateDownloadResponseDto;
     }
 
-    private String getDownloadedContent(List<CertificateDetail> certificates, CertificateFormat certificateFormat,
-            CertificateFormatEncoding encoding, boolean downloadingChain) throws NotFoundException {
+    private String getDownloadedContent(CertificateType certificateType, List<CertificateDetail> certificates,
+            CertificateFormat certificateFormat, CertificateFormatEncoding encoding, boolean downloadingChain)
+            throws NotFoundException {
         if (downloadingChain && certificateFormat == CertificateFormat.RAW
                 && encoding == CertificateFormatEncoding.DER) {
             throw new ValidationException("DER encoding of raw format is unsupported for certificate chain.");
         }
-        CertificateTypeHandler handler = typeHandlerRegistry
-                .require(certificates.getFirst().getCertificateType().getCode());
+        CertificateTypeHandler handler = typeHandlerRegistry.require(certificateType.getCode());
         if (!handler.downloadFormats().contains(certificateFormat)) {
             throw new ValidationException("The format " + certificateFormat
                     + " is not available for the certificate type " + handler.typeCode() + ".");
