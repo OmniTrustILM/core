@@ -60,7 +60,7 @@ import com.otilm.api.model.common.attribute.v3.mapping.ValueSource;
 import com.otilm.api.model.common.attribute.v3.mapping.ValueSourceType;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.certificate.GeneralNameType;
@@ -122,6 +122,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
 import org.jetbrains.annotations.NotNull;
@@ -144,6 +145,7 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
@@ -856,7 +858,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     @Test
     void testDeleteAllObjectAttributeContent() throws NotFoundException, CertificateException, IOException {
         attributeEngine.deleteObjectAttributeContent(Resource.CERTIFICATE, certificate.getUuid());
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
 
         Assertions.assertTrue(certificateDetailDto.getMetadata().isEmpty());
@@ -882,7 +884,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
         SecurityResourceFilter filter = new SecurityResourceFilter(List.of(departmentCustomAttribute.getUuid()),
                 List.of(), true);
         attributeEngine.deleteObjectAllowedCustomAttributeContent(filter, Resource.CERTIFICATE, certificate.getUuid());
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
         Assertions.assertEquals(1, certificateDetailDto.getCustomAttributes().size());
         Assertions
@@ -973,7 +975,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     void testDeleteDefinitionAttributeContent() throws NotFoundException, CertificateException, IOException {
         attributeEngine
                 .deleteAttributeDefinition(AttributeType.CUSTOM, UUID.fromString(departmentCustomAttribute.getUuid()));
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate.getUuid()));
 
         Assertions.assertEquals(3, certificateDetailDto.getMetadata().size());
@@ -1995,7 +1997,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     @Test
-    void testAttributeEncryption() throws AttributeException, NotFoundException {
+    void testAttributeEncryption() throws AttributeException {
         testAttributeEncryption(AttributeContentType.STRING, new StringAttributeContentV3("sensitiveData"),
                 "sensitiveData");
         testAttributeEncryption(AttributeContentType.INTEGER, new IntegerAttributeContentV3(1), 1);
@@ -2024,7 +2026,7 @@ class AttributeEngineITest extends BaseSpringBootTest {
     }
 
     private void testAttributeEncryption(AttributeContentType contentType, BaseAttributeContentV3<?> contentV3,
-            Object data) throws AttributeException, NotFoundException {
+            Object data) throws AttributeException {
         DataAttributeV3 secretAttribute = new DataAttributeV3();
         secretAttribute.setUuid(UUID.randomUUID().toString());
         secretAttribute.setName("secretAttribute");
@@ -3039,6 +3041,151 @@ class AttributeEngineITest extends BaseSpringBootTest {
         AttributeDefinition claimed = storedDefinition(connectorUuid, definition);
         Assertions.assertEquals(AttributeOperation.SIGN, claimed.getOperation());
         Assertions.assertTrue(claimed.getUpdatedAt().isAfter(published), "updated_at: " + claimed.getUpdatedAt());
+    }
+
+    // ── DataAttributeIdentity ─────────────────────────────────────────────────
+
+    @Nested
+    class DataAttributeIdentity {
+
+        @Test
+        void rejectsDataAttribute_whenUuidIdentifiesAReplacedDefinition() {
+            // given
+            var replacedUuid = UUID.randomUUID();
+            DataAttributeV3 replaced = aDataAttribute().withUuid(replacedUuid).withName("identifiedAttribute").build();
+            DataAttributeV3 current = aDataAttribute().withName(replaced.getName()).build();
+            var request = aCustomAttribute()
+                    .withUuid(replacedUuid)
+                    .withName(replaced.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, replaced);
+            publish(null, null, current);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(current), List.of(request));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(replacedUuid.toString());
+        }
+
+        @Test
+        void reportsOnlyTheUuidMismatch_whenRequiredAttributeHasAnotherUuid() {
+            // given
+            DataAttributeV3 requiredDefinition = aDataAttribute().withName("identifiedAttribute").build();
+            requiredDefinition.getProperties().setRequired(true);
+            var mismatchedUuid = UUID.randomUUID();
+            var request = aCustomAttribute()
+                    .withUuid(mismatchedUuid)
+                    .withName(requiredDefinition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, requiredDefinition);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(requiredDefinition), List.of(request));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(mismatchedUuid.toString())
+                    .hasMessageNotContaining("is not provided");
+        }
+
+        @Test
+        void rejectsDataAttribute_whenUuidIsNotTheDefinitionsUuid() {
+            // given
+            DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var staleUuid = UUID.randomUUID();
+            var request = aCustomAttribute()
+                    .withUuid(staleUuid)
+                    .withName(definition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, definition);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(definition), List.of(request));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(staleUuid.toString());
+        }
+
+        @Test
+        void rejectsDataAttribute_whenUuidIsMissing() {
+            // given
+            DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var requestWithoutUuid = aCustomAttribute()
+                    .withName(definition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, definition);
+
+            // when
+            ThrowingCallable validate = () -> attributeEngine
+                    .validateUpdateDataAttributes(null, null, List.of(definition), List.of(requestWithoutUuid));
+
+            // then
+            assertThatThrownBy(validate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining("no uuid");
+        }
+
+        @Test
+        void throwsValidationException_whenCreatingContentWithAnotherUuid() {
+            // given
+            DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var mismatchedUuid = UUID.randomUUID();
+            var request = aCustomAttribute()
+                    .withUuid(mismatchedUuid)
+                    .withName(definition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, definition);
+            var info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build();
+
+            // when
+            ThrowingCallable create = () -> attributeEngine.createObjectDataAttributesContent(info, List.of(request));
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(mismatchedUuid.toString());
+        }
+
+        @Test
+        void throwsValidationException_whenUpdatingContentWithAnotherUuid() {
+            // given
+            DataAttributeV3 definition = aDataAttribute().withName("identifiedAttribute").build();
+            var mismatchedUuid = UUID.randomUUID();
+            var request = aCustomAttribute()
+                    .withUuid(mismatchedUuid)
+                    .withName(definition.getName())
+                    .withStringContent("value")
+                    .build();
+            publish(null, null, definition);
+            var info = ObjectAttributeContentInfo.builder(Resource.CERTIFICATE, certificate.getUuid()).build();
+
+            // when
+            ThrowingCallable update = () -> attributeEngine.updateObjectDataAttributesContent(info, List.of(request));
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("identifiedAttribute")
+                    .hasMessageContaining(mismatchedUuid.toString());
+        }
     }
 
     private void publish(UUID connectorUuid, String operation, DataAttributeV3 definition) {

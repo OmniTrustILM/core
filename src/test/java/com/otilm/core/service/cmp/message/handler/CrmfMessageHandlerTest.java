@@ -4,8 +4,9 @@ import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.interfaces.core.cmp.error.CmpCrmfValidationException;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.core.dao.entity.Certificate;
@@ -99,7 +100,7 @@ class CrmfMessageHandlerTest {
         // that resolves during the wait — both surface here as VALID).
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
-        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(leafDto));
         when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.VALID);
@@ -115,7 +116,7 @@ class CrmfMessageHandlerTest {
         // within the budget, the leaf still passes.
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
-        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(leafDto));
         when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.NOT_CHECKED);
@@ -129,7 +130,7 @@ class CrmfMessageHandlerTest {
     void rejectsLeaf_whenResolveOrKeepReturnsInvalid() throws NotFoundException {
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
-        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(leafDto));
         when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.INVALID);
@@ -148,9 +149,8 @@ class CrmfMessageHandlerTest {
         // waited on and advertised. The leaf here is VALID; the CA entry is NOT_CHECKED.
         UUID leafUuid = UUID.randomUUID();
         Certificate leaf = leafCertificate(leafUuid);
-        CertificateDetailDto leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.VALID);
-        CertificateDetailDto caDto = certificateDto(UUID.randomUUID().toString(),
-                CertificateValidationStatus.NOT_CHECKED);
+        CertificateDetail leafDto = certificateDto(leafUuid.toString(), CertificateValidationStatus.VALID);
+        CertificateDetail caDto = certificateDto(UUID.randomUUID().toString(), CertificateValidationStatus.NOT_CHECKED);
         when(certificateService.getCertificateChain(any(SecuredUUID.class), eq(true)))
                 .thenReturn(chainResponse(leafDto, caDto));
         when(validationStatusPoller.resolveOrKeep(leafDto)).thenReturn(CertificateValidationStatus.VALID);
@@ -271,15 +271,15 @@ class CrmfMessageHandlerTest {
         return aCertificate().withUuid(uuid).withSerialNumber("01").build();
     }
 
-    private static CertificateChainResponseDto chainResponse(CertificateDetailDto... certificates) {
+    private static CertificateChainResponseDto chainResponse(CertificateDetail... certificates) {
         CertificateChainResponseDto response = new CertificateChainResponseDto();
         response.setCompleteChain(true);
         response.setCertificates(List.of(certificates));
         return response;
     }
 
-    private static CertificateDetailDto certificateDto(String uuid, CertificateValidationStatus status) {
-        CertificateDetailDto dto = new CertificateDetailDto();
+    private static CertificateDetail certificateDto(String uuid, CertificateValidationStatus status) {
+        CertificateDetail dto = new X509CertificateDetail();
         dto.setUuid(uuid);
         dto.setFingerprint("aa:bb:cc");
         dto.setValidationStatus(status);

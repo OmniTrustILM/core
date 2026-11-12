@@ -36,7 +36,7 @@ import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
 import com.otilm.api.model.core.certificate.CertificateComplianceResultDto;
 import com.otilm.api.model.core.certificate.CertificateContentDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateEvent;
@@ -48,7 +48,7 @@ import com.otilm.api.model.core.certificate.CertificateRegistrationDetailDto;
 import com.otilm.api.model.core.certificate.CertificateRegistrationState;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateRelationsDto;
-import com.otilm.api.model.core.certificate.CertificateRequestDto;
+import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.certificate.CertificateSimpleDto;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateSubjectType;
@@ -63,7 +63,6 @@ import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.compliance.v2.ComplianceCheckResultDto;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.location.LocationDto;
-import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
 import com.otilm.api.model.core.search.FilterFieldSource;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
@@ -80,6 +79,7 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
@@ -140,8 +140,6 @@ import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CertificateRequestKeys;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SigningCertificate;
-import com.otilm.core.oid.OidHandler;
-import com.otilm.core.oid.OidRecord;
 import com.otilm.core.security.authn.client.AuthenticationCache;
 import com.otilm.core.security.authn.client.UserManagementApiClient;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
@@ -290,6 +288,7 @@ public class CertificateServiceImpl
 
     private CertificateRepository certificateRepository;
     private X509CertificateRepository x509CertificateRepository;
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
     private CertificateChainService chainService;
     private CertificateValidationWriter validationWriter;
     private CertificateRequestRepository certificateRequestRepository;
@@ -454,6 +453,11 @@ public class CertificateServiceImpl
     @Autowired
     public void setCertificateRepository(CertificateRepository certificateRepository) {
         this.certificateRepository = certificateRepository;
+    }
+
+    @Autowired
+    public void setTypeHandlerRegistry(CertificateTypeHandlerRegistry typeHandlerRegistry) {
+        this.typeHandlerRegistry = typeHandlerRegistry;
     }
 
     @Autowired
@@ -664,6 +668,7 @@ public class CertificateServiceImpl
                                     Collectors.mapping(ga -> ga.getGroup().mapToDto(), Collectors.toList())));
             certificates.forEach(c -> {
                 c.setCommonName(CertificateUtil.formatCommonName(c.getCommonName()));
+                c.setDisplayName(c.getCommonName());
                 c.setGroups(groupsByCert.getOrDefault(c.getUuid(), List.of()));
             });
         }
@@ -698,20 +703,12 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
-    public CertificateDetailDto getCertificate(SecuredUUID uuid)
+    public CertificateDetail getCertificate(SecuredUUID uuid)
             throws NotFoundException, CertificateException, IOException {
         Certificate certificate = getCertificateEntityWithAssociations(uuid);
-        CertificateDetailDto dto = certificate.mapToDto();
+        CertificateDetail dto = certificate.mapToDto();
         dto.setKeystoreAvailable(keystoreAvailability.of(certificate));
-        if (dto.getExtendedKeyUsage() != null) {
-            Map<String, OidRecord> oidToName = OidHandler.getOidCache(OidCategory.EXTENDED_KEY_USAGE);
-            List<String> extendedKeyUsageNames = dto
-                    .getExtendedKeyUsage()
-                    .stream()
-                    .map(oid -> oidToName.get(oid) != null ? oidToName.get(oid).displayName() : oid)
-                    .toList();
-            dto.setExtendedKeyUsage(extendedKeyUsageNames);
-        }
+        typeHandlerRegistry.find(dto.getCertificateType().getCode()).ifPresent(handler -> handler.presentDetail(dto));
 
         if (certificate.getComplianceResult() != null) {
             ComplianceCheckResultDto complianceCheckResult = complianceService
@@ -1424,7 +1421,7 @@ public class CertificateServiceImpl
             throw new ValidationException("Cannot download certificate chain, the end certificate is not issued.");
         }
         CertificateChainResponseDto certificateChainResponseDto = getCertificateChain(uuid, withEndCertificate);
-        List<CertificateDetailDto> certificateChain = certificateChainResponseDto.getCertificates();
+        List<CertificateDetail> certificateChain = certificateChainResponseDto.getCertificates();
         CertificateChainDownloadResponseDto certificateChainDownloadResponseDto = new CertificateChainDownloadResponseDto();
         certificateChainDownloadResponseDto.setCompleteChain(certificateChainResponseDto.isCompleteChain());
         certificateChainDownloadResponseDto.setFormat(certificateFormat);
@@ -1438,7 +1435,7 @@ public class CertificateServiceImpl
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.DETAIL)
     public CertificateDownloadResponseDto downloadCertificate(SecuredUUID uuid, CertificateFormat certificateFormat,
             CertificateFormatEncoding encoding) throws CertificateException, NotFoundException, IOException {
-        CertificateDetailDto certificate = getCertificate(uuid);
+        CertificateDetail certificate = getCertificate(uuid);
         if (certificate.getCertificateContent() == null) {
             throw new ValidationException("Cannot download the certificate, certificate is not issued.");
         }
@@ -1450,7 +1447,7 @@ public class CertificateServiceImpl
         return certificateDownloadResponseDto;
     }
 
-    private String getDownloadedContent(List<CertificateDetailDto> certificateDetailDtos,
+    private String getDownloadedContent(List<CertificateDetail> certificateDetailDtos,
             CertificateFormat certificateFormat, CertificateFormatEncoding encoding, boolean downloadingChain)
             throws NotFoundException, CertificateException {
         if (certificateFormat == CertificateFormat.RAW) {
@@ -2453,6 +2450,7 @@ public class CertificateServiceImpl
                 CertificateContentDto dto = new CertificateContentDto();
                 dto.setUuid(uuid.toString());
                 dto.setCommonName(certificate.getCommonName());
+                dto.setDisplayName(CertificateUtil.formatCommonName(certificate.getCommonName()));
                 dto.setSerialNumber(certificate.getSerialNumber());
                 dto.setCertificateContent(certificate.getCertificateContent().getContent());
                 response.add(dto);
@@ -2467,7 +2465,7 @@ public class CertificateServiceImpl
      * Reads a request's attributes. Its signature attributes are read under whichever connector stored them, so they
      * stay readable after the key that signed the request is deleted.
      */
-    private void setCertificateRequestAttributes(CertificateRequestDto dto, CertificateRequestEntity request) {
+    private void setCertificateRequestAttributes(CertificateRequestDetail dto, CertificateRequestEntity request) {
         dto
                 .setAttributes(attributeEngine
                         .getObjectDataAttributesContent(ObjectAttributeContentInfo
@@ -2479,13 +2477,19 @@ public class CertificateServiceImpl
                                 .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
                                 .operation(AttributeOperation.SIGN)
                                 .build()));
-        dto
-                .setAltSignatureAttributes(attributeEngine
+        setAlternativeSignatureAttributes(dto,
+                attributeEngine
                         .getOperationDataAttributesContent(ObjectAttributeContentInfo
                                 .builder(Resource.CERTIFICATE_REQUEST, request.getUuid())
                                 .operation(AttributeOperation.SIGN)
                                 .purpose(AttributeContentPurpose.CERTIFICATE_REQUEST_ALT_KEY)
                                 .build()));
+    }
+
+    private void setAlternativeSignatureAttributes(CertificateRequestDetail dto, List<ResponseAttribute> attributes) {
+        typeHandlerRegistry
+                .find(dto.getCertificateType().getCode())
+                .ifPresent(handler -> handler.setAlternativeSignatureAttributes(dto, attributes));
     }
 
     @Override
@@ -2525,7 +2529,7 @@ public class CertificateServiceImpl
 
     @Override
     @ExternalAuthorization(resource = Resource.CERTIFICATE, action = ResourceAction.CREATE)
-    public CertificateDetailDto submitCertificateRequest(String certificateRequest,
+    public CertificateDetail submitCertificateRequest(String certificateRequest,
             CertificateRequestFormat certificateRequestFormat, List<RequestAttribute> signatureAttributes,
             List<RequestAttribute> altSignatureAttributes, List<RequestAttribute> csrAttributes,
             List<RequestAttribute> issueAttributes, UUID keyUuid, UUID altKeyUuid, UUID raProfileUuid,
@@ -2611,13 +2615,13 @@ public class CertificateServiceImpl
                 && isEmpty(altSignatureAttributes)
                 && takeOverReplayedRequestAttributes(predecessorCertificateUuid, certificateRequestEntity);
 
-        CertificateDetailDto dto = certificate.mapToDto();
+        CertificateDetail dto = certificate.mapToDto();
         if (tookOverPredecessorAttributes) {
             setCertificateRequestAttributes(dto.getCertificateRequest(), certificateRequestEntity);
         } else {
             dto.getCertificateRequest().setAttributes(requestAttributes);
             dto.getCertificateRequest().setSignatureAttributes(requestSignatureAttributes);
-            dto.getCertificateRequest().setAltSignatureAttributes(requestAltSignatureAttributes);
+            setAlternativeSignatureAttributes(dto.getCertificateRequest(), requestAltSignatureAttributes);
         }
         dto
                 .setIssueAttributes(attributeEngine
@@ -2779,9 +2783,9 @@ public class CertificateServiceImpl
     }
 
     @Override
-    public CertificateDetailDto issueRequestedCertificate(UUID uuid, String certificateData,
-            List<MetadataAttribute> meta) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException,
-            NotFoundException, AttributeException {
+    public CertificateDetail issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta)
+            throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException,
+            AttributeException {
         X509Certificate x509Cert = CertificateUtil.parseCertificate(certificateData);
         String fingerprint = CertificateUtil.getThumbprint(x509Cert);
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
@@ -2833,7 +2837,7 @@ public class CertificateServiceImpl
 
         log.info("Certificate was successfully issued. {}", certificate.getUuid());
 
-        CertificateDetailDto dto = certificate.mapToDto();
+        CertificateDetail dto = certificate.mapToDto();
         if (dto.getCertificateRequest() != null) {
             setCertificateRequestAttributes(dto.getCertificateRequest(), certificate.getCertificateRequest());
         }
@@ -3381,7 +3385,7 @@ public class CertificateServiceImpl
                             .connector(newRaProfile.getAuthorityInstanceReference().getConnectorUuid())
                             .operation(AttributeOperation.CERTIFICATE_IDENTIFY)
                             .build(), identifyAttributes);
-        } catch (AttributeException | NotFoundException | ValidationException e) {
+        } catch (AttributeException | ValidationException e) {
             certificateEventHistoryService
                     .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE,
                             CertificateEventStatus.FAILED,

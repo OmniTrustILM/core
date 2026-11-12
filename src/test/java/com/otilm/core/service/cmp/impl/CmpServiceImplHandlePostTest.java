@@ -6,9 +6,10 @@ import com.otilm.api.interfaces.core.cmp.error.CmpProcessingException;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.cmp.CmpProfileVariant;
 import com.otilm.api.model.core.cmp.CmpTransactionState;
 import com.otilm.api.model.core.cmp.ProtectionMethod;
@@ -511,7 +512,7 @@ class CmpServiceImplHandlePostTest {
         when(cmpProfile.getSigningCertificate()).thenReturn(createResponseSigningCertificate(responseSigningContent));
         CmpServiceImpl service = createServiceWithRealValidators(cmpProfile, crmfMessageHandler, certificateRepository);
 
-        CertificateDetailDto chainCertificate = new CertificateDetailDto();
+        CertificateDetail chainCertificate = new X509CertificateDetail();
         chainCertificate.setValidationStatus(CertificateValidationStatus.VALID);
         chainCertificate.setCertificateContent(responseSigningContent);
         CertificateChainResponseDto chain = new CertificateChainResponseDto();

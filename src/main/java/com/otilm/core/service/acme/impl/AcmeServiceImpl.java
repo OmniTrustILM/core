@@ -32,7 +32,7 @@ import com.otilm.api.model.core.acme.Problem;
 import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
@@ -1599,9 +1599,9 @@ public class AcmeServiceImpl implements AcmeExternalService {
         return new ByteArrayResource(chainString.getBytes(StandardCharsets.UTF_8));
     }
 
-    protected String frameCertChainString(List<CertificateDetailDto> certificates) throws CertificateException {
+    protected String frameCertChainString(List<CertificateDetail> certificates) throws CertificateException {
         List<String> chain = new ArrayList<>();
-        for (CertificateDetailDto certificate : certificates) {
+        for (CertificateDetail certificate : certificates) {
             chain.add(X509ObjectToString.toPem(getX509(certificate.getCertificateContent())));
         }
         return String.join("\r\n", chain);

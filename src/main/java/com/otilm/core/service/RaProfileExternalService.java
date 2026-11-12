@@ -17,7 +17,7 @@ import com.otilm.api.model.client.raprofile.RaProfileAcmeDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileCmpDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileScepDetailResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
@@ -162,7 +162,7 @@ public interface RaProfileExternalService {
      * @return List of CA Certificates
      * @throws ConnectorException in case the connector throws an exception
      */
-    List<CertificateDetailDto> getAuthorityCertificateChain(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid)
+    List<CertificateDetail> getAuthorityCertificateChain(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid)
             throws ConnectorException, NotFoundException;
 
     /**
