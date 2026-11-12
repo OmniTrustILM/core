@@ -154,7 +154,7 @@ class StaticKeyManagedContentSigningResolverTest {
         // when
         ResolvedManagedContentSigningProfile resolved = (ResolvedManagedContentSigningProfile) resolver
                 .resolve(aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID,
-                        List.of(A_FORMAT_ATTRIBUTE), SignatureFamily.CADES, SignatureLevel.SIGNED, null, null, purpose,
+                        List.of(A_FORMAT_ATTRIBUTE), SignatureFamily.CADES, SignatureLevel.SIGNED, null, purpose,
                         SignatureParameterPolicy.DENY_ALL)));
 
         // then
@@ -219,11 +219,11 @@ class StaticKeyManagedContentSigningResolverTest {
         }
 
         @Test
-        void resolvesFamilyMaxLevelTimestampSourceAndDocumentSizeCap_forATimestampedProfile() throws Exception {
+        void resolvesFamilyMaxLevelAndTimestampSource_whenProfileIsTimestamped() throws Exception {
             // given
             UUID timestampSourceUuid = UUID.fromString("44444444-4444-4444-4444-444444444444");
             SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamily.PADES,
-                    SignatureLevel.TIMESTAMPED, timestampSourceUuid, 1024L);
+                    SignatureLevel.TIMESTAMPED, timestampSourceUuid);
             given(timestampSourceResolver.profileNameFor(timestampSourceUuid)).willReturn("internal-tsa");
 
             // when
@@ -234,15 +234,13 @@ class StaticKeyManagedContentSigningResolverTest {
             assertThat(resolved.family()).isEqualTo(SignatureFamily.PADES);
             assertThat(resolved.maxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(resolved.timestampSourceProfileName()).isEqualTo("internal-tsa");
-            assertThat(resolved.documentSizeCap()).isEqualTo(1024L);
         }
 
         @Test
-        void leavesTimestampSourceProfileNameNull_forASignedOnlyProfile_withoutConsultingTheResolver()
-                throws Exception {
+        void leavesTimestampSourceUnresolved_whenProfileIsSignedOnly() throws Exception {
             // given
             SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamily.CADES,
-                    SignatureLevel.SIGNED, null, null);
+                    SignatureLevel.SIGNED, null);
 
             // when
             ResolvedManagedContentSigningProfile resolved = (ResolvedManagedContentSigningProfile) resolver
@@ -265,13 +263,13 @@ class StaticKeyManagedContentSigningResolverTest {
     }
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfile() {
-        return aManagedContentSigningProfile(SignatureFamily.CADES, SignatureLevel.SIGNED, null, null);
+        return aManagedContentSigningProfile(SignatureFamily.CADES, SignatureLevel.SIGNED, null);
     }
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfile(SignatureFamily family,
-            SignatureLevel maxLevel, UUID timestampSourceProfileUuid, Long documentSizeCap) {
+            SignatureLevel maxLevel, UUID timestampSourceProfileUuid) {
         return aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID, List.of(A_FORMAT_ATTRIBUTE),
-                family, maxLevel, timestampSourceProfileUuid, documentSizeCap, CertificatePurposeRequirements.NONE,
+                family, maxLevel, timestampSourceProfileUuid, CertificatePurposeRequirements.NONE,
                 SignatureParameterPolicy.DENY_ALL));
     }
 

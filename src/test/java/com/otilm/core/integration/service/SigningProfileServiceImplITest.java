@@ -1737,28 +1737,6 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void delegatedScheme_contentSigningWorkflowCarryingADocumentSizeCap_persistsTheCap()
-                throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
-            // when
-            SigningProfileDto created = signingProfileService
-                    .createSigningProfile(aSigningProfileRequest()
-                            .withName("ct-delegated-content-with-size-cap")
-                            .withDelegatedSigning(signerConnector.getUuid())
-                            .withContentSigning(aContentSigningWorkflow().withDocumentSizeCap(1024L).build())
-                            .build());
-
-            // then: the create response carries the cap
-            assertThat(assertInstanceOf(ContentSigningWorkflowDto.class, created.getWorkflow()).getDocumentSizeCap())
-                    .isEqualTo(1024L);
-
-            // and: reading the persisted version back confirms the column was written
-            SigningProfileDto fetched = signingProfileService
-                    .getSigningProfile(SecuredUUID.fromString(created.getUuid()), created.getVersion());
-            assertThat(assertInstanceOf(ContentSigningWorkflowDto.class, fetched.getWorkflow()).getDocumentSizeCap())
-                    .isEqualTo(1024L);
-        }
-
-        @Test
         void refusesAContentSigningWorkflow_whenTheConnectorDoesNotDeclareTheFamily() throws Exception {
             // given: a formatting connector declaring only the xades family
             ContentSigningFormattingMock xadesOnlyMock = connectorMockFactory.startContentSigningFormatting();

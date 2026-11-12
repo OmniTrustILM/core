@@ -676,15 +676,14 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         response.setRequestAttributeWarnings(submitted.requestAttributeWarnings());
 
         final UUID certificateUuid = UUID.fromString(certificate.getUuid());
+        if (isRequestNotCompliantOrFail(certificateUuid, certificate.getCertificateRequest().getUuid())) {
+            logger.warn("Certificate request is not compliant, not issuing certificate {}", certificateUuid);
+            return response;
+        }
+        runBeforeDispatch(beforeDispatch, certificateUuid);
         try {
-            if (isRequestNotCompliant(certificateUuid, certificate.getCertificateRequest().getUuid(),
-                    CertificateEvent.ISSUE)) {
-                logger.warn("Certificate request is not compliant, not issuing certificate {}", certificateUuid);
-                return response;
-            }
-            runBeforeDispatch(beforeDispatch, certificateUuid);
             queueIssue(raProfileUuid.getValue(), certificateUuid, certificate.getCertificateRequest().getUuid());
-        } catch (NotFoundException | RuntimeException e) {
+        } catch (RuntimeException e) {
             // Nothing would ever issue a certificate whose issue was not queued, so it is failed. A publish that threw
             // may still have reached the broker, though: once its action has picked the certificate up, it is queued.
             boolean pickedUp = failUnlessPickedUp(certificateUuid, e);
@@ -696,6 +695,20 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                             certificateUuid);
         }
         return response;
+    }
+
+    /**
+     * Checks the new request's compliance. A check that fails fails the certificate if it is still REQUESTED and is
+     * rethrown: only a publish can have handed the certificate to its issue action.
+     */
+    private boolean isRequestNotCompliantOrFail(UUID certificateUuid, UUID certificateRequestUuid)
+            throws NotFoundException {
+        try {
+            return isRequestNotCompliant(certificateUuid, certificateRequestUuid, CertificateEvent.ISSUE);
+        } catch (NotFoundException | RuntimeException e) {
+            failIfStillRequested(certificateUuid, e, "checking the compliance of the request failed");
+            throw e;
+        }
     }
 
     /**
@@ -711,7 +724,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             beforeDispatch.accept(certificateUuid);
         } catch (RuntimeException e) {
             logger.warn("Step before queuing the issue of certificate {} failed; not issuing it", certificateUuid, e);
-            failClaimedCertificate(certificateUuid, e, "preparing the certificate for issuance failed");
+            failIfStillRequested(certificateUuid, e, "preparing the certificate for issuance failed");
             throw new CertificateOperationException(
                     "Failed to prepare certificate %s for issuance: ".formatted(certificateUuid)
                             + safeMessage(e, INTERNAL_ERROR));
@@ -1661,9 +1674,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * @return whether the issue action had picked the certificate up, so that the issue was queued after all
      */
     private boolean failUnlessPickedUp(final UUID certificateUuid, Exception cause) {
-        boolean failable = failCertificate(certificateUuid, cause, "queuing the issue failed",
+        return !failIfStillRequested(certificateUuid, cause, "queuing the issue failed");
+    }
+
+    /**
+     * Fails a certificate whose issue was not queued while it is still REQUESTED.
+     *
+     * @return false only when the certificate was read and found no longer REQUESTED
+     */
+    private boolean failIfStillRequested(final UUID certificateUuid, Exception cause, String fallbackReason) {
+        return failCertificate(certificateUuid, cause, fallbackReason,
                 unqueued -> unqueued.getState() == CertificateState.REQUESTED);
-        return !failable;
     }
 
     /**
@@ -1677,7 +1698,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         TransactionStatus failTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             Certificate managed = certificateRepository
-                    .findAndLockWithAssociationsByUuid(certificateUuid)
+                    .findAndLockFreshByUuid(certificateUuid)
                     .orElseThrow(() -> new NotFoundException(Certificate.class, certificateUuid));
             boolean isFailable = failable.test(managed);
             if (isFailable) {
@@ -2358,7 +2379,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         TransactionStatus undoTx = transactionManager.getTransaction(new DefaultTransactionDefinition());
         try {
             Optional<Certificate> completed = certificateRepository
-                    .findAndLockWithAssociationsByUuid(certificateUuid)
+                    .findAndLockFreshByUuid(certificateUuid)
                     .filter(registration -> certificateRequestUuid.equals(registration.getCertificateRequestUuid()));
             boolean pickedUp = completed.isPresent() && completed.get().getState() != CertificateState.REGISTERED;
             if (!pickedUp) {

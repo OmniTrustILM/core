@@ -85,6 +85,18 @@ public class PessimisticLockITest extends BaseSpringBootTest {
     }
 
     @Test
+    void locksTheCertificateRow_whenReadingItFreshForUpdate() {
+        // given
+        UUID uuid = certificateRepository.save(aCertificate().build()).getUuid();
+
+        // when
+        Runnable findFreshForUpdate = () -> certificateRepository.findAndLockFreshByUuid(uuid).orElseThrow();
+
+        // then
+        assertRowLockedWhile("certificate", uuid, findFreshForUpdate);
+    }
+
+    @Test
     void cryptographicKeyLockQueryTakesTheRowLock() {
         UUID uuid = cryptographicKeyRepository.save(new CryptographicKey()).getUuid();
         assertRowLockedWhile("cryptographic_key", uuid,

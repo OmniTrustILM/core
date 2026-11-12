@@ -26,7 +26,6 @@ import java.util.UUID;
  * @param familyDeclaration The formatting connector's declaration of the family this profile produces.
  * @param maxLevel Highest level a request may ask for.
  * @param timestampSourceProfileName Name of the TIMESTAMPING profile that issues embedded timestamps, or {@code null}.
- * @param documentSizeCap Largest document accepted for signing, in bytes, or {@code null} for no profile-level cap.
  * @param certificatePurpose Per-profile constraints on what the signing certificate is for.
  * @param parameterPolicy Allowed request parameter groups and what applies where the request does not override
  * anything.
@@ -36,9 +35,8 @@ import java.util.UUID;
 public record ResolvedManagedContentSigningProfile(UUID uuid, String name, String description, int version,
         boolean enabled, List<SigningProtocol> enabledProtocols,
         List<RequestAttribute> signatureFormattingConnectorAttributes, SignatureFamilyDeclarationDto familyDeclaration,
-        SignatureLevel maxLevel, String timestampSourceProfileName, Long documentSizeCap,
-        CertificatePurposeRequirements certificatePurpose, SignatureParameterPolicy parameterPolicy,
-        ApiClientConnectorInfo signatureFormattingConnector,
+        SignatureLevel maxLevel, String timestampSourceProfileName, CertificatePurposeRequirements certificatePurpose,
+        SignatureParameterPolicy parameterPolicy, ApiClientConnectorInfo signatureFormattingConnector,
         ResolvedManagedScheme resolvedScheme) implements ResolvedSigningProfile {
 
     @Override

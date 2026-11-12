@@ -32,7 +32,6 @@ public final class ResolvedManagedContentSigningProfileBuilder {
             .build();
     private SignatureLevel maxLevel = SignatureLevel.TIMESTAMPED;
     private String timestampSourceProfileName = "internal-tsa";
-    private Long documentSizeCap = null;
     private CertificatePurposeRequirements certificatePurpose = CertificatePurposeRequirements.NONE;
     private SignatureParameterPolicy parameterPolicy = SignatureParameterPolicy.DENY_ALL;
     private ApiClientConnectorInfo signatureFormattingConnector = null;
@@ -101,11 +100,6 @@ public final class ResolvedManagedContentSigningProfileBuilder {
         return this;
     }
 
-    public ResolvedManagedContentSigningProfileBuilder withDocumentSizeCap(Long documentSizeCap) {
-        this.documentSizeCap = documentSizeCap;
-        return this;
-    }
-
     public ResolvedManagedContentSigningProfileBuilder withCertificatePurpose(
             CertificatePurposeRequirements certificatePurpose) {
         this.certificatePurpose = certificatePurpose;
@@ -131,7 +125,7 @@ public final class ResolvedManagedContentSigningProfileBuilder {
     public ResolvedManagedContentSigningProfile build() {
         return new ResolvedManagedContentSigningProfile(uuid, name, description, version, enabled, enabledProtocols,
                 signatureFormattingConnectorAttributes, familyDeclaration, maxLevel, timestampSourceProfileName,
-                documentSizeCap, certificatePurpose, parameterPolicy, signatureFormattingConnector, resolvedScheme);
+                certificatePurpose, parameterPolicy, signatureFormattingConnector, resolvedScheme);
     }
 
     private static ResolvedManagedScheme defaultScheme() {

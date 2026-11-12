@@ -67,8 +67,8 @@ public class StaticKeyManagedContentSigningResolver implements SigningProfileRes
         return new ResolvedManagedContentSigningProfile(model.uuid(), model.name(), model.description(),
                 model.version(), model.enabled(), model.enabledProtocols(),
                 workflow.signatureFormattingConnectorAttributes(), familyDeclaration, workflow.maxLevel(),
-                timestampSourceProfileName, workflow.documentSizeCap(), workflow.certificatePurpose(),
-                workflow.parameterPolicy(), connector, resolvedScheme);
+                timestampSourceProfileName, workflow.certificatePurpose(), workflow.parameterPolicy(), connector,
+                resolvedScheme);
     }
 
     private ApiClientConnectorInfo resolveFormattingConnector(UUID connectorUuid) throws SigningEngineException {
