@@ -611,7 +611,6 @@ public class CrlServiceImpl implements CrlService {
         return new CrlEntryData(serialNumber, entry.revocationDate(), reason);
     }
 
-    /** A stored CRL older than the delta CRL in hand. */
     static final class StoredCrlOlderThanDeltaCrlException extends IOException implements PlatformException {
 
         StoredCrlOlderThanDeltaCrlException(String message) {
