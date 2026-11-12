@@ -79,7 +79,9 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
+import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
@@ -192,9 +194,7 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
@@ -228,13 +228,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.function.TriFunction;
-import org.bouncycastle.asn1.ASN1Primitive;
-import org.bouncycastle.asn1.cms.ContentInfo;
 import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.cert.jcajce.JcaCertStore;
-import org.bouncycastle.cms.CMSProcessableByteArray;
-import org.bouncycastle.cms.CMSSignedDataGenerator;
-import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.DefaultAlgorithmNameFinder;
 import org.slf4j.MarkerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -1447,69 +1441,30 @@ public class CertificateServiceImpl
         return certificateDownloadResponseDto;
     }
 
-    private String getDownloadedContent(List<CertificateDetail> certificateDetailDtos,
-            CertificateFormat certificateFormat, CertificateFormatEncoding encoding, boolean downloadingChain)
-            throws NotFoundException, CertificateException {
-        if (certificateFormat == CertificateFormat.RAW) {
-            if (encoding == CertificateFormatEncoding.DER) {
-                if (downloadingChain) {
-                    throw new ValidationException("DER encoding of raw format is unsupported for certificate chain.");
-                }
-                return getCertificateEntity(SecuredUUID.fromString(certificateDetailDtos.getFirst().getUuid()))
-                        .getCertificateContent()
-                        .getContent();
-            }
-            // Encoding is PEM otherwise
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            JcaPEMWriter jcaPEMWriter = new JcaPEMWriter(new OutputStreamWriter(byteArrayOutputStream));
-            for (CertificateDto certificateDto : certificateDetailDtos) {
-                Certificate certificateInstance = getCertificateEntity(
-                        SecuredUUID.fromString(certificateDto.getUuid()));
-                String content = certificateInstance.getCertificateContent().getContent();
-                X509Certificate x509Certificate;
-                x509Certificate = CertificateUtil.getX509Certificate(content);
-                try {
-                    jcaPEMWriter.writeObject(x509Certificate);
-                    jcaPEMWriter.flush();
-                } catch (IOException e) {
-                    throw new CertificateException(
-                            "Could not write downloaded content as PEM format: " + e.getMessage());
-                }
-            }
-            return Base64.getEncoder().encodeToString(byteArrayOutputStream.toByteArray());
+    private String getDownloadedContent(List<CertificateDetail> certificates, CertificateFormat certificateFormat,
+            CertificateFormatEncoding encoding, boolean downloadingChain) throws NotFoundException {
+        if (downloadingChain && certificateFormat == CertificateFormat.RAW
+                && encoding == CertificateFormatEncoding.DER) {
+            throw new ValidationException("DER encoding of raw format is unsupported for certificate chain.");
         }
-        // Formatting is PKCS7 otherwise
-        else {
-            List<X509Certificate> x509CertificateChain = new ArrayList<>();
-            for (CertificateDto certificateDto : certificateDetailDtos) {
-                Certificate certificateInstance = getCertificateEntity(
-                        SecuredUUID.fromString(certificateDto.getUuid()));
-                X509Certificate x509Certificate;
-                x509Certificate = CertificateUtil
-                        .getX509Certificate(certificateInstance.getCertificateContent().getContent());
-                x509CertificateChain.add(x509Certificate);
-            }
-            try {
-                CMSSignedDataGenerator generator = new CMSSignedDataGenerator();
-                generator.addCertificates(new JcaCertStore(x509CertificateChain));
-                byte[] encoded = generator.generate(new CMSProcessableByteArray(new byte[0])).getEncoded();
-                if (encoding == CertificateFormatEncoding.PEM) {
-                    ContentInfo contentInfo = ContentInfo.getInstance(ASN1Primitive.fromByteArray(encoded));
-                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                    JcaPEMWriter jcaPEMWriter = new JcaPEMWriter(new OutputStreamWriter(byteArrayOutputStream));
-                    jcaPEMWriter.writeObject(contentInfo);
-                    jcaPEMWriter.flush();
-                    return Base64.getEncoder().encodeToString(byteArrayOutputStream.toByteArray());
-                }
-                // Encoding is DER otherwise
-                else {
-                    return Base64.getEncoder().encodeToString(encoded);
-                }
-            } catch (Exception e) {
-                throw new CertificateException(
-                        "Could not write downloaded content as PKCS#7 format: " + e.getMessage());
-            }
+        CertificateTypeHandler handler = typeHandlerRegistry
+                .require(certificates.getFirst().getCertificateType().getCode());
+        if (!handler.downloadFormats().contains(certificateFormat)) {
+            throw new ValidationException("The format " + certificateFormat
+                    + " is not available for the certificate type " + handler.typeCode() + ".");
         }
+        List<ParsedCertificate> parsedCertificates = new ArrayList<>();
+        for (CertificateDto certificate : certificates) {
+            String content = getCertificateEntity(SecuredUUID.fromString(certificate.getUuid()))
+                    .getCertificateContent()
+                    .getContent();
+            parsedCertificates
+                    .add(handler
+                            .parseCertificate(Base64.getDecoder().decode(content))
+                            .orElseThrow(() -> new ValidationException(
+                                    "Could not read the certificate content as " + handler.typeCode() + ".")));
+        }
+        return Base64.getEncoder().encodeToString(handler.encode(parsedCertificates, certificateFormat, encoding));
     }
 
     @Override

@@ -519,7 +519,7 @@ class X509CertificateTypeHandlerTest {
         ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
 
         // when
-        byte[] encoded = handler.encode(leaf, CertificateFormat.RAW, CertificateFormatEncoding.DER);
+        byte[] encoded = handler.encode(List.of(leaf), CertificateFormat.RAW, CertificateFormatEncoding.DER);
 
         // then
         assertThat(encoded).isEqualTo(chain.getEndEntityCertificate().getEncoded());
@@ -531,7 +531,7 @@ class X509CertificateTypeHandlerTest {
         ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
 
         // when
-        byte[] encoded = handler.encode(leaf, CertificateFormat.RAW, CertificateFormatEncoding.PEM);
+        byte[] encoded = handler.encode(List.of(leaf), CertificateFormat.RAW, CertificateFormatEncoding.PEM);
 
         // then
         assertThat(new String(encoded, StandardCharsets.UTF_8)).startsWith("-----BEGIN CERTIFICATE-----");
@@ -545,10 +545,55 @@ class X509CertificateTypeHandlerTest {
         ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
 
         // when
-        byte[] encoded = handler.encode(leaf, CertificateFormat.PKCS7, CertificateFormatEncoding.DER);
+        byte[] encoded = handler.encode(List.of(leaf), CertificateFormat.PKCS7, CertificateFormatEncoding.DER);
 
         // then
         assertThat(new CMSSignedData(encoded).getCertificates().getMatches(null)).hasSize(1);
+    }
+
+    @Test
+    void returnsEveryCertificateInOrder_whenEncodingAChainAsRawPem() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedCertificate ca = parsedCertificate(chain.getCaCertificate());
+
+        // when
+        byte[] encoded = handler.encode(List.of(leaf, ca), CertificateFormat.RAW, CertificateFormatEncoding.PEM);
+
+        // then
+        String pem = new String(encoded, StandardCharsets.UTF_8);
+        assertThat(pem.split("-----BEGIN CERTIFICATE-----", -1)).hasSize(3);
+        assertThat(handler.parseCertificate(encoded).orElseThrow().encoded())
+                .isEqualTo(chain.getEndEntityCertificate().getEncoded());
+    }
+
+    @Test
+    void returnsSignedDataCarryingEveryCertificate_whenEncodingAChainAsPkcs7() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedCertificate ca = parsedCertificate(chain.getCaCertificate());
+
+        // when
+        byte[] encoded = handler.encode(List.of(leaf, ca), CertificateFormat.PKCS7, CertificateFormatEncoding.DER);
+
+        // then
+        assertThat(new CMSSignedData(encoded).getCertificates().getMatches(null)).hasSize(2);
+    }
+
+    @Test
+    void refusesAChain_whenEncodingRawDer() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedCertificate ca = parsedCertificate(chain.getCaCertificate());
+
+        // when
+        ThrowingCallable encoding = () -> handler
+                .encode(List.of(leaf, ca), CertificateFormat.RAW, CertificateFormatEncoding.DER);
+
+        // then
+        assertThatThrownBy(encoding)
+                .isInstanceOf(CertificateTypeHandlerException.class)
+                .hasMessageContaining("one certificate only");
     }
 
     @Test

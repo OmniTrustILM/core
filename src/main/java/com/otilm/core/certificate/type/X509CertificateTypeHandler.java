@@ -30,6 +30,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -205,14 +206,23 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
-    public byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding) {
+    public byte[] encode(List<ParsedCertificate> certificates, CertificateFormat format,
+            CertificateFormatEncoding encoding) {
+        if (format == CertificateFormat.RAW && encoding == CertificateFormatEncoding.DER && certificates.size() > 1) {
+            throw new CertificateTypeHandlerException("DER encoding of raw format holds one certificate only.");
+        }
         try {
-            X509Certificate x509 = CertificateUtil.getX509Certificate(certificate.encoded());
+            List<X509Certificate> x509Certificates = new ArrayList<>();
+            for (ParsedCertificate certificate : certificates) {
+                x509Certificates.add(CertificateUtil.getX509Certificate(certificate.encoded()));
+            }
             if (format == CertificateFormat.RAW) {
-                return encoding == CertificateFormatEncoding.DER ? x509.getEncoded() : toPem(x509);
+                return encoding == CertificateFormatEncoding.DER
+                        ? x509Certificates.getFirst().getEncoded()
+                        : toPem(x509Certificates);
             }
             CMSSignedDataGenerator generator = new CMSSignedDataGenerator();
-            generator.addCertificates(new JcaCertStore(List.of(x509)));
+            generator.addCertificates(new JcaCertStore(x509Certificates));
             byte[] pkcs7 = generator.generate(new CMSProcessableByteArray(new byte[0])).getEncoded();
             return encoding == CertificateFormatEncoding.PEM ? toPem("PKCS7", pkcs7) : pkcs7;
         } catch (Exception e) {
@@ -333,10 +343,12 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         return PEM_HEADER_LINE.matcher(new String(content, StandardCharsets.ISO_8859_1)).find();
     }
 
-    private static byte[] toPem(X509Certificate certificate) throws IOException {
+    private static byte[] toPem(List<X509Certificate> certificates) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (JcaPEMWriter writer = new JcaPEMWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8))) {
-            writer.writeObject(certificate);
+            for (X509Certificate certificate : certificates) {
+                writer.writeObject(certificate);
+            }
         }
         return out.toByteArray();
     }
