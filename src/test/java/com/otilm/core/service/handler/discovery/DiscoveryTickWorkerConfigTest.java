@@ -15,6 +15,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class DiscoveryTickWorkerConfigTest {
 
+    private static final String BUFFERED_ONLY = "buffered";
+    private static final String CHECKPOINTED_AND_BUFFERED = "checkpointed,buffered";
+
     @Test
     void nonPositiveProcessingBatchSize_isRefusedAtStartup() {
         // Left to a tick, this throws inside PageRequest.of and reaches the listener's log-and-acknowledge
@@ -30,10 +33,10 @@ class DiscoveryTickWorkerConfigTest {
         // Bounded, unlike the batch size -- the connector rejects the request and the budget eventually ends the
         // run -- but a typo that fails every healthy run is still a startup problem, not a runtime one.
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> drainWorkerWith(0, 1024))
+                .isThrownBy(() -> drainWorkerOffering(BUFFERED_ONLY, 0, 1024))
                 .withMessageContaining("discovery.drain.max-items");
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> drainWorkerWith(500, 0))
+                .isThrownBy(() -> drainWorkerOffering(BUFFERED_ONLY, 500, 0))
                 .withMessageContaining("discovery.drain.max-bytes");
     }
 
@@ -64,13 +67,30 @@ class DiscoveryTickWorkerConfigTest {
         assertThatCode(construct).doesNotThrowAnyException();
     }
 
+    @Test
+    void starts_whenPageLimitsAreBelowTheFloorAndCheckpointedIsNotOffered() {
+        // given
+        var belowTheItemFloor = 50;
+        var belowTheByteFloor = 262_144L;
+
+        // when
+        ThrowingCallable construct = () -> drainWorkerOffering(BUFFERED_ONLY, belowTheItemFloor, belowTheByteFloor);
+
+        // then
+        assertThatCode(construct).doesNotThrowAnyException();
+    }
+
     private static DiscoveryProcessTickWorker processWorkerWithBatchSize(int batchSize) {
         return new DiscoveryProcessTickWorker(null, null, null, null, null, null, null, null, null, null, null, null,
                 null, batchSize);
     }
 
     private static DiscoveryDrainTickWorker drainWorkerWith(int maxItems, long maxBytes) {
-        return new DiscoveryDrainTickWorker(null, null, null, null, null, null, null, null, null, null, null, maxItems,
-                maxBytes);
+        return drainWorkerOffering(CHECKPOINTED_AND_BUFFERED, maxItems, maxBytes);
+    }
+
+    private static DiscoveryDrainTickWorker drainWorkerOffering(String modes, int maxItems, long maxBytes) {
+        return new DiscoveryDrainTickWorker(null, null, null, null, null, null, null, null, null, null, null,
+                new DiscoveryDeliveryModeOffer(modes), maxItems, maxBytes);
     }
 }

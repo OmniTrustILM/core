@@ -63,7 +63,7 @@ public class DiscoveryDrainTickWorker {
             DiscoveryEventIngestor ingestor, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
             DiscoveryRunTerminator terminator, DiscoveryTickBudget budget, DiscoveryWorkProperties workProperties,
             TransactionHandler transactionHandler, DiscoveryWorkLease lease, DiscoveryBusyDeferral busyDeferral,
-            @Value("${discovery.drain.max-items:500}") int maxItems,
+            DiscoveryDeliveryModeOffer deliveryModeOffer, @Value("${discovery.drain.max-items:500}") int maxItems,
             @Value("${discovery.drain.max-bytes:5242880}") long maxBytes) {
         this.lease = lease;
         this.busyDeferral = busyDeferral;
@@ -76,16 +76,28 @@ public class DiscoveryDrainTickWorker {
         this.budget = budget;
         this.workProperties = workProperties;
         this.transactionHandler = transactionHandler;
-        // Fail at startup rather than on every drain. A checkpointed connector never splits one target's items
-        // across pages, so a page smaller than one target stalls the run.
-        if (maxItems < MIN_PAGE_ITEMS) {
-            throw new IllegalArgumentException("discovery.drain.max-items must be at least " + MIN_PAGE_ITEMS);
+        // Fail at startup rather than on every drain.
+        if (maxItems <= 0) {
+            throw new IllegalArgumentException("discovery.drain.max-items must be positive");
         }
-        if (maxBytes < MIN_PAGE_BYTES) {
-            throw new IllegalArgumentException("discovery.drain.max-bytes must be at least " + MIN_PAGE_BYTES);
+        if (maxBytes <= 0) {
+            throw new IllegalArgumentException("discovery.drain.max-bytes must be positive");
+        }
+        // A checkpointed connector never splits one target's items across pages, so a page smaller than one target
+        // stalls the run. A deployment that offers buffered delivery only keeps the smaller pages it may need.
+        if (deliveryModeOffer.offered().contains(DiscoveryDeliveryMode.CHECKPOINTED)) {
+            requireAtLeast("discovery.drain.max-items", maxItems, MIN_PAGE_ITEMS);
+            requireAtLeast("discovery.drain.max-bytes", maxBytes, MIN_PAGE_BYTES);
         }
         this.maxItems = maxItems;
         this.maxBytes = maxBytes;
+    }
+
+    private static void requireAtLeast(String setting, long value, long floor) {
+        if (value < floor) {
+            throw new IllegalArgumentException(setting + " must be at least " + floor
+                    + " while discovery.delivery.modes offers checkpointed delivery");
+        }
     }
 
     public void tick(DiscoveryWorkTick tick) {
