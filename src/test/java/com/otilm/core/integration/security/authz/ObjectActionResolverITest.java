@@ -776,9 +776,9 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
         // then
         assertThat(onCustom).contains(action);
+        assertThat(onMetadata).as("global metadata is viewable").contains(ResourceAction.DETAIL);
         assertThat(onMetadata)
                 .as("%s looks the definition up among custom attributes only", action)
-                .contains(ResourceAction.DETAIL)
                 .doesNotContain(action);
     }
 

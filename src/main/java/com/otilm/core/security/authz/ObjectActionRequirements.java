@@ -184,7 +184,8 @@ public final class ObjectActionRequirements {
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         also(Resource.ATTRIBUTE, ResourceAction.DETAIL, new OnObject(ResourceAction.DETAIL));
         admit(Resource.ATTRIBUTE, "type", AttributeType.CUSTOM, AttributeType.META);
-        // Deleting and enabling look the definition up among custom attributes only.
+        // Deleting and enabling look the definition up among custom attributes only. Deleting global metadata demotes
+        // it under update, so metadata reports no delete.
         also(Resource.ATTRIBUTE, ResourceAction.DELETE, new OnlyWhenEquals("type", AttributeType.CUSTOM));
         also(Resource.ATTRIBUTE, ResourceAction.ENABLE, new OnlyWhenEquals("type", AttributeType.CUSTOM));
         // Only custom attributes are listed and looked up by object; the metadata endpoints check the resource, and

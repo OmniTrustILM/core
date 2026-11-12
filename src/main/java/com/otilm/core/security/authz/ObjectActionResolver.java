@@ -117,7 +117,8 @@ public class ObjectActionResolver {
             case OnObject onObject -> Stream.empty();
             case OnResource onResource -> Stream.empty();
             case OnAncestor onAncestor -> Stream.empty();
-            case OnEachChild onEachChild -> Stream.empty();
+            case OnEachChild(var child, var childAttribute, var inner, List<Requirement> whenNone) ->
+                whenNone.stream().flatMap(ObjectActionResolver::attributesRead);
         };
     }
 
