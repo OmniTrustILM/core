@@ -46,11 +46,7 @@ class ConnectorRefusalClassifierTest {
 
         @ParameterizedTest
         @EnumSource(value = ErrorCode.class,
-                names = {
-                        "SIGNATURE_PLACEMENT_REJECTED",
-                        "DOCUMENT_SIGNING_FORBIDDEN",
-                        "DOCUMENT_TOO_LARGE",
-                        "SIGNATURE_NOT_FOUND"})
+                names = {"SIGNATURE_PLACEMENT_REJECTED", "DOCUMENT_SIGNING_FORBIDDEN", "SIGNATURE_NOT_FOUND"})
         void returnsInvalidInput_whenTheDocumentBreaksARule(ErrorCode documentRule) {
             // given
             var brokenRule = problemRefusal(documentRule);

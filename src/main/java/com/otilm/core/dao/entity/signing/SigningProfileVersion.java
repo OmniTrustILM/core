@@ -118,9 +118,6 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @Column(name = "timestamp_source_profile_uuid")
     private UUID timestampSourceProfileUuid;
 
-    @Column(name = "document_size_cap")
-    private Long documentSizeCap;
-
     @Column(name = "require_non_repudiation", nullable = false)
     private boolean requireNonRepudiation;
 
