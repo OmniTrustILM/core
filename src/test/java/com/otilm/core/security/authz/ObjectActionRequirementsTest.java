@@ -9,6 +9,7 @@ import com.otilm.core.security.authz.ObjectActionRequirements.OnLinkedThrough;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObject;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnObjectUnder;
 import com.otilm.core.security.authz.ObjectActionRequirements.OnResource;
+import com.otilm.core.security.authz.ObjectActionRequirements.OnlyWhenEquals;
 import com.otilm.core.security.authz.ObjectActionRequirements.Requirement;
 import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import com.otilm.core.security.authz.ObjectActionRequirements.WhenEmpty;
@@ -198,6 +199,8 @@ class ObjectActionRequirementsTest {
         } else if (requirement instanceof WhenEquals whenEquals) {
             requireField(resource, entity, whenEquals.attribute(), missing);
             collectMissingAttributes(resource, whenEquals.requirement(), missing);
+        } else if (requirement instanceof OnlyWhenEquals onlyWhenEquals) {
+            requireField(resource, entity, onlyWhenEquals.attribute(), missing);
         } else if (requirement instanceof OnEachChild onEachChild) {
             collectMissingOnTabled(resource, onEachChild.child(), onEachChild.requirements(), missing);
             onEachChild.whenNone().forEach(whenNone -> collectMissingAttributes(resource, whenNone, missing));
