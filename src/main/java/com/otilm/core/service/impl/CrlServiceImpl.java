@@ -118,7 +118,8 @@ public class CrlServiceImpl implements CrlService {
      * <p>
      * A certificate the stored base CRL lists stays revoked when only its delta CRL is due and cannot be read, also
      * when a wait ends first ({@link #throwUnlessStoredCrlLists}). After a failure the stored CRL is read again, and
-     * one stored meanwhile is used unless this validation's write of a newer delta CRL was declined or failed.
+     * one stored meanwhile is used unless this validation read a delta CRL whose write failed, or was declined while
+     * the stored CRL was older.
      */
     @Override
     @OutsideTransaction
