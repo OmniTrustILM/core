@@ -240,7 +240,8 @@ class CryptographicOperationServiceSignerITest extends BaseSpringBootTest {
     private Signer createSigner(UUID tokenUuid, UUID tokenProfileUuid, UUID keyUuid, UUID privateKeyItemUuid) {
         return new CryptographicOperationServiceSigner(cryptographicOperationService,
                 SecuredParentUUID.fromUUID(tokenUuid), SecuredUUID.fromUUID(tokenProfileUuid), keyUuid,
-                privateKeyItemUuid, SignatureAlgorithmMapping.toAttributes(SIGNATURE_ALGORITHM), SIGNATURE_ALGORITHM);
+                privateKeyItemUuid, SignatureAlgorithmMapping.toAttributes(SIGNATURE_ALGORITHM), SIGNATURE_ALGORITHM,
+                keyPair.getPublic());
     }
 
     private static void assertEachSignatureVerifiesOverItsItem(List<byte[]> signatures, PublicKey publicKey)

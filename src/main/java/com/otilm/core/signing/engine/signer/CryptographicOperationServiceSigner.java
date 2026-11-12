@@ -9,6 +9,7 @@ import com.otilm.api.model.client.cryptography.operations.SignDataResponseDto;
 import com.otilm.api.model.client.cryptography.operations.SignatureRequestData;
 import com.otilm.api.model.client.cryptography.operations.SignatureResponseData;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
+import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
@@ -17,6 +18,7 @@ import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier.Classifica
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 
+import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -40,10 +42,11 @@ public class CryptographicOperationServiceSigner implements Signer {
     private final UUID privateKeyItemUuid;
     private final List<RequestAttribute> signatureAttributes;
     private final SignatureAlgorithm signatureAlgorithm;
+    private final PublicKey signingKey;
 
     public CryptographicOperationServiceSigner(CryptographicOperationInternalService cryptographicOperationService,
             SecuredParentUUID tokenInstanceUuid, SecuredUUID tokenProfileUuid, UUID keyUuid, UUID privateKeyItemUuid,
-            List<RequestAttribute> signatureAttributes, SignatureAlgorithm signatureAlgorithm) {
+            List<RequestAttribute> signatureAttributes, SignatureAlgorithm signatureAlgorithm, PublicKey signingKey) {
         this.cryptographicOperationService = cryptographicOperationService;
         this.tokenInstanceUuid = tokenInstanceUuid;
         this.tokenProfileUuid = tokenProfileUuid;
@@ -51,6 +54,7 @@ public class CryptographicOperationServiceSigner implements Signer {
         this.privateKeyItemUuid = privateKeyItemUuid;
         this.signatureAttributes = signatureAttributes;
         this.signatureAlgorithm = signatureAlgorithm;
+        this.signingKey = signingKey;
     }
 
     @Override
@@ -59,35 +63,37 @@ public class CryptographicOperationServiceSigner implements Signer {
     }
 
     @Override
-    public List<byte[]> signAll(List<byte[]> dtbsList) throws SigningEngineException {
-        if (dtbsList == null || dtbsList.isEmpty()) {
-            throw new IllegalArgumentException("dtbsList must not be null or empty");
-        }
-        List<SignatureRequestData> items = new ArrayList<>(dtbsList.size());
-        for (int i = 0; i < dtbsList.size(); i++) {
-            byte[] dtbs = dtbsList.get(i);
-            if (dtbs == null || dtbs.length == 0) {
-                throw new IllegalArgumentException("dtbs must not be null or empty");
-            }
-            SignatureRequestData requestData = new SignatureRequestData();
-            requestData.setIdentifier(Integer.toString(i));
-            requestData.setData(Base64.getEncoder().encodeToString(dtbs));
-            items.add(requestData);
+    public List<byte[]> signAll(List<byte[]> items, SignatureInputMode inputMode) throws SigningEngineException {
+        boolean prehashed = switch (inputMode == null ? SignatureInputMode.DATA : inputMode) {
+            case DATA -> false;
+            case PREHASHED_DIGEST -> true;
+        };
+        List<SignatureRequestData> requestItems = buildRequestItems(items);
+        if (prehashed) {
+            checkDigests(items);
         }
 
         SignDataRequestDto request = new SignDataRequestDto();
         request.setSignatureAttributes(signatureAttributes);
-        request.setData(items);
+        request.setData(requestItems);
 
         try {
-            SignDataResponseDto response = cryptographicOperationService
-                    .signDataWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, keyUuid, privateKeyItemUuid,
-                            request);
+            SignDataResponseDto response = prehashed
+                    ? cryptographicOperationService
+                            .signDataWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, keyUuid,
+                                    privateKeyItemUuid, request, inputMode)
+                    : cryptographicOperationService
+                            .signDataWithoutEventHistory(tokenInstanceUuid, tokenProfileUuid, keyUuid,
+                                    privateKeyItemUuid, request);
 
             if (response == null || response.getSignatures() == null || response.getSignatures().isEmpty()) {
                 throw signerFault("Signing operation returned no signatures");
             }
-            return matchByIdentifier(response.getSignatures(), items.size());
+            List<byte[]> signatures = matchByIdentifier(response.getSignatures(), requestItems.size());
+            if (prehashed) {
+                verifyAgainstDigests(items, signatures);
+            }
+            return signatures;
 
         } catch (ConnectorException | ValidationException e) {
             Classification classification = ConnectorRefusalClassifier.classify(e, UNCLASSIFIED);
@@ -96,6 +102,54 @@ public class CryptographicOperationServiceSigner implements Signer {
         } catch (NotFoundException e) {
             throw new SigningEngineException(SigningEngineFailure.SIGNER_FAULT,
                     "Key or token not found during signing: " + e.getMessage(), e, CLIENT_MESSAGE);
+        }
+    }
+
+    private static List<SignatureRequestData> buildRequestItems(List<byte[]> items) {
+        if (items == null || items.isEmpty()) {
+            throw new IllegalArgumentException("items must not be null or empty");
+        }
+        List<SignatureRequestData> requestItems = new ArrayList<>(items.size());
+        for (int i = 0; i < items.size(); i++) {
+            byte[] item = items.get(i);
+            if (item == null || item.length == 0) {
+                throw new IllegalArgumentException("item must not be null or empty");
+            }
+            SignatureRequestData requestData = new SignatureRequestData();
+            requestData.setIdentifier(Integer.toString(i));
+            requestData.setData(Base64.getEncoder().encodeToString(item));
+            requestItems.add(requestData);
+        }
+        return requestItems;
+    }
+
+    // Refused here so a caller's mistake is INVALID_INPUT, not a provider fault.
+    private void checkDigests(List<byte[]> digests) throws SigningEngineException {
+        if (!PrehashedSigning.admits(signatureAlgorithm)) {
+            throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
+                    "Signature algorithm %s cannot sign a prehashed digest".formatted(signatureAlgorithm),
+                    "The signing profile's signature algorithm cannot sign a digest.");
+        }
+        int digestSize = PrehashedSigning.digestAlgorithm(signatureAlgorithm).getDigestSizeBytes();
+        for (int i = 0; i < digests.size(); i++) {
+            if (digests.get(i).length != digestSize) {
+                throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
+                        "Digest %d is %d bytes, expected %d for %s"
+                                .formatted(i, digests.get(i).length, digestSize, signatureAlgorithm.getCode()),
+                        "Each digest must be %d bytes for %s.".formatted(digestSize, signatureAlgorithm.getCode()));
+            }
+        }
+    }
+
+    // A provider that ignores the mode hashes the digest again and signs the wrong message.
+    private void verifyAgainstDigests(List<byte[]> digests, List<byte[]> signatures) throws SigningEngineException {
+        for (int i = 0; i < digests.size(); i++) {
+            if (!PrehashedSignatureVerifier
+                    .verifies(signatureAlgorithm, signingKey, digests.get(i), signatures.get(i))) {
+                throw signerFault(
+                        "Signature %d does not verify against its digest under %s; the provider may have hashed it again"
+                                .formatted(i, signatureAlgorithm.getCode()));
+            }
         }
     }
 
