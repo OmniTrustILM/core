@@ -733,7 +733,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> clientOperationService.issueCertificate(authorityUuid, raProfileSecuredUuid, null, null));
+                        () -> clientOperationService
+                                .issueCertificate(authorityUuid, raProfileSecuredUuid,
+                                        new ClientCertificateIssueRequestDto(), null));
     }
 
     @Test

@@ -527,9 +527,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         // Issue/renew/rekey reach this body by self-invocation, bypassing the annotation above, so without this probe
         // a platform key signs a CSR before the nested CREATE gate can deny. Denies nobody that gate would admit.
         certificateService.checkCreatePermissions();
-        if (request != null) {
-            request.setFormat(requestFormatResolver.resolve(request.getFormat(), null));
-        }
+        request.setFormat(requestFormatResolver.resolve(request.getFormat(), null));
         boolean createCustomAttributes = !AuthHelper.isLoggedProtocolUser();
         if (createCustomAttributes) {
             attributeEngine.validateCustomAttributesContent(Resource.CERTIFICATE, request.getCustomAttributes());
@@ -651,9 +649,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             final SecuredUUID raProfileUuid, final ClientCertificateIssueRequestDto request,
             final CertificateProtocolInfo protocolInfo, final Consumer<UUID> beforeDispatch)
             throws NotFoundException, CertificateOperationException {
-        if (request != null) {
-            request.setFormat(requestFormatResolver.resolve(request.getFormat(), request.getCertificateType()));
-        }
+        request.setFormat(requestFormatResolver.resolve(request.getFormat(), request.getCertificateType()));
         // validate RA profile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(raProfileUuid.getValue())
