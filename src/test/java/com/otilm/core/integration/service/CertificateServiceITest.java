@@ -1413,19 +1413,20 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .save(aCertificateContent().withContent(DOWNLOADABLE_CERT_BASE64).build());
             certificate.setCertificateContent(content);
             certificateRepository.save(certificate);
-            X509CertificateTypeHandler rawOnlyHandler = rawOnlyX509Handler();
+            CertificateFormat unsupportedFormat = CertificateFormat.PKCS7;
+            X509CertificateTypeHandler rawOnlyHandler = createRawOnlyX509Handler();
             certificateService.setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(rawOnlyHandler)));
 
             // when
             ThrowingCallable download = () -> certificateService
-                    .downloadCertificate(certificate.getSecuredUuid(), CertificateFormat.PKCS7,
+                    .downloadCertificate(certificate.getSecuredUuid(), unsupportedFormat,
                             CertificateFormatEncoding.PEM);
 
             // then
             try {
                 assertThatThrownBy(download)
                         .isInstanceOf(ValidationException.class)
-                        .hasMessageContaining("PKCS7")
+                        .hasMessageContaining(unsupportedFormat.toString())
                         .hasMessageContaining(CertificateType.X509.getCode());
                 verify(rawOnlyHandler, never()).encode(any(), any(), any());
             } finally {
@@ -1440,19 +1441,20 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .save(aCertificateContent().withContent(DOWNLOADABLE_CERT_BASE64).build());
             certificate.setCertificateContent(content);
             certificateRepository.save(certificate);
-            X509CertificateTypeHandler rawOnlyHandler = rawOnlyX509Handler();
+            CertificateFormat unsupportedFormat = CertificateFormat.PKCS7;
+            X509CertificateTypeHandler rawOnlyHandler = createRawOnlyX509Handler();
             certificateService.setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(rawOnlyHandler)));
 
             // when
             ThrowingCallable download = () -> certificateService
-                    .downloadCertificateChain(certificate.getSecuredUuid(), CertificateFormat.PKCS7, true,
+                    .downloadCertificateChain(certificate.getSecuredUuid(), unsupportedFormat, true,
                             CertificateFormatEncoding.PEM);
 
             // then
             try {
                 assertThatThrownBy(download)
                         .isInstanceOf(ValidationException.class)
-                        .hasMessageContaining("PKCS7")
+                        .hasMessageContaining(unsupportedFormat.toString())
                         .hasMessageContaining(CertificateType.X509.getCode());
                 verify(rawOnlyHandler, never()).encode(any(), any(), any());
             } finally {
@@ -1666,6 +1668,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(statements)
                     .noneMatch(sql -> sql.startsWith("delete from core.attribute_content_2_object"))
                     .noneMatch(sql -> sql.contains("values(0)"));
+        }
+
+        private X509CertificateTypeHandler createRawOnlyX509Handler() {
+            X509CertificateTypeHandler handler = Mockito.spy(x509Handler);
+            Mockito.doReturn(EnumSet.of(CertificateFormat.RAW)).when(handler).downloadFormats();
+            return handler;
         }
     }
 
@@ -3327,12 +3335,6 @@ class CertificateServiceITest extends BaseSpringBootTest {
                         .get(WireMock.urlPathMatching("/auth/users/[^/]+"))
                         .willReturn(WireMock.okJson("{ \"username\": \"newOwner\"}")));
         return authServiceMock;
-    }
-
-    private X509CertificateTypeHandler rawOnlyX509Handler() {
-        X509CertificateTypeHandler handler = Mockito.spy(x509Handler);
-        Mockito.doReturn(EnumSet.of(CertificateFormat.RAW)).when(handler).downloadFormats();
-        return handler;
     }
 
     private void downloadAndRecreate(CertificateFormat format, CertificateFormatEncoding encoding)

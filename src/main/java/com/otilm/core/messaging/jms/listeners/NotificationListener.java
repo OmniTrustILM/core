@@ -882,7 +882,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         return text.toString();
     }
 
-    private static String describeIssuance(CertificateEventData data) {
+    static String describeIssuance(CertificateEventData data) {
         if (data.getSerialNumber() == null && data.getIssuerDn() == null) {
             return null;
         }

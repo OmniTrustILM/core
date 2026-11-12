@@ -567,7 +567,7 @@ class X509CertificateTypeHandlerTest {
         byte[] encoded = handler.encode(List.of(leaf, ca), CertificateFormat.RAW, CertificateFormatEncoding.PEM);
 
         // then
-        assertThat(pemBlocks(encoded))
+        assertThat(readPemBlocks(encoded))
                 .containsExactly(chain.getEndEntityCertificate().getEncoded(), chain.getCaCertificate().getEncoded());
     }
 
@@ -668,7 +668,7 @@ class X509CertificateTypeHandlerTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static List<byte[]> pemBlocks(byte[] pem) throws Exception {
+    private static List<byte[]> readPemBlocks(byte[] pem) throws Exception {
         List<byte[]> blocks = new ArrayList<>();
         try (var reader = new PemReader(new InputStreamReader(new ByteArrayInputStream(pem), StandardCharsets.UTF_8))) {
             for (PemObject block = reader.readPemObject(); block != null; block = reader.readPemObject()) {
