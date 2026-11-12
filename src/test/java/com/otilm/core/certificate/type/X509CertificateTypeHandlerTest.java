@@ -16,7 +16,9 @@ import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.util.CertificateUtil;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +27,7 @@ import java.security.PublicKey;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +35,7 @@ import java.util.Set;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.crmf.CertificateRequestMessageBuilder;
 import org.bouncycastle.cert.crmf.jcajce.JcaCertificateRequestMessageBuilder;
 import org.bouncycastle.cms.CMSSignedData;
@@ -39,6 +43,8 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
+import org.bouncycastle.util.io.pem.PemObject;
+import org.bouncycastle.util.io.pem.PemReader;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -561,10 +567,8 @@ class X509CertificateTypeHandlerTest {
         byte[] encoded = handler.encode(List.of(leaf, ca), CertificateFormat.RAW, CertificateFormatEncoding.PEM);
 
         // then
-        String pem = new String(encoded, StandardCharsets.UTF_8);
-        assertThat(pem.split("-----BEGIN CERTIFICATE-----", -1)).hasSize(3);
-        assertThat(handler.parseCertificate(encoded).orElseThrow().encoded())
-                .isEqualTo(chain.getEndEntityCertificate().getEncoded());
+        assertThat(pemBlocks(encoded))
+                .containsExactly(chain.getEndEntityCertificate().getEncoded(), chain.getCaCertificate().getEncoded());
     }
 
     @Test
@@ -577,7 +581,10 @@ class X509CertificateTypeHandlerTest {
         byte[] encoded = handler.encode(List.of(leaf, ca), CertificateFormat.PKCS7, CertificateFormatEncoding.DER);
 
         // then
-        assertThat(new CMSSignedData(encoded).getCertificates().getMatches(null)).hasSize(2);
+        assertThat(new CMSSignedData(encoded).getCertificates().getMatches(null))
+                .extracting(holder -> ((X509CertificateHolder) holder).getEncoded())
+                .containsExactlyInAnyOrder(chain.getEndEntityCertificate().getEncoded(),
+                        chain.getCaCertificate().getEncoded());
     }
 
     @Test
@@ -660,6 +667,16 @@ class X509CertificateTypeHandlerTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static List<byte[]> pemBlocks(byte[] pem) throws Exception {
+        List<byte[]> blocks = new ArrayList<>();
+        try (var reader = new PemReader(new InputStreamReader(new ByteArrayInputStream(pem), StandardCharsets.UTF_8))) {
+            for (PemObject block = reader.readPemObject(); block != null; block = reader.readPemObject()) {
+                blocks.add(block.getContent());
+            }
+        }
+        return blocks;
+    }
 
     private ParsedCertificate parsedCertificate(X509Certificate certificate) throws Exception {
         return handler.parseCertificate(certificate.getEncoded()).orElseThrow();
