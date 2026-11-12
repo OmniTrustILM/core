@@ -4927,7 +4927,51 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             verify(actionProducer, never()).produceMessage(any());
         }
 
+        @Test
+        void rethrowsTheFailure_whenTheComplianceCheckFailsAfterRejectingTheCertificate() {
+            // given
+            stubComplianceCheckRejectingThenFailing();
+            SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+            SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+            ClientCertificateIssueRequestDto request = issueRequest();
+
+            // when
+            ThrowingCallable issue = () -> clientOperationService
+                    .issueCertificate(authorityUuid, raProfileUuid, request, null);
+
+            // then
+            assertThatThrownBy(issue).isInstanceOf(IllegalStateException.class);
+            assertThat(findSubmittedCertificate().getState()).isEqualTo(CertificateState.REJECTED);
+            verify(actionProducer, never()).produceMessage(any());
+        }
+
+        @Test
+        void logsNoPickUp_whenTheComplianceCheckFailsAfterRejectingTheCertificate() {
+            // given
+            stubComplianceCheckRejectingThenFailing();
+            SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+            SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+            ClientCertificateIssueRequestDto request = issueRequest();
+
+            // when
+            List<String> logged = captureServiceLogsDuring(
+                    () -> clientOperationService.issueCertificate(authorityUuid, raProfileUuid, request, null));
+
+            // then
+            assertThat(logged).noneMatch(line -> line.contains("picked it up"));
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void stubComplianceCheckRejectingThenFailing() {
+            doAnswer(invocation -> {
+                UUID checked = invocation.getArgument(1);
+                Certificate rejected = certificateRepository.findByUuid(checked).orElseThrow();
+                rejected.setState(CertificateState.REJECTED);
+                certificateRepository.save(rejected);
+                throw new IllegalStateException("compliance results unavailable");
+            }).when(complianceService).checkResourceObjectComplianceAsSystem(any(), any());
+        }
 
         private Certificate findSubmittedCertificate() {
             List<Certificate> submitted = certificateRepository

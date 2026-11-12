@@ -204,6 +204,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
         when(certificateRepository.findWithAuthorityAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
         when(certificateRepository.findAndLockWithAssociationsByUuid(certUuid)).thenReturn(Optional.of(certificate));
+        when(certificateRepository.findAndLockFreshByUuid(certUuid)).thenReturn(Optional.of(certificate));
         // The dispatch discriminator (non-locking) and the locked read in the register-bound path both resolve the
         // binding by certificate UUID — a pre-registered placeholder has one.
         when(certificateRegistrationRepository.findByCertificateUuid(certUuid)).thenReturn(Optional.of(binding));
