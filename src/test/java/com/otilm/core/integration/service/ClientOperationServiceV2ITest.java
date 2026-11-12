@@ -5017,27 +5017,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                             && line.contains("ConnectorServerException"))
                     .noneMatch(line -> line.contains(sentinel));
         }
-
-        // ── Helpers ───────────────────────────────────────────────────────────
-
-        private static List<String> captureServiceLogsDuring(ThrowingCallable call) {
-            ListAppender<ILoggingEvent> appender = new ListAppender<>();
-            appender.start();
-            ch.qos.logback.classic.Logger serviceLogger = (ch.qos.logback.classic.Logger) LoggerFactory
-                    .getLogger(ClientOperationServiceImpl.class);
-            serviceLogger.addAppender(appender);
-            try {
-                catchThrowable(call);
-            } finally {
-                serviceLogger.detachAppender(appender);
-            }
-            return appender.list
-                    .stream()
-                    .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
-                            ? ""
-                            : ThrowableProxyUtil.asString(event.getThrowableProxy())))
-                    .toList();
-        }
     }
 
     // ── RegistrationCompletion ────────────────────────────────────────────────
@@ -5848,6 +5827,302 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
     }
 
+    // ── RenewCertificateAction ────────────────────────────────────────────────
+
+    @Nested
+    class RenewCertificateAction {
+
+        @Test
+        void doesNotLogConnectorText_whenTheAuthorityRefuses() {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            prepareCertificateForRenewal();
+            stubRenewEndpointRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+            List<String> logged = captureServiceLogsDuring(renew);
+
+            // then
+            assertThat(logged).isNotEmpty().noneMatch(line -> line.contains(connectorEcho));
+        }
+
+        @Test
+        void throwsWithoutConnectorText_whenTheAuthorityRefuses() {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            prepareCertificateForRenewal();
+            stubRenewEndpointRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(renew)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining(successorUuid.toString())
+                    .hasMessageNotContaining(connectorEcho);
+        }
+
+        @Test
+        void keepsConnectorTextInHistory_whenTheAuthorityRefuses() {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            prepareCertificateForRenewal();
+            stubRenewEndpointRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(renew).isInstanceOf(CertificateOperationException.class);
+            assertThat(certificateEventHistoryRepository.findAll()).anySatisfy(h -> {
+                assertThat(h.getEvent()).isEqualTo(CertificateEvent.RENEW);
+                assertThat(h.getStatus()).isEqualTo(CertificateEventStatus.FAILED);
+                assertThat(h.getMessage()).contains(connectorEcho);
+            });
+        }
+
+        @Test
+        void doesNotLogConnectorText_whenTheLocationRefusesTheRemoval() throws Exception {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            UUID predecessorUuid = prepareCertificateForRenewal();
+            placeOnLocation(predecessorUuid, "renew-location");
+            stubRenewEndpointAccepting();
+            stubLocationRemovalRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = ClientCertificateRenewRequestDto.builder().build();
+            request.setReplaceInLocations(true);
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+            List<String> logged = captureServiceLogsDuring(renew);
+
+            // then
+            assertThat(logged).isNotEmpty().noneMatch(line -> line.contains(connectorEcho));
+        }
+
+        @Test
+        void throwsWithoutConnectorText_whenTheLocationRefusesTheRemoval() throws Exception {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            UUID predecessorUuid = prepareCertificateForRenewal();
+            placeOnLocation(predecessorUuid, "renew-location");
+            stubRenewEndpointAccepting();
+            stubLocationRemovalRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = ClientCertificateRenewRequestDto.builder().build();
+            request.setReplaceInLocations(true);
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(renew)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining("during renew operation")
+                    .hasMessageNotContaining(connectorEcho);
+        }
+
+        @Test
+        void doesNotLogConnectorText_whenTheLocationRefusesCleaningUpTheFailedSuccessor() {
+            // given
+            var locationEcho = "location-echo-4c1d";
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            placeOnLocation(successorUuid, "failed-successor-location");
+            stubRenewEndpointRefusing("authority refusal");
+            stubLocationRemovalRefusing(locationEcho);
+            var request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+            List<String> logged = captureServiceLogsDuring(renew);
+
+            // then
+            assertThat(logged)
+                    .anyMatch(line -> line.contains("Failed to remove certificate with UUID " + successorUuid))
+                    .noneMatch(line -> line.contains(locationEcho));
+        }
+
+        @Test
+        void failsTheSuccessorWithoutConnectorText_whenTheLocationRejectsCleaningItUp() {
+            // given
+            var locationEcho = "location-echo-4c1d";
+            prepareCertificateForRenewal();
+            UUID successorUuid = certificate.getUuid();
+            placeOnLocation(successorUuid, "failed-successor-location");
+            stubRenewEndpointRefusing("authority refusal");
+            stubLocationRemovalRejecting(locationEcho);
+            var request = ClientCertificateRenewRequestDto.builder().build();
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(renew)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining(successorUuid.toString())
+                    .hasMessageNotContaining(locationEcho);
+            assertThat(certificateRepository.findByUuid(successorUuid).orElseThrow().getState())
+                    .isEqualTo(CertificateState.FAILED);
+        }
+    }
+
+    // ── RekeyCertificateAction ────────────────────────────────────────────────
+
+    @Nested
+    class RekeyCertificateAction {
+
+        @Test
+        void doesNotLogConnectorText_whenTheAuthorityRefuses() {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            prepareCertificateForRenewal();
+            stubRenewEndpointRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = new ClientCertificateRekeyRequestDto();
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+            List<String> logged = captureServiceLogsDuring(rekey);
+
+            // then
+            assertThat(logged).isNotEmpty().noneMatch(line -> line.contains(connectorEcho));
+        }
+
+        @Test
+        void throwsWithoutConnectorText_whenTheAuthorityRefuses() {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            prepareCertificateForRenewal();
+            stubRenewEndpointRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = new ClientCertificateRekeyRequestDto();
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(rekey)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining(successorUuid.toString())
+                    .hasMessageNotContaining(connectorEcho);
+        }
+
+        @Test
+        void keepsConnectorTextInHistory_whenTheAuthorityRefuses() {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            prepareCertificateForRenewal();
+            stubRenewEndpointRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = new ClientCertificateRekeyRequestDto();
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(rekey).isInstanceOf(CertificateOperationException.class);
+            assertThat(certificateEventHistoryRepository.findAll()).anySatisfy(h -> {
+                assertThat(h.getEvent()).isEqualTo(CertificateEvent.REKEY);
+                assertThat(h.getStatus()).isEqualTo(CertificateEventStatus.FAILED);
+                assertThat(h.getMessage()).contains(connectorEcho);
+            });
+        }
+
+        @Test
+        void doesNotLogConnectorText_whenTheLocationRefusesTheRemoval() throws Exception {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            UUID predecessorUuid = prepareCertificateForRenewal();
+            placeOnLocation(predecessorUuid, "rekey-location");
+            stubRenewEndpointAccepting();
+            stubLocationRemovalRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = new ClientCertificateRekeyRequestDto();
+            request.setReplaceInLocations(true);
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+            List<String> logged = captureServiceLogsDuring(rekey);
+
+            // then
+            assertThat(logged).isNotEmpty().noneMatch(line -> line.contains(connectorEcho));
+        }
+
+        @Test
+        void throwsWithoutConnectorText_whenTheLocationRefusesTheRemoval() throws Exception {
+            // given
+            var connectorEcho = "connector-echo-7f3a";
+            UUID predecessorUuid = prepareCertificateForRenewal();
+            placeOnLocation(predecessorUuid, "rekey-location");
+            stubRenewEndpointAccepting();
+            stubLocationRemovalRefusing(connectorEcho);
+            UUID successorUuid = certificate.getUuid();
+            var request = new ClientCertificateRekeyRequestDto();
+            request.setReplaceInLocations(true);
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(rekey)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageContaining("during rekey operation")
+                    .hasMessageNotContaining(connectorEcho);
+        }
+    }
+
+    // ── IssueCertificateAction ────────────────────────────────────────────────
+
+    @Nested
+    class IssueCertificateAction {
+
+        @Test
+        void failsTheCertificateWithoutConnectorText_whenTheLocationRejectsCleaningItUp() {
+            // given
+            var locationEcho = "location-echo-4c1d";
+            UUID certificateUuid = prepareCertificateForIssuance();
+            placeOnLocation(certificateUuid, "failed-issue-location");
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                            .willReturn(WireMock.jsonResponse("{\"message\": \"refused: authority refusal\"}", 400)));
+            stubLocationRemovalRejecting(locationEcho);
+
+            // when
+            ThrowingCallable issue = () -> clientOperationInternalService.issueCertificateAction(certificateUuid, true);
+
+            // then
+            assertThatThrownBy(issue)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessageNotContaining(locationEcho);
+            assertThat(certificateRepository.findByUuid(certificateUuid).orElseThrow().getState())
+                    .isEqualTo(CertificateState.FAILED);
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private ApprovalProfileVersion createApprovalProfileVersion() throws Exception {
@@ -5878,5 +6153,53 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .stream()
                 .filter(approval -> approval.getObjectUuid().equals(certificateUuid))
                 .toList();
+    }
+
+    private static List<String> captureServiceLogsDuring(ThrowingCallable call) {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ch.qos.logback.classic.Logger serviceLogger = (ch.qos.logback.classic.Logger) LoggerFactory
+                .getLogger(ClientOperationServiceImpl.class);
+        serviceLogger.addAppender(appender);
+        try {
+            catchThrowable(call);
+        } finally {
+            serviceLogger.detachAppender(appender);
+        }
+        return appender.list
+                .stream()
+                .map(event -> event.getFormattedMessage() + (event.getThrowableProxy() == null
+                        ? ""
+                        : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                .toList();
+    }
+
+    private void stubLocationRemovalRejecting(String connectorText) {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.jsonResponse("[\"rejected: " + connectorText + "\"]", 422)));
+    }
+
+    private void stubRenewEndpointAccepting() throws Exception {
+        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+    }
+
+    private void stubLocationRemovalRefusing(String connectorText) {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/remove"))
+                        .willReturn(WireMock.jsonResponse("{\"message\": \"refused: " + connectorText + "\"}", 400)));
+    }
+
+    private void stubRenewEndpointRefusing(String connectorText) {
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                        .willReturn(WireMock.jsonResponse("{\"message\": \"refused: " + connectorText + "\"}", 400)));
     }
 }

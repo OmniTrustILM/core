@@ -3385,7 +3385,7 @@ public class CertificateServiceImpl
                             .connector(newRaProfile.getAuthorityInstanceReference().getConnectorUuid())
                             .operation(AttributeOperation.CERTIFICATE_IDENTIFY)
                             .build(), identifyAttributes);
-        } catch (AttributeException | NotFoundException | ValidationException e) {
+        } catch (AttributeException | ValidationException e) {
             certificateEventHistoryService
                     .addEventHistorySurvivingRollback(certificate.getUuid(), CertificateEvent.UPDATE_RA_PROFILE,
                             CertificateEventStatus.FAILED,
