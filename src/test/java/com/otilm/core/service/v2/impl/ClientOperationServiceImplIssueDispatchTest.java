@@ -15,6 +15,8 @@ import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.core.certificate.type.AuthorityCertificateTypes;
+import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
 import com.otilm.core.certificate.type.RequestFormatResolver;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
@@ -117,6 +119,7 @@ class ClientOperationServiceImplIssueDispatchTest {
         service
                 .setRequestFormatResolver(new RequestFormatResolver(
                         new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler()))));
+        service.setAuthorityCertificateTypes(new AuthorityCertificateTypes());
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
         service.setCertificateLocationRepository(certificateLocationRepository);
         service.setAdapterFactory(adapterFactory);
@@ -176,6 +179,39 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .isInstanceOf(UnsupportedCertificateTypeException.class)
                 .hasMessageContaining(CertificateType.SSH.getCode());
         verifyNoInteractions(raProfileRepository);
+    }
+
+    @Test
+    void refusesTheTypeBeforeSubmitting_whenItHasAHandlerButTheAuthorityDoesNotIssueIt() {
+        // given
+        CertificateType notIssued = CertificateType.SSH;
+        CertificateTypeHandler sshHandler = mock(CertificateTypeHandler.class);
+        when(sshHandler.typeCode()).thenReturn(notIssued.getCode());
+        service
+                .setRequestFormatResolver(new RequestFormatResolver(
+                        new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler(), sshHandler))));
+        UUID authorityUuid = UUID.randomUUID();
+        RaProfile raProfile = new RaProfile();
+        raProfile.setName("x509-only-profile");
+        raProfile.setEnabled(true);
+        raProfile.setAuthorityInstanceReferenceUuid(authorityUuid);
+        UUID raProfileUuid = UUID.randomUUID();
+        when(raProfileRepository.findByUuid(raProfileUuid)).thenReturn(Optional.of(raProfile));
+        ClientCertificateIssueRequestDto request = new ClientCertificateIssueRequestDto();
+        request.setCertificateType(notIssued);
+        request.setFormat(CertificateRequestFormat.PKCS10);
+
+        // when
+        ThrowingCallable issue = () -> service
+                .issueCertificate(SecuredParentUUID.fromUUID(authorityUuid), SecuredUUID.fromUUID(raProfileUuid),
+                        request, null);
+
+        // then
+        assertThatThrownBy(issue)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(notIssued.getCode())
+                .hasMessageContaining(raProfile.getName());
+        verifyNoInteractions(certificateService, adapterFactory);
     }
 
     @Test

@@ -61,6 +61,7 @@ import com.otilm.core.certificate.request.ProtocolRequestAttributeValidator;
 import com.otilm.core.certificate.request.RegisterWireBuilder;
 import com.otilm.core.certificate.request.RenewContentSeeder;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
+import com.otilm.core.certificate.type.AuthorityCertificateTypes;
 import com.otilm.core.certificate.type.RequestFormatResolver;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Approval;
@@ -220,6 +221,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     private RaProfileRepository raProfileRepository;
     private CertificateRepository certificateRepository;
     private RequestFormatResolver requestFormatResolver;
+    private AuthorityCertificateTypes authorityCertificateTypes;
     private LocationExternalService locationService;
     private LocationInternalService locationInternalService;
     private CertificateInternalService certificateService;
@@ -372,6 +374,11 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     @Autowired
     public void setRequestFormatResolver(RequestFormatResolver requestFormatResolver) {
         this.requestFormatResolver = requestFormatResolver;
+    }
+
+    @Autowired
+    public void setAuthorityCertificateTypes(AuthorityCertificateTypes authorityCertificateTypes) {
+        this.authorityCertificateTypes = authorityCertificateTypes;
     }
 
     @Autowired
@@ -660,6 +667,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             throw new ValidationException(String
                     .format("Cannot issue certificate with disabled RA profile. Ra Profile: %s", raProfile.getName()));
         }
+        authorityCertificateTypes.requireSupport(request.getCertificateType(), raProfile);
 
         ClientCertificateRequestDto certificateRequestDto = new ClientCertificateRequestDto();
         certificateRequestDto.setRaProfileUuid(raProfileUuid.getValue());
@@ -2234,6 +2242,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Cannot issue a certificate that belongs to a different RA profile. Certificate: %s"
                             .formatted(certificate.toStringShort()));
         }
+        authorityCertificateTypes.requireSupport(certificate.getCertificateType(), raProfile);
         CertificateState state = certificate.getState();
         boolean hasCsr = request != null && request.getRequest() != null && !request.getRequest().isBlank();
 
@@ -2482,6 +2491,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.RENEW, authorityUuid);
+        authorityCertificateTypes.requireSupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile());
         if (request != null) {
             request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
         }
@@ -2689,6 +2699,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             ConnectorException, AttributeException {
         Certificate oldCertificate = validateOldCertificateForOperation(certificateUuid, raProfileUuid.toString(),
                 ResourceAction.REKEY, authorityUuid);
+        authorityCertificateTypes.requireSupport(oldCertificate.getCertificateType(), oldCertificate.getRaProfile());
         if (request != null) {
             request.setFormat(requestFormatResolver.resolve(request.getFormat(), oldCertificate.getCertificateType()));
         }
