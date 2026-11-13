@@ -11,6 +11,7 @@ import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.PublicKey;
@@ -20,6 +21,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -101,8 +103,11 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
-    public byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding) {
-        return certificate.encoded();
+    public byte[] encode(List<ParsedCertificate> certificates, CertificateFormat format,
+            CertificateFormatEncoding encoding) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        certificates.forEach(certificate -> out.writeBytes(certificate.encoded()));
+        return out.toByteArray();
     }
 
     private static Instant startOfDay(String date) {

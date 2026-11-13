@@ -866,6 +866,36 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
         };
     }
 
+    private static String nameOfCertificate(CertificateEventData data) {
+        return data.getSubjectDn() != null ? data.getSubjectDn() : data.getDisplayName();
+    }
+
+    /** The certificate by its name, followed by the serial number and the issuer when it has them. */
+    static String describeCertificate(CertificateEventData data) {
+        StringBuilder text = new StringBuilder("identified as '").append(nameOfCertificate(data)).append('\'');
+        if (data.getSerialNumber() != null) {
+            text.append(" with serial number '").append(data.getSerialNumber()).append('\'');
+        }
+        if (data.getIssuerDn() != null) {
+            text.append(" issued by '").append(data.getIssuerDn()).append('\'');
+        }
+        return text.toString();
+    }
+
+    static String describeIssuance(CertificateEventData data) {
+        if (data.getSerialNumber() == null && data.getIssuerDn() == null) {
+            return null;
+        }
+        StringBuilder text = new StringBuilder("Certificate");
+        if (data.getSerialNumber() != null) {
+            text.append(" serial number '").append(data.getSerialNumber()).append('\'');
+        }
+        if (data.getIssuerDn() != null) {
+            text.append(" issued by '").append(data.getIssuerDn()).append('\'');
+        }
+        return text.toString();
+    }
+
     private InternalNotificationEventData getInternalNotificationData(NotificationMessage message)
             throws ValidationException {
         EventData eventData = getEventData(message.getEvent(), message.getData());
@@ -877,9 +907,8 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             case CERTIFICATE_STATUS_CHANGED -> {
                 CertificateStatusChangedEventData data = (CertificateStatusChangedEventData) eventData;
                 yield new InternalNotificationEventData(
-                        "Certificate validation status changed from %s to %s for certificate identified as '%s' with serial number '%s' issued by '%s'"
-                                .formatted(data.getOldStatus(), data.getNewStatus(), data.getSubjectDn(),
-                                        data.getSerialNumber(), data.getIssuerDn()),
+                        "Certificate validation status changed from %s to %s for certificate %s"
+                                .formatted(data.getOldStatus(), data.getNewStatus(), describeCertificate(data)),
                         null);
             }
             case CERTIFICATE_ACTION_PERFORMED -> {
@@ -887,18 +916,14 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 boolean failed = data.getErrorMessage() != null;
                 yield new InternalNotificationEventData(
                         "Certificate action %s %s for certificate identified as '%s'"
-                                .formatted(data.getAction(), failed ? "failed" : "successful", data.getSubjectDn()),
-                        failed
-                                ? "Error message: " + data.getErrorMessage()
-                                : "Certificate serial number '%s' issued by '%s'"
-                                        .formatted(data.getSerialNumber(), data.getIssuerDn()));
+                                .formatted(data.getAction(), failed ? "failed" : "successful", nameOfCertificate(data)),
+                        failed ? "Error message: " + data.getErrorMessage() : describeIssuance(data));
             }
             case CERTIFICATE_DISCOVERED -> {
                 CertificateDiscoveredEventData data = (CertificateDiscoveredEventData) eventData;
                 yield new InternalNotificationEventData(
-                        "Certificate identified as '%s' with serial number '%s' issued by '%s' discovered by '%s' discovery"
-                                .formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn(),
-                                        data.getDiscoveryName()),
+                        "Certificate %s discovered by '%s' discovery"
+                                .formatted(describeCertificate(data), data.getDiscoveryName()),
                         "Discovery Connector: %s"
                                 .formatted(data.getDiscoveryConnectorName() == null
                                         ? data.getDiscoveryConnectorUuid()
@@ -908,24 +933,18 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
             case CERTIFICATE_EXPIRING -> {
                 CertificateExpiringEventData data = (CertificateExpiringEventData) eventData;
                 yield new InternalNotificationEventData(
-                        "Certificate identified as '%s' with serial number '%s' issued by '%s' is expiring on %s"
-                                .formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn(),
-                                        data.getExpiresAt()),
+                        "Certificate %s is expiring on %s".formatted(describeCertificate(data), data.getExpiresAt()),
                         null);
             }
             case CERTIFICATE_NOT_COMPLIANT -> {
                 CertificateNotCompliantEventData data = (CertificateNotCompliantEventData) eventData;
                 yield new InternalNotificationEventData(
-                        "Certificate identified as '%s' with serial number '%s' issued by '%s' is not compliant"
-                                .formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn()),
-                        null);
+                        "Certificate %s is not compliant".formatted(describeCertificate(data)), null);
             }
             case CERTIFICATE_UPLOADED -> {
                 CertificateEventData data = (CertificateEventData) eventData;
                 yield new InternalNotificationEventData(
-                        "Certificate identified as '%s' with serial number '%s' issued by '%s' has been uploaded."
-                                .formatted(data.getSubjectDn(), data.getSerialNumber(), data.getIssuerDn()),
-                        null);
+                        "Certificate %s has been uploaded.".formatted(describeCertificate(data)), null);
             }
             case DISCOVERY_FINISHED -> {
                 DiscoveryFinishedEventData data = (DiscoveryFinishedEventData) eventData;
@@ -978,7 +997,7 @@ public class NotificationListener implements MessageProcessor<NotificationMessag
                 // written here (this text/detail is persisted to the notifications table).
                 yield new InternalNotificationEventData(
                         "Certificate identified as '%s' has been pre-registered and is awaiting issuance completion"
-                                .formatted(data.getSubjectDn()),
+                                .formatted(nameOfCertificate(data)),
                         data.getCompletionDeadline() == null
                                 ? null
                                 : "Issuance must be completed by %s".formatted(data.getCompletionDeadline()));
