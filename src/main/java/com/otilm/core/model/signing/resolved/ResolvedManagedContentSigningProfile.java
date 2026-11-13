@@ -5,6 +5,8 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureLevelDeclarationDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SignatureParameterPolicy;
@@ -21,7 +23,7 @@ import java.util.UUID;
  * @param enabled Whether the profile is enabled.
  * @param enabledProtocols Enabled protocols.
  * @param signatureFormattingConnectorAttributes Attributes controlling DTBS construction.
- * @param family Signature family this profile produces.
+ * @param familyDeclaration The formatting connector's declaration of the family this profile produces.
  * @param maxLevel Highest level a request may ask for.
  * @param timestampSourceProfileName Name of the TIMESTAMPING profile that issues embedded timestamps, or {@code null}.
  * @param certificatePurpose Per-profile constraints on what the signing certificate is for.
@@ -32,13 +34,29 @@ import java.util.UUID;
  */
 public record ResolvedManagedContentSigningProfile(UUID uuid, String name, String description, int version,
         boolean enabled, List<SigningProtocol> enabledProtocols,
-        List<RequestAttribute> signatureFormattingConnectorAttributes, SignatureFamily family, SignatureLevel maxLevel,
-        String timestampSourceProfileName, CertificatePurposeRequirements certificatePurpose,
+        List<RequestAttribute> signatureFormattingConnectorAttributes, SignatureFamilyDeclarationDto familyDeclaration,
+        SignatureLevel maxLevel, String timestampSourceProfileName, CertificatePurposeRequirements certificatePurpose,
         SignatureParameterPolicy parameterPolicy, ApiClientConnectorInfo signatureFormattingConnector,
         ResolvedManagedScheme resolvedScheme) implements ResolvedSigningProfile {
 
     @Override
     public SigningWorkflowType workflowType() {
         return SigningWorkflowType.CONTENT_SIGNING;
+    }
+
+    public SignatureFamily family() {
+        return familyDeclaration.getCode();
+    }
+
+    /** Returns what the family calls the level, such as PAdES-B-T. The declaration names every level it reaches. */
+    public String levelName(SignatureLevel level) {
+        return familyDeclaration
+                .getLevels()
+                .stream()
+                .filter(declared -> declared.getLevel() == level)
+                .map(SignatureLevelDeclarationDto::getName)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "The %s family declares no level %s".formatted(family(), level)));
     }
 }

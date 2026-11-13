@@ -83,7 +83,7 @@ public class SignatureParameterResolver {
 
     private static Optional<String> familyMismatch(@Nullable SignatureParametersDto requested,
             SignatureFamily workflowFamily) {
-        if (requested == null || requested.getFamily() == workflowFamily) {
+        if (requested == null || requested.getFamily().equals(workflowFamily)) {
             return Optional.empty();
         }
         return Optional

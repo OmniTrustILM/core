@@ -3,7 +3,6 @@ package com.otilm.core.signing.contentsigning;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsResponseDto;
@@ -14,11 +13,13 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.EmbedTimes
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
 import com.otilm.core.signing.contentsigning.acquisition.ContentSigningAcquisitions;
+import com.otilm.core.signing.contentsigning.declaration.FamilyAlgorithms;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingClient;
 import com.otilm.core.signing.contentsigning.state.ContentSigningCursor;
 import com.otilm.core.signing.contentsigning.state.ContentSigningTransitions;
@@ -92,10 +93,12 @@ public class ManagedContentSigningEngine {
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, List<BigInteger> serials)
             throws SigningEngineException {
         requireReachableLevel(request.targetLevel(), profile);
-        requireAcceptedTransfer(profile.family(), request.document());
+        requireDeclaredCeiling(profile);
+        requireAcceptedTransfer(profile.familyDeclaration(), request.document());
         requireAcceptableSigningCertificate(profile);
         Instant signingTime = clockSource.wallTimeInstant();
         SignatureAlgorithm signatureAlgorithm = acquisitions.signatureAlgorithm(profile);
+        requireFamilyAcceptsAlgorithm(signatureAlgorithm, profile);
         SignatureDigestCoherence.requireCoherent(signatureAlgorithm, request.authorizedDigest(), request.document());
 
         ComputeDtbsResponseDto dtbs = requireCompleteDtbs(
@@ -139,6 +142,7 @@ public class ManagedContentSigningEngine {
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol, List<BigInteger> serials)
             throws SigningEngineException {
         requireReachableLevel(request.targetLevel(), profile);
+        requireDeclaredCeiling(profile);
         if (request.targetLevel() == SignatureLevel.SIGNED) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
                     "augmentation to SIGNED was requested, but the document already carries a signature",
@@ -174,24 +178,52 @@ public class ManagedContentSigningEngine {
         }
     }
 
-    private static void requireAcceptedTransfer(SignatureFamily family, DocumentTransferDto document)
+    /**
+     * A reconnect may have lowered the family's ceiling since the profile was saved. The declared levels have no gap,
+     * so a declared ceiling covers every level beneath it.
+     */
+    private static void requireDeclaredCeiling(ResolvedManagedContentSigningProfile profile)
+            throws SigningEngineException {
+        SignatureFamilyDeclarationDto family = profile.familyDeclaration();
+        boolean declared = family.getLevels().stream().anyMatch(level -> level.getLevel() == profile.maxLevel());
+        if (!declared) {
+            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                    "Signing Profile '%s' permits up to %s, which its formatting connector no longer declares for %s"
+                            .formatted(profile.name(), profile.maxLevel(), family.getLabel()),
+                    CLIENT_MESSAGE);
+        }
+    }
+
+    private static void requireAcceptedTransfer(SignatureFamilyDeclarationDto family, DocumentTransferDto document)
             throws SigningEngineException {
         DocumentTransferMode mode = document.getTransferMode();
-        if (!family.accepts(mode)) {
+        if (!family.getTransferModes().contains(mode)) {
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
                     "a %s run was given transferMode %s, which %s signing does not accept"
                             .formatted(family.getLabel(), mode.getCode(), family.getLabel()),
-                    clientRefusal(family, mode));
+                    clientRefusal(family.getLabel(), mode));
         }
     }
 
     /** States what the family needs in place of the refused mode, in the client's terms. */
-    static String clientRefusal(SignatureFamily family, DocumentTransferMode refused) {
+    static String clientRefusal(String familyLabel, DocumentTransferMode refused) {
         String needed = switch (refused) {
             case DIGEST_ONLY -> "needs the document itself, not only its digest";
             case INLINE -> "needs only the document's digest, not the document itself";
         };
-        return "%s signing %s".formatted(family.getLabel(), needed);
+        return "%s signing %s".formatted(familyLabel, needed);
+    }
+
+    /** A reconnect may have narrowed the family's algorithms since the profile was saved. */
+    private static void requireFamilyAcceptsAlgorithm(SignatureAlgorithm signatureAlgorithm,
+            ResolvedManagedContentSigningProfile profile) throws SigningEngineException {
+        SignatureFamilyDeclarationDto family = profile.familyDeclaration();
+        if (!FamilyAlgorithms.accepts(family, signatureAlgorithm)) {
+            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                    "signature algorithm %s of Signing Profile '%s' is no longer accepted by the %s family"
+                            .formatted(signatureAlgorithm.getCode(), profile.name(), family.getLabel()),
+                    CLIENT_MESSAGE);
+        }
     }
 
     /**

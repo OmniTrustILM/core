@@ -17,6 +17,7 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.search.SearchFieldDataByGroupDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
@@ -69,6 +70,9 @@ public interface SigningProfileExternalService {
      */
     List<CertificateDto> listSigningCertificates(SigningWorkflowType signingWorkflowType, boolean qualifiedTimestamp,
             boolean requireNonRepudiation, Set<String> requiredExtendedKeyUsageOids);
+
+    List<SignatureFamilyDeclarationDto> listSignatureFormattingConnectorDeclarations(UUID connectorUuid,
+            SecuredUUID signingProfileUuid) throws NotFoundException;
 
     List<BaseAttribute> listSignatureAttributesForCertificate(SecuredUUID certificateUuid)
             throws NotFoundException, ConnectorException;

@@ -22,14 +22,17 @@ import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.signing.contentsigning.TimestampSourceResolver;
+import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
 import com.otilm.core.util.builders.RequestAttributeV3Builder;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -40,6 +43,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
 import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
+import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -60,6 +64,8 @@ class StaticKeyManagedContentSigningResolverTest {
     private TimestampSourceResolver timestampSourceResolver;
     @Mock
     private FormattingAttributeDefinitions formattingAttributeDefinitions;
+    @Mock
+    private ContentSigningDeclarations declarations;
 
     @InjectMocks
     private StaticKeyManagedContentSigningResolver resolver;
@@ -79,11 +85,14 @@ class StaticKeyManagedContentSigningResolverTest {
     private static final ApiClientConnectorInfo CONNECTOR_INFO = mock(ApiClientConnectorInfo.class);
 
     @BeforeEach
-    void defineTheFormatAttribute() throws Exception {
-        // lenient: tests that stop before the formatter leave its definitions unread
+    void stubTheFormatAttributeAndFamilyDeclaration() throws Exception {
+        // lenient: tests that stop before the formatter or the declaration leave them unread
         lenient()
                 .when(formattingAttributeDefinitions.forContentSigning(any(), any()))
                 .thenReturn(List.of(A_FORMAT_ATTRIBUTE_DEFINITION));
+        lenient()
+                .when(declarations.family(any(), any()))
+                .thenAnswer(invocation -> Optional.of(aFamilyDeclaration(invocation.getArgument(1)).build()));
     }
 
     @Test
@@ -159,6 +168,23 @@ class StaticKeyManagedContentSigningResolverTest {
                 .isInstanceOf(SigningEngineException.class)
                 .satisfies(e -> assertThat(((SigningEngineException) e).failure())
                         .isEqualTo(SigningEngineFailure.MISCONFIGURED));
+    }
+
+    @Test
+    void reportsMisconfiguration_whenTheConnectorNoLongerDeclaresTheFamily() throws Exception {
+        // given
+        givenSchemeResolutionSucceeds();
+        given(connectorService.getConnectorForApiClient(FORMATTING_CONNECTOR_UUID)).willReturn(CONNECTOR_INFO);
+        given(declarations.family(FORMATTING_CONNECTOR_UUID, SignatureFamily.CADES)).willReturn(Optional.empty());
+
+        // when
+        ThrowingCallable resolve = () -> resolver.resolve(aManagedContentSigningProfile());
+
+        // then
+        assertThatThrownBy(resolve).isInstanceOfSatisfying(SigningEngineException.class, e -> {
+            assertThat(e.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+            assertThat(e.operatorMessage()).contains("cades");
+        });
     }
 
     @Test

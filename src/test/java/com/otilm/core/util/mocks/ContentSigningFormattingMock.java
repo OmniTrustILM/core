@@ -6,56 +6,68 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.clients.signing.contentsigning.ContentSigningFormattingPaths;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
-import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.common.signature.SignatureFamily;
+import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
 import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocumentResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.ContentSigningDeclarationDto;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.util.unit.DataSize;
 
 /**
- * Mock of a V2 content-signing formatting connector, backing {@code CONTENT_SIGNING} workflow profiles. Advertises
- * {@link FeatureFlag#CONTENT_SIGNING} on the four AdES family interfaces, plus
- * {@link ConnectorInterface#SIGNATURE_FORMATTING} for the legacy flat attributes route and the per-operation routes.
+ * Mock of a V2 content-signing formatting connector, backing {@code CONTENT_SIGNING} workflow profiles. It serves
+ * {@link ConnectorInterface#CONTENT_SIGNING_FORMATTING} and declares the four AdES families up to {@code SIGNED}, plus
+ * {@link ConnectorInterface#SIGNATURE_FORMATTING} for the legacy flat attributes route.
  */
 public class ContentSigningFormattingMock extends BaseConnectorMock {
 
     private static final byte[] FOREIGN_DOCUMENT = "a different document".getBytes(StandardCharsets.UTF_8);
+    private static final List<SignatureFamily> ADES_FAMILIES = List
+            .of(SignatureFamily.PADES, SignatureFamily.XADES, SignatureFamily.CADES, SignatureFamily.JADES);
 
     ContentSigningFormattingMock() {
         super(new ComputeDtbsEchoTransformer(), new ComputeDtbsEchoTransformer(FOREIGN_DOCUMENT));
-        advertiseFamilyInterfaces(List.of(FeatureFlag.CONTENT_SIGNING));
-    }
-
-    public ContentSigningFormattingMock advertiseTimestampedRung() {
-        advertiseFamilyInterfaces(List.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.LEVEL_TIMESTAMPED));
-        return this;
-    }
-
-    public ContentSigningFormattingMock advertiseNoContentSigningFeature() {
-        advertiseFamilyInterfaces(List.of());
-        return this;
-    }
-
-    private void advertiseFamilyInterfaces(List<FeatureFlag> familyFeatures) {
         stubV2InfoDetails(List
                 .of(interfaceInfo(ConnectorInterface.INFO, List.of()),
                         interfaceInfo(ConnectorInterface.HEALTH, List.of()),
                         interfaceInfo(ConnectorInterface.METRICS, List.of()),
                         interfaceInfo(ConnectorInterface.SIGNATURE_FORMATTING, List.of()),
-                        interfaceInfo(ConnectorInterface.PADES_FORMATTING, familyFeatures),
-                        interfaceInfo(ConnectorInterface.XADES_FORMATTING, familyFeatures),
-                        interfaceInfo(ConnectorInterface.CADES_FORMATTING, familyFeatures),
-                        interfaceInfo(ConnectorInterface.JADES_FORMATTING, familyFeatures)));
+                        interfaceInfo(ConnectorInterface.CONTENT_SIGNING_FORMATTING, List.of())));
+        stubAdesFamiliesUpTo(SignatureLevel.SIGNED);
+    }
+
+    /** Stubs the declaration route with the four AdES families up to {@code highestLevel}. */
+    public ContentSigningFormattingMock stubAdesFamiliesUpTo(SignatureLevel highestLevel) {
+        List<SignatureFamilyDeclarationDto> families = ADES_FAMILIES
+                .stream()
+                .map(family -> SignatureFamilyDeclarationDtoBuilder
+                        .aFamilyDeclaration(family)
+                        .withHighestLevel(highestLevel)
+                        .build())
+                .toList();
+        return stubDeclaration(new ContentSigningDeclarationDto(new ArrayList<>(families)));
+    }
+
+    /** Stubs the declaration route Core reads when it connects or reconnects the connector. */
+    public ContentSigningFormattingMock stubDeclaration(ContentSigningDeclarationDto declaration) {
+        server
+                .stubFor(WireMock
+                        .get(WireMock.urlPathMatching(".*" + ContentSigningFormattingPaths.DECLARATION))
+                        .willReturn(WireMock.okJson(serialize(declaration, "content-signing declaration"))));
+        return this;
     }
 
     public ContentSigningFormattingMock stubBaselineAndTimestampOperations() {
