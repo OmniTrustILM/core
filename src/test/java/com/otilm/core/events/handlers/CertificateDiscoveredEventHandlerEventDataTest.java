@@ -6,16 +6,30 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.evaluator.CertificateTriggerEvaluator;
 import com.otilm.core.util.CertificateUtil;
 import java.util.Date;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 
+@ExtendWith(MockitoExtension.class)
 class CertificateDiscoveredEventHandlerEventDataTest {
 
-    private final CertificateDiscoveredEventHandler handler = new CertificateDiscoveredEventHandler(
-            mock(CertificateRepository.class), mock(CertificateTriggerEvaluator.class));
+    @Mock
+    private CertificateRepository certificateRepository;
+
+    @Mock
+    private CertificateTriggerEvaluator triggerEvaluator;
+
+    private CertificateDiscoveredEventHandler handler;
+
+    @BeforeEach
+    void createHandler() {
+        handler = new CertificateDiscoveredEventHandler(certificateRepository, triggerEvaluator);
+    }
 
     @Test
     void namesTheCertificateByItsCommonName_whenBuildingTheDiscoveredEventData() {
@@ -28,7 +42,8 @@ class CertificateDiscoveredEventHandlerEventDataTest {
                 .build();
 
         // when
-        var eventData = (CertificateDiscoveredEventData) handler.getEventData(certificate, null);
+        CertificateDiscoveredEventData eventData = (CertificateDiscoveredEventData) handler
+                .getEventData(certificate, null);
 
         // then
         assertThat(eventData.getDisplayName()).isEqualTo(commonName);
@@ -44,7 +59,8 @@ class CertificateDiscoveredEventHandlerEventDataTest {
                 .build();
 
         // when
-        var eventData = (CertificateDiscoveredEventData) handler.getEventData(certificate, null);
+        CertificateDiscoveredEventData eventData = (CertificateDiscoveredEventData) handler
+                .getEventData(certificate, null);
 
         // then
         assertThat(eventData.getDisplayName()).isEqualTo(CertificateUtil.EMPTY_COMMON_NAME_PLACEHOLDER);
