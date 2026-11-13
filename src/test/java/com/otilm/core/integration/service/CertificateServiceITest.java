@@ -1670,6 +1670,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
                     .noneMatch(sql -> sql.contains("values(0)"));
         }
 
+        // ── Helpers ───────────────────────────────────────────────────────────
+
         private X509CertificateTypeHandler createRawOnlyX509Handler() {
             X509CertificateTypeHandler handler = Mockito.spy(x509Handler);
             Mockito.doReturn(EnumSet.of(CertificateFormat.RAW)).when(handler).downloadFormats();

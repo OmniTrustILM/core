@@ -13,7 +13,7 @@ class NotificationListenerCertificateTextTest {
         String subjectDn = "CN=holder";
         String serialNumber = "1a2b";
         String issuerDn = "CN=issuer";
-        var data = eventData("holder", subjectDn, serialNumber, issuerDn);
+        var data = createEventData("holder", subjectDn, serialNumber, issuerDn);
 
         // when
         String text = NotificationListener.describeCertificate(data);
@@ -28,7 +28,7 @@ class NotificationListenerCertificateTextTest {
     void describesTheCertificateByDisplayNameOnly_whenItsTypeHasNoDnSerialNumberOrIssuer() {
         // given
         String displayName = "ssh-key-id";
-        var data = eventData(displayName, null, null, null);
+        var data = createEventData(displayName, null, null, null);
 
         // when
         String text = NotificationListener.describeCertificate(data);
@@ -42,7 +42,7 @@ class NotificationListenerCertificateTextTest {
         // given
         String subjectDn = "CN=holder";
         String issuerDn = "CN=issuer";
-        var data = eventData("holder", subjectDn, null, issuerDn);
+        var data = createEventData("holder", subjectDn, null, issuerDn);
 
         // when
         String text = NotificationListener.describeCertificate(data);
@@ -54,7 +54,7 @@ class NotificationListenerCertificateTextTest {
     @Test
     void givesNoIssuanceDetail_whenTheCertificateHasNeitherSerialNumberNorIssuer() {
         // given
-        var data = eventData("ssh-key-id", null, null, null);
+        var data = createEventData("ssh-key-id", null, null, null);
 
         // when
         String detail = NotificationListener.describeIssuance(data);
@@ -67,7 +67,7 @@ class NotificationListenerCertificateTextTest {
     void givesOnlyTheSerialNumber_whenTheCertificateHasNoIssuer() {
         // given
         String serialNumber = "1a2b";
-        var data = eventData("holder", null, serialNumber, null);
+        var data = createEventData("holder", null, serialNumber, null);
 
         // when
         String detail = NotificationListener.describeIssuance(data);
@@ -80,7 +80,7 @@ class NotificationListenerCertificateTextTest {
     void givesOnlyTheIssuer_whenTheCertificateHasNoSerialNumber() {
         // given
         String issuerDn = "CN=issuer";
-        var data = eventData("holder", null, null, issuerDn);
+        var data = createEventData("holder", null, null, issuerDn);
 
         // when
         String detail = NotificationListener.describeIssuance(data);
@@ -94,7 +94,7 @@ class NotificationListenerCertificateTextTest {
         // given
         String serialNumber = "1a2b";
         String issuerDn = "CN=issuer";
-        var data = eventData("holder", null, serialNumber, issuerDn);
+        var data = createEventData("holder", null, serialNumber, issuerDn);
 
         // when
         String detail = NotificationListener.describeIssuance(data);
@@ -105,7 +105,7 @@ class NotificationListenerCertificateTextTest {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private static CertificateEventData eventData(String displayName, String subjectDn, String serialNumber,
+    private static CertificateEventData createEventData(String displayName, String subjectDn, String serialNumber,
             String issuerDn) {
         var data = new CertificateEventData();
         data.setDisplayName(displayName);
