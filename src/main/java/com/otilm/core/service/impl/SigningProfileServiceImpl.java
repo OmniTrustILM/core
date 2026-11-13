@@ -387,9 +387,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             case CONTENT_SIGNING -> SigningProfileMapper
                     .toManagedContentSigningModel(profile, currentVersion, signingOperationAttributes,
                             signatureFormattingConnectorAttributes);
-            case RAW_SIGNING -> throw new IllegalArgumentException(
-                    "Signing Profile '%s' uses the RAW_SIGNING workflow, which does not support model retrieval yet"
-                            .formatted(name));
+            case RAW_SIGNING ->
+                SigningProfileMapper.toManagedRawSigningModel(profile, currentVersion, signingOperationAttributes);
         };
     }
 

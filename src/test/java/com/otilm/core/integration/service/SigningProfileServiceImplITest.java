@@ -104,6 +104,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
+import com.otilm.core.model.signing.workflow.ManagedRawSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -4745,14 +4746,16 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void rawSigningProfile_throwsIllegalArgumentException() {
-            // given: a pre-configured raw-signing profile — RAW_SIGNING has no model mapper yet (core#2004)
-            String rawProfileName = defaultRawSigningProfile.getName();
+        void rawSigningProfile_returnsTypedModel() throws NotFoundException {
+            // given
+            String rawProfileName = defaultManagedStaticKeySigningProfile.getName();
 
-            // when / then
-            assertThatThrownBy(() -> signingProfileInternalService.getSigningProfileModel(rawProfileName))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("does not support model retrieval yet");
+            // when
+            SigningProfileModel<?, ?> model = signingProfileInternalService.getSigningProfileModel(rawProfileName);
+
+            // then
+            assertThat(model.workflow()).isInstanceOf(ManagedRawSigningWorkflow.class);
+            assertThat(model.signingScheme()).isInstanceOf(StaticKeyManagedSigning.class);
         }
 
     }
