@@ -105,7 +105,7 @@ public class SigningProfileMapper {
         dto.setWorkflow(switch (version.getWorkflowType()) {
             case CONTENT_SIGNING -> buildContentSigningWorkflowDto(version, signatureFormattingConnectorAttributes,
                     timestampSourceProfileName);
-            case RAW_SIGNING -> new RawSigningWorkflowDto();
+            case RAW_SIGNING -> buildRawSigningWorkflowDto(version);
             case TIMESTAMPING -> buildTimestampingWorkflowDto(header, version, signatureFormattingConnectorAttributes);
         });
 
@@ -252,6 +252,13 @@ public class SigningProfileMapper {
     // ──────────────────────────────────────────────────────────────────────────
     // DTO builders (read from version)
     // ──────────────────────────────────────────────────────────────────────────
+
+    private static RawSigningWorkflowDto buildRawSigningWorkflowDto(SigningProfileVersion version) {
+        RawSigningWorkflowDto wf = new RawSigningWorkflowDto();
+        wf.setRequireNonRepudiation(version.isRequireNonRepudiation());
+        wf.setRequiredExtendedKeyUsageOids(new LinkedHashSet<>(safeList(version.getRequiredExtendedKeyUsageOids())));
+        return wf;
+    }
 
     private static ContentSigningWorkflowDto buildContentSigningWorkflowDto(SigningProfileVersion version,
             List<ResponseAttribute> signatureFormattingConnectorAttributes, String timestampSourceProfileName) {

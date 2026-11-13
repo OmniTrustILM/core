@@ -993,8 +993,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             case ContentSigningWorkflowRequestDto ignored -> {
                 // Delegated signing keeps the content-signing fields at the values reset above.
             }
+            case RawSigningWorkflowRequestDto w when signingScheme == SigningScheme.MANAGED -> {
+                version.setRequireNonRepudiation(Boolean.TRUE.equals(w.getRequireNonRepudiation()));
+                version
+                        .setRequiredExtendedKeyUsageOids(new ArrayList<>(
+                                Objects.requireNonNullElse(w.getRequiredExtendedKeyUsageOids(), Set.of())));
+            }
             case RawSigningWorkflowRequestDto ignored -> {
-                // RawSigningWorkflowRequestDto has no signatureFormattingConnectorUuid field — no formatting is allowed
+                // Delegated signing keeps the purpose columns at the values reset above.
             }
             case TimestampingWorkflowRequestDto w -> {
                 if (w.getSignatureFormattingConnectorUuid() == null) {

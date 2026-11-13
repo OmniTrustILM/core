@@ -135,6 +135,8 @@ import com.otilm.core.util.mocks.SignerConnectorMock;
 import com.otilm.core.util.mocks.TimestampingFormattingConnectorMock;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.NoSuchAlgorithmException;
@@ -311,6 +313,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Autowired
     private ConnectorContentSigningDeclarationRepository declarationRepository;
+
+    @Autowired
+    private Validator beanValidator;
 
     /**
      * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
@@ -1432,6 +1437,64 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
+        void createRawProfile_persistsAndEchoesCertificatePurpose() throws Exception {
+            // given: a certificate that satisfies both constraints the profile is about to set
+            widenDefaultSigningCertificate(CertificateKeyUsage.NON_REPUDIATION, DOCUMENT_SIGNING_OID);
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-raw-purpose-constraints")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withRawSigning(true, DOCUMENT_SIGNING_OID)
+                            .build());
+
+            // then
+            SigningProfileDto fetched = signingProfileService
+                    .getSigningProfile(SecuredUUID.fromString(created.getUuid()), created.getVersion());
+            assertThat(List.of(created, fetched)).allSatisfy(profile -> {
+                RawSigningWorkflowDto workflow = assertInstanceOf(RawSigningWorkflowDto.class, profile.getWorkflow());
+                assertThat(workflow.isRequireNonRepudiation()).isTrue();
+                assertThat(workflow.getRequiredExtendedKeyUsageOids()).containsExactly(DOCUMENT_SIGNING_OID);
+            });
+        }
+
+        @Test
+        void createRawProfile_refusesCertificate_whenRequiredEkuIsMissing() {
+            // given: defaultSigningCertificate does not carry the document-signing extended key usage
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-managed-raw-eku-mismatch")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withRawSigning(false, DOCUMENT_SIGNING_OID)
+                            .build());
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("is not eligible for signing workflow type")
+                    .hasMessageContaining(DOCUMENT_SIGNING_OID);
+        }
+
+        @Test
+        void createDelegatedRawProfile_refusesNonRepudiation() {
+            // given
+            SigningProfileRequestDto request = aSigningProfileRequest()
+                    .withName("ct-delegated-raw-nr")
+                    .withDelegatedSigning(signerConnector.getUuid())
+                    .withRawSigning(true)
+                    .build();
+
+            // when
+            Set<ConstraintViolation<SigningProfileRequestDto>> violations = beanValidator.validate(request);
+
+            // then
+            assertThat(violations)
+                    .anySatisfy(violation -> assertThat(violation.getMessage())
+                            .contains("requireNonRepudiation must be omitted for delegated signing"));
+        }
+
+        @Test
         void refusesADigitalSignatureOnlyCertificate_whenTheProfileRequiresNonRepudiation() {
             // given — defaultSigningCertificate carries digitalSignature but not nonRepudiation
 
@@ -2002,6 +2065,28 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     @Nested
     class UpdateTests {
+
+        @Test
+        void updateRawProfile_clearsCertificatePurpose_whenKnobsAreOmitted() throws Exception {
+            // given: a managed raw profile that carries both constraints
+            widenDefaultSigningCertificate(CertificateKeyUsage.NON_REPUDIATION, DOCUMENT_SIGNING_OID);
+            SigningProfileDto profile = signingProfileService
+                    .createSigningProfile(aSigningProfileRequest()
+                            .withName("ct-raw-purpose-cleared")
+                            .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
+                            .withRawSigning(true, DOCUMENT_SIGNING_OID)
+                            .build());
+
+            // when
+            SigningProfileDto updated = signingProfileService
+                    .updateSigningProfile(SecuredUUID.fromString(profile.getUuid()),
+                            aSigningProfileRequestFromExistingProfile(profile).withRawSigning().build());
+
+            // then
+            RawSigningWorkflowDto workflow = assertInstanceOf(RawSigningWorkflowDto.class, updated.getWorkflow());
+            assertThat(workflow.isRequireNonRepudiation()).isFalse();
+            assertThat(workflow.getRequiredExtendedKeyUsageOids()).isEmpty();
+        }
 
         @Test
         void update_schemeFromStaticKeyManagedToDelegated()
