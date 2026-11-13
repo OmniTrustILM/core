@@ -110,6 +110,7 @@ import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import com.otilm.core.signing.engine.signer.SignerFactory;
 import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
 import com.otilm.core.signing.formatting.FormattingAttributesCheck;
+import com.otilm.core.signing.rawsigning.RawSigningProfileRules;
 import com.otilm.core.util.CertificateEligibilityUtil;
 import com.otilm.core.util.FilterPredicatesBuilder;
 import com.otilm.core.util.RequestValidatorHelper;
@@ -458,6 +459,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, null);
+        validateRawSigningWorkflow(request, null);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -510,6 +512,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, uuid.getValue());
+        validateRawSigningWorkflow(request, uuid.getValue());
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -1097,6 +1100,32 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                     "Signature formatting connector is required for an ILM-managed content signing workflow");
         }
         return w.getSignatureFormattingConnectorUuid();
+    }
+
+    /**
+     * Runs outside the persistence transaction, beside {@code validateContentSigningWorkflow}. The certificate rule
+     * binds every workflow: a raw profile refuses a certificate that a profile of another workflow signs with, and
+     * those profiles refuse one that a raw profile signs with. A delegated profile names no certificate, since its
+     * signer connector holds the key, so neither the algorithm nor the certificate rule applies to it.
+     */
+    private void validateRawSigningWorkflow(SigningProfileRequestDto request, @Nullable UUID targetProfileUuid)
+            throws NotFoundException {
+        SigningSchemeRequestDto scheme = request.getSigningScheme();
+        if (request.getWorkflow() instanceof RawSigningWorkflowRequestDto) {
+            RawSigningProfileRules.refuseOneTimeKey(scheme);
+            if (scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme) {
+                requireCertificateAccess(staticKeyScheme.getCertificateUuid());
+                RawSigningProfileRules
+                        .requirePrehashedSigning(signatureAlgorithmOf(request.getName(), staticKeyScheme));
+            }
+        }
+        if (scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme) {
+            UUID certificateUuid = staticKeyScheme.getCertificateUuid();
+            List<String> otherWorkflowHolders = signingProfileVersionRepository
+                    .findLatestProfileNamesByCertificateAndOtherWorkflow(certificateUuid,
+                            request.getWorkflow().getType(), targetProfileUuid);
+            RawSigningProfileRules.refuseCertificateHeldByAnotherWorkflow(certificateUuid, otherWorkflowHolders);
+        }
     }
 
     /**
