@@ -14,6 +14,7 @@ import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import com.otilm.core.mapper.certificate.CertificateDetailDtoMapper;
 import com.otilm.core.model.compliance.ComplianceResultDto;
@@ -336,6 +337,12 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
         if (key != null) {
             this.keyUuid = key.getUuid();
         }
+    }
+
+    /** Stores the start of the validity and its end as {@link Validity#expiry()}. */
+    public void applyValidity(Validity validity) {
+        this.notBefore = Date.from(validity.notBefore());
+        this.notAfter = Date.from(validity.expiry());
     }
 
     public Long getValidity() {
