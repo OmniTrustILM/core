@@ -22,6 +22,7 @@ import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateProtocolAssociation;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.workflows.ConditionItem;
 import com.otilm.core.dao.entity.workflows.EventHistory;
@@ -31,6 +32,7 @@ import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.CertificateProtocolAssociationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
+import com.otilm.core.dao.repository.est.EstProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.dao.repository.workflows.EventHistoryRepository;
 import com.otilm.core.dao.repository.workflows.TriggerAssociationRepository;
@@ -43,6 +45,7 @@ import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.AcmeProfileExternalService;
 import com.otilm.core.service.CmpProfileExternalService;
+import com.otilm.core.service.EstProfileExternalService;
 import com.otilm.core.service.RuleExternalService;
 import com.otilm.core.service.ScepProfileExternalService;
 import com.otilm.core.service.TriggerExternalService;
@@ -62,6 +65,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.EstProfileBuilder.anEstProfile;
 
 /**
  * Conditions on the profile of a protocol, evaluated on a certificate read from the database. A certificate has one
@@ -72,7 +76,7 @@ import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 class ProtocolProfileConditionITest extends BaseSpringBootTest {
 
     private static final List<CertificateProtocol> PROTOCOLS = List
-            .of(CertificateProtocol.ACME, CertificateProtocol.SCEP, CertificateProtocol.CMP);
+            .of(CertificateProtocol.ACME, CertificateProtocol.SCEP, CertificateProtocol.CMP, CertificateProtocol.EST);
 
     @Autowired
     private CertificateRepository certificateRepository;
@@ -85,11 +89,15 @@ class ProtocolProfileConditionITest extends BaseSpringBootTest {
     @Autowired
     private CmpProfileRepository cmpProfileRepository;
     @Autowired
+    private EstProfileRepository estProfileRepository;
+    @Autowired
     private AcmeProfileExternalService acmeProfileService;
     @Autowired
     private ScepProfileExternalService scepProfileService;
     @Autowired
     private CmpProfileExternalService cmpProfileService;
+    @Autowired
+    private EstProfileExternalService estProfileService;
     @Autowired
     private CertificateTriggerEvaluator certificateTriggerEvaluator;
     @Autowired
@@ -229,6 +237,7 @@ class ProtocolProfileConditionITest extends BaseSpringBootTest {
             case ACME -> acmeProfileService.deleteAcmeProfile(uuid);
             case SCEP -> scepProfileService.deleteScepProfile(uuid);
             case CMP -> cmpProfileService.deleteCmpProfile(uuid);
+            case EST -> estProfileService.deleteEstProfile(uuid);
         }
     }
 
@@ -250,6 +259,10 @@ class ProtocolProfileConditionITest extends BaseSpringBootTest {
                 profile.setEnabled(true);
                 yield cmpProfileRepository.save(profile).getUuid();
             }
+            case EST -> {
+                EstProfile profile = anEstProfile().withName(profileName(protocol)).build();
+                yield estProfileRepository.save(profile).getUuid();
+            }
         };
     }
 
@@ -262,6 +275,7 @@ class ProtocolProfileConditionITest extends BaseSpringBootTest {
             case ACME -> FilterField.ACME_PROFILE;
             case SCEP -> FilterField.SCEP_PROFILE;
             case CMP -> FilterField.CMP_PROFILE;
+            case EST -> FilterField.EST_PROFILE;
         };
     }
 

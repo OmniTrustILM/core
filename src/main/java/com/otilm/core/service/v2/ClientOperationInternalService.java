@@ -90,16 +90,56 @@ public interface ClientOperationInternalService {
      */
     void issueCertificateRejectedAction(UUID certificateUuid, UUID certificateRequestUuid) throws NotFoundException;
 
+    /**
+     * A failure before the action is queued marks the new certificate failed; a compliance rejection leaves it rejected
+     * and queues nothing. The new certificate keeps the protocol attribution of the certificate it renews.
+     */
     ClientCertificateDataResponseDto renewCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, ClientCertificateRenewRequestDto request)
+            throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
+            CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException;
+
+    /**
+     * As {@link #renewCertificate(SecuredParentUUID, SecuredUUID, String, ClientCertificateRenewRequestDto)},
+     * attributing the new certificate to the protocol and running {@code beforeDispatch} with its UUID once its request
+     * is stored and before the renewal action is queued. If the step fails, the new certificate is marked failed and
+     * the action is not queued.
+     *
+     * @param protocolInfo the protocol the renewal is requested through, or null to attribute the new certificate to
+     * the protocol and protocol profile of the certificate it renews
+     * @param beforeDispatch the step to run before the action is queued, or null for none
+     */
+    ClientCertificateDataResponseDto renewCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+            String certificateUuid, ClientCertificateRenewRequestDto request, CertificateProtocolInfo protocolInfo,
+            Consumer<UUID> beforeDispatch)
             throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException;
 
     void renewCertificateAction(final UUID certificateUuid, ClientCertificateRenewRequestDto request,
             boolean isApproved) throws NotFoundException, CertificateOperationException;
 
+    /**
+     * A failure before the action is queued marks the new certificate failed; a compliance rejection leaves it rejected
+     * and queues nothing. The new certificate keeps the protocol attribution of the certificate it rekeys.
+     */
     ClientCertificateDataResponseDto rekeyCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, ClientCertificateRekeyRequestDto request)
+            throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
+            CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException;
+
+    /**
+     * As {@link #rekeyCertificate(SecuredParentUUID, SecuredUUID, String, ClientCertificateRekeyRequestDto)},
+     * attributing the new certificate to the protocol and running {@code beforeDispatch} with its UUID once its request
+     * is stored and before the rekey action is queued. If the step fails, the new certificate is marked failed and the
+     * action is not queued.
+     *
+     * @param protocolInfo the protocol the rekey is requested through, or null to attribute the new certificate to the
+     * protocol and protocol profile of the certificate it rekeys
+     * @param beforeDispatch the step to run before the action is queued, or null for none
+     */
+    ClientCertificateDataResponseDto rekeyCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
+            String certificateUuid, ClientCertificateRekeyRequestDto request, CertificateProtocolInfo protocolInfo,
+            Consumer<UUID> beforeDispatch)
             throws NotFoundException, CertificateException, IOException, NoSuchAlgorithmException, InvalidKeyException,
             CertificateOperationException, CertificateRequestException, ConnectorException, AttributeException;
 

@@ -63,9 +63,9 @@ public class AuthResourceSynchronizer {
      * action it does not yet know. Best effort: a role the platform can start without must never stop it starting.
      * <p>
      * Creating it here rather than from a migration is deliberate. The role carries no system user - unlike the
-     * acme/scep/cmp/localhost identities, it is meant to be assigned to people - and a system user is the only thing a
-     * migration is actually needed for. A migration that calls the auth service also aborts the whole migration chain
-     * when that service is unreachable, leaving the schema half-built.
+     * acme/scep/cmp/est/localhost identities, it is meant to be assigned to people - and a system user is the only
+     * thing a migration is actually needed for. A migration that calls the auth service also aborts the whole migration
+     * chain when that service is unreachable, leaving the schema half-built.
      */
     private void reconcileAuditorRole(List<ResourceSyncRequestDto> resources) {
         try {

@@ -11,18 +11,31 @@ import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.MetadataAttributeProperties;
+import com.otilm.api.model.common.attribute.v3.MetadataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.cryptography.v2.key.ExportableKeyTypeV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ImportableKeyTypeV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.KeyPairDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ListKeysResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PrivateKeyDataV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataResponseV2Dto;
+import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.ResolveKeysResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.core.serialization.ObjectMapperFactory;
+import java.security.KeyPair;
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,15 +63,21 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
     private static final String LIST_KEYS = "/v2/cryptographyProvider/keys/list";
     private static final String RESOLVE_KEYS = "/v2/cryptographyProvider/keys/resolve";
 
+    private static final String CREATE_KEY = "/v2/cryptographyProvider/keys";
+    private static final String CREATE_KEY_ATTRIBUTES = "/v2/cryptographyProvider/keys/create/attributes";
+
     private final RealSignerTransformer realSignerTransformer;
+    private final ExportingKeyTransformer exportingKeyTransformer;
 
     CryptographyProviderV2ConnectorMock() {
-        this(new RealSignerTransformer());
+        this(new RealSignerTransformer(), new ExportingKeyTransformer());
     }
 
-    private CryptographyProviderV2ConnectorMock(RealSignerTransformer realSignerTransformer) {
-        super(realSignerTransformer);
+    private CryptographyProviderV2ConnectorMock(RealSignerTransformer realSignerTransformer,
+            ExportingKeyTransformer exportingKeyTransformer) {
+        super(realSignerTransformer, exportingKeyTransformer);
         this.realSignerTransformer = realSignerTransformer;
+        this.exportingKeyTransformer = exportingKeyTransformer;
         stubInfoWithCryptographyFeatures();
     }
 
@@ -130,6 +149,15 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         return stubRealSigning(privateKey, signatureAlgorithm, RealSignerTransformer.REVERSED_ORDER);
     }
 
+    /**
+     * Answers {@code sign} with a real signature of every item under its own identifier, in request order, as a v2 key
+     * signs a certificate request through {@code CryptographicOperationInternalService.generateCsr}.
+     */
+    public CryptographyProviderV2ConnectorMock stubRealSigning(PrivateKey privateKey,
+            SignatureAlgorithm signatureAlgorithm) {
+        return stubRealSigning(privateKey, signatureAlgorithm, Map.of());
+    }
+
     /** Answers {@code sign} with a real signature of every item in request order, without identifiers. */
     public CryptographyProviderV2ConnectorMock stubRealSigningWithoutIdentifiers(PrivateKey privateKey,
             SignatureAlgorithm signatureAlgorithm) {
@@ -138,12 +166,16 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
     private CryptographyProviderV2ConnectorMock stubRealSigning(PrivateKey privateKey,
             SignatureAlgorithm signatureAlgorithm, String answerShape) {
+        return stubRealSigning(privateKey, signatureAlgorithm, Map.of(answerShape, true));
+    }
+
+    private CryptographyProviderV2ConnectorMock stubRealSigning(PrivateKey privateKey,
+            SignatureAlgorithm signatureAlgorithm, Map<String, Object> answerShape) {
         UUID keyReference = UUID.randomUUID();
         realSignerTransformer.registerKey(keyReference, privateKey, signatureAlgorithm.getCode());
-        Parameters signerParameters = Parameters
-                .from(Map
-                        .<String, Object>of(RealSignerTransformer.KEY_REFERENCE, keyReference.toString(), answerShape,
-                                true));
+        Map<String, Object> parameters = new HashMap<>(answerShape);
+        parameters.put(RealSignerTransformer.KEY_REFERENCE, keyReference.toString());
+        Parameters signerParameters = Parameters.from(parameters);
         server
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo(OPERATIONS + "sign"))
@@ -287,6 +319,22 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(IMPORTABLE_KEY_TYPES)));
     }
 
+    public CryptographyProviderV2ConnectorMock stubCreateKeyAttributes(String responseJson) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(CREATE_KEY_ATTRIBUTES))
+                        .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    public CryptographyProviderV2ConnectorMock stubCreateKeyAttributesFailing(String text) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(CREATE_KEY_ATTRIBUTES))
+                        .willReturn(WireMock.aResponse().withStatus(500).withBody(text)));
+        return this;
+    }
+
     public CryptographyProviderV2ConnectorMock stubImportKeyAttributes(String responseJson) {
         server
                 .stubFor(WireMock
@@ -310,6 +358,33 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
                 .stubFor(WireMock
                         .post(WireMock.urlPathEqualTo(EXPORT_KEY_ATTRIBUTES))
                         .willReturn(WireMock.okJson(responseJson)));
+        return this;
+    }
+
+    /**
+     * Answers an export with the private key protected under the passphrase the export carries, describing the key's
+     * own public key, as {@code CryptographicKeyExportExternalService.exportKey} receives a real export.
+     */
+    public CryptographyProviderV2ConnectorMock stubExportOf(KeyPair keyPair, KeyAlgorithm algorithm, int length) {
+        return stubExportOf(keyPair.getPrivate(), keyPair.getPublic(), algorithm, length);
+    }
+
+    /**
+     * Answers an export with the protected private key under the passphrase the export carries, describing another
+     * public key, as a connector that exports another key than the one it describes.
+     */
+    public CryptographyProviderV2ConnectorMock stubExportOf(PrivateKey protectedKey, PublicKey describedKey,
+            KeyAlgorithm algorithm, int length) {
+        exportingKeyTransformer
+                .register(new ExportingKeyTransformer.ExportedKey(protectedKey, algorithm, length, describedKey));
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(EXPORT_KEY))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withTransformers(ExportingKeyTransformer.NAME)));
         return this;
     }
 
@@ -365,6 +440,15 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
 
     public int exportKeyRequestsReceived() {
         return server.findAll(postRequestedFor(WireMock.urlPathEqualTo(EXPORT_KEY))).size();
+    }
+
+    /** @return the passphrase that each export received carried, in the order received */
+    public List<String> exportPassphrasesReceived() throws JsonProcessingException {
+        List<String> passphrases = new ArrayList<>();
+        for (Request request : server.findAll(postRequestedFor(WireMock.urlPathEqualTo(EXPORT_KEY)))) {
+            passphrases.add(ObjectMapperFactory.wire().readTree(request.getBodyAsString()).path("passphrase").asText());
+        }
+        return passphrases;
     }
 
     /**
@@ -648,6 +732,54 @@ public class CryptographyProviderV2ConnectorMock extends BaseConnectorMock {
         server
                 .verify(postRequestedFor(WireMock.urlPathEqualTo(RESOLVE_KEYS))
                         .withRequestBody(WireMock.equalToJson(expectedRequestJson, true, true)));
+    }
+
+    /**
+     * Answers the create-key attributes with none and a key pair creation with the pair's public key, as
+     * {@code CryptographicKeyExternalService.createKey} creates a v2 key pair.
+     */
+    public CryptographyProviderV2ConnectorMock stubCreateKeyPair(PublicKey publicKey, KeyAlgorithm algorithm,
+            int length) throws JsonProcessingException {
+        PublicKeyDataV2Dto publicData = new PublicKeyDataV2Dto();
+        publicData.setAlgorithm(algorithm);
+        publicData.setLength(length);
+        publicData.setPublicKeySpki(publicKey.getEncoded());
+        PublicKeyDataResponseV2Dto publicKeyData = new PublicKeyDataResponseV2Dto();
+        publicKeyData.setKeyData(publicData);
+        publicKeyData.setKeyMeta(List.of(providerHandle("public-handle-" + UUID.randomUUID())));
+        PrivateKeyDataV2Dto privateData = new PrivateKeyDataV2Dto();
+        privateData.setAlgorithm(algorithm);
+        privateData.setLength(length);
+        PrivateKeyDataResponseV2Dto privateKeyData = new PrivateKeyDataResponseV2Dto();
+        privateKeyData.setKeyData(privateData);
+        privateKeyData.setKeyMeta(List.of(providerHandle("private-handle-" + UUID.randomUUID())));
+        KeyPairDataResponseV2Dto created = new KeyPairDataResponseV2Dto();
+        created.setPublicKeyData(publicKeyData);
+        created.setPrivateKeyData(privateKeyData);
+        created.setKeyPairMeta(List.of(providerHandle("pair-handle-" + UUID.randomUUID())));
+        server.stubFor(WireMock.post(WireMock.urlPathEqualTo(CREATE_KEY_ATTRIBUTES)).willReturn(WireMock.okJson("[]")));
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathEqualTo(CREATE_KEY))
+                        .willReturn(WireMock.okJson(ObjectMapperFactory.wire().writeValueAsString(created))));
+        return this;
+    }
+
+    public void verifyCreateKeyRequests(int count) {
+        server.verify(count, postRequestedFor(WireMock.urlPathEqualTo(CREATE_KEY)));
+    }
+
+    private static MetadataAttributeV3 providerHandle(String opaqueHandle) {
+        MetadataAttributeV3 handle = new MetadataAttributeV3();
+        handle.setUuid(UUID.randomUUID().toString());
+        handle.setName("provider-handle");
+        handle.setType(AttributeType.META);
+        handle.setContentType(AttributeContentType.STRING);
+        MetadataAttributeProperties properties = new MetadataAttributeProperties();
+        properties.setLabel("Provider handle");
+        handle.setProperties(properties);
+        handle.setContent(List.of(new StringAttributeContentV3(opaqueHandle)));
+        return handle;
     }
 
     public CryptographyProviderV2ConnectorMock stubDestroyKey() {

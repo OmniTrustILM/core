@@ -88,6 +88,14 @@ public interface ClientOperationExternalService {
     CertificateDetail cancelPendingCertificateOperation(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             String certificateUuid, CancelPendingCertificateRequestDto request) throws NotFoundException;
 
+    /**
+     * Cancels a pending certificate operation as {@link #cancelPendingCertificateOperation} does and tells what the
+     * connector confirmed about it.
+     */
+    CancelConfirmation cancelPendingCertificateOperationWithConfirmation(SecuredParentUUID authorityUuid,
+            SecuredUUID raProfileUuid, String certificateUuid, CancelPendingCertificateRequestDto request)
+            throws NotFoundException;
+
     ClientCertificateDataResponseDto registerCertificate(SecuredParentUUID authorityUuid, SecuredUUID raProfileUuid,
             ClientCertificateRegistrationDto request) throws NotFoundException, ConnectorException, AttributeException;
 

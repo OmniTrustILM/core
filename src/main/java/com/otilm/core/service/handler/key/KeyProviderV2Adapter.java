@@ -203,12 +203,12 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
             if (response.getStatusCode().value() != 200 || body == null || body.getOperationMeta() != null) {
                 throw new ConnectorException("Connector did not confirm synchronous key destruction.");
             }
-        } catch (ConnectorEntityNotFoundException e) {
-            log
-                    .info("Key item '{}' for key {} was not found on the remote token; treating destruction as successful",
-                            reference.toIdentifierString(), cryptographicKey.toIdentifierString());
         } catch (ConnectorException e) {
-            if (TokenInstanceStatus.DEACTIVATED.equals(cryptographicKey.tokenInstance().status())) {
+            if (isAlreadyGone(e)) {
+                log
+                        .info("Key item '{}' for key {} was not found on the remote token; treating destruction as successful",
+                                reference.toIdentifierString(), cryptographicKey.toIdentifierString());
+            } else if (TokenInstanceStatus.DEACTIVATED.equals(cryptographicKey.tokenInstance().status())) {
                 log
                         .warn("Key item '{}' destruction failed; allowing local cleanup because Token '{}' is DEACTIVATED.",
                                 reference.toIdentifierString(), cryptographicKey.tokenInstance().toIdentifierString());
@@ -990,6 +990,11 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private static boolean isNotTracked(Exception e) {
         return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
                 && problem.getProblemDetail().getErrorCode() == ErrorCode.OPERATION_NOT_TRACKED;
+    }
+
+    private static boolean isAlreadyGone(ConnectorException e) {
+        return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
+                && problem.getProblemDetail().getErrorCode() == ErrorCode.RESOURCE_NOT_FOUND;
     }
 
     private ImportAnswer answerOf(KeyCreationStatusResponseV2Dto status, List<MetadataAttribute> operationMeta,

@@ -13,6 +13,7 @@ import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.service.acme.AcmeConstants;
 import com.otilm.core.service.cmp.CmpConstants;
@@ -38,6 +39,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.proxy.HibernateProxy;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -47,6 +49,9 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 @RequiredArgsConstructor
 @Entity
 @Table(name = "ra_profile")
+// Protocol activations and edits run on copies read long before they are written, across connector calls or a
+// request's persistence context; writing only what each changed keeps what another wrote meanwhile.
+@DynamicUpdate
 public class RaProfile extends UniquelyIdentifiedAndAudited
         implements
             Serializable,
@@ -115,6 +120,17 @@ public class RaProfile extends UniquelyIdentifiedAndAudited
 
     @Column(name = "cmp_profile_uuid")
     private UUID cmpProfileUuid;
+
+    /**
+     * EST protocol related objects for RA Profile
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "est_profile_uuid", insertable = false, updatable = false)
+    @ToString.Exclude
+    private EstProfile estProfile;
+
+    @Column(name = "est_profile_uuid")
+    private UUID estProfileUuid;
 
     /**
      * Configuration of validation of certificates linked to the RA profile
@@ -212,6 +228,9 @@ public class RaProfile extends UniquelyIdentifiedAndAudited
         }
         if (cmpProfile != null) {
             enabledProtocols.add("CMP");
+        }
+        if (estProfile != null) {
+            enabledProtocols.add("EST");
         }
         dto.setEnabledProtocols(enabledProtocols);
         dto.setDescription(this.description);
@@ -311,6 +330,15 @@ public class RaProfile extends UniquelyIdentifiedAndAudited
             this.cmpProfileUuid = cmpProfile.getUuid();
         } else {
             this.cmpProfileUuid = null;
+        }
+    }
+
+    public void setEstProfile(EstProfile estProfile) {
+        this.estProfile = estProfile;
+        if (estProfile != null) {
+            this.estProfileUuid = estProfile.getUuid();
+        } else {
+            this.estProfileUuid = null;
         }
     }
 

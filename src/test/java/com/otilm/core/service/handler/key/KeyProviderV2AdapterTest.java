@@ -1636,6 +1636,51 @@ class KeyProviderV2AdapterTest {
             verify(client).destroyKey(any(), any());
         }
 
+        @ParameterizedTest
+        @EnumSource(value = TokenInstanceStatus.class, names = {"ACTIVATED", "DISCONNECTED"})
+        void succeeds_whenConnectorReportsResourceNotFound(TokenInstanceStatus status) throws Exception {
+            // given
+            RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("deleted-key-handle"));
+            ImmutableCryptographicKeyFullModel key = keyWithTokenStatus(status);
+            when(client.destroyKey(any(), any())).thenThrow(destroyProblem(ErrorCode.RESOURCE_NOT_FOUND));
+
+            // when
+            ThrowingCallable destroy = () -> adapter.destroyKeyItem(key, reference);
+
+            // then
+            assertThatCode(destroy).doesNotThrowAnyException();
+            verify(client).destroyKey(any(), any());
+        }
+
+        @Test
+        void propagatesTheProblem_whenConnectorAnswersOtherThanNotFound() throws Exception {
+            // given
+            RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("key-handle"));
+            ConnectorProblemException failure = destroyProblem(ErrorCode.FORBIDDEN);
+            when(client.destroyKey(any(), any())).thenThrow(failure);
+
+            // when
+            ThrowingCallable destroy = () -> adapter.destroyKeyItem(cryptographicKey, reference);
+
+            // then
+            assertThatThrownBy(destroy).isSameAs(failure);
+        }
+
+        @Test
+        void toleratesOtherConnectorProblem_whenTokenIsDeactivated() throws Exception {
+            // given
+            RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("offline-key-handle"));
+            ImmutableCryptographicKeyFullModel key = keyWithTokenStatus(TokenInstanceStatus.DEACTIVATED);
+            when(client.destroyKey(any(), any())).thenThrow(destroyProblem(ErrorCode.FORBIDDEN));
+
+            // when
+            ThrowingCallable destroy = () -> adapter.destroyKeyItem(key, reference);
+
+            // then
+            assertThatCode(destroy).doesNotThrowAnyException();
+            verify(client).destroyKey(any(), any());
+        }
+
         @Test
         void toleratesConnectorFailure_forDeactivatedToken() throws Exception {
             // given
@@ -1697,6 +1742,11 @@ class KeyProviderV2AdapterTest {
                     .of(null, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
                             new RemoteKeyReference.MetadataReference(null),
                             new RemoteKeyReference.MetadataReference(List.of()));
+        }
+
+        private static ConnectorProblemException destroyProblem(ErrorCode errorCode) {
+            return new ConnectorProblemException(
+                    ProblemDetailExtended.fromErrorCode(errorCode, "Key destruction answered", null, null));
         }
     }
 

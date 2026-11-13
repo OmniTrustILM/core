@@ -105,6 +105,7 @@ import com.otilm.core.dao.entity.X509CertificateRequestEntity;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.CertificateContentRepository;
@@ -122,6 +123,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.X509CertificateRepository;
 import com.otilm.core.dao.repository.acme.AcmeAccountRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
+import com.otilm.core.dao.repository.est.EstProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.enums.FilterField;
 import com.otilm.core.events.handlers.CertificateExpiringEventHandler;
@@ -175,6 +177,7 @@ import com.otilm.core.service.writer.CertificateValidationWriter;
 import com.otilm.core.service.writer.ComplianceProfileAssociationWriter;
 import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
 import com.otilm.core.service.writer.PendingNotificationWriter;
+import com.otilm.core.service.writer.est.EstProfileWriter;
 import com.otilm.core.service.writer.registration.CertificateRegistrationAuthorizationWriter;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
@@ -314,6 +317,8 @@ public class CertificateServiceImpl
     private AcmeProfileRepository acmeProfileRepository;
     private ScepProfileRepository scepProfileRepository;
     private CmpProfileRepository cmpProfileRepository;
+    private EstProfileRepository estProfileRepository;
+    private EstProfileWriter estProfileWriter;
     private AcmeAccountRepository acmeAccountRepository;
 
     private AttributeEngine attributeEngine;
@@ -409,6 +414,16 @@ public class CertificateServiceImpl
     @Autowired
     public void setScepProfileRepository(ScepProfileRepository scepProfileRepository) {
         this.scepProfileRepository = scepProfileRepository;
+    }
+
+    @Autowired
+    public void setEstProfileRepository(EstProfileRepository estProfileRepository) {
+        this.estProfileRepository = estProfileRepository;
+    }
+
+    @Autowired
+    public void setEstProfileWriter(EstProfileWriter estProfileWriter) {
+        this.estProfileWriter = estProfileWriter;
     }
 
     @Autowired
@@ -923,6 +938,7 @@ public class CertificateServiceImpl
 
         scepProfileRepository.clearCaCertificateReference(certificate.getUuid());
         cmpProfileRepository.clearSigningCertificateReference(certificate.getUuid());
+        estProfileWriter.removeTrustedCaCertificates(List.of(certificate.getUuid()));
 
         CertificateContent content = (certificate.getCertificateContent() != null && discoveryCertificateRepository
                 .findByCertificateContent(certificate.getCertificateContent())
@@ -1194,6 +1210,7 @@ public class CertificateServiceImpl
         // After the comment locks, as in deleteCertificate: the opposite order could deadlock the two paths
         scepProfileRepository.clearCaCertificateReferenceIn(permittedUuids);
         cmpProfileRepository.clearSigningCertificateReferenceIn(permittedUuids);
+        estProfileWriter.removeTrustedCaCertificates(permittedUuids);
 
         List<UUID> certificateRequestUuids = certificates
                 .stream()
@@ -1342,6 +1359,9 @@ public class CertificateServiceImpl
                         SearchHelper
                                 .prepareSearch(FilterField.CMP_PROFILE,
                                         cmpProfileRepository.findAll().stream().map(CmpProfile::getName).toList()),
+                        SearchHelper
+                                .prepareSearch(FilterField.EST_PROFILE,
+                                        estProfileRepository.findAll().stream().map(EstProfile::getName).toList()),
                         SearchHelper
                                 .prepareSearch(FilterField.ACME_ACCOUNT,
                                         acmeAccountRepository
@@ -2659,6 +2679,7 @@ public class CertificateServiceImpl
             case ACME -> protocolCertificateAssociationsRepository.findByAcmeProfileUuid(protocolProfileUuid);
             case SCEP -> protocolCertificateAssociationsRepository.findByScepProfileUuid(protocolProfileUuid);
             case CMP -> protocolCertificateAssociationsRepository.findByCmpProfileUuid(protocolProfileUuid);
+            case EST -> protocolCertificateAssociationsRepository.findByEstProfileUuid(protocolProfileUuid);
         };
         if (certificateAssociation != null) {
             if (certificateAssociation.getOwnerUuid() != null) {

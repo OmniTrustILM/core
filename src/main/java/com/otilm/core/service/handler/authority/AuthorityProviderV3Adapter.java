@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler.authority;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectionServiceException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
@@ -55,6 +56,7 @@ import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
@@ -65,7 +67,8 @@ import org.springframework.stereotype.Component;
  * <p>
  * Issue/renew/register: 200 = SYNC_OK, 202 = ASYNC_ACCEPTED. Revoke: 204 = SYNC_NO_CONTENT, 202 = ASYNC_ACCEPTED, 200 =
  * SYNC_OK (meta only). Cancel: 204 = CANCELLED; 422 with OPERATION_PAST_POINT_OF_NO_RETURN = refused; 422 with
- * REGISTRATION_NOT_FOUND or OPERATION_NOT_TRACKED = not tracked.
+ * REGISTRATION_NOT_FOUND or OPERATION_NOT_TRACKED = not tracked. A cancel whose request cannot be prepared throws
+ * {@link CancelNotSentException}.
  * </p>
  *
  * <p>
@@ -426,27 +429,36 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
     public CancelResult cancel(Certificate cert, CertificateOperation op) throws ConnectorException {
         RaProfile raProfile = cert.getRaProfile();
         AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
-        ApiClientConnectorInfo connectorDto = connectorForApiClient(authority);
-
-        CertificateOperationCancelRequestDtoV3 wire = new CertificateOperationCancelRequestDtoV3();
-        wire.setMeta(loadMeta(cert, authority));
-        wire.setAuthorityAttributes(authorityAttributesFor(authority));
-        wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+        ApiClientConnectorInfo connectorDto;
+        CertificateOperationCancelRequestDtoV3 wire;
+        try {
+            connectorDto = connectorForApiClient(authority);
+            wire = cancelRequest(cert, raProfile, authority);
+        } catch (ConnectorException | RuntimeException e) {
+            throw new CancelNotSentException(e);
+        }
 
         CertificateSyncApiClient v3Client = connectorApiFactory.getCertificateApiClientV3(connectorDto);
         try {
-            switch (op) {
+            ResponseEntity<Void> response = switch (op) {
                 case ISSUE, RENEW -> v3Client.cancelIssue(connectorDto, wire);
                 case REVOKE -> v3Client.cancelRevoke(connectorDto, wire);
                 case REGISTER -> v3Client.cancelRegister(connectorDto, wire);
-            }
+            };
+            requireCancelConfirmed(response);
             return new CancelResult(CancelOutcome.CANCELLED);
         } catch (ConnectorProblemException e) {
             ErrorCode code = e.getProblemDetail() != null ? e.getProblemDetail().getErrorCode() : null;
-            if (code == ErrorCode.OPERATION_PAST_POINT_OF_NO_RETURN) {
+            int status = e.getProblemDetail() != null ? e.getProblemDetail().getStatus() : 0;
+            // The v3 cancel contract defines 404/422 for not-tracked and 422 for past-point-of-no-return. The client
+            // keeps the transport status on a problem document, so a code carried by any other status (a 503 from a
+            // gateway, say) is no answer from the connector and must stay unconfirmed.
+            if (code == ErrorCode.OPERATION_PAST_POINT_OF_NO_RETURN
+                    && status == HttpStatus.UNPROCESSABLE_CONTENT.value()) {
                 return new CancelResult(CancelOutcome.REFUSED_PAST_POINT_OF_NO_RETURN);
             }
-            if (ConnectorOperationErrorCodes.isOperationNotTracked(code)) {
+            if (ConnectorOperationErrorCodes.isOperationNotTracked(code)
+                    && (status == HttpStatus.NOT_FOUND.value() || status == HttpStatus.UNPROCESSABLE_CONTENT.value())) {
                 return new CancelResult(CancelOutcome.NOT_TRACKED);
             }
             throw e;
@@ -454,6 +466,29 @@ public class AuthorityProviderV3Adapter extends AbstractAuthorityProviderAdapter
     }
 
     // ---- private helpers ----
+
+    private CertificateOperationCancelRequestDtoV3 cancelRequest(Certificate cert, RaProfile raProfile,
+            AuthorityInstanceReference authority) throws ConnectorException {
+        CertificateOperationCancelRequestDtoV3 wire = new CertificateOperationCancelRequestDtoV3();
+        wire.setMeta(loadMeta(cert, authority));
+        wire.setAuthorityAttributes(authorityAttributesFor(authority));
+        wire.setRaProfileAttributes(resolvedRaProfileAttributes(raProfile, authority));
+        return wire;
+    }
+
+    /**
+     * Only a 2xx confirms a cancel. The client raises errors for 4xx and 5xx alone, so a bodiless 3xx returns normally
+     * and must not be read as a cancellation the connector performed.
+     */
+    private static void requireCancelConfirmed(ResponseEntity<Void> response) throws ConnectionServiceException {
+        HttpStatusCode status = response == null ? null : response.getStatusCode();
+        if (status == null || !status.is2xxSuccessful()) {
+            String label = status == null ? "no response" : String.valueOf(status.value());
+            HttpStatus httpStatus = status == null ? null : HttpStatus.resolve(status.value());
+            throw new ConnectionServiceException("Connector answered cancel with unexpected status " + label,
+                    httpStatus == null ? HttpStatus.BAD_GATEWAY : httpStatus);
+        }
+    }
 
     @FunctionalInterface
     private interface SchemaCall {

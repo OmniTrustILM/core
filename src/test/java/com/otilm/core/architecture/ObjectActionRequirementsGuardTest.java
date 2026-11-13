@@ -11,6 +11,7 @@ import com.otilm.core.security.authz.ObjectActionRequirements.ResourceObjects;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
@@ -259,7 +260,10 @@ class ObjectActionRequirementsGuardTest {
         return String.join("\n", lines) + "\n";
     }
 
-    /** Collects the checks a method reaches, following calls within its own class, which no proxy intercepts. */
+    /**
+     * Collects the checks a method reaches, following calls within its own class and into the anonymous classes it
+     * creates, which no proxy intercepts.
+     */
     private static void reach(JavaMethod start, Set<String> checks, Set<String> resources) {
         Deque<JavaMethod> pending = new ArrayDeque<>(List.of(start));
         Set<JavaMethod> visited = new HashSet<>();
@@ -275,6 +279,13 @@ class ObjectActionRequirementsGuardTest {
                             || access.getTargetOwner().isEquivalentTo(ResourceAction.class))
                     .forEach(access -> resources
                             .add(access.getTargetOwner().getSimpleName() + "." + access.getTarget().getName()));
+            method
+                    .getConstructorCallsFromSelf()
+                    .stream()
+                    .map(JavaConstructorCall::getTargetOwner)
+                    .filter(created -> created.isAnonymousClass()
+                            && created.getEnclosingClass().filter(start.getOwner()::equals).isPresent())
+                    .forEach(created -> created.getMethods().forEach(pending::push));
             for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
                 JavaClass owner = call.getTargetOwner();
                 String name = call.getTarget().getName();

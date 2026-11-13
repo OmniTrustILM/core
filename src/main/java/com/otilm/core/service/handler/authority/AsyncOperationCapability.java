@@ -20,6 +20,8 @@ public interface AsyncOperationCapability {
      * the caller's rollback decision: {@code CANCELLED} and {@code NOT_TRACKED} are both soft successes — the operation
      * is no longer running, so the caller rolls local state back — while {@code REFUSED_PAST_POINT_OF_NO_RETURN} means
      * the connector could not cancel and local state must be left unchanged.
+     *
+     * @throws CancelNotSentException when the request could not be prepared, so it never reached the connector
      */
     CancelResult cancel(Certificate cert, CertificateOperation op) throws ConnectorException;
 }

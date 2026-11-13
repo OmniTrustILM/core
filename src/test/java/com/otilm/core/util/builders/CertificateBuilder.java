@@ -259,6 +259,7 @@ public final class CertificateBuilder {
         return this;
     }
 
+    /** Sets the serialized column, as {@code CertificateUtil.serializeSans} writes it. */
     public CertificateBuilder withSubjectAlternativeNames(String subjectAlternativeNames) {
         this.subjectAlternativeNames = subjectAlternativeNames;
         return this;

@@ -21,6 +21,7 @@ import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.TimeQualityConfiguration;
@@ -214,6 +215,10 @@ public final class ObjectActionRequirements {
         onObject(Resource.CMP_PROFILE, CmpProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE, ResourceAction.ENABLE);
         also(Resource.CMP_PROFILE, ResourceAction.DELETE, new OnResource(Resource.RA_PROFILE, ResourceAction.LIST));
+        // Deleting an EST profile lists the RA profiles using it only to name them in a refusal and works without
+        // that permission, so unlike for a CMP profile it requires none.
+        onObject(Resource.EST_PROFILE, EstProfile.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
+                ResourceAction.DELETE, ResourceAction.ENABLE);
         // Updating an authority or entity loads its connector and the credentials its attributes name.
         onObject(Resource.AUTHORITY, AuthorityInstanceReference.class, ResourceAction.DETAIL, ResourceAction.UPDATE,
                 ResourceAction.DELETE);

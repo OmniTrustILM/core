@@ -76,6 +76,7 @@ import com.otilm.core.dao.entity.acme.AcmeAccount_;
 import com.otilm.core.dao.entity.acme.AcmeProfile_;
 import com.otilm.core.dao.entity.cbom.CryptoAsset_;
 import com.otilm.core.dao.entity.cmp.CmpProfile_;
+import com.otilm.core.dao.entity.est.EstProfile_;
 import com.otilm.core.dao.entity.oid.CustomOidEntry_;
 import com.otilm.core.dao.entity.oid.RdnAttributeTypeCustomOidEntry_;
 import com.otilm.core.dao.entity.scep.ScepProfile_;
@@ -180,6 +181,9 @@ public enum FilterField {
     CMP_PROFILE(Resource.CERTIFICATE, Resource.CMP_PROFILE,
             List.of(Certificate_.protocolAssociation, CertificateProtocolAssociation_.cmpProfile), CmpProfile_.name,
             "CMP Profile", SearchFieldTypeEnum.LIST),
+    EST_PROFILE(Resource.CERTIFICATE, Resource.EST_PROFILE,
+            List.of(Certificate_.protocolAssociation, CertificateProtocolAssociation_.estProfile), EstProfile_.name,
+            "EST Profile", SearchFieldTypeEnum.LIST),
     ACME_ACCOUNT(Resource.CERTIFICATE, Resource.ACME_ACCOUNT,
             List.of(Certificate_.protocolAssociation, CertificateProtocolAssociation_.acmeAccount),
             AcmeAccount_.accountId, "ACME Account", SearchFieldTypeEnum.LIST),

@@ -68,6 +68,12 @@ cmp:
         timeout: 20
   verbose: false
 
+# EST settings (a duration without a unit is in seconds)
+est:
+  protocol:
+    issue-wait:
+      interval: 1s   # how often the state is checked while waiting; at least 100ms
+
 # Discovery settings
 discovery:
   provider:
@@ -311,6 +317,8 @@ spring:
     schemas: ${DB_SCHEMA:core}
     table: core_schema_history
   jpa:
+    # Core registers the interceptor itself, leaving the EST endpoints out (OpenEntityManagerInViewConfig)
+    open-in-view: false
     properties:
       hibernate:
         default_schema: ${DB_SCHEMA:core}

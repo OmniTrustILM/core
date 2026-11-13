@@ -8,10 +8,8 @@ import com.otilm.api.exception.NotSupportedException;
 import com.otilm.api.exception.PlatformException;
 import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
-import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.certificate.SearchRequestDto;
-import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.cryptography.CryptographicKeyResponseDto;
 import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyItemRequestDto;
 import com.otilm.api.model.client.cryptography.key.BulkCompromiseKeyRequestDto;
@@ -62,6 +60,7 @@ import com.otilm.core.dao.entity.CryptographicKey_;
 import com.otilm.core.dao.entity.Group;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.GroupRepository;
@@ -97,12 +96,9 @@ import com.otilm.core.service.CryptographicKeyEventHistoryService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.ResourceObjectAssociationService;
-import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.handler.KeyCreationRules;
 import com.otilm.core.service.handler.KeyRemovalGates;
-import com.otilm.core.service.handler.KeyTransferCapabilityService;
-import com.otilm.core.service.handler.key.KeyCreationValidationCapability;
 import com.otilm.core.service.handler.key.KeyOperationCache;
-import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
 import com.otilm.core.service.writer.CertificateKeyWriter;
 import com.otilm.core.service.writer.CryptographicKeyWriter;
@@ -125,7 +121,6 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -174,8 +169,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private ListingSortResolver listingSortResolver;
     private CryptographicKeyEventHistoryService keyEventHistoryService;
 
-    private ConnectorCapabilityService connectorCapabilityService;
-    private KeyTransferCapabilityService keyTransferCapabilityService;
+    private KeyCreationRules keyCreationRules;
     private AuthorizationEnforcer authorizationEnforcer;
     private ResourceObjectAssociationService objectAssociationService;
     private NotificationProducer notificationProducer;
@@ -194,6 +188,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private TokenProfileRepository tokenProfileRepository;
     private TokenInstanceReferenceRepository tokenInstanceReferenceRepository;
     private GroupRepository groupRepository;
+    private CertificateRepository certificateRepository;
 
     private static TriFunction<Root<CryptographicKeyItem>, CriteriaBuilder, CriteriaQuery<?>, Predicate> createAdditionalWhereClauseForBulkDeleteBatch(
             List<UUID> batchUuids) {
@@ -245,13 +240,8 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     @Autowired
-    public void setKeyTransferCapabilityService(KeyTransferCapabilityService keyTransferCapabilityService) {
-        this.keyTransferCapabilityService = keyTransferCapabilityService;
-    }
-
-    @Autowired
-    public void setConnectorCapabilityService(ConnectorCapabilityService connectorCapabilityService) {
-        this.connectorCapabilityService = connectorCapabilityService;
+    public void setKeyCreationRules(KeyCreationRules keyCreationRules) {
+        this.keyCreationRules = keyCreationRules;
     }
 
     @Autowired
@@ -307,6 +297,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     @Autowired
     public void setGroupRepository(GroupRepository groupRepository) {
         this.groupRepository = groupRepository;
+    }
+
+    @Autowired
+    public void setCertificateRepository(CertificateRepository certificateRepository) {
+        this.certificateRepository = certificateRepository;
     }
 
     @Autowired
@@ -481,10 +476,12 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         throwIfTokenProfileNotEnabled(tokenProfile);
 
         boolean exportable = Boolean.TRUE.equals(request.getExportable());
-        requireExportSupportedWhenRequested(tokenProfile, type, exportable);
+        if (exportable) {
+            keyCreationRules.requireExportSupport(tokenProfile, type);
+        }
 
         attributeEngine.validateCustomAttributesContent(Resource.CRYPTOGRAPHIC_KEY, request.getCustomAttributes());
-        mergeAndValidateAttributes(type, tokenProfile, request.getAttributes());
+        keyCreationRules.validateAttributes(type, tokenProfile, request.getAttributes());
 
         List<ProviderKeyItem> remotelyCreatedKeyItems = keyProviderAdapterFactory
                 .forToken(tokenProfile.tokenInstance())
@@ -1377,53 +1374,6 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
                 .orElseThrow(() -> new NotFoundException(CryptographicKey.class, uuid));
     }
 
-    private void mergeAndValidateAttributes(KeyRequestType keyType, TokenProfileFullModel tokenProfile,
-            List<RequestAttribute> attributes) throws ConnectorException, AttributeException, NotFoundException {
-        TokenInstanceFullModel tokenInstance = tokenProfile.tokenInstance();
-        logger
-                .atDebug()
-                .addArgument(tokenInstance::toIdentifierString)
-                .log("Merging and validating attributes on token instance {}");
-        if (tokenProfile.tokenInstance().connectorUuid() == null) {
-            throw new ValidationException(ValidationError.create("Connector of the Token is not available / deleted"));
-        }
-
-        KeyProviderAdapter adapter = keyProviderAdapterFactory.forToken(tokenInstance);
-        if (adapter instanceof KeyCreationValidationCapability validation) {
-            validation.validateCreateKeyAttributes(tokenInstance, keyType, attributes);
-        }
-        List<BaseAttribute> definitions = adapter.listCreateKeyAttributes(tokenProfile, keyType);
-
-        attributeEngine.validateUpdateDataAttributes(tokenInstance.connectorUuid(), null, definitions, attributes);
-    }
-
-    /**
-     * Refuses an exportable key on a connector that cannot export one. The permission is set once and never raised, so
-     * a key created here could never be exported afterwards and the request has to fail before the key exists.
-     */
-    private void requireExportSupportedWhenRequested(TokenProfileFullModel tokenProfile, KeyRequestType type,
-            boolean exportable) throws ValidationException, ConnectorException, NotFoundException {
-        if (!exportable) {
-            return;
-        }
-        TokenInstanceFullModel tokenInstance = tokenProfile.tokenInstance();
-        if (!connectorCapabilityService.supports(tokenInstance.connectorInterface(), FeatureFlag.KEY_EXPORT)) {
-            throw new ValidationException("Connector %s of token instance %s does not support key export."
-                    .formatted(tokenInstance.connectorName(), tokenInstance.name()));
-        }
-        Optional<Map<KeyRequestType, Set<KeyAlgorithm>>> exportableKeyTypes = keyTransferCapabilityService
-                .exportableKeyTypes(tokenProfile);
-        if (exportableKeyTypes.isEmpty()) {
-            throw new ValidationException(
-                    "Token profile %s changed while its export capability was being checked. Try again."
-                            .formatted(tokenProfile.name()));
-        }
-        if (!exportableKeyTypes.get().containsKey(type)) {
-            throw new ValidationException("Token profile %s does not support exporting a %s."
-                    .formatted(tokenProfile.name(), type.getLabel().toLowerCase(Locale.ROOT)));
-        }
-    }
-
     private CryptographicKeyFullModel persistCreatedKey(TokenProfileFullModel tokenProfile, KeyRequestDto request,
             List<ProviderKeyItem> remotelyCreatedItems) throws AttributeException, NotFoundException {
 
@@ -1654,9 +1604,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     private KeyDestructionResult destroyKeyItemsInternal(CryptographicKeyFullModel key,
             List<CryptographicKeyItemBasicModel> keyItems) {
         KeyDestructionResult result = new KeyDestructionResult();
+        boolean keyInUse = keyItems.stream().anyMatch(item -> item.state() == KeyState.ACTIVE)
+                && certificateRepository.existsUsingKey(key.uuid());
         for (CryptographicKeyItemBasicModel item : keyItems) {
             try {
-                if (destroyKeyItem(key, item)) {
+                if (destroyKeyItem(key, item, keyInUse)) {
                     result.destroyedCount++;
                 } else {
                     result.invalidStateItems.add("%s (%s)".formatted(item.uuid(), item.state().getLabel()));
@@ -1676,11 +1628,23 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         return result;
     }
 
-    private boolean destroyKeyItem(CryptographicKeyFullModel key, CryptographicKeyItemBasicModel keyItem)
-            throws ConnectorException, NotFoundException {
-        if (!keyItem.state().equals(KeyState.DEACTIVATED) && !keyItem.state().equals(KeyState.PRE_ACTIVE)
-                && !keyItem.state().equals(KeyState.COMPROMISED)) {
-            String message = "Invalid state of key " + keyItem.uuid() + ". Key is " + keyItem.state().getLabel()
+    /**
+     * A key item is destroyed when it is out of use: pre-active, deactivated or compromised, or active in a key that no
+     * certificate uses, which is read once for the key as its items are destroyed.
+     */
+    private static boolean isDestroyable(CryptographicKeyItemBasicModel keyItem, boolean keyInUse) {
+        KeyState state = keyItem.state();
+        if (state == KeyState.PRE_ACTIVE || state == KeyState.DEACTIVATED || state == KeyState.COMPROMISED) {
+            return true;
+        }
+        return state == KeyState.ACTIVE && !keyInUse;
+    }
+
+    private boolean destroyKeyItem(CryptographicKeyFullModel key, CryptographicKeyItemBasicModel keyItem,
+            boolean keyInUse) throws ConnectorException, NotFoundException {
+        if (!isDestroyable(keyItem, keyInUse)) {
+            String inUse = keyItem.state() == KeyState.ACTIVE ? " and a certificate uses it" : "";
+            String message = "Invalid state of key " + keyItem.uuid() + ". Key is " + keyItem.state().getLabel() + inUse
                     + ", hence can't be set to " + KeyState.DESTROYED.getLabel() + ".";
             keyEventHistoryService
                     .addEventHistory(KeyEvent.DESTROY, KeyEventStatus.FAILED, message, null, keyItem.uuid());
@@ -1795,11 +1759,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             List<String> messages = new ArrayList<>();
             if (!invalidStateItems.isEmpty()) {
                 String invalidStatesMessage = "Key items could not be destroyed because their current states do not allow destruction. "
-                        + "Destruction is allowed only in states %s, %s, or %s. Affected key items (ID and state): %s.";
+                        + "Destruction is allowed only in states %s, %s, or %s, or %s when no certificate uses the key. "
+                        + "Affected key items (ID and state): %s.";
                 messages
                         .add(invalidStatesMessage
                                 .formatted(KeyState.PRE_ACTIVE.getLabel(), KeyState.DEACTIVATED.getLabel(),
-                                        KeyState.COMPROMISED.getLabel(), String.join(", ", invalidStateItems)));
+                                        KeyState.COMPROMISED.getLabel(), KeyState.ACTIVE.getLabel(),
+                                        String.join(", ", invalidStateItems)));
             }
             messages.addAll(failures);
             messages.add("Successfully destroyed key items in this batch: %d.".formatted(destroyedCount));

@@ -45,6 +45,7 @@ import com.otilm.api.model.connector.cryptography.v2.key.PublicKeyDataV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataResponseV2Dto;
 import com.otilm.api.model.connector.cryptography.v2.key.SecretKeyDataV2Dto;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.cryptography.key.KeyDetailDto;
@@ -71,6 +72,7 @@ import com.otilm.core.dao.entity.OwnerAssociation;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.CertificateRequestRepository;
 import com.otilm.core.dao.repository.CommentRepository;
 import com.otilm.core.dao.repository.ComplianceProfileAssociationRepository;
 import com.otilm.core.dao.repository.ComplianceProfileRepository;
@@ -112,6 +114,7 @@ import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.KeySizeUtil;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
 import com.otilm.core.util.builders.ComplianceProfileFixtures;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPairGenerator;
@@ -156,6 +159,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
 import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
 import static com.otilm.core.util.builders.ProviderKeyItemBuilder.aProviderKeyItem;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -189,6 +193,9 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     private AttributeEngine attributeEngine;
     @Autowired
     private CertificateRepository certificateRepository;
+
+    @Autowired
+    private CertificateRequestRepository certificateRequestRepository;
     @Autowired
     private CommentRepository commentRepository;
     @Autowired
@@ -1161,6 +1168,105 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void destroysTheActiveKey_whenNoCertificateUsesIt() throws Exception {
+        // given
+        stubV1KeyItemDeletion();
+
+        // when
+        cryptographicKeyService.destroyKey(List.of(key.getUuid().toString()));
+
+        // then
+        assertThat(cryptographicKeyItemRepository.findByUuid(privateKeyItem.getUuid()).orElseThrow().getState())
+                .isEqualTo(KeyState.DESTROYED);
+        assertThat(cryptographicKeyItemRepository.findByUuid(publicKeyItem.getUuid()).orElseThrow().getState())
+                .isEqualTo(KeyState.DESTROYED);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CertificateState.class, names = {"FAILED", "REJECTED"})
+    void destroysTheActiveKey_whenItsOnlyCertificateWasNeverIssued(CertificateState neverIssued) throws Exception {
+        // given
+        stubV1KeyItemDeletion();
+        certificateRepository.saveAndFlush(aCertificate().withKey(key).withState(neverIssued).build());
+
+        // when
+        cryptographicKeyService.destroyKey(List.of(key.getUuid().toString()));
+
+        // then
+        assertThat(cryptographicKeyItemRepository.findByUuid(privateKeyItem.getUuid()).orElseThrow().getState())
+                .isEqualTo(KeyState.DESTROYED);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CertificateState.class, names = {"ISSUED", "PENDING_ISSUE"})
+    void refusesToDestroyTheActiveKey_whenACertificateUsesIt(CertificateState inUse) {
+        // given
+        stubV1KeyItemDeletion();
+        certificateRepository.saveAndFlush(aCertificate().withKey(key).withState(inUse).build());
+        List<String> keyUuids = List.of(key.getUuid().toString());
+
+        // when
+        ThrowingCallable destroy = () -> cryptographicKeyService.destroyKey(keyUuids);
+
+        // then
+        assertThatThrownBy(destroy)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(KeyState.ACTIVE.getLabel());
+        assertThat(cryptographicKeyItemRepository.findByUuid(privateKeyItem.getUuid()).orElseThrow().getState())
+                .isEqualTo(KeyState.ACTIVE);
+        mockServer.verify(0, WireMock.deleteRequestedFor(WireMock.anyUrl()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(KeyUse.class)
+    void refusesToDestroyTheActiveKey_whenACertificateUsesItOtherwise(KeyUse use) {
+        // given
+        stubV1KeyItemDeletion();
+        seedCertificateUsingTheKey(use);
+        List<String> keyUuids = List.of(key.getUuid().toString());
+
+        // when
+        ThrowingCallable destroy = () -> cryptographicKeyService.destroyKey(keyUuids);
+
+        // then
+        assertThatThrownBy(destroy).isInstanceOf(ValidationException.class);
+        mockServer.verify(0, WireMock.deleteRequestedFor(WireMock.anyUrl()));
+    }
+
+    /** The ways besides its own key that a certificate that may still be issued uses a key. */
+    private enum KeyUse {
+        REQUEST_KEY,
+        REQUEST_ALT_KEY,
+        CERTIFICATE_ALT_KEY,
+        CERTIFICATE_WITHOUT_STATE
+    }
+
+    private void seedCertificateUsingTheKey(KeyUse use) {
+        var certificate = switch (use) {
+            case REQUEST_KEY -> aCertificate()
+                    .withCertificateRequestUuid(requestCarrying(aCertificateRequest().withKeyUuid(key.getUuid())))
+                    .withState(CertificateState.PENDING_ISSUE);
+            case REQUEST_ALT_KEY -> aCertificate()
+                    .withCertificateRequestUuid(requestCarrying(aCertificateRequest().withAltKeyUuid(key.getUuid())))
+                    .withState(CertificateState.PENDING_ISSUE);
+            case CERTIFICATE_ALT_KEY -> aCertificate().withAltKeyUuid(key.getUuid()).withState(CertificateState.ISSUED);
+            case CERTIFICATE_WITHOUT_STATE -> aCertificate().withKey(key);
+        };
+        certificateRepository.saveAndFlush(certificate.build());
+    }
+
+    private UUID requestCarrying(CertificateRequestEntityBuilder request) {
+        return certificateRequestRepository.saveAndFlush(request.withContent("cmVxdWVzdA==").build()).getUuid();
+    }
+
+    private void stubV1KeyItemDeletion() {
+        mockServer
+                .stubFor(WireMock
+                        .delete(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+"))
+                        .willReturn(WireMock.ok()));
+    }
+
+    @Test
     void testDestroyKey_notFound() {
         Assertions
                 .assertThrows(NotFoundException.class, () -> cryptographicKeyService
@@ -1171,6 +1277,7 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     void testDestroyKey_validationError() {
         mockServer
                 .stubFor(WireMock.delete(WireMock.urlPathMatching("/v1/cryptographyProvider/tokens/[^/]+/keys/[^/]+")));
+        certificateRepository.saveAndFlush(aCertificate().withKey(key).withState(CertificateState.ISSUED).build());
 
         UUID keyUuid = key.getUuid();
         List<String> keyItemsUuids = List.of(privateKeyItem.getUuid().toString(), publicKeyItem.getUuid().toString());
