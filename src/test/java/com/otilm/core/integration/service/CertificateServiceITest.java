@@ -212,7 +212,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -1673,8 +1675,8 @@ class CertificateServiceITest extends BaseSpringBootTest {
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private X509CertificateTypeHandler createRawOnlyX509Handler() {
-            X509CertificateTypeHandler handler = Mockito.spy(x509Handler);
-            Mockito.doReturn(EnumSet.of(CertificateFormat.RAW)).when(handler).downloadFormats();
+            X509CertificateTypeHandler handler = spy(x509Handler);
+            doReturn(EnumSet.of(CertificateFormat.RAW)).when(handler).downloadFormats();
             return handler;
         }
     }
