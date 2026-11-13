@@ -21,8 +21,8 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Refuses to delete an object while anything still references it, in one message that names every referrer the caller
- * may see and counts the rest.
+ * Refuses to delete or disable an object while anything still references it, in one message that names every referrer
+ * the caller may see and counts the rest.
  */
 @Component
 public class ObjectReferenceGuard {
@@ -48,6 +48,15 @@ public class ObjectReferenceGuard {
      * away with it, and every other reference still refuses. Anyone else passes null.
      */
     public void refuseWhileReferenced(ObjectRef referenced, String name, ObjectRef releasedBy) {
+        refuse("delete", referenced, name, releasedBy);
+    }
+
+    /** An object that is disabled keeps its references, so none is released. */
+    public void refuseDisableWhileReferenced(ObjectRef referenced, String name) {
+        refuse("disable", referenced, name, null);
+    }
+
+    private void refuse(String action, ObjectRef referenced, String name, ObjectRef releasedBy) {
         List<ObjectReferrer> referrers = sources
                 .stream()
                 .filter(source -> source.referencedResources().contains(referenced.resource()))
@@ -69,8 +78,8 @@ public class ObjectReferenceGuard {
         List<String> named = byVisibility.get(true).stream().map(ObjectReferrer::describe).distinct().toList();
         long hiddenCount = byVisibility.get(false).stream().map(ObjectReferrer::object).distinct().count();
         throw new ValidationException(ValidationError
-                .create("Cannot delete %s '%s': it is still used by %s."
-                        .formatted(referenced.resource().getLabel(), name, usedBy(named, hiddenCount))));
+                .create("Cannot %s %s '%s': it is still used by %s."
+                        .formatted(action, referenced.resource().getLabel(), name, usedBy(named, hiddenCount))));
     }
 
     static String usedBy(List<String> namedReferrers, long hiddenCount) {

@@ -56,6 +56,12 @@ public class RaProfileProtocolAttribute extends UniquelyIdentified {
     @Column(name = "cmp_revoke_certificate_attributes", length = Integer.MAX_VALUE)
     private String cmpRevokeCertificateAttributes;
 
+    /**
+     * EST protocol related attributes
+     */
+    @Column(name = "est_issue_certificate_attributes", length = Integer.MAX_VALUE)
+    private String estIssueCertificateAttributes;
+
     public void setRaProfile(RaProfile raProfile) {
         this.raProfile = raProfile;
         if (raProfile != null) {

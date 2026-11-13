@@ -146,6 +146,9 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
@@ -153,6 +156,7 @@ import static com.otilm.core.util.builders.MappedDataAttributeV3Builder.aMappedD
 import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttribute;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -262,6 +266,9 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
 
     @Autowired
     private RaProfileCertificateRequestAttributeService requestAttributeService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private RaProfile raProfile;
     // Pre-computed secured UUIDs so each assertThrows lambda contains only the call under test.
@@ -2209,6 +2216,42 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     @Test
+    void failsRenewal_whenCopyCompensationThrowsAfterFailingTheSuccessor() throws Exception {
+        // given — the copy left the successor an authorization yet reported a failure, and closing that authorization
+        // throws once the compensation has already moved the successor to FAILED
+        KeyPair keyPair = generateKeyPair();
+        Certificate issued = seedIssuedCertWithContent(keyPair);
+        registeringAdapter();
+        activeAuthorizationFor(issued.getUuid());
+        doAnswer(invocation -> {
+            UUID successorUuid = invocation.getArgument(1);
+            inOwnTransaction(() -> activeAuthorizationFor(successorUuid));
+            throw new IllegalStateException("the copy reported a failure");
+        }).when(registrationAuthorizationWriter).copyToSuccessor(Mockito.any(), Mockito.any());
+        var closeFailure = new IllegalStateException("closing the copied authorization failed");
+        doThrow(closeFailure).when(registrationAuthorizationWriter).close(Mockito.any());
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setRequest(csrBase64(keyPair, RENEWABLE_SUBJECT_DN));
+        request.setAuthorizationSecret(CHALLENGE);
+        String certUuid = issued.getUuid().toString();
+
+        // when
+        ThrowingCallable renew = () -> clientOperationService
+                .renewCertificate(authorityParent, securedRaProfile, certUuid, request);
+
+        // then
+        assertThatThrownBy(renew).isSameAs(closeFailure);
+        Certificate successor = certificateRepository
+                .findAll()
+                .stream()
+                .filter(candidate -> !candidate.getUuid().equals(issued.getUuid()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(successor.getState()).isEqualTo(CertificateState.FAILED);
+        verify(actionProducer, never()).produceMessage(Mockito.any());
+    }
+
+    @Test
     void renewWithCorrectChallengeOfLockedAuthorizationIsDenied() {
         Certificate issued = seedIssuedCert();
         activeAuthorizationFor(issued.getUuid());
@@ -2653,6 +2696,13 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
                 .withCertificateContentId(content.getId())
                 .build();
         return certificateRepository.save(issued);
+    }
+
+    /** Runs the step in a transaction of its own, so what it writes commits whatever the surrounding one does. */
+    private void inOwnTransaction(Runnable step) {
+        TransactionTemplate ownTransaction = new TransactionTemplate(transactionManager);
+        ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        ownTransaction.executeWithoutResult(status -> step.run());
     }
 
     private void activeAuthorizationFor(UUID certificateUuid) {

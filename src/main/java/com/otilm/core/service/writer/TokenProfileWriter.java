@@ -19,6 +19,8 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.model.crypto.ImmutableTokenProfileFullModel;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
+import com.otilm.core.reference.ObjectRef;
+import com.otilm.core.reference.ObjectReferenceGuard;
 import com.otilm.core.service.CommentInternalService;
 import com.otilm.core.service.handler.key.KeyOperationCache;
 import jakarta.persistence.EntityManager;
@@ -41,13 +43,16 @@ public class TokenProfileWriter {
     private final EntityManager entityManager;
     private final ComplianceProfileAssociationWriter complianceProfileAssociationWriter;
     private final KeyOperationCache keyOperationCache;
+    private final ObjectReferenceGuard referenceGuard;
 
+    // S107: one collaborator per kind of dependent object and per write the profile needs.
+    @SuppressWarnings("java:S107")
     public TokenProfileWriter(TokenProfileRepository tokenProfileRepository,
             TokenInstanceReferenceRepository tokenInstanceReferenceRepository, AttributeEngine attributeEngine,
             CommentInternalService commentService, CryptographicKeyRepository cryptographicKeyRepository,
             SigningProfileVersionRepository signingProfileVersionRepository, EntityManager entityManager,
-            ComplianceProfileAssociationWriter complianceProfileAssociationWriter,
-            KeyOperationCache keyOperationCache) {
+            ComplianceProfileAssociationWriter complianceProfileAssociationWriter, KeyOperationCache keyOperationCache,
+            ObjectReferenceGuard referenceGuard) {
         this.tokenProfileRepository = tokenProfileRepository;
         this.tokenInstanceReferenceRepository = tokenInstanceReferenceRepository;
         this.attributeEngine = attributeEngine;
@@ -57,6 +62,7 @@ public class TokenProfileWriter {
         this.entityManager = entityManager;
         this.complianceProfileAssociationWriter = complianceProfileAssociationWriter;
         this.keyOperationCache = keyOperationCache;
+        this.referenceGuard = referenceGuard;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -91,7 +97,7 @@ public class TokenProfileWriter {
             profile.setDescription(request.getDescription());
         }
         if (request.getEnabled() != null) {
-            profile.setEnabled(request.getEnabled());
+            changeEnabled(profile, request.getEnabled());
         }
         if (request.getUsage() != null) {
             profile.setUsage(request.getUsage());
@@ -104,12 +110,12 @@ public class TokenProfileWriter {
 
     @Transactional(rollbackFor = Exception.class)
     public void setEnabled(UUID profileUuid, boolean enabled) throws NotFoundException {
-        findLocked(profileUuid).setEnabled(enabled);
+        changeEnabled(findLocked(profileUuid), enabled);
     }
 
     @Transactional(rollbackFor = Exception.class)
     public void setEnabledScoped(UUID parentUuid, UUID profileUuid, boolean enabled) throws NotFoundException {
-        findScopedLocked(parentUuid, profileUuid).setEnabled(enabled);
+        changeEnabled(findScopedLocked(parentUuid, profileUuid), enabled);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -120,6 +126,15 @@ public class TokenProfileWriter {
     @Transactional(rollbackFor = Exception.class)
     public void setUsagesScoped(UUID parentUuid, UUID profileUuid, List<KeyUsage> usages) throws NotFoundException {
         changeUsages(findScopedLocked(parentUuid, profileUuid), usages);
+    }
+
+    private void changeEnabled(TokenProfile profile, boolean enabled) {
+        if (!enabled && Boolean.TRUE.equals(profile.getEnabled())) {
+            referenceGuard
+                    .refuseDisableWhileReferenced(new ObjectRef(Resource.TOKEN_PROFILE, profile.getUuid()),
+                            profile.getName());
+        }
+        profile.setEnabled(enabled);
     }
 
     private static void changeUsages(TokenProfile profile, List<KeyUsage> usages) {
@@ -182,6 +197,9 @@ public class TokenProfileWriter {
     }
 
     private void delete(TokenProfile profile) {
+        referenceGuard
+                .refuseWhileReferenced(new ObjectRef(Resource.TOKEN_PROFILE, profile.getUuid()), profile.getName(),
+                        null);
         validateNoDependentObjects(profile);
         // Capture diagnostic data before the flush; a constraint failure aborts the transaction,
         // so the catch path must not depend on further database access.
@@ -196,7 +214,7 @@ public class TokenProfileWriter {
             tokenProfileRepository.flush();
         } catch (DataIntegrityViolationException e) {
             throw new ValidationException(ValidationError
-                    .create("Cannot delete Token Profile {}: dependent Key(s) or Signing Profile(s) were created concurrently. Retry to see current dependencies.",
+                    .create("Cannot delete Token Profile {}: a dependent Key, Signing Profile or EST Profile was created concurrently. Retry to see current dependencies.",
                             profileName));
         }
     }

@@ -22,6 +22,11 @@ public final class V3ConnectorStubs {
     private static final String REGISTER_ATTRIBUTES_PATH = REGISTER_PATH + "/attributes";
     public static final String REGISTER_STATUS = "/v3/authorityProvider/certificates/register/status";
     private static final String ISSUE_PATH = "/v3/authorityProvider/certificates/issue";
+    private static final String ISSUE_STATUS_PATH = ISSUE_PATH + "/status";
+
+    /** The path that a renewal or a rekey is sent to, for a test that counts them. */
+    public static final String RENEW_PATH = "/v3/authorityProvider/certificates/renew";
+    private static final String RENEW_ATTRIBUTES_PATH = RENEW_PATH + "/attributes";
 
     // State names for the stateful register-status scenario.
     private static final String STATUS_SCENARIO_IN_PROGRESS = Scenario.STARTED;
@@ -145,6 +150,54 @@ public final class V3ConnectorStubs {
                                 aResponse().withStatus(202).withHeader("Content-Type", "application/json").withBody("""
                                         {"certificateData": null, "meta": []}
                                         """)));
+    }
+
+    /**
+     * Answers the renewal that {@code AuthorityProviderV3Adapter.renew} sends, for a renew or a rekey action, as
+     * accepted (HTTP 202) with empty meta: the authority issues the certificate later, and its issue status tells when,
+     * as {@link #stubIssueStatusCompleted} answers it.
+     */
+    public static void stubV3RenewAsync(WireMockServer wm) {
+        wm
+                .stubFor(post(urlEqualTo(RENEW_PATH))
+                        .willReturn(
+                                aResponse().withStatus(202).withHeader("Content-Type", "application/json").withBody("""
+                                        {"certificateData": null, "meta": []}
+                                        """)));
+    }
+
+    /**
+     * Answers what {@code ExtendedAttributeServiceImpl.mergeAndValidateRenewAttributes} asks the authority for before
+     * Core stores a renewal or a rekey: a renew schema of one required string attribute, so that a request without its
+     * value is refused as invalid. It takes precedence over the empty schemas of {@link #stubAttributesAndValidate}.
+     */
+    public static void stubRenewSchemaRequiringAnAttribute(WireMockServer wm) {
+        wm.stubFor(post(urlEqualTo(RENEW_ATTRIBUTES_PATH)).atPriority(1).willReturn(WireMock.okJson("""
+                [ {
+                  "uuid": "6c0e0b7a-3a1d-4f55-9d0e-2b8f1c4a5e01",
+                  "name": "validityOverride",
+                  "type": "data",
+                  "version": 3,
+                  "contentType": "string",
+                  "properties": { "label": "Validity Override", "visible": true,
+                                  "required": true, "readOnly": false,
+                                  "list": false, "multiSelect": false }
+                } ]
+                """)));
+    }
+
+    /**
+     * Stubs the issue-status endpoint to report the issue as completed with the given certificate.
+     *
+     * @param certData base64-encoded certificate DER bytes to include in the response
+     */
+    public static void stubIssueStatusCompleted(WireMockServer wm, String certData) {
+        wm
+                .stubFor(post(urlEqualTo(ISSUE_STATUS_PATH))
+                        .willReturn(
+                                aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody("""
+                                        {"status": "completed", "certificateData": "%s", "meta": []}
+                                        """.formatted(certData))));
     }
 
     // ---- Attribute list + validate (required by mergeAndValidateAttributes) ----

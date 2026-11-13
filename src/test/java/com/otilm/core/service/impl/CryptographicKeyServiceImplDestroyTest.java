@@ -13,6 +13,7 @@ import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.TokenInstanceReference;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
 import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.model.auth.ResourceAction;
@@ -64,6 +65,7 @@ class CryptographicKeyServiceImplDestroyTest {
     private final CryptographicKeyEventHistoryService history = mock(CryptographicKeyEventHistoryService.class);
     private final CacheEvictor cache = mock(CacheEvictor.class);
     private final AuthorizationEnforcer authorization = mock(AuthorizationEnforcer.class);
+    private final CertificateRepository certificates = mock(CertificateRepository.class);
     private final CryptographicKeyServiceImpl service = new CryptographicKeyServiceImpl();
     private final CryptographicKey firstParent = key("first-parent");
     private final CryptographicKey secondParent = key("second-parent");
@@ -81,6 +83,8 @@ class CryptographicKeyServiceImplDestroyTest {
         service.setCacheEvictor(cache);
         service.setKeyOperationCache(mock(KeyOperationCache.class));
         service.setAuthorizationEnforcer(authorization);
+        service.setCertificateRepository(certificates);
+        when(certificates.existsUsingKey(any())).thenReturn(true);
         loadParents();
     }
 
@@ -282,6 +286,22 @@ class CryptographicKeyServiceImplDestroyTest {
         if (operation != Operation.SELECTED_ITEMS) {
             verify(writer).finalizeKeyItemDestruction(any(), eq(laterParentItem.getUuid()));
         }
+    }
+
+    @ParameterizedTest
+    @EnumSource(Operation.class)
+    void finalizesTheActiveItem_whenNoCertificateUsesItsKey(Operation operation) throws Exception {
+        // given
+        firstItem.setState(KeyState.ACTIVE);
+        loadParents();
+        when(certificates.existsUsingKey(firstParent.getUuid())).thenReturn(false);
+
+        // when
+        destroy(operation);
+
+        // then
+        verify(adapter).destroyKeyItem(model(firstParent), model(firstItem).reference());
+        verify(writer).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
     }
 
     @Test

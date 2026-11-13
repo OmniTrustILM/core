@@ -5,6 +5,7 @@ import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
@@ -76,6 +77,12 @@ public class CertificateProtocolAssociation extends UniquelyIdentified implement
     @JoinFormula("CASE WHEN protocol = 'CMP' AND EXISTS (SELECT 1 FROM {h-schema}cmp_profile p"
             + " WHERE p.uuid = protocol_profile_uuid) THEN protocol_profile_uuid END")
     private CmpProfile cmpProfile;
+
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinFormula("CASE WHEN protocol = 'EST' AND EXISTS (SELECT 1 FROM {h-schema}est_profile p"
+            + " WHERE p.uuid = protocol_profile_uuid) THEN protocol_profile_uuid END")
+    private EstProfile estProfile;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)

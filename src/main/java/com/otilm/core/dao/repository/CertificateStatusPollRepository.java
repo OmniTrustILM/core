@@ -36,6 +36,11 @@ public interface CertificateStatusPollRepository extends JpaRepository<Certifica
     void scheduleIfAbsent(@Param("uuid") UUID uuid, @Param("certificateUuid") UUID certificateUuid,
             @Param("operation") String operation, @Param("nextPollAt") OffsetDateTime nextPollAt);
 
+    /**
+     * Whether a status poll is scheduled for the certificate, read without loading the row.
+     */
+    boolean existsByCertificateUuid(UUID certificateUuid);
+
     @Modifying
     @Query("UPDATE CertificateStatusPoll p SET p.attempt = :attempt, p.nextPollAt = :nextPollAt WHERE p.certificateUuid = :certificateUuid")
     void reschedule(@Param("certificateUuid") UUID certificateUuid, @Param("attempt") int attempt,

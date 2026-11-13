@@ -37,6 +37,123 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
 
     List<String> FETCH_GROUPS_AND_OWNER = List.of("groups", "owner");
 
+    /**
+     * Finds the newest certificate, not archived, that the EST Profile requested through the RA Profile with the
+     * request of the given fingerprint, which is how a retry of an EST request is recognised.
+     *
+     * @param requestFingerprint SHA-256 of the encoded request in lower-case hexadecimal
+     */
+    @Query("""
+            SELECT c.uuid AS uuid, c.state AS state, c.notAfter AS notAfter, r.fingerprint AS requestFingerprint
+              FROM Certificate c
+              JOIN c.certificateRequestEntity r
+              JOIN c.protocolAssociation a
+             WHERE c.raProfileUuid = :raProfileUuid
+               AND c.archived = false
+               AND a.protocol = com.otilm.api.model.core.enums.CertificateProtocol.EST
+               AND a.protocolProfileUuid = :estProfileUuid
+               AND r.fingerprint = :requestFingerprint
+             ORDER BY c.created DESC, c.uuid DESC
+             LIMIT 1
+            """)
+    Optional<EstRequestedCertificate> findLatestRequestedThroughEst(@Param("raProfileUuid") UUID raProfileUuid,
+            @Param("estProfileUuid") UUID estProfileUuid, @Param("requestFingerprint") String requestFingerprint);
+
+    /**
+     * Finds the newest certificate on the RA Profile that the source was renewed or rekeyed into with the request,
+     * whatever the type of the relation, so that a retry of the request through that RA Profile finds it. The request
+     * fingerprint is that of the request the successor carries.
+     */
+    @Query("""
+            SELECT s.uuid AS uuid, s.state AS state, s.notAfter AS notAfter, r.fingerprint AS requestFingerprint
+              FROM CertificateRelation cr
+              JOIN cr.successorCertificate s
+              JOIN s.certificateRequestEntity r
+             WHERE cr.id.predecessorCertificateUuid = :sourceUuid
+               AND s.raProfileUuid = :raProfileUuid
+               AND r.fingerprint = :requestFingerprint
+               AND s.archived = false
+             ORDER BY s.created DESC, s.uuid DESC
+             LIMIT 1
+            """)
+    Optional<EstRequestedCertificate> findSuccessorRequestedWith(@Param("sourceUuid") UUID sourceUuid,
+            @Param("raProfileUuid") UUID raProfileUuid, @Param("requestFingerprint") String requestFingerprint);
+
+    /**
+     * Whether a certificate uses the key, as its key or alternative key, by itself or through its request, unless it
+     * ended without being issued: one that failed or was rejected never used the key. A certificate without a state
+     * counts as using it. Each half is answered by the key indexes of one table.
+     */
+    default boolean existsUsingKey(UUID keyUuid) {
+        return existsUsingKeyItself(keyUuid) || existsUsingKeyThroughRequest(keyUuid);
+    }
+
+    @Query("""
+            SELECT COUNT(c) > 0
+              FROM Certificate c
+             WHERE (c.keyUuid = :keyUuid OR c.altKeyUuid = :keyUuid)
+               AND (c.state IS NULL
+                    OR c.state NOT IN (com.otilm.api.model.core.certificate.CertificateState.FAILED,
+                                       com.otilm.api.model.core.certificate.CertificateState.REJECTED))
+            """)
+    boolean existsUsingKeyItself(@Param("keyUuid") UUID keyUuid);
+
+    @Query("""
+            SELECT COUNT(c) > 0
+              FROM CertificateRequestEntity r
+              JOIN Certificate c ON c.certificateRequestUuid = r.uuid
+             WHERE (r.keyUuid = :keyUuid OR r.altKeyUuid = :keyUuid)
+               AND (c.state IS NULL
+                    OR c.state NOT IN (com.otilm.api.model.core.certificate.CertificateState.FAILED,
+                                       com.otilm.api.model.core.certificate.CertificateState.REJECTED))
+            """)
+    boolean existsUsingKeyThroughRequest(@Param("keyUuid") UUID keyUuid);
+
+    /** Whether the source has a successor that is still waiting to be issued. */
+    @Query("""
+            SELECT COUNT(cr) > 0
+              FROM CertificateRelation cr
+              JOIN cr.successorCertificate s
+             WHERE cr.id.predecessorCertificateUuid = :sourceUuid
+               AND s.archived = false
+               AND s.state IN (com.otilm.api.model.core.certificate.CertificateState.REQUESTED,
+                               com.otilm.api.model.core.certificate.CertificateState.PENDING_APPROVAL,
+                               com.otilm.api.model.core.certificate.CertificateState.PENDING_ISSUE)
+            """)
+    boolean existsPendingSuccessor(@Param("sourceUuid") UUID sourceUuid);
+
+    /**
+     * Finds the registrations of the RA Profile whose request has the given fingerprint, newest first: certificates
+     * that are not archived and carry a registration authorization in any state. A request that completed a
+     * registration is recognised by this whatever state its certificate has reached since.
+     *
+     * @param requestFingerprint SHA-256 of the encoded request in lower-case hexadecimal
+     */
+    @Query("""
+            SELECT c.uuid
+              FROM Certificate c
+              JOIN c.certificateRequestEntity r
+             WHERE c.raProfileUuid = :raProfileUuid
+               AND c.archived = false
+               AND r.fingerprint = :requestFingerprint
+               AND EXISTS (SELECT 1 FROM CertificateRegistrationAuthorization a WHERE a.certificateUuid = c.uuid)
+             ORDER BY c.created DESC, c.uuid DESC
+            """)
+    List<UUID> findRegistrationsRequestedWith(@Param("raProfileUuid") UUID raProfileUuid,
+            @Param("requestFingerprint") String requestFingerprint);
+
+    /**
+     * Reads a certificate as {@link EstRequestedCertificate}; the request fingerprint is {@code null} while no request
+     * is attached.
+     */
+    @Query("""
+            SELECT c.uuid AS uuid, c.state AS state, c.notAfter AS notAfter, r.fingerprint AS requestFingerprint
+              FROM Certificate c
+              LEFT JOIN c.certificateRequestEntity r
+             WHERE c.uuid = :uuid
+            """)
+    Optional<EstRequestedCertificate> findEstRequestedCertificateByUuid(@Param("uuid") UUID uuid);
+
     /** Fetches a single certificate with all associations required by {@link Certificate#mapToChainDto()}. */
     @EntityGraph("Certificate.chainAssociations")
     Optional<Certificate> findChainWithAssociationsByUuid(UUID uuid);
@@ -196,6 +313,23 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
      */
     @Query("SELECT c.validationStatus FROM Certificate c WHERE c.uuid = :uuid")
     Optional<CertificateValidationStatus> findValidationStatusByUuid(@Param("uuid") UUID uuid);
+
+    /**
+     * Reads the base64 content of the certificate by UUID while its request has the given fingerprint, without loading
+     * the entity; empty while the certificate has no content or carries another request.
+     *
+     * @param requestFingerprint SHA-256 of the encoded request in lower-case hexadecimal
+     */
+    @Query("""
+            SELECT cc.content
+              FROM Certificate c
+              JOIN c.certificateContent cc
+              JOIN c.certificateRequestEntity r
+             WHERE c.uuid = :uuid
+               AND r.fingerprint = :requestFingerprint
+            """)
+    Optional<String> findContentByUuidAndRequestFingerprint(@Param("uuid") UUID uuid,
+            @Param("requestFingerprint") String requestFingerprint);
 
     /**
      * Scalar projection of the RA-profile UUID — authorize without managing the full entity (so a later locking read

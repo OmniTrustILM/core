@@ -70,8 +70,9 @@ public class SearchHelper {
                         FilterField.CERT_LOCATION_NAME, FilterField.KEY_USAGE, FilterField.SUBJECT_TYPE,
                         FilterField.SUBJECT_ALTERNATIVE_NAMES, FilterField.OCSP_VALIDATION, FilterField.CRL_VALIDATION,
                         FilterField.SIGNATURE_VALIDATION, FilterField.CERTIFICATE_PROTOCOL, FilterField.ACME_PROFILE,
-                        FilterField.SCEP_PROFILE, FilterField.CMP_PROFILE, FilterField.ACME_ACCOUNT,
-                        FilterField.SUCCEEDING_CERTIFICATES, FilterField.PRECEDING_CERTIFICATES,
+                        FilterField.SCEP_PROFILE, FilterField.CMP_PROFILE, FilterField.EST_PROFILE,
+                        FilterField.ACME_ACCOUNT, FilterField.SUCCEEDING_CERTIFICATES,
+                        FilterField.PRECEDING_CERTIFICATES,
 
                         // Connectors. The v2 ConnectorDto the listing returns carries no authentication type; only
                         // the v1 detail DTO does.

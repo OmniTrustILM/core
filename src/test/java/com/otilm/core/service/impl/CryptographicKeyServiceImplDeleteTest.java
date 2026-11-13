@@ -116,6 +116,25 @@ class CryptographicKeyServiceImplDeleteTest {
         deletion.verifyNoMoreInteractions();
     }
 
+    /** A connector answers not found for an item it already destroyed, and the adapter treats that as done. */
+    @Test
+    void deletesDestroyedItemsAndKey_whenAdapterFindsThemAlreadyGone() throws Exception {
+        // given
+        CryptographicKeyItemBasicModel destroyedPrivateItem = keyItem(keyUuid, KeyState.DESTROYED);
+        CryptographicKeyItemBasicModel destroyedPublicItem = keyItem(keyUuid, KeyState.DESTROYED);
+        CryptographicKeyFullModel key = remoteKey(List.of(destroyedPrivateItem, destroyedPublicItem));
+
+        // when
+        service.deleteKey(List.of(key.uuid().toString()));
+
+        // then
+        verify(adapter).destroyKeyItem(key, destroyedPrivateItem.reference());
+        verify(adapter).destroyKeyItem(key, destroyedPublicItem.reference());
+        verify(writer).deleteKeyItem(key, destroyedPrivateItem.uuid());
+        verify(writer).deleteKeyItem(key, destroyedPublicItem.uuid());
+        verify(writer).deleteKeyWithAssociations(key, itemUuidsOf(key));
+    }
+
     /**
      * An import may adopt a key no token holds while it is being deleted, so its items go with it in the one step that
      * checks for an item the deletion did not read.
@@ -198,11 +217,15 @@ class CryptographicKeyServiceImplDeleteTest {
     }
 
     private CryptographicKeyFullModel remoteKey() throws Exception {
+        return remoteKey(List.of(firstItem, secondItem));
+    }
+
+    private CryptographicKeyFullModel remoteKey(List<CryptographicKeyItemBasicModel> items) throws Exception {
         TokenInstanceFullModel token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(),
                 UUID.randomUUID().toString(), "token", TokenInstanceStatus.CONNECTED, null, UUID.randomUUID(),
                 "connector", null, null, Set.of());
         when(adapterFactory.forToken(token)).thenReturn(adapter);
-        return key(token);
+        return key(token, items);
     }
 
     private CryptographicKeyFullModel key(TokenInstanceFullModel token) {
@@ -217,9 +240,13 @@ class CryptographicKeyServiceImplDeleteTest {
     }
 
     private static CryptographicKeyItemBasicModel keyItem(UUID keyUuid) {
+        return keyItem(keyUuid, KeyState.ACTIVE);
+    }
+
+    private static CryptographicKeyItemBasicModel keyItem(UUID keyUuid, KeyState state) {
         RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
         return new CryptographicKeyItemBasicModel(UUID.randomUUID(), keyUuid, "item", reference, KeyType.PRIVATE_KEY,
-                KeyAlgorithm.RSA, null, null, 2048, KeyState.ACTIVE, true, List.of(), null, null, false);
+                KeyAlgorithm.RSA, null, null, 2048, state, true, List.of(), null, null, false);
     }
 
     private static Set<UUID> itemUuidsOf(CryptographicKeyFullModel key) {

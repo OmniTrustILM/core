@@ -21,7 +21,7 @@ import org.springframework.stereotype.Component;
  * <p>
  * <b>Authorization:</b> the dereference runs under the {@code attribute-content-resolver} system identity (via
  * {@link AuthHelper#runAsSystem}), authorized at the operation level rather than per acting caller — so it works for
- * operators, low-privilege protocol robots (ACME/SCEP/CMP), and the principal-less async status-poll thread alike.
+ * operators, low-privilege protocol robots (ACME/SCEP/CMP/EST), and the principal-less async status-poll thread alike.
  * <p>
  * <b>Scope:</b> the elevation covers the dereference only; {@code runAsSystem} restores the caller's context, so the
  * rest of the operation runs as the caller.

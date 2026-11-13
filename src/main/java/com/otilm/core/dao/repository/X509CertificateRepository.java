@@ -28,6 +28,22 @@ public interface X509CertificateRepository extends CertificateBaseRepository<X50
 
     List<X509CertificateEntity> findByAltKeyFingerprint(String altKeyFingerprint);
 
+    /**
+     * Reads the certificate that an EST client presents, found by its fingerprint, with the protocol it was issued
+     * through. The protocol and its profile are {@code null} for a certificate that no protocol issued.
+     */
+    @Query("""
+            SELECT c.uuid AS uuid, c.state AS state, c.archived AS archived, c.notBefore AS notBefore,
+                   c.notAfter AS notAfter, c.validationStatus AS validationStatus, c.raProfileUuid AS raProfileUuid,
+                   c.subjectDn AS subjectDn, c.subjectAlternativeNames AS subjectAlternativeNames,
+                   c.altKeyFingerprint AS altKeyFingerprint,
+                   a.protocol AS protocol, a.protocolProfileUuid AS protocolProfileUuid
+              FROM X509CertificateEntity c
+              LEFT JOIN c.protocolAssociation a
+             WHERE c.fingerprint = :fingerprint
+            """)
+    Optional<EstReenrollmentSource> findEstReenrollmentSource(@Param("fingerprint") String fingerprint);
+
     @Modifying
     @Query("UPDATE X509CertificateEntity c SET c.altKeyUuid = ?1, c.hybridCertificate = true WHERE c.uuid IN ?2")
     void setAltKeyUuidAndHybridCertificate(UUID keyUuid, List<UUID> uuids);

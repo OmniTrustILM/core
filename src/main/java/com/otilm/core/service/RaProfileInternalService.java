@@ -8,6 +8,7 @@ import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.model.SecuredList;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface RaProfileInternalService extends ResourceExtensionService {
 
@@ -27,6 +28,15 @@ public interface RaProfileInternalService extends ResourceExtensionService {
      * @return List of RA Profiles associated with the CMP Profiles
      */
     SecuredList<RaProfile> listRaProfilesAssociatedWithCmpProfile(String cmpProfileUuid, SecurityFilter filter);
+
+    /**
+     * The RA Profiles with the EST Profile activated, each marked whether the caller may list it.
+     *
+     * @param estProfileUuid UUID of the EST Profile
+     * @param filter Security filter
+     * @return RA Profiles with the EST Profile activated
+     */
+    SecuredList<RaProfile> listRaProfilesAssociatedWithEstProfile(UUID estProfileUuid, SecurityFilter filter);
 
     /**
      * Remove CMP Profiles from the RA Profiles

@@ -9,15 +9,18 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.approvalprofile.ApprovalProfileDto;
 import com.otilm.api.model.client.approvalprofile.ApprovalProfileRelationDto;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.certificate.SearchFilterRequestDto;
 import com.otilm.api.model.client.compliance.SimplifiedComplianceProfileDto;
 import com.otilm.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateCmpForRaProfileRequestDto;
+import com.otilm.api.model.client.raprofile.ActivateEstForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateScepForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.AddRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.EditRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.RaProfileAcmeDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileCmpDetailResponseDto;
+import com.otilm.api.model.client.raprofile.RaProfileEstDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileScepDetailResponseDto;
 import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -39,6 +42,7 @@ import com.otilm.core.dao.entity.RaProfile_;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.repository.AcmeProfileRepository;
 import com.otilm.core.dao.repository.ApprovalProfileRelationRepository;
@@ -48,7 +52,9 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.RaProfileProtocolAttributeRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
+import com.otilm.core.dao.repository.est.EstProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
+import com.otilm.core.mapper.est.EstProfileMapper;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.ExternalAuthorization;
@@ -61,6 +67,7 @@ import com.otilm.core.service.ComplianceInternalService;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.service.RaProfileInternalService;
+import com.otilm.core.service.est.EstLabels;
 import com.otilm.core.service.handler.authority.AdapterOperationResult;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapter;
 import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
@@ -91,6 +98,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service(Resource.Codes.RA_PROFILE)
@@ -112,10 +120,12 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     private RaProfileCertificateRequestAttributeService requestAttributeService;
     private ScepProfileRepository scepProfileRepository;
     private CmpProfileRepository cmpProfileRepository;
+    private EstProfileRepository estProfileRepository;
     private ApprovalProfileRelationRepository approvalProfileRelationRepository;
     private CertificateContentRepository certificateContentRepository;
     private ApprovalProfileExternalService approvalProfileService;
     private AuthorityProviderAdapterFactory authorityProviderAdapterFactory;
+    private TransactionTemplate transactionTemplate;
     private TransactionTemplate separateReadOnlyTransactions;
 
     @Override
@@ -614,11 +624,82 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     }
 
     @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.LIST)
+    public SecuredList<RaProfile> listRaProfilesAssociatedWithEstProfile(UUID estProfileUuid, SecurityFilter filter) {
+        return SecuredList.fromFilter(filter, raProfileRepository.findAllByEstProfileUuid(estProfileUuid));
+    }
+
+    @Override
     public void bulkRemoveAssociatedCmpProfile(List<SecuredUUID> uuids) {
         List<RaProfile> raProfiles = raProfileRepository
                 .findAllByUuidIn(uuids.stream().map(SecuredUUID::getValue).toList());
         raProfiles.forEach(raProfile -> raProfile.setCmpProfile(null));
         raProfileRepository.saveAll(raProfiles);
+    }
+
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.DETAIL,
+            parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public RaProfileEstDetailResponseDto getEstForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid,
+            String origin) throws NotFoundException {
+        RaProfile raProfile = getRaProfileEntity(uuid);
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
+        List<ResponseAttribute> issueAttributes = estIssueAttributes(
+                raProfile.getProtocolAttribute().getEstIssueCertificateAttributes());
+        return EstProfileMapper.toRaProfileDetail(raProfile, issueAttributes, origin);
+    }
+
+    /**
+     * The connector is asked about the attributes without a transaction, since it can take long to answer, and the
+     * activation is written afterwards in one transaction of its own. That transaction reads the RA Profile again,
+     * under its row lock, and checks it again: the copy read before the connector call may be older than the row by the
+     * time the connector has answered, and a change still in progress is waited for.
+     */
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.UPDATE,
+            parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public RaProfileEstDetailResponseDto activateEstForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid,
+            UUID estProfileUuid, ActivateEstForRaProfileRequestDto request, String origin)
+            throws ConnectorException, ValidationException, AttributeException, NotFoundException {
+        RaProfile raProfile = raProfileRepository
+                .findWithAuthorityByUuid(uuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
+        requireNameFreeAsEstLabel(raProfile.getName());
+        EstProfile estProfile = resolveEstProfile(estProfileUuid);
+        UUID connectorUuid = requireConnectorUuid(raProfile);
+
+        List<RequestAttribute> issueAttributes = Objects
+                .requireNonNullElse(request.getIssueCertificateAttributes(), List.of());
+        extendedAttributeService.mergeAndValidateIssueAttributes(raProfile, issueAttributes);
+        String storedAttributes = AttributeDefinitionUtils
+                .serializeData(attributeEngine.getDataAttributesByContent(connectorUuid, issueAttributes));
+
+        Optional<RaProfile> stored = transactionTemplate
+                .execute(
+                        status -> storeEstActivation(authorityUuid, uuid, connectorUuid, estProfile, storedAttributes));
+        RaProfile activated = Objects
+                .requireNonNull(stored)
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
+        return EstProfileMapper.toRaProfileDetail(activated, estIssueAttributes(storedAttributes), origin);
+    }
+
+    /**
+     * The RA Profile is read under its row lock, so it is checked to be under the authority as a change in progress
+     * leaves it.
+     */
+    @Override
+    @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.UPDATE,
+            parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    public void deactivateEstForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException {
+        RaProfile raProfile = raProfileRepository
+                .findWithLockByUuid(uuid.getValue())
+                .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
+        requireUnderAuthority(raProfile, authorityUuid, uuid);
+        raProfile.setEstProfile(null);
+        raProfile.getProtocolAttribute().setEstIssueCertificateAttributes(null);
+        raProfileRepository.save(raProfile);
     }
 
     @Override
@@ -958,6 +1039,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         RaProfile raProfile = raProfileRepository
                 .findByUuid(uuid)
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
+        requireNotEstDefault(raProfile);
         List<AcmeProfile> acmeProfiles = acmeProfileRepository.findByRaProfile(raProfile);
         for (AcmeProfile acmeProfile : acmeProfiles) {
             acmeProfile.setRaProfile(null);
@@ -974,6 +1056,19 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         commentService.removeObjectComments(Resource.RA_PROFILE, raProfile.getUuid());
         complianceProfileAssociationWriter.deleteAllForObject(Resource.RA_PROFILE, raProfile.getUuid());
         raProfileRepository.delete(raProfile);
+    }
+
+    /**
+     * An EST Profile serves its own label through its default RA Profile, so the RA Profile stays while one does. The
+     * refusal counts them and names none: naming those the caller may list would ask the authorization service inside
+     * this transaction, which in a bulk delete already holds the locks of the earlier items.
+     */
+    private void requireNotEstDefault(RaProfile raProfile) {
+        int estProfiles = estProfileRepository.findAllByRaProfileUuid(raProfile.getUuid()).size();
+        if (estProfiles > 0) {
+            throw new ValidationException(
+                    "Cannot remove as RA Profile is the default of EST Profiles (%d)".formatted(estProfiles));
+        }
     }
 
     /**
@@ -994,6 +1089,77 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
         }
         logger.debug("RA Profile {} is not under authority {}", raProfile.getUuid(), authorityUuid);
         return false;
+    }
+
+    /** Authorized before the lookup, so a caller who may not see EST Profiles cannot tell which UUIDs exist. */
+    private EstProfile resolveEstProfile(UUID estProfileUuid) throws NotFoundException {
+        SecuredUUID securedUuid = SecuredUUID.fromUUID(estProfileUuid);
+        authorizationEnforcer.enforce(Resource.EST_PROFILE, ResourceAction.DETAIL, securedUuid);
+        return estProfileRepository
+                .findByUuid(securedUuid)
+                .orElseThrow(() -> new NotFoundException(EstProfile.class, estProfileUuid));
+    }
+
+    private void requireNameFreeAsEstLabel(String raProfileName) {
+        if (!EstLabels.isUsable(raProfileName)) {
+            throw new ValidationException("RA Profile name cannot be used as an EST label");
+        }
+        requireNoEstProfileNamed(raProfileName);
+    }
+
+    /** EST Profile names and the names of RA Profiles with EST activated share one namespace of EST labels. */
+    private void requireNoEstProfileNamed(String raProfileName) {
+        Optional<EstProfile> labelHolder = estProfileRepository.findByName(raProfileName);
+        if (labelHolder.isPresent()) {
+            throw new ValidationException(
+                    "RA Profile name is already the label of EST Profile " + labelHolder.get().getName());
+        }
+    }
+
+    private static UUID requireConnectorUuid(RaProfile raProfile) {
+        AuthorityInstanceReference authority = raProfile.getAuthorityInstanceReference();
+        if (authority == null || authority.getConnectorUuid() == null) {
+            throw new ValidationException(
+                    "Cannot activate EST protocol for RA profile without associated authority and its connector");
+        }
+        return authority.getConnectorUuid();
+    }
+
+    /**
+     * What the activation was authorized and validated for is checked again under the RA Profile's row lock, since the
+     * connector may have taken long to answer: an RA Profile moved to another authority meanwhile is not found, as one
+     * not under the authority is, and one whose authority now has another connector had its issue attributes validated
+     * by the wrong one. The label is checked again too: an EST Profile may have taken the name meanwhile.
+     */
+    private Optional<RaProfile> storeEstActivation(SecuredParentUUID authorityUuid, SecuredUUID uuid,
+            UUID connectorUuid, EstProfile estProfile, String issueAttributes) {
+        return raProfileRepository
+                .findWithLockByUuid(uuid.getValue())
+                .filter(raProfile -> isUnderAuthority(raProfile, authorityUuid))
+                .map(raProfile -> {
+                    requireSameConnector(raProfile, connectorUuid);
+                    requireNoEstProfileNamed(raProfile.getName());
+                    RaProfileProtocolAttribute protocolAttribute = raProfile.getProtocolAttribute();
+                    protocolAttribute.setEstIssueCertificateAttributes(issueAttributes);
+                    protocolAttribute.setRaProfile(raProfile);
+                    raProfileProtocolAttributeRepository.save(protocolAttribute);
+                    raProfile.setEstProfile(estProfile);
+                    raProfile.setProtocolAttribute(protocolAttribute);
+                    return raProfileRepository.save(raProfile);
+                });
+    }
+
+    private static void requireSameConnector(RaProfile raProfile, UUID connectorUuid) {
+        if (!connectorUuid.equals(raProfile.getAuthorityInstanceReference().getConnectorUuid())) {
+            throw new ValidationException(
+                    "The connector of the RA Profile's authority changed at the same time; repeat the request");
+        }
+    }
+
+    private static List<ResponseAttribute> estIssueAttributes(String storedAttributes) {
+        return AttributeEngine
+                .getResponseAttributesFromBaseAttributes(
+                        AttributeDefinitionUtils.deserialize(storedAttributes, BaseAttribute.class));
     }
 
     private void setAuthorityCertificates(AuthorityInstanceReference authorityInstanceRef, RaProfile raProfile) {
@@ -1089,6 +1255,11 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     }
 
     @Autowired
+    public void setEstProfileRepository(EstProfileRepository estProfileRepository) {
+        this.estProfileRepository = estProfileRepository;
+    }
+
+    @Autowired
     public void setApprovalProfileRelationRepository(
             ApprovalProfileRelationRepository approvalProfileRelationRepository) {
         this.approvalProfileRelationRepository = approvalProfileRelationRepository;
@@ -1121,6 +1292,7 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
 
     @Autowired
     public void setTransactionManager(PlatformTransactionManager transactionManager) {
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
         separateReadOnlyTransactions = new TransactionTemplate(transactionManager);
         separateReadOnlyTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         separateReadOnlyTransactions.setReadOnly(true);

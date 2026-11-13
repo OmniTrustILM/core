@@ -36,4 +36,13 @@ public interface ProtocolCertificateAssociationsRepository
                 WHERE cp.uuid = :profileUuid
             """)
     ProtocolCertificateAssociations findByCmpProfileUuid(UUID profileUuid);
+
+    @Query("""
+                SELECT pca
+                FROM ProtocolCertificateAssociations pca
+                JOIN EstProfile ep
+                  ON pca.uuid = ep.certificateAssociationsUuid
+                WHERE ep.uuid = :profileUuid
+            """)
+    ProtocolCertificateAssociations findByEstProfileUuid(UUID profileUuid);
 }

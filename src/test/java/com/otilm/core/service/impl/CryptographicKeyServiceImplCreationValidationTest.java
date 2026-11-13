@@ -33,6 +33,7 @@ import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.handler.ConnectorCapabilityService;
+import com.otilm.core.service.handler.KeyCreationRules;
 import com.otilm.core.service.handler.KeyTransferCapabilityService;
 import com.otilm.core.service.handler.key.KeyProviderAdapter;
 import com.otilm.core.service.handler.key.KeyProviderAdapterFactory;
@@ -100,12 +101,11 @@ class CryptographicKeyServiceImplCreationValidationTest {
         service.setCryptographicKeyWriter(writer);
         service.setKeyProviderAdapterFactory(adapters);
         service.setAttributeEngine(attributeEngine);
-        service.setConnectorCapabilityService(new ConnectorCapabilityService());
         service.setAuthorizationEnforcer(mock(AuthorizationEnforcer.class));
         when(keyTransfer.exportableKeyTypes(any()))
                 .thenAnswer(invocation -> Optional
                         .ofNullable(invocation.<TokenProfileFullModel>getArgument(0).exportableKeyTypes()));
-        service.setKeyTransferCapabilityService(keyTransfer);
+        service.setKeyCreationRules(rulesWith(new ConnectorCapabilityService()));
     }
 
     @ParameterizedTest
@@ -361,7 +361,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
         when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
                 .thenReturn(true);
-        service.setConnectorCapabilityService(capabilities);
+        service.setKeyCreationRules(rulesWith(capabilities));
         request.setExportable(true);
 
         // when
@@ -379,7 +379,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
         when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
                 .thenReturn(true);
-        service.setConnectorCapabilityService(capabilities);
+        service.setKeyCreationRules(rulesWith(capabilities));
         ConnectorException unreachable = new ConnectorException("Connector is down");
         when(keyTransfer.exportableKeyTypes(profile)).thenThrow(unreachable);
         request.setExportable(true);
@@ -398,7 +398,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
         when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
                 .thenReturn(true);
-        service.setConnectorCapabilityService(capabilities);
+        service.setKeyCreationRules(rulesWith(capabilities));
         when(keyTransfer.exportableKeyTypes(profile)).thenReturn(Optional.empty());
         request.setExportable(true);
 
@@ -417,7 +417,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
         when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
                 .thenReturn(true);
-        service.setConnectorCapabilityService(capabilities);
+        service.setKeyCreationRules(rulesWith(capabilities));
         request.setExportable(true);
         ConnectorException creationReached = new ConnectorException("Creation endpoint reached");
         stubDefinitions(KeyRequestType.KEY_PAIR);
@@ -442,6 +442,10 @@ class CryptographicKeyServiceImplCreationValidationTest {
 
         // then
         assertSame(creationReached, assertThrows(ConnectorException.class, create));
+    }
+
+    private KeyCreationRules rulesWith(ConnectorCapabilityService capabilities) {
+        return new KeyCreationRules(adapters, attributeEngine, capabilities, keyTransfer);
     }
 
     private static ImmutableTokenProfileFullModel tokenProfile() {

@@ -31,7 +31,6 @@ import java.security.cert.CRLReason;
 import java.security.cert.X509CRL;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.Date;
@@ -59,8 +58,6 @@ import org.springframework.transaction.TransactionException;
 public class CrlServiceImpl implements CrlService {
 
     private static final Logger logger = LoggerFactory.getLogger(CrlServiceImpl.class);
-
-    private static final Duration CLOCK_SKEW = Duration.ofMinutes(5);
 
     private X509CertificateRepository x509CertificateRepository;
 
@@ -163,7 +160,7 @@ public class CrlServiceImpl implements CrlService {
      * so a CA publishing a little late does not make every validation download the same CRL again.
      */
     private static boolean isBaseCrlDue(Crl crl) {
-        return crl.getNextUpdate().toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
+        return !CrlUtil.isCurrent(crl.getNextUpdate());
     }
 
     private UUID readCurrentCrl(X509Certificate certificate, X509Certificate issuerCertificate, String issuerDn,
@@ -539,7 +536,7 @@ public class CrlServiceImpl implements CrlService {
     private static boolean isDeltaCrlDue(Crl crl) {
         return crl.getCrlNumberDelta() == null || crl.getNextUpdateDelta() == null
                 || new BigInteger(crl.getCrlNumberDelta()).compareTo(new BigInteger(crl.getCrlNumber())) < 0
-                || crl.getNextUpdateDelta().toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
+                || !CrlUtil.isCurrent(crl.getNextUpdateDelta());
     }
 
     private static boolean isDeltaCrl(X509CRL crl) {
@@ -548,8 +545,7 @@ public class CrlServiceImpl implements CrlService {
 
     private static boolean isCurrent(X509CRL crl) {
         // A CRL without nextUpdate is never current, as for the JDK's CRL checker, so an old one cannot be replayed.
-        Date nextUpdate = crl.getNextUpdate();
-        return nextUpdate != null && !nextUpdate.toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
+        return CrlUtil.isCurrent(crl.getNextUpdate());
     }
 
     private static boolean isOlderThan(X509CRL crl, Crl storedCrl) throws IOException {

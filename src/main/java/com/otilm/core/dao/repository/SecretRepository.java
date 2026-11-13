@@ -27,5 +27,8 @@ public interface SecretRepository extends ComplianceSubjectRepository<Secret> {
     @EntityGraph(attributePaths = {"latestVersion"})
     List<Secret> findWithLatestVersionByUuidIn(List<UUID> objectUuids);
 
+    @EntityGraph(attributePaths = {"latestVersion", "sourceVaultProfile"})
+    List<Secret> findWithLatestVersionAndSourceVaultProfileByUuidIn(List<UUID> objectUuids);
+
     List<Secret> findBySourceVaultProfileUuid(UUID associationObjectUuid);
 }
