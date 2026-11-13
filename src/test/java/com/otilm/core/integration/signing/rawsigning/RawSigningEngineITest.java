@@ -1,9 +1,13 @@
 package com.otilm.core.integration.signing.rawsigning;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.signing.profile.SigningProfileDto;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.client.signing.profile.record.SigningRecordPolicyRequestDto;
+import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
+import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyFormat;
@@ -15,8 +19,13 @@ import com.otilm.core.attribute.SignatureAlgorithmMapping;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
+import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.entity.signing.SigningRecord;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.TestCertificateAuthority;
@@ -27,6 +36,7 @@ import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.signing.engine.error.SigningEngineException;
@@ -76,6 +86,7 @@ import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSign
 import static com.otilm.core.util.builders.SigningRecordPolicyRequestDtoBuilder.aSigningRecordPolicyRequest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Named.named;
 
 /**
@@ -107,6 +118,12 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     private CryptographicKeyItemRepository keyItemRepository;
     @Autowired
     private TestCertificateAuthority testCertificateAuthority;
+    @Autowired
+    private SigningProfileRepository signingProfileRepository;
+    @Autowired
+    private SigningProfileVersionRepository signingProfileVersionRepository;
+    @Autowired
+    private CertificateRepository certificateRepository;
 
     private V2Token v2Token;
     private TestCertificateAuthority.TrustedCa trustedCa;
@@ -178,6 +195,14 @@ class RawSigningEngineITest extends BaseSpringBootTest {
             RawSignedItem signed = result.items().get(index);
             SigningRecord signingRecord = recordsByUuid.get(signed.signingRecordUuid());
             assertThat(signingRecord).as("record of %s", signed.identifier()).isNotNull();
+            assertThat(signingRecord.getName())
+                    .isEqualTo("%s digest '%s'".formatted(profile.getName(), signed.identifier()));
+            assertThat(signingRecord.getSigningTime()).isNotNull();
+            assertThat(requestMetadataOf(signingRecord))
+                    .containsOnly(entry("signingProfileName", profile.getName()),
+                            entry("signingProfileVersion", profile.getVersion()),
+                            entry("signatureAlgorithm", SignatureAlgorithm.SHA256_WITH_RSA.getCode()),
+                            entry("digestAlgorithm", DigestAlgorithm.SHA_256.getCode()));
             assertThat(signingRecord.getDtbs()).isEqualTo(request.items().get(index).digest());
             assertThat(signingRecord.getSignatureValue()).isEqualTo(signed.signature());
             assertThat(signingRecord.getProtocol()).isEqualTo(SigningProtocol.ILM_NATIVE);
@@ -214,6 +239,27 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         assertThat(recordsOf(profile)).isEmpty();
     }
 
+    @Test
+    void sign_throwsMisconfigured_whenTheKeyAlsoSignsForAnotherWorkflow() throws Exception {
+        // given — a timestamping profile on the raw profile's key, which no save admits any more
+        SigningProfileDto profile = createRawProfile("raw-sharing-its-key", RSA_PKCS1_SHA256);
+        SigningProfile timestampingProfile = seedTimestampingProfile("timestamping-on-the-raw-key",
+                signingCertificateOf(profile));
+        RawSigningRequest request = digestRequest(DigestAlgorithm.SHA_256);
+
+        // when
+        ThrowingCallable sign = () -> engine
+                .sign(request, modelOf(profile), resolvedProfileOf(profile), SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+            assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+            assertThat(refusal.operatorMessage()).contains(timestampingProfile.getName());
+        });
+        v2Token.connectorMock().verifyNoOperationRequest("sign");
+        assertThat(recordsOf(profile)).isEmpty();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Stream<Named<SigningKey>> signingKeys() {
@@ -228,8 +274,8 @@ class RawSigningEngineITest extends BaseSpringBootTest {
     }
 
     /**
-     * Saves a raw profile that records every digest and signature, on a fresh key that no other workflow signs with,
-     * and has the provider sign with that key.
+     * Saves a raw profile that records the metadata, digest and signature of every item, on a fresh key that no other
+     * workflow signs with, and has the provider sign with that key.
      */
     private SigningProfileDto createRawProfile(String name, SigningKey signingKey) throws Exception {
         KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(signingKey.keyAlgorithm(), signingKey.keySpec());
@@ -245,7 +291,7 @@ class RawSigningEngineITest extends BaseSpringBootTest {
                         .withStaticKeyManagedSigning(certificate.getUuid(),
                                 SignatureAlgorithmMapping.toAttributes(signingKey.signatureAlgorithm()))
                         .withRawSigning()
-                        .withRecordPolicy(recordingDigestsAndSignatures())
+                        .withRecordPolicy(recordingMetadataDigestsAndSignatures())
                         .build());
         signingProfileService.enableSigningProfile(SecuredUUID.fromString(profile.getUuid()));
         return profile;
@@ -269,9 +315,10 @@ class RawSigningEngineITest extends BaseSpringBootTest {
         keyItemRepository.save(publicKeyItem);
     }
 
-    private static SigningRecordPolicyRequestDto recordingDigestsAndSignatures() {
+    private static SigningRecordPolicyRequestDto recordingMetadataDigestsAndSignatures() {
         return aSigningRecordPolicyRequest()
                 .withRecordingEnabled(true)
+                .withRecordRequestMetadata(true)
                 .withRecordDtbs(true)
                 .withRecordSignature(true)
                 .withPersistenceMode(SigningRecordPersistenceMode.IMMEDIATE)
@@ -308,6 +355,37 @@ class RawSigningEngineITest extends BaseSpringBootTest {
 
     private ResolvedManagedRawSigningProfile resolvedProfileOf(SigningProfileDto profile) throws Exception {
         return (ResolvedManagedRawSigningProfile) resolverFactory.resolve(modelOf(profile));
+    }
+
+    private Certificate signingCertificateOf(SigningProfileDto profile) {
+        UUID certificateUuid = signingProfileVersionRepository
+                .findLatestByProfileUuid(UUID.fromString(profile.getUuid()))
+                .orElseThrow()
+                .getCertificateUuid();
+        return certificateRepository.findByUuid(SecuredUUID.fromUUID(certificateUuid)).orElseThrow();
+    }
+
+    /** Saves the profile through the repositories, since a profile save refuses a key a raw profile signs with. */
+    private SigningProfile seedTimestampingProfile(String name, Certificate certificate) {
+        var timestampingProfile = new SigningProfile();
+        timestampingProfile.setName(name);
+        timestampingProfile.setSigningScheme(SigningScheme.MANAGED);
+        timestampingProfile.setWorkflowType(SigningWorkflowType.TIMESTAMPING);
+        SigningProfile saved = signingProfileRepository.save(timestampingProfile);
+        var version = new SigningProfileVersion();
+        version.setSigningProfile(saved);
+        version.setVersion(saved.getLatestVersion());
+        version.setSigningScheme(SigningScheme.MANAGED);
+        version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
+        version.setWorkflowType(SigningWorkflowType.TIMESTAMPING);
+        version.setCertificate(certificate);
+        signingProfileVersionRepository.save(version);
+        return saved;
+    }
+
+    private static Map<String, Object> requestMetadataOf(SigningRecord signingRecord) throws Exception {
+        return ObjectMapperFactory.storage().readValue(signingRecord.getRequestMetadataJson(), new TypeReference<>() {
+        });
     }
 
     private List<SigningRecord> recordsOf(SigningProfileDto profile) {

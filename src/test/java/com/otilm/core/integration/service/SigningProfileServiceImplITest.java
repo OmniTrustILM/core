@@ -253,6 +253,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     private TokenInstanceDetailDto tokenInstance;
     private TokenProfileDetailDto defaultTokenProfile;
     private KeyPair keyPair;
+    private KeyPair rawSigningKeyPair;
     private KeyPair timestampingKeyPair;
     private KeyDetailDto key;
     private Certificate defaultSigningCertificate;
@@ -518,8 +519,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                         aKeyPairRequest().withName("soft-key-pair").build());
         // Raw signing shares its key with no other workflow, so the raw and timestamping defaults each sign with one
         // of their own.
-        KeyPair rawKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
-        createTokenKey(rawKeyPair, KeyAlgorithm.RSA, "soft-raw-key-pair");
+        rawSigningKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        createTokenKey(rawSigningKeyPair, KeyAlgorithm.RSA, "soft-raw-key-pair");
         timestampingKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         createTokenKey(timestampingKeyPair, KeyAlgorithm.RSA, "soft-timestamping-key-pair");
 
@@ -527,7 +528,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         // Uploading a leaf associates it (by public-key fingerprint) with the token-backed key.
         TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Test Root CA");
         defaultSigningCertificate = trustedCa.issueSigningCertificate(keyPair, "CN=Test Signing");
-        defaultRawSigningCertificate = trustedCa.issueSigningCertificate(rawKeyPair, "CN=Test Raw Signing");
+        defaultRawSigningCertificate = trustedCa.issueSigningCertificate(rawSigningKeyPair, "CN=Test Raw Signing");
         defaultTimestampingCertificate = trustedCa.issueTimestampingCertificate(timestampingKeyPair, "CN=Test TSA");
 
         // Create signing profiles
@@ -2637,6 +2638,34 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertThat(signingProfileRepository.findByName(timestampingRequest.getName())).isEmpty();
         }
 
+        @Test
+        void refusesTimestampingProfile_whenKeyIsBoundToRawProfile() throws Exception {
+            // given — defaultManagedStaticKeySigningProfile, a raw profile, signs with the key of a second certificate
+            Certificate timestampingCertificateOnTheKey = testCertificateAuthority
+                    .createTrustedCa("CN=TSA on the raw key Root")
+                    .issueTimestampingCertificate(rawSigningKeyPair, "CN=TSA on the raw key");
+            assertThat(keyUuidOf(timestampingCertificateOnTheKey)).isEqualTo(keyUuidOf(defaultRawSigningCertificate));
+            SigningProfileRequestDto timestampingRequest = aSigningProfileRequest()
+                    .withName("timestamping-on-the-raw-key")
+                    .withStaticKeyManagedSigning(timestampingCertificateOnTheKey.getUuid())
+                    .withTimestamping(aTimestampingWorkflow()
+                            .withSignatureFormattingConnector(
+                                    UUID.fromString(timestampingFormattingConnector.getUuid()))
+                            .build())
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(timestampingRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs raw digests for Signing Profile(s)")
+                    .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
+            assertThat(signingProfileRepository.findByName(timestampingRequest.getName())).isEmpty();
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private SigningProfileDto createManagedContentProfile(String name, UUID certificateUuid)
@@ -3483,7 +3512,44 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertThat(resolved.version()).isEqualTo(bumpedVersion);
         }
 
+        @Test
+        void activateIlmNative_refusesRawProfile_whenKeyAlsoSignsForAnotherWorkflow() {
+            // given — a raw profile on the certificate of defaultTimestampingProfile, which no save admits any more
+            SigningProfile rawProfile = seedRawProfile("raw-on-the-tsa-certificate", defaultTimestampingCertificate);
+            SecuredUUID uuid = SecuredUUID.fromUUID(rawProfile.getUuid());
+
+            // when
+            ThrowableAssert.ThrowingCallable activate = () -> signingProfileService.activateIlmNative(uuid);
+
+            // then
+            assertThatThrownBy(activate)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(defaultTimestampingProfile.getName());
+            assertThat(signingProfileRepository.findByUuid(uuid).orElseThrow().isIlmNativeEnabled()).isFalse();
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        /**
+         * Saves the profile through the repositories, since a profile save refuses a key another workflow signs with.
+         */
+        private SigningProfile seedRawProfile(String name, Certificate certificate) {
+            var rawProfile = new SigningProfile();
+            rawProfile.setName(name);
+            rawProfile.setSigningScheme(SigningScheme.MANAGED);
+            rawProfile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+            SigningProfile saved = signingProfileRepository.save(rawProfile);
+            var version = new SigningProfileVersion();
+            version.setSigningProfile(saved);
+            version.setVersion(saved.getLatestVersion());
+            version.setSigningScheme(SigningScheme.MANAGED);
+            version.setManagedSigningType(ManagedSigningType.STATIC_KEY);
+            version.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+            version.setCertificate(certificate);
+            signingProfileVersionRepository.save(version);
+            return saved;
+        }
 
         private SigningProfileDto createManagedContentProfile(String name)
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {

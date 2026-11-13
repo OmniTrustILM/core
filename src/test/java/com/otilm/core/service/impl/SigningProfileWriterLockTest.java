@@ -7,6 +7,7 @@ import com.otilm.core.config.cache.CacheEvictor;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.TspProfile;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.TspProfileInternalService;
 import java.util.List;
@@ -40,6 +41,8 @@ class SigningProfileWriterLockTest {
     @Mock
     SigningProfileRepository signingProfileRepository;
     @Mock
+    SigningProfileVersionRepository signingProfileVersionRepository;
+    @Mock
     CacheEvictor cacheEvictor;
     @Mock
     TspProfileInternalService tspProfileService;
@@ -51,6 +54,7 @@ class SigningProfileWriterLockTest {
     void wireServiceToStoredProfile() {
         service.setClusterSynchronizer(clusterSynchronizer);
         service.setSigningProfileRepository(signingProfileRepository);
+        service.setSigningProfileVersionRepository(signingProfileVersionRepository);
         service.setCacheEvictor(cacheEvictor);
         service.setTspProfileService(tspProfileService);
 

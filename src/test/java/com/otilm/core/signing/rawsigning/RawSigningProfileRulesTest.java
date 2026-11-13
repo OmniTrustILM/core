@@ -59,6 +59,20 @@ class RawSigningProfileRulesTest {
                     .hasMessageContaining(signsItsOwnMessage.getCode());
         }
 
+        @Test
+        void refusesSignatureAlgorithm_whenNoneIsGiven() {
+            // given
+            SignatureAlgorithm noSignatureAlgorithm = null;
+
+            // when
+            ThrowingCallable require = () -> RawSigningProfileRules.requirePrehashedSigning(noSignatureAlgorithm);
+
+            // then
+            assertThatThrownBy(require)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("cannot sign a prehashed digest");
+        }
+
         @ParameterizedTest
         @EnumSource(value = SignatureAlgorithm.class,
                 names = {"SHA256_WITH_RSA", "SHA384_WITH_RSA_PSS", "SHA512_WITH_ECDSA"})

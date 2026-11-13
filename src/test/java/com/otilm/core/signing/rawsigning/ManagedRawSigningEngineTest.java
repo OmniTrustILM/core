@@ -1,5 +1,6 @@
 package com.otilm.core.signing.rawsigning;
 
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureInputMode;
@@ -7,9 +8,11 @@ import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedRawSigningProfile;
+import com.otilm.core.model.signing.resolved.ResolvedStaticKeyManagedSigning;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.signing.engine.batch.BatchRecordStager;
@@ -29,13 +32,18 @@ import java.security.Signature;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -44,6 +52,7 @@ import static com.otilm.core.util.builders.ResolvedManagedRawSigningProfileBuild
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -62,6 +71,8 @@ class ManagedRawSigningEngineTest {
 
     private static final List<String> IDENTIFIERS = List.of("doc-1", "doc-2", "doc-3");
 
+    private static final UUID PROFILE_UUID = UUID.fromString("00000000-0000-0000-0000-0000000000d7");
+
     private static KeyPair rsaKeyPair;
 
     @Mock
@@ -74,11 +85,17 @@ class ManagedRawSigningEngineTest {
     SigningCertificateValidator signingCertificateValidator;
     @Mock
     BatchRecordStager recordStager;
+    @Mock
+    SigningProfileVersionRepository signingProfileVersionRepository;
 
     ManagedRawSigningEngine engine;
 
-    private final SigningProfileModel<?, ?> model = aSigningProfile().withName("raw-profile").build();
+    private final SigningProfileModel<?, ?> model = aSigningProfile()
+            .withUuid(PROFILE_UUID)
+            .withName("raw-profile")
+            .build();
     private final ResolvedManagedRawSigningProfile profile = aResolvedRawSigningProfile()
+            .withUuid(PROFILE_UUID)
             .withName("raw-profile")
             .build();
 
@@ -95,8 +112,8 @@ class ManagedRawSigningEngineTest {
     void createEngine() {
         var recordFactory = new RawSigningRecordFactory(ObjectMapperFactory.storage(),
                 TestClockSource.ofWallTime(Instant.parse("2026-11-13T10:00:00Z")));
-        engine = new ManagedRawSigningEngine(signerFactory, signingCertificateValidatorFactory, recordFactory,
-                recordStager);
+        engine = new ManagedRawSigningEngine(signerFactory, signingCertificateValidatorFactory,
+                new RawSigningKeyBinding(signingProfileVersionRepository), recordFactory, recordStager);
     }
 
     @BeforeEach
@@ -143,6 +160,7 @@ class ManagedRawSigningEngineTest {
     void sign_returnsNoRecordUuids_whenProfileDoesNotRecord() throws Exception {
         // given
         SigningProfileModel<?, ?> notRecording = aSigningProfile()
+                .withUuid(PROFILE_UUID)
                 .withName("raw-profile")
                 .withRecordPolicy(new SigningRecordPolicyModel(false, false, false, false, false, null, false, null))
                 .build();
@@ -305,7 +323,82 @@ class ManagedRawSigningEngineTest {
         verifyNoInteractions(recordStager);
     }
 
+    @Test
+    void sign_throwsMisconfigured_whenTheKeyAlsoSignsForAnotherWorkflow() throws Exception {
+        // given
+        var timestampingProfileOnTheKey = "timestamping-profile";
+        when(signingProfileVersionRepository
+                .findLatestProfileNamesBySigningKeyAndWorkflowIn(signingKeyUuidOf(profile),
+                        Set.of(SigningWorkflowType.CONTENT_SIGNING, SigningWorkflowType.TIMESTAMPING), PROFILE_UUID))
+                .thenReturn(List.of(timestampingProfileOnTheKey));
+        var request = digestRequest(IDENTIFIERS);
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+            assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+            assertThat(refusal.operatorMessage()).contains(timestampingProfileOnTheKey);
+            assertThat(refusal.clientMessage()).doesNotContain(timestampingProfileOnTheKey);
+        });
+        verifyNoInteractions(signerFactory, recordStager);
+    }
+
+    @Test
+    void sign_throwsInvalidInput_whenDigestAlgorithmIsMissing() throws Exception {
+        // given
+        DigestAlgorithm noDigestAlgorithm = null;
+        var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, noDigestAlgorithm,
+                digestItems(IDENTIFIERS));
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, refusal -> {
+            assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+            assertThat(refusal.itemIdentifier()).isNull();
+        }).hasMessage("Digest algorithm is required");
+        verifyNoInteractions(signerFactory, recordStager);
+    }
+
+    @ParameterizedTest
+    @MethodSource("modelsOfAnotherProfileVersion")
+    void sign_throwsMisconfigured_whenTheModelIsNotOfTheProfile(SigningProfileModel<?, ?> modelOfAnotherProfileVersion)
+            throws Exception {
+        // given
+        var request = digestRequest(IDENTIFIERS);
+
+        // when
+        ThrowingCallable sign = () -> engine
+                .sign(request, modelOfAnotherProfileVersion, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign)
+                .isInstanceOfSatisfying(SigningEngineException.class,
+                        refusal -> assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+        verifyNoInteractions(signerFactory, recordStager);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Named<SigningProfileModel<?, ?>>> modelsOfAnotherProfileVersion() {
+        SigningProfileModel<?, ?> anotherProfile = aSigningProfile()
+                .withUuid(UUID.fromString("00000000-0000-0000-0000-0000000000d8"))
+                .withName("raw-profile")
+                .build();
+        SigningProfileModel<?, ?> nextVersion = aSigningProfile()
+                .withUuid(PROFILE_UUID)
+                .withName("raw-profile")
+                .withVersion(2)
+                .build();
+        return Stream.of(named("another profile", anotherProfile), named("the next version", nextVersion));
+    }
+
+    private static UUID signingKeyUuidOf(ResolvedManagedRawSigningProfile profile) {
+        return ((ResolvedStaticKeyManagedSigning) profile.resolvedScheme()).certificate().keyUuid();
+    }
 
     private static RawSigningRequest digestRequest(List<String> identifiers) throws Exception {
         return new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, DigestAlgorithm.SHA_256,

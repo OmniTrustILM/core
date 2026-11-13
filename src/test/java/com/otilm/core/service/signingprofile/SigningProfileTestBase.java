@@ -317,25 +317,6 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
     }
 
     /**
-     * Builds a request using a MANAGED/STATIC_KEY scheme and RAW_SIGNING workflow on {@link #rsaCertificate}. A raw
-     * profile signs a digest it is handed, so its key must be RSA or ECDSA and its attributes must name the digest.
-     */
-    protected SigningProfileRequestDto buildManagedStaticKeyRawRequest(String name) {
-        SigningProfileRequestDto request = new SigningProfileRequestDto();
-        request.setName(name);
-        request.setDescription("Test description for " + name);
-        StaticKeyManagedSigningRequestDto scheme = new StaticKeyManagedSigningRequestDto();
-        scheme.setCertificateUuid(rsaCertificate.getUuid());
-        scheme
-                .setSigningOperationAttributes(List
-                        .of(buildRsaSchemeAttribute(RsaSignatureScheme.PKCS1_v1_5),
-                                buildDigestAttribute(DigestAlgorithm.SHA_256)));
-        request.setSigningScheme(scheme);
-        request.setWorkflow(new RawSigningWorkflowRequestDto());
-        return request;
-    }
-
-    /**
      * Builds a request using a DELEGATED scheme and TIMESTAMPING workflow.
      */
     protected SigningProfileRequestDto buildDelegatedTimestampingRequest(String name) {

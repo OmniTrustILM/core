@@ -827,6 +827,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
                     "Signing profile '%s' uses delegated signing; ILM_NATIVE needs a key ILM signs with."
                             .formatted(profile.getName()));
         }
+        refuseSharedRawSigningKey(profile);
         profile.setIlmNativeEnabled(true);
         signingProfileRepository.save(profile);
         evictSigningProfileCache(profile.getName());
@@ -883,6 +884,26 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             throw new ValidationException(
                     protocol.getCode() + " is not supported for workflow type " + workflowType.getCode());
         }
+    }
+
+    /**
+     * A raw profile saved before keys were bound to one workflow can still share its key with a content-signing or
+     * timestamping profile, and ILM_NATIVE would let it sign raw digests with that key.
+     */
+    private void refuseSharedRawSigningKey(SigningProfile profile) {
+        if (profile.getWorkflowType() != SigningWorkflowType.RAW_SIGNING) {
+            return;
+        }
+        Certificate certificate = signingProfileVersionRepository
+                .findLatestByProfileUuid(profile.getUuid())
+                .map(SigningProfileVersion::getCertificate)
+                .orElse(null);
+        if (certificate == null || certificate.getKeyUuid() == null) {
+            // Only a static-key scheme names a key ILM signs with.
+            return;
+        }
+        refuseSharedSigningKey(SigningWorkflowType.RAW_SIGNING, certificate.getUuid(), certificate.getKeyUuid(),
+                profile.getUuid());
     }
 
     /** An update may move a profile to a workflow or scheme that cannot carry a protocol it had enabled. */
@@ -1137,10 +1158,14 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             // The eligibility check refuses a certificate without a key.
             return;
         }
-        SigningWorkflowType workflowType = request.getWorkflow().getType();
+        refuseSharedSigningKey(request.getWorkflow().getType(), certificateUuid, keyUuid, targetProfileUuid);
+    }
+
+    private void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid, UUID keyUuid,
+            @Nullable UUID excludedProfileUuid) {
         List<String> conflictingProfileNames = signingProfileVersionRepository
                 .findLatestProfileNamesBySigningKeyAndWorkflowIn(keyUuid,
-                        RawSigningProfileRules.conflictingWorkflows(workflowType), targetProfileUuid);
+                        RawSigningProfileRules.conflictingWorkflows(workflowType), excludedProfileUuid);
         RawSigningProfileRules.refuseSharedSigningKey(workflowType, certificateUuid, conflictingProfileNames);
     }
 

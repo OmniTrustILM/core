@@ -72,7 +72,7 @@ class SigningWorkflowModelsTest {
         ManagedRawSigningWorkflow wf = new ManagedRawSigningWorkflow(null);
 
         // then
-        assertEquals(CertificatePurposeRequirements.NONE, wf.certificatePurpose());
+        assertThat(wf.certificatePurpose()).isEqualTo(CertificatePurposeRequirements.NONE);
     }
 
     @Test

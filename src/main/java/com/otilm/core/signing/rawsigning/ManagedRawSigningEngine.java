@@ -38,14 +38,16 @@ public class ManagedRawSigningEngine {
 
     private final SignerFactory signerFactory;
     private final SigningCertificateValidatorFactory signingCertificateValidatorFactory;
+    private final RawSigningKeyBinding keyBinding;
     private final RawSigningRecordFactory recordFactory;
     private final BatchRecordStager recordStager;
 
     public ManagedRawSigningEngine(SignerFactory signerFactory,
-            SigningCertificateValidatorFactory signingCertificateValidatorFactory,
+            SigningCertificateValidatorFactory signingCertificateValidatorFactory, RawSigningKeyBinding keyBinding,
             RawSigningRecordFactory recordFactory, BatchRecordStager recordStager) {
         this.signerFactory = signerFactory;
         this.signingCertificateValidatorFactory = signingCertificateValidatorFactory;
+        this.keyBinding = keyBinding;
         this.recordFactory = recordFactory;
         this.recordStager = recordStager;
     }
@@ -68,11 +70,14 @@ public class ManagedRawSigningEngine {
 
     private RawSigningResult signDigests(RawSigningRequest request, SigningProfileModel<?, ?> model,
             ResolvedManagedRawSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
+        requireModelOfProfile(model, profile);
         List<RawSigningItem> items = request.items();
         requireItems(items);
         BatchAdmission.admit(items.stream().map(RawSigningItem::identifier).toList());
         requirePrehashedDigests(request.inputMode());
+        requireStatedDigestAlgorithm(request.digestAlgorithm());
         requireAcceptableSigningCertificate(profile);
+        keyBinding.requireKeyNotShared(profile);
 
         Signer signer = signerFactory.create(profile.resolvedScheme());
         SignatureAlgorithm signatureAlgorithm = signer.getSignatureAlgorithm();
@@ -82,10 +87,22 @@ public class ManagedRawSigningEngine {
 
         List<byte[]> signatures = signer
                 .signAll(items.stream().map(RawSigningItem::digest).toList(), SignatureInputMode.PREHASHED_DIGEST);
-        List<SigningRecordInputSource> sources = recordFactory.sources(model, items, signatures, protocol);
+        List<SigningRecordInputSource> sources = recordFactory
+                .sources(model, items, signatures, signatureAlgorithm, digestAlgorithm, protocol);
         List<UUID> recordUuids = recordStager.stage(model, sources);
         return new RawSigningResult(signatureAlgorithm, profile.resolvedScheme().chain().chain(),
                 signedItems(items, signatures, recordUuids));
+    }
+
+    /** The records are staged under the model and the key is the profile's, so both must be one profile version. */
+    private static void requireModelOfProfile(SigningProfileModel<?, ?> model, ResolvedManagedRawSigningProfile profile)
+            throws SigningEngineException {
+        if (!profile.uuid().equals(model.uuid()) || profile.version() != model.version()) {
+            throw new SigningEngineException(SigningEngineFailure.MISCONFIGURED,
+                    "a raw signing run of Signing Profile '%s' version %d was given the model of profile %s version %d"
+                            .formatted(profile.name(), profile.version(), model.uuid(), model.version()),
+                    CLIENT_MESSAGE);
+        }
     }
 
     /** The signer refuses an empty batch as a fault of its own, which would report a caller's mistake as Core's. */
@@ -103,6 +120,13 @@ public class ManagedRawSigningEngine {
                     "a raw signing run was given input mode %s"
                             .formatted(inputMode == null ? null : inputMode.getCode()),
                     "Raw signing takes digests; data signing is not supported");
+        }
+    }
+
+    private static void requireStatedDigestAlgorithm(DigestAlgorithm requested) throws SigningEngineException {
+        if (requested == null) {
+            throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
+                    "a raw signing run was given no digest algorithm", "Digest algorithm is required");
         }
     }
 
@@ -144,12 +168,11 @@ public class ManagedRawSigningEngine {
     private static void requireDigestAlgorithm(DigestAlgorithm requested, DigestAlgorithm signed)
             throws SigningEngineException {
         if (requested != signed) {
-            String requestedCode = requested == null ? null : requested.getCode();
             throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT,
                     "the request names digest algorithm %s, but the key signs a %s digest"
-                            .formatted(requestedCode, signed.getCode()),
+                            .formatted(requested.getCode(), signed.getCode()),
                     "Digest algorithm %s does not match this Signing Profile, which signs a %s digest"
-                            .formatted(requestedCode, signed.getCode()));
+                            .formatted(requested.getCode(), signed.getCode()));
         }
     }
 
