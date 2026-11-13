@@ -67,6 +67,8 @@ import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.AttributeContent2Object;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -169,6 +171,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -208,6 +211,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -227,6 +234,12 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private CertificateServiceImpl certificateService;
+
+    @Autowired
+    private X509CertificateTypeHandler x509Handler;
+
+    @Autowired
+    private CertificateTypeHandlerRegistry typeHandlerRegistry;
 
     @Autowired
     private CertificateRepository certificateRepository;
@@ -1396,6 +1409,62 @@ class CertificateServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void refusesTheFormat_whenTheHandlerOffersOnlyRawAndACertificateIsDownloaded() {
+            // given
+            CertificateContent content = certificateContentRepository
+                    .save(aCertificateContent().withContent(DOWNLOADABLE_CERT_BASE64).build());
+            certificate.setCertificateContent(content);
+            certificateRepository.save(certificate);
+            CertificateFormat unsupportedFormat = CertificateFormat.PKCS7;
+            X509CertificateTypeHandler rawOnlyHandler = createRawOnlyX509Handler();
+            certificateService.setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(rawOnlyHandler)));
+
+            // when
+            ThrowingCallable download = () -> certificateService
+                    .downloadCertificate(certificate.getSecuredUuid(), unsupportedFormat,
+                            CertificateFormatEncoding.PEM);
+
+            // then
+            try {
+                assertThatThrownBy(download)
+                        .isInstanceOf(ValidationException.class)
+                        .hasMessageContaining(unsupportedFormat.toString())
+                        .hasMessageContaining(CertificateType.X509.getCode());
+                verify(rawOnlyHandler, never()).encode(any(), any(), any());
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+        }
+
+        @Test
+        void refusesTheFormat_whenTheHandlerOffersOnlyRawAndAChainIsDownloaded() {
+            // given
+            CertificateContent content = certificateContentRepository
+                    .save(aCertificateContent().withContent(DOWNLOADABLE_CERT_BASE64).build());
+            certificate.setCertificateContent(content);
+            certificateRepository.save(certificate);
+            CertificateFormat unsupportedFormat = CertificateFormat.PKCS7;
+            X509CertificateTypeHandler rawOnlyHandler = createRawOnlyX509Handler();
+            certificateService.setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(rawOnlyHandler)));
+
+            // when
+            ThrowingCallable download = () -> certificateService
+                    .downloadCertificateChain(certificate.getSecuredUuid(), unsupportedFormat, true,
+                            CertificateFormatEncoding.PEM);
+
+            // then
+            try {
+                assertThatThrownBy(download)
+                        .isInstanceOf(ValidationException.class)
+                        .hasMessageContaining(unsupportedFormat.toString())
+                        .hasMessageContaining(CertificateType.X509.getCode());
+                verify(rawOnlyHandler, never()).encode(any(), any(), any());
+            } finally {
+                certificateService.setTypeHandlerRegistry(typeHandlerRegistry);
+            }
+        }
+
+        @Test
         void reusesExistingKey_whenUploadingSameCertificate()
                 throws com.otilm.api.exception.CertificateException, CertificateEncodingException, NotFoundException {
             // when
@@ -1601,6 +1670,14 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertThat(statements)
                     .noneMatch(sql -> sql.startsWith("delete from core.attribute_content_2_object"))
                     .noneMatch(sql -> sql.contains("values(0)"));
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private X509CertificateTypeHandler createRawOnlyX509Handler() {
+            X509CertificateTypeHandler handler = spy(x509Handler);
+            doReturn(EnumSet.of(CertificateFormat.RAW)).when(handler).downloadFormats();
+            return handler;
         }
     }
 

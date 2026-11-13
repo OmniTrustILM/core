@@ -63,6 +63,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -176,6 +177,20 @@ class CertificateUtilTest {
         Assertions
                 .assertNull(entity.getQcCcLegislation(),
                         "qcCcLegislation should be null when no QCStatements extension");
+    }
+
+    @Test
+    void storesTheCertificateValidity_whenPreparingAnIssuedCertificate() throws Exception {
+        // given
+        X509Certificate x509 = CertificateTestUtil.createCertificateWithoutEku();
+        X509CertificateEntity entity = aCertificate().build();
+
+        // when
+        CertificateUtil.prepareIssuedCertificate(entity, x509);
+
+        // then
+        assertThat(entity.getNotBefore()).isEqualTo(x509.getNotBefore());
+        assertThat(entity.getNotAfter()).isEqualTo(x509.getNotAfter());
     }
 
     @Test

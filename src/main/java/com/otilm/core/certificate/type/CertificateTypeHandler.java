@@ -89,7 +89,11 @@ public interface CertificateTypeHandler {
 
     Set<CertificateFormat> downloadFormats();
 
-    byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding);
+    /**
+     * The certificates in the format and encoding, in the given order. A format that holds one certificate only refuses
+     * more than one.
+     */
+    byte[] encode(List<ParsedCertificate> certificates, CertificateFormat format, CertificateFormatEncoding encoding);
 
     /**
      * Fills the certificate with what the type stores about an issued certificate and returns it as the entity of the

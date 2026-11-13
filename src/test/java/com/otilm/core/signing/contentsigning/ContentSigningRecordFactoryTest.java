@@ -2,9 +2,11 @@ package com.otilm.core.signing.contentsigning;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
+import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -132,20 +135,42 @@ class ContentSigningRecordFactoryTest {
             // then
             assertThat(input.getDisplayName()).isEqualTo("test-profile PAdES-B-T");
         }
+
+        @Test
+        void namesTheRecordAfterTheDeclaredLevel_whenTheConnectorNamesTheLevelItself() {
+            // given
+            var connectorLevelName = "Sealed-T";
+            ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                            .withLevelName(SignatureLevel.TIMESTAMPED, connectorLevelName)
+                            .build())
+                    .build();
+            SigningRecordInputSource recordSource = source(profile, SignatureLevel.TIMESTAMPED, List.of());
+
+            // when
+            SigningRecordInput input = recordSource.build();
+
+            // then
+            assertThat(input.getDisplayName()).isEqualTo("test-profile " + connectorLevelName);
+        }
     }
 
     @Nested
     class RequestMetadata {
 
         @Test
-        void metadataNamesTheLevelTheFamilyAndTheTimestampSerials() {
-            // given / when
-            SigningRecordInput input = source(SignatureLevel.TIMESTAMPED, List.of(BigInteger.valueOf(0x2a))).build();
+        void namesTheLevelFamilyAndSerials_whenTheRunIsTimestamped() {
+            // given
+            SigningRecordInputSource recordSource = source(SignatureLevel.TIMESTAMPED,
+                    List.of(BigInteger.valueOf(0x2a)));
+
+            // when
+            SigningRecordInput input = recordSource.build();
 
             // then
             assertThat(input.getRequestMetadataJson())
                     .contains("\"signatureLevel\":\"TIMESTAMPED\"")
-                    .contains("\"family\":\"PADES\"")
+                    .contains("\"family\":\"pades\"")
                     .contains("\"timestampTokenSerialNumbers\":[\"2a\"]");
         }
 
@@ -190,9 +215,13 @@ class ContentSigningRecordFactoryTest {
     }
 
     private SigningRecordInputSource source(SignatureLevel level, List<BigInteger> serials) {
+        return source(aResolvedContentSigningProfile().build(), level, serials);
+    }
+
+    private SigningRecordInputSource source(ResolvedManagedContentSigningProfile profile, SignatureLevel level,
+            List<BigInteger> serials) {
         return factory
-                .source(aSigningProfile().build(), aResolvedContentSigningProfile().build(),
-                        new SignedContent("signed".getBytes(), level, serials), "dtbs".getBytes(),
-                        "signature".getBytes(), Instant.EPOCH, SigningProtocol.CSC_API);
+                .source(aSigningProfile().build(), profile, new SignedContent("signed".getBytes(), level, serials),
+                        "dtbs".getBytes(), "signature".getBytes(), Instant.EPOCH, SigningProtocol.CSC_API);
     }
 }

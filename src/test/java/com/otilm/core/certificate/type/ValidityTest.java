@@ -93,4 +93,28 @@ class ValidityTest {
         // then
         assertThat(status).isEqualTo(ValidityStatus.EXPIRED);
     }
+
+    @Test
+    void endsAtTheStartOfTheNextDay_whenThePeriodHasDatesOnly() {
+        // given
+        var validity = new Validity(NOT_BEFORE, NOT_AFTER, ValidityPrecision.DATE);
+
+        // when
+        Instant expiry = validity.expiry();
+
+        // then
+        assertThat(expiry).isEqualTo(Instant.parse("2027-01-01T00:00:00Z"));
+    }
+
+    @Test
+    void endsAtTheEndOfThePeriod_whenThePeriodHasATime() {
+        // given
+        var validity = new Validity(NOT_BEFORE, NOT_AFTER, ValidityPrecision.DATE_TIME);
+
+        // when
+        Instant expiry = validity.expiry();
+
+        // then
+        assertThat(expiry).isEqualTo(NOT_AFTER);
+    }
 }

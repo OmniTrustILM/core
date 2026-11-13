@@ -21,6 +21,7 @@ import com.otilm.api.clients.mq.signing.contentsigning.ContentSigningFormattingA
 import com.otilm.api.clients.mq.v2.KeyApiClient;
 import com.otilm.api.clients.mq.v2.TokenApiClient;
 import com.otilm.api.model.connector.cryptography.v2.OperationResponseValidator;
+import jakarta.validation.Validator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -246,7 +247,8 @@ public class ProxyClientConfig {
      * proxy set.
      */
     @Bean
-    public ContentSigningFormattingApiClient mqContentSigningFormattingApiClient(ProxyClient proxyClient) {
-        return new ContentSigningFormattingApiClient(proxyClient);
+    public ContentSigningFormattingApiClient mqContentSigningFormattingApiClient(ProxyClient proxyClient,
+            Validator validator) {
+        return new ContentSigningFormattingApiClient(proxyClient, validator);
     }
 }

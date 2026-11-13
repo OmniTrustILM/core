@@ -518,6 +518,22 @@ public class CertificateValidationITest extends BaseSpringBootTest {
     }
 
     @Test
+    void returnsNoCertificates_whenDownloadingTheChainWithoutTheEndCertificateOfASelfSignedCertificate()
+            throws Exception {
+        // given
+        X509Certificate root = CertificateGeneratorHelper
+                .generateCACertificate(freshRsaKeyPair(), "CN=Self-Signed-Root");
+        SecuredUUID uuid = createTrustedCertEntity(root).getSecuredUuid();
+
+        // when
+        CertificateChainDownloadResponseDto download = certificateService
+                .downloadCertificateChain(uuid, CertificateFormat.RAW, false, CertificateFormatEncoding.PEM);
+
+        // then
+        assertThat(getNumberOfCertificatesInPem(download.getContent())).isZero();
+    }
+
+    @Test
     void testOcspValidationCheck() throws Exception {
         var certificateChainInfo = CertificateGeneratorHelper
                 .generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Test-Ca", "CN=Test-EndEntity",
