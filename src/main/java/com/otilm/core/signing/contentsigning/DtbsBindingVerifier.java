@@ -5,12 +5,11 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtb
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.security.MessageDigest;
-import java.util.List;
 import java.util.Objects;
 
 /**
  * Verifies that the data-to-be-signed a formatting connector produced is bound to the document the caller authorized.
- * The engine runs this before it releases the signing key.
+ * The engine runs this before the signing key signs.
  *
  * <p>
  * The check compares the connector's echoed {@code documentDigest} against the digest authorized when the operation was
@@ -62,30 +61,6 @@ public final class DtbsBindingVerifier {
                     .stepFailed(SigningEngineFailure.BINDING_VIOLATION, STEP,
                             "connector committed to %s but %s was authorized".formatted(echoed, authorized), null,
                             MISMATCH_CLIENT_MESSAGE);
-        }
-    }
-
-    /**
-     * Verifies a multi-document operation, pairing each response with the authorized digest at the same position. Every
-     * document is checked against its own authorized occurrence, so one document's echo can never vouch for another.
-     *
-     * @throws IllegalArgumentException if the two lists differ in size or are empty, which means the caller paired them
-     * wrong
-     * @throws SigningEngineException if any echo is missing, unusable or bound to a different document
-     */
-    public static void verifyAll(List<DocumentDigest> authorized, List<ComputeDtbsResponseDto> responses)
-            throws SigningEngineException {
-        Objects.requireNonNull(authorized, "authorized");
-        Objects.requireNonNull(responses, "responses");
-        if (authorized.isEmpty()) {
-            throw new IllegalArgumentException("Cannot verify a binding with no authorized digest to check against");
-        }
-        if (authorized.size() != responses.size()) {
-            throw new IllegalArgumentException("Cannot pair %d authorized digests with %d computeDtbs responses"
-                    .formatted(authorized.size(), responses.size()));
-        }
-        for (int document = 0; document < authorized.size(); document++) {
-            verify(authorized.get(document), responses.get(document));
         }
     }
 

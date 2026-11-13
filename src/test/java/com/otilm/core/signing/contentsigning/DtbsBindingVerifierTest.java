@@ -5,7 +5,6 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtb
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.util.Arrays;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -163,57 +162,6 @@ class DtbsBindingVerifierTest {
         SigningEngineException thrown = catchVerify(AUTHORIZED, null);
         assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
         assertThat(thrown.operatorMessage()).contains("returned no computeDtbs response");
-    }
-
-    @Test
-    void verifiesEveryDocumentOfAMultiDocumentOperation() {
-        // given
-        DocumentDigest second = new DocumentDigest(DigestAlgorithm.SHA_256, digestOfLength(32, (byte) 0x33));
-
-        // when / then
-        assertThatCode(() -> DtbsBindingVerifier
-                .verifyAll(List.of(AUTHORIZED, second),
-                        List
-                                .of(response(DigestAlgorithm.SHA_256, AUTHORIZED_VALUE),
-                                        response(DigestAlgorithm.SHA_256, second.value()))))
-                .doesNotThrowAnyException();
-    }
-
-    /** Each document answers for itself: a set of echoes matching as a set is not a binding. */
-    @Test
-    void refusesSwappedEchoesInAMultiDocumentOperation() {
-        // given
-        DocumentDigest second = new DocumentDigest(DigestAlgorithm.SHA_256, digestOfLength(32, (byte) 0x33));
-        List<ComputeDtbsResponseDto> swapped = List
-                .of(response(DigestAlgorithm.SHA_256, second.value()),
-                        response(DigestAlgorithm.SHA_256, AUTHORIZED_VALUE));
-
-        // when / then
-        SigningEngineException thrown = catchThrowableOfType(SigningEngineException.class,
-                () -> DtbsBindingVerifier.verifyAll(List.of(AUTHORIZED, second), swapped));
-        assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.BINDING_VIOLATION);
-        assertThat(thrown.operatorMessage()).contains("3333", "1111");
-    }
-
-    @Test
-    void refusesToPairListsOfDifferentLengths() {
-        // when / then
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> DtbsBindingVerifier
-                        .verifyAll(List.of(AUTHORIZED),
-                                List
-                                        .of(response(DigestAlgorithm.SHA_256, AUTHORIZED_VALUE),
-                                                response(DigestAlgorithm.SHA_256, AUTHORIZED_VALUE))))
-                .withMessageContaining("Cannot pair 1 authorized digests with 2");
-    }
-
-    /** An operation covering no document would satisfy the gate by having nothing to check. */
-    @Test
-    void refusesAMultiDocumentOperationWithNothingToCheck() {
-        // when / then
-        assertThatIllegalArgumentException()
-                .isThrownBy(() -> DtbsBindingVerifier.verifyAll(List.of(), List.of()))
-                .withMessageContaining("no authorized digest");
     }
 
     @Test

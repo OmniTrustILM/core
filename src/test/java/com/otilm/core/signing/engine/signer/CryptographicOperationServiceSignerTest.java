@@ -14,6 +14,7 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.signing.engine.error.ItemSigningException;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.security.KeyPair;
@@ -362,9 +363,9 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void throwsSignerFault_whenMultiItemResultHasNoData() throws Exception {
             // given
-            var failedIdentifier = "1";
+            var failedIndex = 1;
             var connectorDetails = "Signature failed: boom";
-            var failedResult = new SignatureResponseData(null, failedIdentifier, connectorDetails);
+            var failedResult = new SignatureResponseData(null, Integer.toString(failedIndex), connectorDetails);
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
                     .willReturn(createSignatureResponse(createSignatureResult("0", SIG_A), failedResult));
             var twoItems = List.of(DTBS_0, DTBS_1);
@@ -374,12 +375,11 @@ class CryptographicOperationServiceSignerTest {
 
             // then
             assertThatThrownBy(signTwoItems)
-                    .isInstanceOf(SigningEngineException.class)
                     .hasMessageNotContaining(connectorDetails)
-                    .satisfies(ex -> {
-                        SigningEngineException failure = (SigningEngineException) ex;
+                    .isInstanceOfSatisfying(ItemSigningException.class, failure -> {
                         assertThat(failure.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT);
-                        assertThat(failure.operatorMessage()).contains("item " + failedIdentifier, connectorDetails);
+                        assertThat(failure.itemIndex()).isEqualTo(failedIndex);
+                        assertThat(failure.operatorMessage()).contains("item " + failedIndex, connectorDetails);
                     });
         }
 

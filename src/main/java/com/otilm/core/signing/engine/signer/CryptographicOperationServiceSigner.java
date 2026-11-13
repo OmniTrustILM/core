@@ -15,6 +15,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier;
 import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier.Classification;
+import com.otilm.core.signing.engine.error.ItemSigningException;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 
@@ -196,7 +197,9 @@ public class CryptographicOperationServiceSigner implements Signer {
     private static byte[] decodeSignature(SignatureResponseData result, int index) throws SigningEngineException {
         String data = result.getData();
         if (data == null || data.isEmpty()) {
-            throw signerFault("Signing operation returned no signature for item " + index + ": " + result.getDetails());
+            throw new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, index,
+                    "Signing operation returned no signature for item " + index + ": " + result.getDetails(),
+                    CLIENT_MESSAGE);
         }
         return Base64.getDecoder().decode(data);
     }
