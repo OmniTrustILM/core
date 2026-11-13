@@ -13,14 +13,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class AuthorityCertificateTypes {
 
-    public Set<CertificateType> supportedBy(RaProfile raProfile) {
+    /** The types every authority issues, whichever RA profile it is used through. */
+    public Set<CertificateType> supportedTypes() {
         return EnumSet.of(CertificateType.X509);
     }
 
     /** Refuses a type the authority of the RA profile does not issue; a missing type is X.509. */
     public void requireSupport(CertificateType type, RaProfile raProfile) {
         CertificateType effectiveType = type != null ? type : CertificateType.X509;
-        if (!supportedBy(raProfile).contains(effectiveType)) {
+        if (!supportedTypes().contains(effectiveType)) {
             throw UnsupportedCertificateTypeException
                     .notIssuedByAuthority(effectiveType.getCode(), raProfile.getName());
         }

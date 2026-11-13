@@ -87,15 +87,11 @@ class X509CertificateTypeHandlerTest {
     private final X509CertificateTypeHandler handler = new X509CertificateTypeHandler();
 
     @BeforeAll
-    static void generateChain() throws Exception {
+    static void generateChainAndCacheOidCategories() throws Exception {
         Security.addProvider(new BouncyCastleProvider());
         chain = CertificateGeneratorHelper.generateCertificateWithIssuer(KeyAlgorithm.RSA, ISSUER_DN, SUBJECT_DN, null);
         otherCaKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
-    }
-
-    // the name style that stamping an issued certificate uses reads the OID caches when its class loads
-    @BeforeAll
-    static void cacheOidCategories() {
+        // the name style that stamping an issued certificate uses reads the OID caches when its class loads
         for (OidCategory category : OidCategory.values()) {
             if (OidHandler.getOidCache(category) == null) {
                 OidHandler.cacheOidCategory(category, new HashMap<>());

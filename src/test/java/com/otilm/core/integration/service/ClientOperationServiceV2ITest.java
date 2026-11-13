@@ -1687,7 +1687,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void refusesToRenew_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
         // given
-        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedBy(any());
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
         long certificatesBefore = certificateRepository.count();
         ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
 
@@ -1707,7 +1707,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     @Test
     void refusesToRekey_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
         // given
-        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedBy(any());
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
         long certificatesBefore = certificateRepository.count();
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
 
@@ -5376,7 +5376,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         @Test
         void refusesTheCompletion_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
             // given
-            doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedBy(any());
+            doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedTypes();
             ClientCertificateIssueRequestDto completion = createCompletionRequest();
 
             // when

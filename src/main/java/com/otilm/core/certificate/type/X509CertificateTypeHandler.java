@@ -192,7 +192,6 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     @Override
     public String generateRequest(List<DataAttributeV3> definitions, List<RequestAttribute> requestAttributes,
             CertificateRequestFormat format, RequestSigning signing) throws NotFoundException, CertificateException {
-        // TODO: support for the CRMF should be handled also in case it should be generated
         if (format == CertificateRequestFormat.CRMF) {
             throw new CertificateException("CRMF format is not supported for CSR generation");
         }
@@ -217,7 +216,7 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
 
     @Override
     public String generateRekeyRequest(ParsedCertificate current, RequestSigning signing) throws NotFoundException {
-        // TODO: implement support for CRMF, currently only PKCS10 is supported
+        // a rekey request is always PKCS#10; CRMF is not generated
         X509Certificate certificate = x509Of(current);
         if (certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()) != null
                 && signing.altKeyUuid() == null) {
