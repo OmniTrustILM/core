@@ -18,6 +18,7 @@ import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.core.certificate.type.AuthorityCertificateTypes;
 import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.certificate.type.RequestFormatResolver;
 import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.certificate.type.X509CertificateTypeHandler;
@@ -488,6 +489,32 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.FAILED),
                         ArgumentMatchers.eq(CertificateEvent.ISSUE), ArgumentMatchers.contains(connectorEcho),
                         ArgumentMatchers.any());
+    }
+
+    @Test
+    void tellsTheCallerAndTheHistoryWhy_whenTheIssuedCertificateIsRefused() throws Exception {
+        // given
+        var certificateData = "cert-data";
+        var returnedType = CertificateType.SSH;
+        var refusal = "The authority returned a certificate of type SSH where X.509 was requested";
+        when(adapter.issue(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(AdapterOperationResult.syncOk(certificateData, List.of(), returnedType));
+        doThrow(new IssuedCertificateRefusedException(refusal))
+                .when(certificateService)
+                .issueRequestedCertificate(certUuid, certificateData, List.of(), returnedType);
+
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class).hasMessageContaining(refusal);
+        verify(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED),
+                        ArgumentMatchers.argThat(message -> message.contains(refusal)), ArgumentMatchers.eq(""));
+        verify(stateMachine, never())
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.ISSUED),
+                        ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
     @Test

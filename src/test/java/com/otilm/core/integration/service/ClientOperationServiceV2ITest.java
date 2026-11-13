@@ -50,6 +50,7 @@ import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventStatus;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateState;
+import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -71,6 +72,8 @@ import com.otilm.core.attribute.SignatureAlgorithmUtils;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
+import com.otilm.core.certificate.type.AuthorityCertificateTypes;
+import com.otilm.core.certificate.type.UnsupportedCertificateTypeException;
 import com.otilm.core.config.CustomAuditAware;
 import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
@@ -167,6 +170,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -285,6 +289,9 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     @MockitoSpyBean
     private ActionProducer actionProducer;
+
+    @MockitoSpyBean
+    private AuthorityCertificateTypes authorityCertificateTypes;
 
     @MockitoSpyBean
     private CertificateEventHistoryInternalService certificateEventHistoryService;
@@ -1674,6 +1681,64 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         // then
         assertThat(storedRequestFormatOf(renewed)).isEqualTo(CertificateRequestFormat.PKCS10);
+    }
+
+    @Test
+    void refusesToRenew_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+        // given
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedBy(any());
+        long certificatesBefore = certificateRepository.count();
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+
+        // when
+        ThrowingCallable renew = () -> clientOperationService
+                .renewCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request);
+
+        // then
+        assertThatThrownBy(renew)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void refusesToRekey_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+        // given
+        doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedBy(any());
+        long certificatesBefore = certificateRepository.count();
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+
+        // when
+        ThrowingCallable rekey = () -> clientOperationService
+                .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request);
+
+        // then
+        assertThatThrownBy(rekey)
+                .isInstanceOf(UnsupportedCertificateTypeException.class)
+                .hasMessageContaining(raProfile.getName());
+        assertThat(certificateRepository.count()).isEqualTo(certificatesBefore);
+        mockServer.verify(0, WireMock.anyRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void refusesAsValidation_whenManuallyIssuingWithoutACertificate() throws Exception {
+        // given
+        setupPendingIssueCertWithRealCsr();
+        ManuallyIssueCertificateRequestDto withoutCertificate = new ManuallyIssueCertificateRequestDto();
+        withoutCertificate.setCustomAttributes(List.of());
+
+        // when
+        ThrowingCallable issue = () -> clientOperationService
+                .manuallyIssueCertificate(SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                        raProfile.getSecuredUuid(), certificate.getUuid().toString(), withoutCertificate);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(ValidationException.class);
+        assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getState())
+                .isEqualTo(CertificateState.PENDING_ISSUE);
     }
 
     @Test
@@ -5389,6 +5454,21 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             assertThat(readApprovalsOf(registration)).isEmpty();
             assertThat(certificateRepository.findByUuid(registration).orElseThrow().getState())
                     .isEqualTo(CertificateState.REGISTERED);
+        }
+
+        @Test
+        void refusesTheCompletion_whenTheAuthorityDoesNotIssueTheTypeOfTheCertificate() {
+            // given
+            doReturn(EnumSet.noneOf(CertificateType.class)).when(authorityCertificateTypes).supportedBy(any());
+            ClientCertificateIssueRequestDto completion = createCompletionRequest();
+
+            // when
+            ThrowingCallable complete = () -> clientOperationService
+                    .issueExistingCertificate(authorityUuid, raProfileUuid, registrationUuid, completion);
+
+            // then
+            assertThatThrownBy(complete).isInstanceOf(UnsupportedCertificateTypeException.class);
+            assertStillRegisteredWithoutARequest();
         }
 
         @Test

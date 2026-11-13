@@ -20,6 +20,7 @@ import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.X509ObjectToString;
 import java.io.ByteArrayInputStream;
@@ -43,8 +44,15 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DERBitString;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
+import org.bouncycastle.asn1.pkcs.CertificationRequest;
+import org.bouncycastle.asn1.pkcs.CertificationRequestInfo;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.crmf.CertificateRequestMessageBuilder;
 import org.bouncycastle.cert.crmf.jcajce.JcaCertificateRequestMessageBuilder;
@@ -631,6 +639,39 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void refusesAsValidation_whenTheKeyOfTheRequestCannotBeDecoded() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest undecodableKey = handler
+                .readRequest(Base64.getEncoder().encodeToString(pkcs10WithUnknownKeyAlgorithm(SUBJECT_DN)),
+                        CertificateRequestFormat.PKCS10);
+
+        // when
+        ThrowingCallable check = () -> handler.requireSameKey(undecodableKey, leaf);
+
+        // then
+        assertThat(undecodableKey.publicKey()).isNull();
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Unable to validate the public key of CSR and certificate");
+    }
+
+    @Test
+    void refusesTheRekeyRequest_whenItLacksTheAlternativeKeyOfTheCertificate() throws Exception {
+        // given
+        ParsedCertificate hybrid = parsedCertificate(CertificateTestUtil.createHybridCertificate());
+        ParsedRequest withoutAlternativeKey = handler.parseRequest(pkcs10(otherCaKeys, SUBJECT_DN)).orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.checkRekeyRequest(withoutAlternativeKey, hybrid);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Certificate contains alternative key, but CSR does not");
+    }
+
+    @Test
     void acceptsTheRekeyRequest_whenItHasANewKeyAndTheSameHolder() throws Exception {
         // given
         ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
@@ -694,6 +735,22 @@ class X509CertificateTypeHandlerTest {
 
         // then
         assertThat(generated).isEqualTo(signedRequest);
+    }
+
+    @Test
+    void refusesToGenerateARekeyRequest_whenAHybridCertificateGetsNoAlternativeKey() throws Exception {
+        // given
+        ParsedCertificate hybrid = parsedCertificate(CertificateTestUtil.createHybridCertificate());
+        var withoutAlternativeKey = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), null, null,
+                null);
+
+        // when
+        ThrowingCallable generate = () -> handler.generateRekeyRequest(hybrid, withoutAlternativeKey);
+
+        // then
+        assertThatThrownBy(generate)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Missing alternative key for re-keying of hybrid certificate");
     }
 
     @Test
@@ -925,6 +982,14 @@ class X509CertificateTypeHandlerTest {
             writer.writeObject(certificate);
         }
         return out.toByteArray();
+    }
+
+    private static byte[] pkcs10WithUnknownKeyAlgorithm(String subjectDn) throws Exception {
+        var unknownKey = new SubjectPublicKeyInfo(new AlgorithmIdentifier(new ASN1ObjectIdentifier("1.2.3.4.5")),
+                new byte[16]);
+        var unsigned = new CertificationRequest(new CertificationRequestInfo(new X500Name(subjectDn), unknownKey, null),
+                new AlgorithmIdentifier(PKCSObjectIdentifiers.sha256WithRSAEncryption), new DERBitString(new byte[8]));
+        return unsigned.getEncoded();
     }
 
     private static byte[] pkcs10(KeyPair keys, String subjectDn) throws Exception {

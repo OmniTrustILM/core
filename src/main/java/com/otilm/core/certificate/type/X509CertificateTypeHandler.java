@@ -175,12 +175,17 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             // the cause carries the wording of the Base64 decoder, which is not meant for the client
             throw new CertificateRequestException("The content is not a certificate request in Base64");
         }
+        return new ParsedRequest(typeCode(), request.getFormat(), request.getEncoded(),
+                request.getSubject() == null ? null : request.getSubject().toString(), publicKeyOrNull(request));
+    }
+
+    // a key that cannot be decoded is refused by the check that needs it, not by reading the request
+    private static PublicKey publicKeyOrNull(CertificateRequest request) {
         try {
-            return new ParsedRequest(typeCode(), request.getFormat(), request.getEncoded(),
-                    request.getSubject() == null ? null : request.getSubject().toString(), request.getPublicKey());
-        } catch (NoSuchAlgorithmException e) {
-            throw new CertificateRequestException(
-                    "The X.509 certificate request has an unusable public key: " + e.getMessage());
+            return request.getPublicKey();
+        } catch (NoSuchAlgorithmException | CertificateRequestException e) {
+            logger.debug("The public key of the certificate request cannot be decoded: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -214,6 +219,10 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
     public String generateRekeyRequest(ParsedCertificate current, RequestSigning signing) throws NotFoundException {
         // TODO: implement support for CRMF, currently only PKCS10 is supported
         X509Certificate certificate = x509Of(current);
+        if (certificate.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()) != null
+                && signing.altKeyUuid() == null) {
+            throw new ValidationException("Missing alternative key for re-keying of hybrid certificate");
+        }
         return sign(certificate.getSubjectX500Principal(), RenewContentSeeder.rekeySanExtensions(certificate), signing);
     }
 

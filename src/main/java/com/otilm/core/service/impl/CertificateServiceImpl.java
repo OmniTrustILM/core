@@ -81,6 +81,7 @@ import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
 import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
@@ -2778,13 +2779,14 @@ public class CertificateServiceImpl
                 .orElseThrow(() -> new NotFoundException(Certificate.class, uuid));
         CertificateType requestedType = requested.getCertificateType();
         if (returnedType != null && returnedType != requestedType) {
-            throw new CertificateException("The authority returned a certificate of type %s where %s was requested"
-                    .formatted(returnedType.getLabel(), requestedType.getLabel()));
+            throw new IssuedCertificateRefusedException(
+                    "The authority returned a certificate of type %s where %s was requested"
+                            .formatted(returnedType.getLabel(), requestedType.getLabel()));
         }
         CertificateTypeHandler handler = typeHandlerRegistry.require(requestedType.getCode());
         ParsedCertificate issued = handler
                 .parseCertificate(CertificateUtil.decodeCertificateContent(certificateData))
-                .orElseThrow(() -> new CertificateException(
+                .orElseThrow(() -> new IssuedCertificateRefusedException(
                         "The authority returned content that is not a certificate of type "
                                 + requestedType.getLabel()));
         String fingerprint = issued.properties().fingerprint();

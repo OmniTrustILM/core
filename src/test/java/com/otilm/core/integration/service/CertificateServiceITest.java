@@ -68,6 +68,7 @@ import com.otilm.core.attribute.CsrAttributes;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.AttributeContent2Object;
@@ -2920,7 +2921,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
             // then
             assertThatThrownBy(issue)
-                    .isInstanceOf(CertificateException.class)
+                    .isInstanceOf(IssuedCertificateRefusedException.class)
                     .hasMessageContaining(statedType.getLabel())
                     .hasMessageContaining(CertificateType.X509.getLabel());
             assertNotStoredAsIssued(requestedUuid);
@@ -2940,7 +2941,7 @@ class CertificateServiceITest extends BaseSpringBootTest {
 
             // then
             assertThatThrownBy(issue)
-                    .isInstanceOf(CertificateException.class)
+                    .isInstanceOf(IssuedCertificateRefusedException.class)
                     .hasMessageContaining(CertificateType.X509.getLabel());
             assertNotStoredAsIssued(requestedUuid);
         }

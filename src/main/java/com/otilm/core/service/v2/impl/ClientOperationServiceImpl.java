@@ -64,6 +64,7 @@ import com.otilm.core.certificate.request.RequestAttributePolicyViolationExcepti
 import com.otilm.core.certificate.type.AuthorityCertificateTypes;
 import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.certificate.type.RequestFormatResolver;
@@ -73,6 +74,7 @@ import com.otilm.core.dao.entity.Approval;
 import com.otilm.core.dao.entity.ApprovalProfileVersion;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.CertificateLocation;
 import com.otilm.core.dao.entity.CertificateRegistration;
 import com.otilm.core.dao.entity.CertificateRegistrationAuthorization;
@@ -561,7 +563,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         // Build the CSR and merge/validate the issue-attributes before opening the persistence transaction, so no
         // database transaction stays open across the connector round-trips unless the caller brought its own (SCEP
-        // manual approval). Ordering constraint: the uploaded-CSR attribute validation inside generateBase64EncodedCsr
+        // manual approval). Ordering constraint: the uploaded-CSR attribute validation inside prepareRequest
         // must run before the issue-attribute merge.
         PreparedRequest prepared = prepareRequest(handlerOf(certificateType), request, raProfile);
         String certificateRequest = prepared.csr();
@@ -1974,7 +1976,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      */
     private static String safeMessage(Exception e, String fallback) {
         return (e instanceof ConnectorException || e instanceof CertificateOperationException
-                || e instanceof ValidationException) && e.getMessage() != null ? e.getMessage() : fallback;
+                || e instanceof ValidationException || e instanceof IssuedCertificateRefusedException)
+                && e.getMessage() != null ? e.getMessage() : fallback;
     }
 
     /**
@@ -2803,10 +2806,6 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         UUID altTokenProfileUuid = null;
         List<RequestAttribute> altSignatureAttributes = null;
-        if (X509CertificateEntity.fromOrNull(oldCertificate) instanceof X509CertificateEntity x509Certificate
-                && x509Certificate.isHybridCertificate() && request.getAltKeyUuid() == null) {
-            throw new ValidationException("Missing alternative key for re-keying of hybrid certificate");
-        }
         if (request.getAltKeyUuid() != null) {
             existingAltKeyValidation(request.getAltKeyUuid(), request.getAltSignatureAttributes(), oldCertificate);
             if (request.getAltSignatureAttributes() != null) {
@@ -3433,13 +3432,17 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
     /** The current certificate as its handler reads it, for a request that is checked against it or built from it. */
     private static ParsedCertificate currentCertificateOf(CertificateTypeHandler handler, Certificate certificate) {
-        return readCertificate(handler, certificate.getCertificateContent().getContent(), certificate);
+        CertificateContent content = certificate.getCertificateContent();
+        return readCertificate(handler, content == null ? null : content.getContent(), certificate);
     }
 
     private static ParsedCertificate readCertificate(CertificateTypeHandler handler, String content,
             Certificate certificate) {
         String refusal = "The certificate content cannot be read as a certificate of type "
                 + certificate.getCertificateType().getLabel();
+        if (content == null) {
+            throw new ValidationException(refusal);
+        }
         try {
             return handler
                     .parseCertificate(CertificateUtil.decodeCertificateContent(content))
@@ -3511,7 +3514,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         }
         // Since altKeyUuid will not be null at this point, we only need to check if for hybrid certificate there is a
         // different key used for rekey
-        if (X509CertificateEntity.from(certificate).isHybridCertificate()) {
+        // only an X.509 certificate has an alternative key
+        if (X509CertificateEntity.fromOrNull(certificate) instanceof X509CertificateEntity x509Certificate
+                && x509Certificate.isHybridCertificate()) {
             if (altKeyUuid != null && altKeyUuid.equals(certificate.getAltKeyUuid())) {
                 throw new ValidationException(ValidationError
                         .create("Rekey operation not permitted. Cannot use same alternative key to rekey certificate"));
