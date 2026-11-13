@@ -1063,7 +1063,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         contentSigningWorkflowValidator.validate(w, formattingConnector, signatureAlgorithm, targetProfileUuid);
     }
 
-    /** Signer resolution reads the certificate and its key items without access checks, so the caller's comes first. */
+    /** The certificate's signing snapshot and key items are read without access checks, so the caller's comes first. */
     private void requireCertificateAccess(UUID certificateUuid) throws NotFoundException {
         certificateService.getCertificateEntity(SecuredUUID.fromUUID(certificateUuid));
     }
@@ -1131,6 +1131,7 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
             return;
         }
         UUID certificateUuid = scheme.getCertificateUuid();
+        requireCertificateAccess(certificateUuid);
         UUID keyUuid = certificateService.getSigningCertificate(certificateUuid).keyUuid();
         if (keyUuid == null) {
             // The eligibility check refuses a certificate without a key.

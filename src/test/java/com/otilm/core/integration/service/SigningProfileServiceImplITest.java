@@ -2582,6 +2582,61 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             assertThat(created.getWorkflow()).isInstanceOf(RawSigningWorkflowDto.class);
         }
 
+        @Test
+        void createRawProfile_throwsAccessDenied_whenCertificateDetailIsDenied() {
+            // given — the binding rule would refuse the certificate, since a timestamping profile signs with its key
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+            SigningProfileRequestDto rawRequest = aSigningProfileRequest()
+                    .withName("raw-on-a-hidden-certificate")
+                    .withStaticKeyManagedSigning(defaultTimestampingCertificate.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(AccessDeniedException.class);
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void createContentProfile_throwsAccessDenied_whenCertificateDetailIsDenied() {
+            // given — the binding rule would refuse the certificate, since a raw profile signs with its key
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+            SigningProfileRequestDto contentRequest = aSigningProfileRequest()
+                    .withName("content-on-a-hidden-certificate")
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(contentRequest);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(AccessDeniedException.class);
+            assertThat(signingProfileRepository.findByName(contentRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void createTimestampingProfile_throwsAccessDenied_whenCertificateDetailIsDenied() {
+            // given — the binding rule would refuse the certificate, since a raw profile signs with its key
+            denyResourceAccess(Resource.CERTIFICATE, ResourceAction.DETAIL);
+            SigningProfileRequestDto timestampingRequest = aSigningProfileRequest()
+                    .withName("timestamping-on-a-hidden-certificate")
+                    .withStaticKeyManagedSigning(defaultRawSigningCertificate.getUuid())
+                    .withTimestamping(UUID.fromString(timestampingFormattingConnector.getUuid()))
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(timestampingRequest);
+
+            // then
+            assertThatThrownBy(create).isInstanceOf(AccessDeniedException.class);
+            assertThat(signingProfileRepository.findByName(timestampingRequest.getName())).isEmpty();
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private SigningProfileDto createManagedContentProfile(String name, UUID certificateUuid)
