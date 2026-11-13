@@ -85,16 +85,11 @@ class StaticKeyManagedContentSigningResolverTest {
     private static final ApiClientConnectorInfo CONNECTOR_INFO = mock(ApiClientConnectorInfo.class);
 
     @BeforeEach
-    void defineTheFormatAttribute() throws Exception {
-        // lenient: tests that stop before the formatter leave its definitions unread
+    void stubTheFormatAttributeAndFamilyDeclaration() throws Exception {
+        // lenient: tests that stop before the formatter or the declaration leave them unread
         lenient()
                 .when(formattingAttributeDefinitions.forContentSigning(any(), any()))
                 .thenReturn(List.of(A_FORMAT_ATTRIBUTE_DEFINITION));
-    }
-
-    @BeforeEach
-    void declareTheProfileFamily() {
-        // lenient: tests that stop before the declaration leave it unread
         lenient()
                 .when(declarations.family(any(), any()))
                 .thenAnswer(invocation -> Optional.of(aFamilyDeclaration(invocation.getArgument(1)).build()));

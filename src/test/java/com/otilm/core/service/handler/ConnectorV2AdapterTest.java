@@ -29,6 +29,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.HttpStatus;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -42,7 +43,6 @@ import static org.mockito.Mockito.when;
 
 class ConnectorV2AdapterTest {
 
-    // validateConnection(ConnectInfo) is a pure check over the supplied answer, so it runs without Spring or mocks.
     private final ConnectorV2Adapter adapter = new ConnectorV2Adapter();
 
     @Test
@@ -259,7 +259,7 @@ class ConnectorV2AdapterTest {
         void storesTheDeclaration_whenTheConnectorSendsOne() throws Exception {
             // given
             ConnectorContentSigningDeclarationRepository declarations = wireDeclarations();
-            Connector connector = aConnector();
+            Connector connector = aConnector().build();
             ConnectInfoV2 connectInfo = contentSigningConnectInfo();
 
             // when
@@ -275,7 +275,7 @@ class ConnectorV2AdapterTest {
         void forgetsTheDeclaration_whenTheConnectorServesNoContentSigning() throws Exception {
             // given
             ConnectorContentSigningDeclarationRepository declarations = wireDeclarations();
-            Connector connector = aConnector();
+            Connector connector = aConnector().build();
             ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
                     ConnectorInterface.METRICS, ConnectorInterface.AUTHORITY);
             connectInfo.setContentSigningDeclaration(aFamilyDeclaration().buildDeclaration());
@@ -291,7 +291,7 @@ class ConnectorV2AdapterTest {
         void failsItsInvariant_whenAnUnvalidatedFormattingAnswerLacksTheDeclaration() {
             // given
             ConnectorContentSigningDeclarationRepository declarations = wireDeclarations();
-            Connector connector = aConnector();
+            Connector connector = aConnector().build();
             ConnectInfoV2 withoutDeclaration = contentSigningConnectInfo();
             withoutDeclaration.setContentSigningDeclaration(null);
 
@@ -314,12 +314,6 @@ class ConnectorV2AdapterTest {
             adapter.setKeyTransferCapabilityWriter(mock(KeyTransferCapabilityWriter.class));
             adapter.setConnectorInterfaceRepository(mock(ConnectorInterfaceRepository.class));
             return declarations;
-        }
-
-        private static Connector aConnector() {
-            Connector connector = new Connector();
-            connector.setUuid(UUID.randomUUID());
-            return connector;
         }
     }
 

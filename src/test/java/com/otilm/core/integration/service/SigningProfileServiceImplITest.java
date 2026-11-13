@@ -57,6 +57,7 @@ import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParam
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -3844,6 +3845,54 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             } finally {
                 xadesOnlyMock.stop();
             }
+        }
+    }
+
+    // ── ConnectorDeclarations ─────────────────────────────────────────────────
+
+    @Nested
+    class ConnectorDeclarations {
+
+        @Test
+        void returnsTheFamiliesTheConnectorDeclares() throws Exception {
+            // given — the registered provider declares the four AdES families
+
+            // when
+            List<SignatureFamilyDeclarationDto> declared = signingProfileService
+                    .listSignatureFormattingConnectorDeclarations(
+                            UUID.fromString(contentSigningFormattingConnector.getUuid()), SecuredUUID.fromUUID(null));
+
+            // then
+            assertThat(declared)
+                    .extracting(SignatureFamilyDeclarationDto::getCode)
+                    .containsExactlyInAnyOrder(SignatureFamily.PADES, SignatureFamily.XADES, SignatureFamily.CADES,
+                            SignatureFamily.JADES);
+        }
+
+        @Test
+        void returnsNothing_whenTheConnectorServesNoContentSigning() throws Exception {
+            // given — the timestamping formatting connector declares no content-signing family
+
+            // when
+            List<SignatureFamilyDeclarationDto> declared = signingProfileService
+                    .listSignatureFormattingConnectorDeclarations(
+                            UUID.fromString(timestampingFormattingConnector.getUuid()), SecuredUUID.fromUUID(null));
+
+            // then
+            assertThat(declared).isEmpty();
+        }
+
+        @Test
+        void throwsNotFound_whenTheConnectorDoesNotExist() {
+            // given
+            UUID unknownConnector = UUID.randomUUID();
+
+            // when
+            ThrowableAssert.ThrowingCallable listDeclarations = () -> signingProfileService
+                    .listSignatureFormattingConnectorDeclarations(unknownConnector, SecuredUUID.fromUUID(null));
+
+            // then
+            assertThatThrownBy(listDeclarations).isInstanceOf(NotFoundException.class);
         }
     }
 

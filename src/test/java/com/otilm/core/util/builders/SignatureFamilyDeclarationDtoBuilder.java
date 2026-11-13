@@ -77,8 +77,15 @@ public final class SignatureFamilyDeclarationDtoBuilder {
                 .map(level -> new SignatureLevelDeclarationDto(level,
                         levelNames.getOrDefault(level, label + "-B-" + BASELINE_SUFFIXES.get(level))))
                 .toList();
-        return new SignatureFamilyDeclarationDto(code, label, label + " signatures", new ArrayList<>(levels),
-                transferModes != null ? transferModes : defaultTransferModes(), signatureAlgorithms);
+        return SignatureFamilyDeclarationDto
+                .builder()
+                .code(code)
+                .label(label)
+                .description(label + " signatures")
+                .levels(new ArrayList<>(levels))
+                .transferModes(transferModes != null ? transferModes : defaultTransferModes())
+                .signatureAlgorithms(signatureAlgorithms)
+                .build();
     }
 
     public ContentSigningDeclarationDto buildDeclaration() {

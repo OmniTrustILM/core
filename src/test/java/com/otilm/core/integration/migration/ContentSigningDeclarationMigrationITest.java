@@ -1,6 +1,5 @@
 package com.otilm.core.integration.migration;
 
-import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.signature.SignatureFamily;
@@ -27,6 +26,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
@@ -157,9 +157,7 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
     }
 
     private UUID insertConnector() {
-        Connector connector = new Connector();
-        connector.setName("formatting-" + UUID.randomUUID());
-        connector.setVersion(ConnectorVersion.V2);
+        Connector connector = aConnector().withGeneratedUuid().withName("formatting-" + UUID.randomUUID()).build();
         return connectorRepository.saveAndFlush(connector).getUuid();
     }
 
