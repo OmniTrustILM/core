@@ -146,7 +146,7 @@ class AuthorityProviderV2AdapterTest {
     }
 
     @Test
-    void passesOnTheTypeTheAuthorityStates_whenItIssuesSynchronously() throws ConnectorException {
+    void passesOnTheTypeTheAuthorityStates_whenItIssuesSynchronously() throws Exception {
         // given
         var statedType = CertificateType.SSH;
         CertificateDataResponseDto responseBody = new CertificateDataResponseDto();

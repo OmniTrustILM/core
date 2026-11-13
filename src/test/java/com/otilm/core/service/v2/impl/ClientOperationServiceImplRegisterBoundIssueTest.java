@@ -238,13 +238,16 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     @Test
-    void registeredPlaceholderOnRegisterCapableAuthorityDispatchesToAdapter() throws Exception {
+    void dispatchesToTheAdapter_whenARegisteredPlaceholderIsIssuedOnARegisterCapableAuthority() throws Exception {
+        // given
         RegisterCapability adapter = registerCapableAdapter();
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
 
+        // when
         issue();
 
+        // then
         verify(adapter)
                 .issueRegistered(ArgumentMatchers.eq(certificate), ArgumentMatchers.any(), ArgumentMatchers.any());
         verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);
@@ -349,31 +352,36 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     @Test
-    void syncOkCompletesIssuanceAndClearsBinding() throws Exception {
+    void completesTheIssuance_whenTheAdapterReturnsSyncOk() throws Exception {
+        // given
         RegisterCapability adapter = registerCapableAdapter();
         List<MetadataAttribute> meta = List.of(caHandle("endEntityName", "device-1"));
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", meta, CertificateType.X509));
 
+        // when
         issue();
 
+        // then — the certificate is stored and the binding it was issued under is cleared
         verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", meta, CertificateType.X509);
         verify(certificateRegistrationWriter).clear(certUuid);
     }
 
     @Test
-    void asyncAcceptedTransitionsToPendingIssueAndSchedulesPollExactlyOnce() throws Exception {
+    void schedulesOnePoll_whenTheAdapterAcceptsAsynchronously() throws Exception {
+        // given
         RegisterCapability adapter = registerCapableAdapter();
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.asyncAccepted(List.of()));
-
         // transitionToPendingIssue's internal scheduleStatusPoll reloads the certificate with the polling
         // graph and re-resolves the adapter to evaluate pollability.
         when(certificateRepository.findForPollingByUuid(certUuid)).thenReturn(Optional.of(certificate));
         when(capabilityService.supports(authority, FeatureFlag.CERTIFICATE_STATUS_POLLING)).thenReturn(true);
 
+        // when
         issue();
 
+        // then — the certificate waits in PENDING_ISSUE for the poll, and nothing is stored yet
         verify(stateMachine)
                 .transition(ArgumentMatchers.eq(certificate), ArgumentMatchers.eq(CertificateState.PENDING_ISSUE),
                         ArgumentMatchers.any(), ArgumentMatchers.any());
@@ -549,7 +557,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     // completion throws, so the certificate must NOT be rolled back to FAILED and the binding must be left in place
     // for reconciliation.
     @Test
-    void syncOkButLocalCompletionFailureDoesNotFailTheCertificate() throws Exception {
+    void leavesTheCertificateUnfailed_whenLocalCompletionFailsAfterSyncOk() throws Exception {
+        // given
         RegisterCapability adapter = registerCapableAdapter();
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
@@ -558,10 +567,13 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
                 .when(certificateService)
                 .issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);
 
-        assertThatThrownBy(this::issue)
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue)
                 .isInstanceOf(CertificateOperationException.class)
                 .hasMessageNotContaining(leakySecret);
-
         // State-divergence rule: no FAILED transition after the connector accepted.
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
@@ -579,15 +591,19 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     }
 
     @Test
-    void syncOkWithEmptyBodyLeavesCertificateClaimedForReconciliation() throws Exception {
+    void leavesTheCertificateClaimedForReconciliation_whenSyncOkHasAnEmptyBody() throws Exception {
+        // given
         RegisterCapability adapter = registerCapableAdapter();
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("", List.of(), CertificateType.X509));
 
-        assertThatThrownBy(this::issue)
+        // when
+        ThrowingCallable issue = this::issue;
+
+        // then
+        assertThatThrownBy(issue)
                 .isInstanceOf(CertificateOperationException.class)
                 .hasMessageContaining("reconcile manually");
-
         verify(certificateService, never())
                 .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                         ArgumentMatchers.any());
@@ -604,14 +620,17 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
     // The binding, not the state, is the dispatch discriminator: a placeholder moved to PENDING_APPROVAL still
     // carries its binding, so on approval-close replay it must take the register-bound path, not the v2 client.
     @Test
-    void pendingApprovalPlaceholderWithBindingDispatchesToRegisterBoundPath() throws Exception {
+    void dispatchesToTheRegisterBoundPath_whenAPendingApprovalPlaceholderHasABinding() throws Exception {
+        // given
         RegisterCapability adapter = registerCapableAdapter();
         certificate.setState(CertificateState.PENDING_APPROVAL);
         when(adapter.issueRegistered(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
 
+        // when
         issue();
 
+        // then
         verify(adapter)
                 .issueRegistered(ArgumentMatchers.eq(certificate), ArgumentMatchers.any(), ArgumentMatchers.any());
         verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);

@@ -2946,6 +2946,23 @@ class CertificateServiceITest extends BaseSpringBootTest {
             assertNotStoredAsIssued(requestedUuid);
         }
 
+        @Test
+        void refusesTheContent_whenItIsNotValidBase64() {
+            // given
+            UUID requestedUuid = savePendingIssueCertificate();
+            var invalidBase64 = "%%%";
+
+            // when
+            ThrowingCallable issue = () -> certificateService
+                    .issueRequestedCertificate(requestedUuid, invalidBase64, null, null);
+
+            // then
+            assertThatThrownBy(issue)
+                    .isInstanceOf(IssuedCertificateRefusedException.class)
+                    .hasMessageContaining(CertificateType.X509.getLabel());
+            assertNotStoredAsIssued(requestedUuid);
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         private UUID savePendingIssueCertificate() {

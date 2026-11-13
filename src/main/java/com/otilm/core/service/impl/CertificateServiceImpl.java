@@ -2750,6 +2750,18 @@ public class CertificateServiceImpl
                         CertificateUtil.getKeyAlgorithmStringFromProviderName(csrPublicKey.getAlgorithm()));
     }
 
+    private static ParsedCertificate readIssuedCertificate(CertificateTypeHandler handler, String certificateData,
+            CertificateType requestedType) {
+        String refusal = "The authority returned content that is not a certificate of type " + requestedType.getLabel();
+        byte[] content;
+        try {
+            content = CertificateUtil.decodeCertificateContent(certificateData);
+        } catch (IllegalArgumentException e) {
+            throw new IssuedCertificateRefusedException(refusal);
+        }
+        return handler.parseCertificate(content).orElseThrow(() -> new IssuedCertificateRefusedException(refusal));
+    }
+
     /** Links the alternative key of a hybrid X.509 certificate; other types have none. */
     private void uploadAlternativeKey(Certificate certificate, ParsedCertificate issued) throws CertificateException {
         if (!CertificateType.X509.getCode().equals(issued.typeCode())) {
@@ -2784,11 +2796,7 @@ public class CertificateServiceImpl
                             .formatted(returnedType.getLabel(), requestedType.getLabel()));
         }
         CertificateTypeHandler handler = typeHandlerRegistry.require(requestedType.getCode());
-        ParsedCertificate issued = handler
-                .parseCertificate(CertificateUtil.decodeCertificateContent(certificateData))
-                .orElseThrow(() -> new IssuedCertificateRefusedException(
-                        "The authority returned content that is not a certificate of type "
-                                + requestedType.getLabel()));
+        ParsedCertificate issued = readIssuedCertificate(handler, certificateData, requestedType);
         String fingerprint = issued.properties().fingerprint();
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
             throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);

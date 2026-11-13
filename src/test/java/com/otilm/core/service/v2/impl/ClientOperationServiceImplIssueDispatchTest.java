@@ -392,19 +392,6 @@ class ClientOperationServiceImplIssueDispatchTest {
         assertNoFailTransitionAndReconcileEventRecorded();
     }
 
-    private void assertNoFailTransitionAndReconcileEventRecorded() throws Exception {
-        verify(certificateService, never())
-                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
-                        ArgumentMatchers.any());
-        verify(stateMachine, never())
-                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
-                        ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
-        verify(certificateEventHistoryService)
-                .addEventHistory(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
-                        ArgumentMatchers.eq(CertificateEventStatus.FAILED),
-                        ArgumentMatchers.contains("reconcile manually"), ArgumentMatchers.eq(""));
-    }
-
     @Test
     void leavesCertificateUnfailed_whenPostAcceptanceLocalFailureOccurs() throws Exception {
         // given
@@ -529,11 +516,13 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .when(certificateService)
                 .issueRequestedCertificate(certUuid, certificateData, List.of(), CertificateType.X509);
 
-        // when / then — state-divergence rule: surface a shaped error but do NOT roll the cert back to FAILED
-        assertThatThrownBy(() -> service.issueCertificateAction(certUuid, true))
+        // when
+        ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
+
+        // then — state-divergence rule: surface a shaped error but do NOT roll the cert back to FAILED
+        assertThatThrownBy(issue)
                 .isInstanceOf(CertificateOperationException.class)
                 .hasMessageNotContaining(leakySecret);
-
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
                         ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
@@ -865,6 +854,19 @@ class ClientOperationServiceImplIssueDispatchTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void assertNoFailTransitionAndReconcileEventRecorded() throws Exception {
+        verify(certificateService, never())
+                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.any());
+        verify(stateMachine, never())
+                .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
+                        ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+        verify(certificateEventHistoryService)
+                .addEventHistory(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateEvent.ISSUE),
+                        ArgumentMatchers.eq(CertificateEventStatus.FAILED),
+                        ArgumentMatchers.contains("reconcile manually"), ArgumentMatchers.eq(""));
+    }
 
     private void stubPollableAuthorityAcceptingAsynchronously() throws Exception {
         AuthorityProviderAdapter asyncAdapter = mock(AuthorityProviderAdapter.class,

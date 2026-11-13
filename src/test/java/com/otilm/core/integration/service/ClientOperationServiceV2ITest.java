@@ -222,6 +222,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.CertificateContentBuilder.aCertificateContent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -1672,7 +1673,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         KeyPair currentKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         storeAsCurrentCertificate(currentKeys, subjectDn);
         ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
-        request.setRequest(pkcs10Of(currentKeys, subjectDn));
+        request.setRequest(generatePkcs10(currentKeys, subjectDn));
 
         // when
         ClientCertificateDataResponseDto renewed = clientOperationService
@@ -1680,7 +1681,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         certificate.getUuid().toString(), request);
 
         // then
-        assertThat(storedRequestFormatOf(renewed)).isEqualTo(CertificateRequestFormat.PKCS10);
+        assertThat(loadStoredRequestFormat(renewed)).isEqualTo(CertificateRequestFormat.PKCS10);
     }
 
     @Test
@@ -1749,7 +1750,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         storeAsCurrentCertificate(CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null), subjectDn);
         KeyPair newKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
-        request.setRequest(pkcs10Of(newKeys, subjectDn));
+        request.setRequest(generatePkcs10(newKeys, subjectDn));
 
         // when
         ClientCertificateDataResponseDto rekeyed = clientOperationService
@@ -1757,7 +1758,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         certificate.getUuid().toString(), request);
 
         // then
-        assertThat(storedRequestFormatOf(rekeyed)).isEqualTo(CertificateRequestFormat.PKCS10);
+        assertThat(loadStoredRequestFormat(rekeyed)).isEqualTo(CertificateRequestFormat.PKCS10);
     }
 
     @Test
@@ -2561,33 +2562,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         certificate.setCertificateRequestUuid(csr.getUuid());
         certificateRepository.save(certificate);
         return certificate.getUuid();
-    }
-
-    @Test
-    void issueCertificateAction_pushesToLocationLinkedAfterTheClaim() throws Exception {
-        UUID certUuid = prepareCertificateForIssuance();
-        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push"))
-                        .willReturn(WireMock.okJson("{\"withKey\": true}")));
-        // A pending certificate can be linked to a location at any time before it is issued.
-        doAnswer(inv -> {
-            placeOnLocation(certUuid, "linked-after-claim");
-            return inv.callRealMethod();
-        }).when(certificateService).issueRequestedCertificate(any(), any(), any(), any());
-
-        clientOperationInternalService.issueCertificateAction(certUuid, true);
-
-        mockServer
-                .verify(1,
-                        WireMock
-                                .postRequestedFor(
-                                        WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push")));
     }
 
     @Test
@@ -3570,35 +3544,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                 + "to precede ISSUED on the sync renew path");
     }
 
-    @Test
-    void renewCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
-            throws Exception {
-        // given - the connector renews synchronously, then recording the issued successor fails
-        prepareCertificateForRenewal();
-        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
-        doThrow(new RuntimeException("internal db detail"))
-                .when(certificateService)
-                .issueRequestedCertificate(any(), any(), any(), any());
-        ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
-        UUID successorUuid = certificate.getUuid();
-
-        // when
-        CertificateOperationException ex = Assertions
-                .assertThrows(CertificateOperationException.class,
-                        () -> clientOperationInternalService.renewCertificateAction(successorUuid, request, true));
-
-        // then
-        Assertions
-                .assertEquals("Connector accepted renewal but local update failed for certificate %s: internal error"
-                        .formatted(successorUuid), ex.getMessage());
-        assertFailedHistory(CertificateEvent.RENEW,
-                "Connector accepted renewal but local update failed: internal error");
-    }
-
     /**
      * The synchronous (HTTP 200) rekey path moves the new certificate to PENDING_ISSUE via the state machine BEFORE the
      * connector call, then finishes in ISSUED — mirroring the renew path.
@@ -3628,34 +3573,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                                         && "Certificate requested".equals(h.getMessage())),
                         "expected the PENDING_ISSUE audit row (ISSUE/SUCCESS, \"Certificate requested\") "
                                 + "to precede ISSUED on the sync rekey path");
-    }
-
-    @Test
-    void rekeyCertificateAction_keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance()
-            throws Exception {
-        // given - the connector rekeys synchronously, then recording the issued successor fails
-        prepareCertificateForRenewal();
-        String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
-        mockServer
-                .stubFor(WireMock
-                        .post(WireMock.urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
-                        .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
-        doThrow(new RuntimeException("internal db detail"))
-                .when(certificateService)
-                .issueRequestedCertificate(any(), any(), any(), any());
-        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
-        UUID successorUuid = certificate.getUuid();
-
-        // when
-        CertificateOperationException ex = Assertions
-                .assertThrows(CertificateOperationException.class,
-                        () -> clientOperationInternalService.rekeyCertificateAction(successorUuid, request, true));
-
-        // then
-        Assertions
-                .assertEquals("Connector accepted rekey but local update failed for certificate %s: internal error"
-                        .formatted(successorUuid), ex.getMessage());
-        assertFailedHistory(CertificateEvent.REKEY, "Connector accepted rekey but local update failed: internal error");
     }
 
     @Test
@@ -5999,6 +5916,35 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class RenewCertificateAction {
 
         @Test
+        void keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance() throws Exception {
+            // given — the connector renews synchronously, then recording the issued successor fails
+            prepareCertificateForRenewal();
+            String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                            .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+            doThrow(new RuntimeException("internal db detail"))
+                    .when(certificateService)
+                    .issueRequestedCertificate(any(), any(), any(), any());
+            ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
+            UUID successorUuid = certificate.getUuid();
+
+            // when
+            ThrowingCallable renew = () -> clientOperationInternalService
+                    .renewCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(renew)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessage("Connector accepted renewal but local update failed for certificate %s: internal error"
+                            .formatted(successorUuid));
+            assertFailedHistory(CertificateEvent.RENEW,
+                    "Connector accepted renewal but local update failed: internal error");
+        }
+
+        @Test
         void doesNotLogConnectorText_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
@@ -6178,6 +6124,35 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class RekeyCertificateAction {
 
         @Test
+        void keepsRuntimeCauseOutOfHistoryAndError_whenLocalUpdateFailsAfterAcceptance() throws Exception {
+            // given — the connector rekeys synchronously, then recording the issued successor fails
+            prepareCertificateForRenewal();
+            String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/renew"))
+                            .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+            doThrow(new RuntimeException("internal db detail"))
+                    .when(certificateService)
+                    .issueRequestedCertificate(any(), any(), any(), any());
+            ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+            UUID successorUuid = certificate.getUuid();
+
+            // when
+            ThrowingCallable rekey = () -> clientOperationInternalService
+                    .rekeyCertificateAction(successorUuid, request, true);
+
+            // then
+            assertThatThrownBy(rekey)
+                    .isInstanceOf(CertificateOperationException.class)
+                    .hasMessage("Connector accepted rekey but local update failed for certificate %s: internal error"
+                            .formatted(successorUuid));
+            assertFailedHistory(CertificateEvent.REKEY,
+                    "Connector accepted rekey but local update failed: internal error");
+        }
+
+        @Test
         void doesNotLogConnectorText_whenTheAuthorityRefuses() {
             // given
             var connectorEcho = "connector-echo-7f3a";
@@ -6288,6 +6263,35 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     class IssueCertificateAction {
 
         @Test
+        void pushesToALocationLinkedAfterTheClaim() throws Exception {
+            // given — a pending certificate can be linked to a location at any time before it is issued
+            UUID certUuid = prepareCertificateForIssuance();
+            String certificateData = Base64.getEncoder().encodeToString(x509Cert.getEncoded());
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock
+                                    .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue"))
+                            .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
+            mockServer
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push"))
+                            .willReturn(WireMock.okJson("{\"withKey\": true}")));
+            doAnswer(inv -> {
+                placeOnLocation(certUuid, "linked-after-claim");
+                return inv.callRealMethod();
+            }).when(certificateService).issueRequestedCertificate(any(), any(), any(), any());
+
+            // when
+            clientOperationInternalService.issueCertificateAction(certUuid, true);
+
+            // then
+            mockServer
+                    .verify(1, WireMock
+                            .postRequestedFor(
+                                    WireMock.urlPathMatching("/v1/entityProvider/entities/[^/]+/locations/push")));
+        }
+
+        @Test
         void failsTheCertificateWithoutConnectorText_whenTheLocationRejectsCleaningItUp() {
             // given
             var locationEcho = "location-echo-4c1d";
@@ -6319,21 +6323,23 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         X509Certificate issuer = CertificateGeneratorHelper.generateCACertificate(issuerKeys, subjectDn + "-issuer");
         X509Certificate current = CertificateGeneratorHelper
                 .generateEndEntityCertificate(issuerKeys, issuer, holderKeys, subjectDn, null);
-        CertificateContent content = new CertificateContent();
-        content.setContent(Base64.getEncoder().encodeToString(current.getEncoded()));
-        certificateContentRepository.save(content);
+        CertificateContent content = certificateContentRepository
+                .save(aCertificateContent()
+                        .withContent(Base64.getEncoder().encodeToString(current.getEncoded()))
+                        .build());
         certificate.setCertificateContent(content);
         certificate.setHybridCertificate(false);
         certificate.setAltKeyUuid(null);
         certificateRepository.save(certificate);
     }
 
-    private static String pkcs10Of(KeyPair keys, String subjectDn) throws Exception {
+    private static String generatePkcs10(KeyPair keys, String subjectDn) throws Exception {
         return CertificateGeneratorHelper
                 .generateCsrBase64Der(keys.getPrivate(), keys.getPublic(), subjectDn, "SHA256withRSA");
     }
 
-    private CertificateRequestFormat storedRequestFormatOf(ClientCertificateDataResponseDto response) throws Exception {
+    private CertificateRequestFormat loadStoredRequestFormat(ClientCertificateDataResponseDto response)
+            throws Exception {
         return certificateExternalService
                 .getCertificate(SecuredUUID.fromString(response.getUuid()))
                 .getCertificateRequest()

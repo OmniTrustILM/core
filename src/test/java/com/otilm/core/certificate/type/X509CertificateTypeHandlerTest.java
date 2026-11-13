@@ -643,7 +643,7 @@ class X509CertificateTypeHandlerTest {
         // given
         ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
         ParsedRequest undecodableKey = handler
-                .readRequest(Base64.getEncoder().encodeToString(pkcs10WithUnknownKeyAlgorithm(SUBJECT_DN)),
+                .readRequest(Base64.getEncoder().encodeToString(createPkcs10WithUnknownKeyAlgorithm(SUBJECT_DN)),
                         CertificateRequestFormat.PKCS10);
 
         // when
@@ -984,7 +984,7 @@ class X509CertificateTypeHandlerTest {
         return out.toByteArray();
     }
 
-    private static byte[] pkcs10WithUnknownKeyAlgorithm(String subjectDn) throws Exception {
+    private static byte[] createPkcs10WithUnknownKeyAlgorithm(String subjectDn) throws Exception {
         var unknownKey = new SubjectPublicKeyInfo(new AlgorithmIdentifier(new ASN1ObjectIdentifier("1.2.3.4.5")),
                 new byte[16]);
         var unsigned = new CertificationRequest(new CertificationRequestInfo(new X500Name(subjectDn), unknownKey, null),
