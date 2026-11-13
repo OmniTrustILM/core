@@ -4,21 +4,24 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.OneTimeKeyManagedSigningRequestDto;
 import com.otilm.api.model.client.signing.profile.scheme.SigningSchemeRequestDto;
+import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.core.signing.engine.signer.PrehashedSigning;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
-/**
- * What a raw signing profile cannot carry. Each rule is checked when the profile is saved, so a profile that could only
- * fail on every request is never stored.
- */
+/** The rules a signing profile is saved under because raw signing exists. */
 public final class RawSigningProfileRules {
 
     private RawSigningProfileRules() {
     }
 
-    /** Only the static-key scheme resolves for raw signing. */
+    /**
+     * Only the static-key scheme resolves for raw signing, so a one-time-key raw profile would save cleanly and then
+     * fail on every request.
+     */
     public static void refuseOneTimeKey(SigningSchemeRequestDto scheme) {
         if (scheme instanceof OneTimeKeyManagedSigningRequestDto) {
             throw new ValidationException("Raw signing does not support the %s managed signing type"
@@ -36,16 +39,34 @@ public final class RawSigningProfileRules {
     }
 
     /**
-     * A digest signed through a raw signing profile could forge what a profile of another workflow attests with the
-     * same certificate, so a certificate that serves raw signing serves no other workflow.
-     *
-     * @param holderProfileNames the profiles of another workflow whose latest version signs with the certificate
+     * The workflows whose profiles may not sign with the same key as a profile of the given workflow. A signature over
+     * a raw digest is the same whichever certificate carries the key, so a raw caller could sign the digest of a
+     * TSTInfo or of CMS signed attributes and forge what a timestamping or content-signing profile on that key attests.
+     * Content signing and timestamping each sign only what they format themselves, so they may share a key.
      */
-    public static void refuseCertificateHeldByAnotherWorkflow(UUID certificateUuid, List<String> holderProfileNames) {
-        if (!holderProfileNames.isEmpty()) {
-            throw new ValidationException(
-                    "Certificate %s is used by Signing Profile(s) of another workflow, and a certificate that signs raw digests serves no other workflow: %s"
-                            .formatted(certificateUuid, String.join(", ", holderProfileNames)));
+    public static Set<SigningWorkflowType> conflictingWorkflows(SigningWorkflowType workflowType) {
+        return workflowType == SigningWorkflowType.RAW_SIGNING
+                ? EnumSet.complementOf(EnumSet.of(SigningWorkflowType.RAW_SIGNING))
+                : EnumSet.of(SigningWorkflowType.RAW_SIGNING);
+    }
+
+    /**
+     * Refuses a key that profiles of a {@link #conflictingWorkflows conflicting workflow} already sign with.
+     *
+     * @param workflowType the workflow of the profile being saved
+     * @param conflictingProfileNames the profiles of a conflicting workflow whose latest version signs with the key
+     */
+    public static void refuseSharedSigningKey(SigningWorkflowType workflowType, UUID certificateUuid,
+            List<String> conflictingProfileNames) {
+        if (conflictingProfileNames.isEmpty()) {
+            return;
         }
+        String profileNames = String.join(", ", conflictingProfileNames);
+        String conflict = workflowType == SigningWorkflowType.RAW_SIGNING
+                ? "The signing key of certificate %s also signs for Signing Profile(s) of another workflow: %s"
+                        .formatted(certificateUuid, profileNames)
+                : "The signing key of certificate %s signs raw digests for Signing Profile(s): %s"
+                        .formatted(certificateUuid, profileNames);
+        throw new ValidationException(conflict + ". A key that signs raw digests can serve no other workflow.");
     }
 }

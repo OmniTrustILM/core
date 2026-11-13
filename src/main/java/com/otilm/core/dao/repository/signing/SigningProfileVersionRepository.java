@@ -2,6 +2,7 @@ package com.otilm.core.dao.repository.signing;
 
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -44,19 +45,19 @@ public interface SigningProfileVersionRepository extends JpaRepository<SigningPr
     Optional<SigningProfileVersion> findLatestByProfileUuid(UUID signingProfileUuid);
 
     /**
-     * Names the profiles whose latest version signs with the certificate under a workflow other than the given one.
-     * Superseded versions do not count: they never sign again.
+     * Names the profiles of the given workflows whose latest version signs with the key, through whichever certificate
+     * carries it. Superseded versions do not count: they never sign again.
      *
      * @param excludedProfileUuid the profile being saved, which may change its own workflow; null on create
      */
     @Query("""
             SELECT DISTINCT v.signingProfile.name FROM SigningProfileVersion v
-            WHERE v.certificateUuid = :certificateUuid
-              AND v.workflowType <> :workflowType
+            WHERE v.certificate.keyUuid = :keyUuid
+              AND v.workflowType IN :workflowTypes
               AND v.version = v.signingProfile.latestVersion
               AND (CAST(:excludedProfileUuid AS java.util.UUID) IS NULL OR v.signingProfileUuid <> :excludedProfileUuid)
             ORDER BY v.signingProfile.name
             """)
-    List<String> findLatestProfileNamesByCertificateAndOtherWorkflow(UUID certificateUuid,
-            SigningWorkflowType workflowType, UUID excludedProfileUuid);
+    List<String> findLatestProfileNamesBySigningKeyAndWorkflowIn(UUID keyUuid,
+            Collection<SigningWorkflowType> workflowTypes, UUID excludedProfileUuid);
 }

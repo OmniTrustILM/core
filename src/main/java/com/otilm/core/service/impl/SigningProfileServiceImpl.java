@@ -459,7 +459,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, null);
-        validateRawSigningWorkflow(request, null);
+        validateRawSigningWorkflow(request);
+        validateSigningKeyWorkflowBinding(request, null);
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -512,7 +513,8 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
         validateSigningSchemeCoherence(request.getSigningScheme());
         attributeEngine.validateCustomAttributesContent(Resource.SIGNING_PROFILE, request.getCustomAttributes());
         validateContentSigningWorkflow(request, uuid.getValue());
-        validateRawSigningWorkflow(request, uuid.getValue());
+        validateRawSigningWorkflow(request);
+        validateSigningKeyWorkflowBinding(request, uuid.getValue());
         List<BaseAttribute> formattingDefinitions = fetchFormattingAttributeDefinitions(request.getWorkflow(),
                 request.getSigningScheme().getSigningScheme());
         AttributesWithOwner signingSchema = fetchValidatedSigningOperationSchema(request.getSigningScheme());
@@ -1103,29 +1105,43 @@ public class SigningProfileServiceImpl implements SigningProfileExternalService,
     }
 
     /**
-     * Runs outside the persistence transaction, beside {@code validateContentSigningWorkflow}. The certificate rule
-     * binds every workflow: a raw profile refuses a certificate that a profile of another workflow signs with, and
-     * those profiles refuse one that a raw profile signs with. A delegated profile names no certificate, since its
-     * signer connector holds the key, so neither the algorithm nor the certificate rule applies to it.
+     * Runs outside the persistence transaction, beside {@code validateContentSigningWorkflow}. A delegated raw profile
+     * names no certificate, since its signer connector holds the key, so the algorithm rule does not apply to it.
      */
-    private void validateRawSigningWorkflow(SigningProfileRequestDto request, @Nullable UUID targetProfileUuid)
-            throws NotFoundException {
+    private void validateRawSigningWorkflow(SigningProfileRequestDto request) throws NotFoundException {
+        if (!(request.getWorkflow() instanceof RawSigningWorkflowRequestDto)) {
+            return;
+        }
         SigningSchemeRequestDto scheme = request.getSigningScheme();
-        if (request.getWorkflow() instanceof RawSigningWorkflowRequestDto) {
-            RawSigningProfileRules.refuseOneTimeKey(scheme);
-            if (scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme) {
-                requireCertificateAccess(staticKeyScheme.getCertificateUuid());
-                RawSigningProfileRules
-                        .requirePrehashedSigning(signatureAlgorithmOf(request.getName(), staticKeyScheme));
-            }
+        RawSigningProfileRules.refuseOneTimeKey(scheme);
+        if (!(scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme)) {
+            return;
         }
-        if (scheme instanceof StaticKeyManagedSigningRequestDto staticKeyScheme) {
-            UUID certificateUuid = staticKeyScheme.getCertificateUuid();
-            List<String> otherWorkflowHolders = signingProfileVersionRepository
-                    .findLatestProfileNamesByCertificateAndOtherWorkflow(certificateUuid,
-                            request.getWorkflow().getType(), targetProfileUuid);
-            RawSigningProfileRules.refuseCertificateHeldByAnotherWorkflow(certificateUuid, otherWorkflowHolders);
+        requireCertificateAccess(staticKeyScheme.getCertificateUuid());
+        RawSigningProfileRules.requirePrehashedSigning(signatureAlgorithmOf(request.getName(), staticKeyScheme));
+    }
+
+    /**
+     * Binds every workflow, outside the persistence transaction: a raw profile refuses a key that content-signing or
+     * timestamping profiles sign with, and those profiles refuse a key a raw profile signs with, whichever certificates
+     * carry it. Only a static-key profile names a key ILM signs with.
+     */
+    private void validateSigningKeyWorkflowBinding(SigningProfileRequestDto request, @Nullable UUID targetProfileUuid)
+            throws NotFoundException {
+        if (!(request.getSigningScheme() instanceof StaticKeyManagedSigningRequestDto scheme)) {
+            return;
         }
+        UUID certificateUuid = scheme.getCertificateUuid();
+        UUID keyUuid = certificateService.getSigningCertificate(certificateUuid).keyUuid();
+        if (keyUuid == null) {
+            // The eligibility check refuses a certificate without a key.
+            return;
+        }
+        SigningWorkflowType workflowType = request.getWorkflow().getType();
+        List<String> conflictingProfileNames = signingProfileVersionRepository
+                .findLatestProfileNamesBySigningKeyAndWorkflowIn(keyUuid,
+                        RawSigningProfileRules.conflictingWorkflows(workflowType), targetProfileUuid);
+        RawSigningProfileRules.refuseSharedSigningKey(workflowType, certificateUuid, conflictingProfileNames);
     }
 
     /**

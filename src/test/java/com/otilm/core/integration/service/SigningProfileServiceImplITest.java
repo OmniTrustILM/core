@@ -252,6 +252,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     private TokenInstanceDetailDto tokenInstance;
     private TokenProfileDetailDto defaultTokenProfile;
     private KeyPair keyPair;
+    private KeyPair timestampingKeyPair;
     private KeyDetailDto key;
     private Certificate defaultSigningCertificate;
     private Certificate defaultRawSigningCertificate;
@@ -514,14 +515,19 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                 .createKey(UUID.fromString(tokenInstance.getUuid()),
                         SecuredParentUUID.fromString(defaultTokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
                         aKeyPairRequest().withName("soft-key-pair").build());
+        // Raw signing shares its key with no other workflow, so the raw and timestamping defaults each sign with one
+        // of their own.
+        KeyPair rawKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        createTokenKey(rawKeyPair, KeyAlgorithm.RSA, "soft-raw-key-pair");
+        timestampingKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        createTokenKey(timestampingKeyPair, KeyAlgorithm.RSA, "soft-timestamping-key-pair");
 
         // Establish a trusted root CA, then leaves signed by it and built from the token key pair.
         // Uploading a leaf associates it (by public-key fingerprint) with the token-backed key.
         TestCertificateAuthority.TrustedCa trustedCa = testCertificateAuthority.createTrustedCa("CN=Test Root CA");
         defaultSigningCertificate = trustedCa.issueSigningCertificate(keyPair, "CN=Test Signing");
-        // A raw profile shares its certificate with no other workflow, so the default one holds its own.
-        defaultRawSigningCertificate = trustedCa.issueSigningCertificate(keyPair, "CN=Test Raw Signing");
-        defaultTimestampingCertificate = trustedCa.issueTimestampingCertificate(keyPair, "CN=Test TSA");
+        defaultRawSigningCertificate = trustedCa.issueSigningCertificate(rawKeyPair, "CN=Test Raw Signing");
+        defaultTimestampingCertificate = trustedCa.issueTimestampingCertificate(timestampingKeyPair, "CN=Test TSA");
 
         // Create signing profiles
         defaultDelegatedSigningProfile = signingProfileService
@@ -2463,8 +2469,47 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
                     .hasMessageContaining(contentProfile.getName());
             assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesRawProfile_whenKeyIsBoundToTimestampingProfileThroughAnotherCertificate() throws Exception {
+            // given — defaultTimestampingProfile signs with the key of a second certificate
+            Certificate secondCertificateOnTheKey = issueSigningCertificate(timestampingKeyPair,
+                    "Signing on the TSA key");
+            assertThat(keyUuidOf(secondCertificateOnTheKey)).isEqualTo(keyUuidOf(defaultTimestampingCertificate));
+            SigningProfileRequestDto rawRequest = aSigningProfileRequest()
+                    .withName("raw-on-the-tsa-key")
+                    .withStaticKeyManagedSigning(secondCertificateOnTheKey.getUuid())
+                    .withRawSigning()
+                    .build();
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService.createSigningProfile(rawRequest);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("also signs for Signing Profile(s) of another workflow")
+                    .hasMessageContaining(defaultTimestampingProfile.getName());
+            assertThat(signingProfileRepository.findByName(rawRequest.getName())).isEmpty();
+        }
+
+        @Test
+        void admitsContentProfile_whenKeyIsBoundOnlyToTimestampingProfile() throws Exception {
+            // given — defaultTimestampingProfile, the only profile signing with the key of a second certificate
+            Certificate secondCertificateOnTheKey = issueSigningCertificate(timestampingKeyPair,
+                    "Content signing on the TSA key");
+            assertThat(keyUuidOf(secondCertificateOnTheKey)).isEqualTo(keyUuidOf(defaultTimestampingCertificate));
+
+            // when
+            SigningProfileDto created = createManagedContentProfile("content-on-the-tsa-key",
+                    secondCertificateOnTheKey.getUuid());
+
+            // then
+            assertThat(created.getWorkflow()).isInstanceOf(ContentSigningWorkflowDto.class);
         }
 
         @Test
@@ -2482,13 +2527,14 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThatThrownBy(create)
                     .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("signs raw digests for Signing Profile(s)")
                     .hasMessageContaining(defaultManagedStaticKeySigningProfile.getName());
             assertThat(signingProfileRepository.findByName(contentRequest.getName())).isEmpty();
         }
 
         @Test
         void updateRawProfile_admitsItsOwnCertificate() throws Exception {
-            // given — a content profile, the only profile holding its certificate
+            // given — a content profile, the only profile signing with its certificate's key
             SigningProfileDto contentProfile = createManagedContentProfile("content-turning-raw",
                     defaultSigningCertificate.getUuid());
             SigningProfileRequestDto toRaw = aSigningProfileRequestFromExistingProfile(contentProfile)
@@ -2509,7 +2555,8 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
         @Test
         void refusesNothing_whenCertificateIsBoundOnlyToASupersededVersion() throws Exception {
-            // given — a content profile whose latest version left the certificate that version 1 still names
+            // given — a content profile whose latest version left the certificate, and so the key, that version 1
+            // still names
             SigningProfileDto movedAway = createManagedContentProfile("content-that-moved-away",
                     defaultSigningCertificate.getUuid());
             createSigningRecordFor(movedAway);
@@ -2544,6 +2591,19 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
                             .withStaticKeyManagedSigning(certificateUuid)
                             .withManagedContentSigning(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                             .build());
+        }
+
+        private Certificate issueSigningCertificate(KeyPair keyPair, String commonName) throws Exception {
+            return testCertificateAuthority
+                    .createTrustedCa("CN=" + commonName + " Root")
+                    .issueSigningCertificate(keyPair, "CN=" + commonName);
+        }
+
+        private UUID keyUuidOf(Certificate certificate) {
+            return certificateRepository
+                    .findByUuid(SecuredUUID.fromUUID(certificate.getUuid()))
+                    .orElseThrow()
+                    .getKeyUuid();
         }
 
         private Certificate issueMlDsa65SigningCertificate() throws Exception {
