@@ -116,9 +116,9 @@ class ClientOperationServiceImplIssueDispatchTest {
         service.setCertificateRepository(certificateRepository);
         raProfileRepository = mock(RaProfileRepository.class);
         service.setRaProfileRepository(raProfileRepository);
-        service
-                .setRequestFormatResolver(new RequestFormatResolver(
-                        new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler()))));
+        var typeHandlerRegistry = new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler()));
+        service.setRequestFormatResolver(new RequestFormatResolver(typeHandlerRegistry));
+        service.setTypeHandlerRegistry(typeHandlerRegistry);
         service.setAuthorityCertificateTypes(new AuthorityCertificateTypes());
         service.setCertificateRegistrationRepository(certificateRegistrationRepository);
         service.setCertificateLocationRepository(certificateLocationRepository);

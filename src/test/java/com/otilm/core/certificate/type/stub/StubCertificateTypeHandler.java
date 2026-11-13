@@ -1,5 +1,8 @@
 package com.otilm.core.certificate.type.stub;
 
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
@@ -9,6 +12,7 @@ import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerException;
 import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
+import com.otilm.core.certificate.type.RequestSigning;
 import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
 import com.otilm.core.dao.entity.Certificate;
@@ -21,6 +25,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -77,6 +82,38 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
         return Optional
                 .of(new ParsedRequest(TYPE_CODE, CertificateRequestFormat.PKCS10, content, fields[1],
                         publicKey(fields[2])));
+    }
+
+    @Override
+    public ParsedRequest readRequest(String content, CertificateRequestFormat format)
+            throws CertificateRequestException {
+        return parseRequest(content.getBytes(StandardCharsets.UTF_8))
+                .orElseThrow(() -> new CertificateRequestException("The content is not a stub request"));
+    }
+
+    @Override
+    public String generateRequest(List<DataAttributeV3> definitions, List<RequestAttribute> requestAttributes,
+            CertificateRequestFormat format, RequestSigning signing) {
+        throw new UnsupportedOperationException("The stub type generates no requests");
+    }
+
+    @Override
+    public String generateRekeyRequest(ParsedCertificate current, RequestSigning signing) {
+        throw new UnsupportedOperationException("The stub type generates no requests");
+    }
+
+    @Override
+    public void requireSameKey(ParsedRequest request, ParsedCertificate certificate) {
+        if (!request.publicKey().equals(certificate.properties().publicKey())) {
+            throw new CertificateTypeHandlerException("The stub request is for another key than the certificate");
+        }
+    }
+
+    @Override
+    public void checkRekeyRequest(ParsedRequest request, ParsedCertificate current) {
+        if (request.publicKey().equals(current.properties().publicKey())) {
+            throw new CertificateTypeHandlerException("The stub request keeps the key of the certificate");
+        }
     }
 
     @Override

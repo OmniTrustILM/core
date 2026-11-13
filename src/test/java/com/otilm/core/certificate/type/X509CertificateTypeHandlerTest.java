@@ -1,5 +1,7 @@
 package com.otilm.core.certificate.type;
 
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
@@ -17,15 +19,18 @@ import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.X509ObjectToString;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.PublicKey;
 import java.security.Security;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.Base64;
@@ -33,6 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -49,7 +55,12 @@ import org.junit.jupiter.api.Test;
 import static com.otilm.core.util.StubCertificateFixtures.certificate;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class X509CertificateTypeHandlerTest {
 
@@ -552,6 +563,188 @@ class X509CertificateTypeHandlerTest {
         assertThat(new String(encoded, StandardCharsets.UTF_8)).startsWith("-----BEGIN CERTIFICATE-----");
         assertThat(handler.parseCertificate(encoded).orElseThrow().encoded())
                 .isEqualTo(chain.getEndEntityCertificate().getEncoded());
+    }
+
+    @Test
+    void readsTheRequest_whenItIsGivenInBase64InTheNamedFormat() throws Exception {
+        // given
+        KeyPair holderKeys = chain.getEndEntityCertificateKeyPair();
+        byte[] csr = pkcs10(holderKeys, SUBJECT_DN);
+
+        // when
+        ParsedRequest parsed = handler
+                .readRequest(Base64.getEncoder().encodeToString(csr), CertificateRequestFormat.PKCS10);
+
+        // then
+        assertThat(parsed.format()).isEqualTo(CertificateRequestFormat.PKCS10);
+        assertThat(parsed.encoded()).isEqualTo(csr);
+        assertThat(parsed.holder()).isEqualTo(SUBJECT_DN);
+        assertThat(parsed.publicKey()).isEqualTo(holderKeys.getPublic());
+    }
+
+    @Test
+    void throwsRequestException_whenTheContentIsNotARequest() {
+        // given
+        var notARequest = Base64.getEncoder().encodeToString("not a request".getBytes(StandardCharsets.UTF_8));
+
+        // when
+        ThrowingCallable read = () -> handler.readRequest(notARequest, CertificateRequestFormat.PKCS10);
+
+        // then
+        assertThatThrownBy(read).isInstanceOf(CertificateRequestException.class);
+    }
+
+    @Test
+    void acceptsTheRequest_whenItIsForTheKeyOfTheCertificate() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest sameKey = handler
+                .parseRequest(pkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN))
+                .orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.requireSameKey(sameKey, leaf);
+
+        // then
+        assertThatCode(check).doesNotThrowAnyException();
+    }
+
+    @Test
+    void refusesTheRequest_whenItIsForAnotherKeyThanTheCertificate() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest anotherKey = handler.parseRequest(pkcs10(otherCaKeys, SUBJECT_DN)).orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.requireSameKey(anotherKey, leaf);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Public key of certificate and CSR does not match");
+    }
+
+    @Test
+    void acceptsTheRekeyRequest_whenItHasANewKeyAndTheSameHolder() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest newKey = handler.parseRequest(pkcs10(otherCaKeys, SUBJECT_DN)).orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.checkRekeyRequest(newKey, leaf);
+
+        // then
+        assertThatCode(check).doesNotThrowAnyException();
+    }
+
+    @Test
+    void refusesTheRekeyRequest_whenItKeepsTheKeyOfTheCertificate() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest sameKey = handler
+                .parseRequest(pkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN))
+                .orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.checkRekeyRequest(sameKey, leaf);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Public key of certificate and CSR are same");
+    }
+
+    @Test
+    void refusesTheRekeyRequest_whenItNamesAnotherHolder() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        var anotherHolder = "CN=another-holder";
+        ParsedRequest renamed = handler.parseRequest(pkcs10(otherCaKeys, anotherHolder)).orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.checkRekeyRequest(renamed, leaf);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Subject DN of certificate and CSR does not match");
+    }
+
+    @Test
+    void signsARequestForTheHolderOfTheCertificate_whenGeneratingARekeyRequest() throws Exception {
+        // given
+        var cryptographicOperationService = mock(CryptographicOperationInternalService.class);
+        handler.setCryptographicOperationService(cryptographicOperationService);
+        X509Certificate current = chain.getEndEntityCertificate();
+        var signing = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), null, null, null);
+        var signedRequest = "signed-rekey-request";
+        when(cryptographicOperationService
+                .generateCsr(signing.keyUuid(), signing.tokenProfileUuid(), current.getSubjectX500Principal(), null,
+                        signing.signatureAttributes(), null, null, null))
+                .thenReturn(signedRequest);
+
+        // when
+        String generated = handler.generateRekeyRequest(parsedCertificate(current), signing);
+
+        // then
+        assertThat(generated).isEqualTo(signedRequest);
+    }
+
+    @Test
+    void signsTheRequestWithTheGivenKeys_whenGeneratingARequestFromAttributes() throws Exception {
+        // given
+        var cryptographicOperationService = mock(CryptographicOperationInternalService.class);
+        handler.setCryptographicOperationService(cryptographicOperationService);
+        var signing = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), UUID.randomUUID(),
+                UUID.randomUUID(), List.of());
+        var signedRequest = "signed-request";
+        when(cryptographicOperationService
+                .generateCsr(eq(signing.keyUuid()), eq(signing.tokenProfileUuid()), any(), any(),
+                        eq(signing.signatureAttributes()), eq(signing.altKeyUuid()), eq(signing.altTokenProfileUuid()),
+                        eq(signing.altSignatureAttributes())))
+                .thenReturn(signedRequest);
+
+        // when
+        String generated = handler.generateRequest(List.of(), List.of(), CertificateRequestFormat.PKCS10, signing);
+
+        // then
+        assertThat(generated).isEqualTo(signedRequest);
+    }
+
+    @Test
+    void refusesToGenerate_whenTheFormatIsCrmf() {
+        // given
+        var signing = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), null, null, null);
+        var unsupportedFormat = CertificateRequestFormat.CRMF;
+
+        // when
+        ThrowingCallable generate = () -> handler.generateRequest(List.of(), List.of(), unsupportedFormat, signing);
+
+        // then
+        assertThatThrownBy(generate)
+                .isInstanceOf(CertificateException.class)
+                .hasMessageContaining("CRMF format is not supported");
+    }
+
+    @Test
+    void throwsValidation_whenTheKeyServiceFailsToSignTheRequest() throws Exception {
+        // given
+        var cryptographicOperationService = mock(CryptographicOperationInternalService.class);
+        handler.setCryptographicOperationService(cryptographicOperationService);
+        var signing = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), null, null, null);
+        var signingFailure = "the key cannot sign";
+        when(cryptographicOperationService.generateCsr(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenThrow(new IOException(signingFailure));
+
+        // when
+        ThrowingCallable generate = () -> handler
+                .generateRekeyRequest(parsedCertificate(chain.getEndEntityCertificate()), signing);
+
+        // then
+        assertThatThrownBy(generate)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Failed to generate the CSR")
+                .hasMessageContaining(signingFailure);
     }
 
     @Test
