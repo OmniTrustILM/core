@@ -15,6 +15,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier;
 import com.otilm.core.signing.engine.error.ConnectorRefusalClassifier.Classification;
+import com.otilm.core.signing.engine.error.ItemSigningException;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 
@@ -146,9 +147,10 @@ public class CryptographicOperationServiceSigner implements Signer {
         for (int i = 0; i < digests.size(); i++) {
             if (!PrehashedSignatureVerifier
                     .verifies(signatureAlgorithm, signingKey, digests.get(i), signatures.get(i))) {
-                throw signerFault(
+                throw new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, i,
                         "Signature %d does not verify against its digest under %s; the provider may have hashed it again"
-                                .formatted(i, signatureAlgorithm.getCode()));
+                                .formatted(i, signatureAlgorithm.getCode()),
+                        CLIENT_MESSAGE);
             }
         }
     }
@@ -196,9 +198,17 @@ public class CryptographicOperationServiceSigner implements Signer {
     private static byte[] decodeSignature(SignatureResponseData result, int index) throws SigningEngineException {
         String data = result.getData();
         if (data == null || data.isEmpty()) {
-            throw signerFault("Signing operation returned no signature for item " + index + ": " + result.getDetails());
+            throw new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, index,
+                    "Signing operation returned no signature for item " + index + ": " + result.getDetails(),
+                    CLIENT_MESSAGE);
         }
-        return Base64.getDecoder().decode(data);
+        try {
+            return Base64.getDecoder().decode(data);
+        } catch (IllegalArgumentException e) {
+            throw new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, index,
+                    "Signing operation returned a signature for item " + index + " that is not valid base64", e,
+                    CLIENT_MESSAGE);
+        }
     }
 
     private static SigningEngineException signerFault(String message) {

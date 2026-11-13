@@ -23,6 +23,7 @@ import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.util.unit.DataSize;
@@ -109,6 +110,28 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         String oversizedFormattingContext = "A".repeat(Math.toIntExact(readLimit.toBytes()));
         stubOperation(ContentSigningFormattingOperation.COMPUTE_DTBS,
                 "{\"formattingContext\":\"" + oversizedFormattingContext + "\"}");
+        return this;
+    }
+
+    /**
+     * Answers {@code computeDtbs} for {@code document} alone with a digest of another document. A batch test thus
+     * breaks one document's binding while the others bind.
+     */
+    public ContentSigningFormattingMock stubComputeDtbsEchoingForeignDigestFor(byte[] document) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching(".*" + ContentSigningFormattingPaths
+                                        .operation(ContentSigningFormattingOperation.COMPUTE_DTBS)))
+                        .atPriority(1)
+                        .withRequestBody(WireMock
+                                .matchingJsonPath("$.document.document",
+                                        WireMock.equalTo(Base64.getEncoder().encodeToString(document))))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(200)
+                                .withHeader("Content-Type", "application/json")
+                                .withTransformers(ComputeDtbsEchoTransformer.FOREIGN_NAME)));
         return this;
     }
 
