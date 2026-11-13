@@ -268,8 +268,8 @@ public class OcspUtil {
     }
 
     /**
-     * The request carries the nonce bytes as the extension value. A responder copies that value back, or reads it as
-     * RFC 6960 defines the extension and returns the nonce as a DER OCTET STRING.
+     * The request carries the nonce bytes as the extension value. A responder copies that value back, or takes it as
+     * the nonce and returns it as the DER OCTET STRING that RFC 6960 defines.
      */
     private static boolean nonceMatches(BasicOCSPResp response, OCSPReq request) throws IOException {
         Extension responseNonce = response.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce);

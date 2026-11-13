@@ -3098,7 +3098,10 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             return request.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce).getExtnValue().getOctets();
         }
 
-        /** Encodes the nonce as RFC 6960 defines the extension value, the form a responder that parses it returns. */
+        /**
+         * Encodes the nonce as the DER OCTET STRING that RFC 6960 defines, the form a responder that takes the raw
+         * value as the nonce returns.
+         */
         private static byte[] encodeAsOctetString(byte[] nonce) {
             try {
                 return new DEROctetString(nonce).getEncoded();
