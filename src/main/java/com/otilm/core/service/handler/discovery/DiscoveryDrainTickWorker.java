@@ -4,6 +4,7 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryResultsResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryRunState;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
@@ -41,6 +42,9 @@ public class DiscoveryDrainTickWorker {
 
     private static final Logger logger = LoggerFactory.getLogger(DiscoveryDrainTickWorker.class);
 
+    private static final int MIN_PAGE_ITEMS = 100;
+    private static final long MIN_PAGE_BYTES = 1_048_576L;
+
     private final DiscoveryRepository discoveryRepository;
     private final DiscoveryV2Client client;
     private final DiscoveryEventIngestor ingestor;
@@ -51,16 +55,21 @@ public class DiscoveryDrainTickWorker {
     private final DiscoveryWorkProperties workProperties;
     private final TransactionHandler transactionHandler;
     private final DiscoveryWorkLease lease;
+    private final DiscoveryBusyDeferral busyDeferral;
+    private final DiscoverySlicePermits slicePermits;
     private final int maxItems;
     private final long maxBytes;
 
     public DiscoveryDrainTickWorker(DiscoveryRepository discoveryRepository, DiscoveryV2Client client,
             DiscoveryEventIngestor ingestor, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
             DiscoveryRunTerminator terminator, DiscoveryTickBudget budget, DiscoveryWorkProperties workProperties,
-            TransactionHandler transactionHandler, DiscoveryWorkLease lease,
+            TransactionHandler transactionHandler, DiscoveryWorkLease lease, DiscoveryBusyDeferral busyDeferral,
+            DiscoverySlicePermits slicePermits, DiscoveryDeliveryModeOffer deliveryModeOffer,
             @Value("${discovery.drain.max-items:500}") int maxItems,
             @Value("${discovery.drain.max-bytes:5242880}") long maxBytes) {
         this.lease = lease;
+        this.busyDeferral = busyDeferral;
+        this.slicePermits = slicePermits;
         this.discoveryRepository = discoveryRepository;
         this.client = client;
         this.ingestor = ingestor;
@@ -70,16 +79,28 @@ public class DiscoveryDrainTickWorker {
         this.budget = budget;
         this.workProperties = workProperties;
         this.transactionHandler = transactionHandler;
-        // Fail at startup rather than on every drain. A non-positive bound produces a request the connector
-        // rejects each time it is sent, so a typo here ends healthy runs once their budget is spent.
+        // Fail at startup rather than on every drain.
         if (maxItems <= 0) {
             throw new IllegalArgumentException("discovery.drain.max-items must be positive");
         }
         if (maxBytes <= 0) {
             throw new IllegalArgumentException("discovery.drain.max-bytes must be positive");
         }
+        // A checkpointed connector never splits one target's items across pages, so a page smaller than one target
+        // stalls the run. A deployment that offers buffered delivery only keeps the smaller pages it may need.
+        if (deliveryModeOffer.offered().contains(DiscoveryDeliveryMode.CHECKPOINTED)) {
+            requireAtLeast("discovery.drain.max-items", maxItems, MIN_PAGE_ITEMS);
+            requireAtLeast("discovery.drain.max-bytes", maxBytes, MIN_PAGE_BYTES);
+        }
         this.maxItems = maxItems;
         this.maxBytes = maxBytes;
+    }
+
+    private static void requireAtLeast(String setting, long value, long floor) {
+        if (value < floor) {
+            throw new IllegalArgumentException(setting + " must be at least " + floor
+                    + " while discovery.delivery.modes offers checkpointed delivery");
+        }
     }
 
     public void tick(DiscoveryWorkTick tick) {
@@ -98,20 +119,40 @@ public class DiscoveryDrainTickWorker {
             workWriter.deleteForRun(discoveryUuid, DiscoveryWorkType.DRAIN);
             return;
         }
+        if (run.getStatus() == DiscoveryStatus.STOPPED && isCheckpointed(run)) {
+            // A checkpointed connector scans while it answers a drain, so a stray tick must not reach it before a
+            // resume. The stop deleted the row, and resume re-creates it.
+            logger.debug("Dropping drain tick for discovery {}: the checkpointed run is stopped", discoveryUuid);
+            tick.releaseOnly();
+            return;
+        }
 
+        long revision = run.getCheckpointRevision();
+        DiscoveryTickFence fence = CheckpointRevision.fence(revision, run.getDeliveryMode());
+        boolean holdsASlicePermit = isCheckpointed(run);
+        if (holdsASlicePermit && !slicePermits.tryAcquire()) {
+            // No waiting: the row is due again at once for the next sweep, and the claim's charge is given back.
+            logger.debug("Drain for discovery {} deferred: this node's slice cap is taken", discoveryUuid);
+            tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC));
+            return;
+        }
         DiscoveryResultsResponseDto page;
         try {
             // Outside any transaction, by the platform's connector-call rule.
             page = client.results(run, maxItems, maxBytes);
         } catch (ConnectorException | RuntimeException e) {
             // RuntimeException too: one that escapes to the listener moves the row up a rung but can never end the run.
-            handleUnanswered(discoveryUuid, attempt, e);
+            handleUnanswered(tick, run, fence, e);
             return;
         } catch (NotFoundException | AttributeException e) {
             terminator
                     .endConnectorOwned(discoveryUuid, DiscoveryStatus.FAILED,
                             "The discovery run can no longer be addressed at its connector");
             return;
+        } finally {
+            if (holdsASlicePermit) {
+                slicePermits.release();
+            }
         }
 
         if (page.getItems() == null || page.getMore() == null || page.getHighestSequence() == null) {
@@ -119,7 +160,7 @@ public class DiscoveryDrainTickWorker {
             // page that means "no items" sends an empty array; a missing "items" or a missing "more" read as
             // an answer hands a half-drained run to processing and releases the connector handle, which is
             // permanent, silent loss. Spend the budget on it instead.
-            handleNonConformant(discoveryUuid, attempt);
+            handleNonConformant(discoveryUuid, attempt, fence);
             return;
         }
 
@@ -128,30 +169,47 @@ public class DiscoveryDrainTickWorker {
             logger.debug("Dropping a drained page for discovery {}: another tick holds its row now", discoveryUuid);
             return;
         }
-        boolean advanced;
+        DrainPageOutcome outcome;
         try {
-            advanced = ingestor.applyDrainPage(discoveryUuid, page);
+            outcome = ingestor.applyDrainPage(discoveryUuid, page, revision, run.getDeliveryMode());
+        } catch (NonConformantPageException e) {
+            handleNonConformant(discoveryUuid, attempt, fence);
+            return;
         } catch (RuntimeException e) {
             // Staging sits outside the connector-call catch, so without this a deterministic page failure -- a
             // payload that will not serialize, a constraint violation -- escapes to the listener's
             // log-and-acknowledge and the same poison page retries forever, never reaching the budget. The page's
             // transaction has already rolled back, so the cursor is untouched either way.
-            handleUnstageable(discoveryUuid, attempt, e);
+            handleUnstageable(discoveryUuid, attempt, fence, e);
             return;
         }
-        continueAfter(tick, run, page, advanced);
+        if (outcome == DrainPageOutcome.STALE) {
+            // Climbing the ladder over a duplicate could end a healthy run; rescheduling at the claimed attempt gives
+            // back the claim's charge.
+            tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC));
+            return;
+        }
+        // A checkpointed page this tick applied raised the revision once; a run it ended no longer needs fencing.
+        DiscoveryTickFence fenceAfterThePage = CheckpointRevision
+                .fence(isCheckpointed(run) ? revision + 1 : revision, run.getDeliveryMode());
+        continueAfter(tick, run, page, outcome == DrainPageOutcome.ADVANCED, fenceAfterThePage);
+    }
+
+    private static boolean isCheckpointed(Discovery run) {
+        return run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED;
     }
 
     /**
-     * A page Core cannot act on. Counted against the drain budget like any other unanswered tick, so a connector that
-     * keeps omitting required fields ends the run rather than stalling it forever.
+     * A page Core cannot act on: a field the contract requires is missing, such as the checkpoint on a checkpointed
+     * run's page. Counted against the drain budget like any other unanswered tick, so a connector that keeps omitting
+     * required fields ends the run rather than stalling it forever.
      */
-    private void handleNonConformant(UUID discoveryUuid, int attempt) {
+    private void handleNonConformant(UUID discoveryUuid, int attempt, DiscoveryTickFence fence) {
         if (!budget
-                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt,
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, fence,
                         "The connector's results omitted a field the contract requires")) {
             logger
-                    .warn("Drain {} for discovery {} returned a page missing items, more or highestSequence; retrying "
+                    .warn("Drain {} for discovery {} returned a page missing a field the contract requires; retrying "
                             + "when next due", attempt, discoveryUuid);
         }
     }
@@ -161,10 +219,10 @@ public class DiscoveryDrainTickWorker {
      * stage must not retry forever — but ended with Core named as the party that failed, because on this path the
      * connector answered and answered correctly.
      */
-    private void handleUnstageable(UUID discoveryUuid, int attempt, RuntimeException e) {
+    private void handleUnstageable(UUID discoveryUuid, int attempt, DiscoveryTickFence fence, RuntimeException e) {
         logger.error("Ingesting a drained page for discovery {} failed: {}", discoveryUuid, e.getMessage(), e);
         budget
-                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt,
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, fence,
                         "Core could not store the discovered items this run's connector handed over");
     }
 
@@ -173,7 +231,7 @@ public class DiscoveryDrainTickWorker {
      * publishes that step rather than waiting for a sweep to notice.
      */
     private void continueAfter(DiscoveryWorkTick tick, Discovery run, DiscoveryResultsResponseDto page,
-            boolean advanced) {
+            boolean advanced, DiscoveryTickFence fence) {
         UUID discoveryUuid = tick.discoveryUuid();
         if (Boolean.TRUE.equals(page.getMore())) {
             if (advanced) {
@@ -181,11 +239,17 @@ public class DiscoveryDrainTickWorker {
             } else {
                 // "More to come" that carried nothing new is a connector repeating itself. Publishing again
                 // would spin as fast as it answers, so this climbs the ladder and eventually ends the run.
-                awaitTheRest(tick, page.getHighestSequence());
+                awaitTheRest(tick, page.getHighestSequence(), fence);
             }
             return;
         }
         if (!DiscoveryRunState.COMPLETED.getCode().equals(run.getConnectorState())) {
+            if (isCheckpointed(run)) {
+                // Only the status says whether a checkpointed run has finished, and its connector may say "nothing
+                // more" on its last slice or only on the empty page after it. Asking now hands the run over without
+                // waiting for the status ladder; while the connector waits on its source, this follows the idle drains.
+                workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
+            }
             // The connector is still producing and has nothing ready this moment.
             budget.refreshAtSlowestRung(tick);
             return;
@@ -194,7 +258,7 @@ public class DiscoveryDrainTickWorker {
         // highestSequence under the run row's lock, which a separate pre-check could only do without one.
         Optional<Handover> handover = swapToProcessing(discoveryUuid, page.getHighestSequence());
         if (handover.isEmpty()) {
-            awaitTheRest(tick, page.getHighestSequence());
+            awaitTheRest(tick, page.getHighestSequence(), fence);
             return;
         }
         // Strictly after the handover commits. The acknowledgement lets the connector discard the run's whole
@@ -231,11 +295,11 @@ public class DiscoveryDrainTickWorker {
      * due-now retry would be an unbounded stream of {@code results} calls against a connector that may never catch up.
      * Spending the budget ends the run with a reason instead.
      */
-    private void awaitTheRest(DiscoveryWorkTick tick, Long highestSequence) {
+    private void awaitTheRest(DiscoveryWorkTick tick, Long highestSequence, DiscoveryTickFence fence) {
         int next = tick.attempt() + 1;
         if (next >= workProperties.scheduleFor(DiscoveryWorkType.DRAIN).maxAttempts()) {
             terminator
-                    .endConnectorOwned(tick.discoveryUuid(), DiscoveryStatus.FAILED,
+                    .endIfAdmitted(tick.discoveryUuid(), fence, DiscoveryStatus.FAILED,
                             "The connector reported %d item(s) but never handed them all over"
                                     .formatted(highestSequence));
             return;
@@ -298,14 +362,49 @@ public class DiscoveryDrainTickWorker {
     /**
      * A tick the connector did not answer. Below the budget, the listener's retry moves the row one rung up its backoff
      * ladder.
+     *
+     * <p>
+     * A checkpointed run's connector holds nothing between calls, so a refusal is final — an oversized target or a
+     * checkpoint it cannot read — and ends the run at once, while a busy answer only defers the drain. A buffered run
+     * charges both to the budget.
      */
-    private void handleUnanswered(UUID discoveryUuid, int attempt, Throwable e) {
+    private void handleUnanswered(DiscoveryWorkTick tick, Discovery run, DiscoveryTickFence fence, Throwable e) {
+        UUID discoveryUuid = tick.discoveryUuid();
+        int attempt = tick.attempt();
+        if (isCheckpointed(run) && DiscoveryConnectorErrors.isRefusal(e)) {
+            logger
+                    .warn("Drain {} for discovery {} was refused by its connector: {}", attempt, discoveryUuid,
+                            e.getMessage());
+            terminator
+                    .endIfAdmitted(discoveryUuid, fence, DiscoveryStatus.FAILED,
+                            "The connector cannot continue this discovery run");
+            return;
+        }
+        if (isCheckpointed(run) && DiscoveryConnectorErrors.isBusy(e)) {
+            handleBusy(tick, fence, e);
+            return;
+        }
         if (!budget
-                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, e,
+                .spendOnUnanswered(discoveryUuid, DiscoveryWorkType.DRAIN, attempt, fence, e,
                         "The connector stopped handing over discovered items for this run")) {
             logger
                     .warn("Drain {} for discovery {} failed, retrying when next due: {}", attempt, discoveryUuid,
                             e.getMessage());
+        }
+    }
+
+    private void handleBusy(DiscoveryWorkTick tick, DiscoveryTickFence fence, Throwable e) {
+        UUID discoveryUuid = tick.discoveryUuid();
+        if (busyDeferral.defer(tick, fence, DiscoveryConnectorErrors.retryAfter(e))) {
+            logger.debug("Drain for discovery {} deferred: its connector is busy", discoveryUuid);
+            return;
+        }
+        if (!budget
+                .spend(discoveryUuid, DiscoveryWorkType.DRAIN, tick.attempt(), fence,
+                        "The connector stayed too busy to continue this discovery run")) {
+            logger
+                    .warn("Drain {} for discovery {} is still refused as busy; retrying when next due", tick.attempt(),
+                            discoveryUuid);
         }
     }
 

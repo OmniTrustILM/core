@@ -2,13 +2,16 @@ package com.otilm.core.dao.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryProgressDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
+import com.otilm.core.dao.converter.DiscoveryDeliveryModeConverter;
 import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -126,6 +129,16 @@ public class Discovery extends UniquelyIdentifiedAndAudited implements Serializa
     private OffsetDateTime stoppedAt;
 
     // ---- What the provider is doing, and what it has handed over ----
+
+    // How the run's results travel from its connector, as the connector chose at initiate or at the last resume. Null
+    // on a v1 run and on a v2 run whose connector has not answered yet.
+    @Column(name = "delivery_mode")
+    @Convert(converter = DiscoveryDeliveryModeConverter.class)
+    private DiscoveryDeliveryMode deliveryMode;
+
+    // Fences what a tick writes for a checkpointed run; CheckpointRevision says what raises it and what it blocks.
+    @Column(name = "checkpoint_revision", nullable = false)
+    private long checkpointRevision;
 
     // The connector's opaque run handle, nulled on every terminal transition. Null on a v1 run.
     // S1948: every entity is Serializable via UniquelyIdentifiedObject, but nothing Java-serializes them today --

@@ -65,6 +65,7 @@ import java.security.MessageDigest;
 import java.security.spec.AlgorithmParameterSpec;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -74,8 +75,8 @@ import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
@@ -85,6 +86,7 @@ import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequ
 import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static com.otilm.core.util.builders.PadesVisibleSignatureDtoBuilder.aVisibleSignature;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
+import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
 import static com.otilm.core.util.builders.SigningRecordPolicyRequestDtoBuilder.aSigningRecordPolicyRequest;
 import static com.otilm.core.util.builders.TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow;
@@ -172,7 +174,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         timestampingFormattingMock = connectorMockFactory.startTimestampingFormatting();
         contentSigningFormattingMock = connectorMockFactory
                 .startContentSigningFormatting()
-                .advertiseTimestampedRung()
+                .stubAdesFamiliesUpTo(SignatureLevel.TIMESTAMPED)
                 .stubPerOperationFormattingAttributes()
                 .stubBaselineAndTimestampOperations();
 
@@ -239,8 +241,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     class SignatureLevels {
 
         @ParameterizedTest
-        @EnumSource(SignatureFamily.class)
-        void signsToTimestampedLevel_andTracesToItsTimestampRecord(SignatureFamily family) throws Exception {
+        @ValueSource(strings = {
+                SignatureFamily.Codes.PADES,
+                SignatureFamily.Codes.XADES,
+                SignatureFamily.Codes.CADES,
+                SignatureFamily.Codes.JADES})
+        void signsToTimestampedLevel_whenTheCeilingIsTimestamped(SignatureFamily family) throws Exception {
             // given: a profile of this family whose ceiling is TIMESTAMPED, pointing at an ILM-managed TSA profile
             SigningProfileDto tsaProfile = createTimestampingProfile("timestamped-run-tsa");
             SigningProfileDto contentProfile = createContentSigningProfile(profileName("timestamped-run", family),
@@ -271,8 +277,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         @ParameterizedTest
-        @EnumSource(SignatureFamily.class)
-        void signsToSignedLevel_andLeavesARecord(SignatureFamily family) throws Exception {
+        @ValueSource(strings = {
+                SignatureFamily.Codes.PADES,
+                SignatureFamily.Codes.XADES,
+                SignatureFamily.Codes.CADES,
+                SignatureFamily.Codes.JADES})
+        void signsToSignedLevel_whenTheCeilingIsSigned(SignatureFamily family) throws Exception {
             // given: a profile of this family whose ceiling is SIGNED, which names no timestamp source
             SigningProfileDto contentProfile = createContentSigningProfile(profileName("signed-run", family), family,
                     SignatureLevel.SIGNED, null);
@@ -725,6 +735,90 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
     }
 
+    // ── ConnectorDeclaration ──────────────────────────────────────────────────
+
+    @Nested
+    class ConnectorDeclaration {
+
+        private static final SignatureFamily CONNECTOR_ONLY_FAMILY = new SignatureFamily("mrtd");
+
+        @Test
+        void signsAFamilyThePlatformDoesNotKnow_whenTheConnectorDeclaresIt() throws Exception {
+            // given
+            contentSigningFormattingMock
+                    .stubDeclaration(aFamilyDeclaration(CONNECTOR_ONLY_FAMILY)
+                            .withHighestLevel(SignatureLevel.SIGNED)
+                            .buildDeclaration());
+            reconnectContentSigningFormatting();
+            SigningProfileDto contentProfile = createContentSigningProfile("connector-only-family",
+                    CONNECTOR_ONLY_FAMILY, SignatureLevel.SIGNED, null);
+            byte[] document = "a travel document".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            SignedContent signed = engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then
+            assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
+            assertThat(recordsFor(contentProfile.getName())).hasSize(1);
+        }
+
+        @Test
+        void refusesTheRun_whenAReconnectNarrowedTheFamilysAlgorithms() throws Exception {
+            // given — the profile was saved while PAdES accepted every algorithm
+            SigningProfileDto contentProfile = createContentSigningProfile("narrowed-algorithms", SignatureFamily.PADES,
+                    SignatureLevel.SIGNED, null);
+            var onlyAcceptedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
+            contentSigningFormattingMock
+                    .stubDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                            .withHighestLevel(SignatureLevel.SIGNED)
+                            .withSignatureAlgorithms(Set.of(onlyAcceptedAlgorithm))
+                            .buildDeclaration());
+            reconnectContentSigningFormatting();
+            byte[] document = "a document".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            refusal -> assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        @Test
+        void refusesTheRun_whenAReconnectLoweredTheFamilysLevels() throws Exception {
+            // given — the profile was saved while PAdES reached TIMESTAMPED
+            SigningProfileDto tsaProfile = createTimestampingProfile("lowered-levels-tsa");
+            SigningProfileDto contentProfile = createContentSigningProfile("lowered-levels", SignatureFamily.PADES,
+                    SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
+            contentSigningFormattingMock.stubAdesFamiliesUpTo(SignatureLevel.SIGNED);
+            reconnectContentSigningFormatting();
+            byte[] document = "a document".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(signingRequest(SignatureLevel.TIMESTAMPED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            refusal -> assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void reconnectContentSigningFormatting() throws Exception {
+            connectorService.reconnect(SecuredUUID.fromString(contentSigningFormattingConnector.getUuid()));
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static String documentText(SignedContent signed) {
@@ -857,7 +951,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     }
 
     private static String profileName(String prefix, SignatureFamily family) {
-        return prefix + "-" + family.getCode();
+        return prefix + "-" + family.code();
     }
 
     private static SigningRecordPolicyRequestDto recordingEverything() {
