@@ -20,7 +20,6 @@ import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Nested;
@@ -243,8 +242,7 @@ class ConnectorV2AdapterTest {
             adapter.setKeyTransferCapabilityWriter(capabilities);
             adapter.setConnectorInterfaceRepository(mock(ConnectorInterfaceRepository.class));
             adapter.setContentSigningDeclarationRepository(mock(ConnectorContentSigningDeclarationRepository.class));
-            Connector connector = new Connector();
-            connector.setUuid(UUID.randomUUID());
+            Connector connector = aConnector().build();
             ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
                     ConnectorInterface.METRICS, ConnectorInterface.CRYPTOGRAPHY);
 

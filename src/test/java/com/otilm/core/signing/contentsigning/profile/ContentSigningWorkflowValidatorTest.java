@@ -29,6 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
 import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static com.otilm.core.util.builders.PadesVisibleSignatureDtoBuilder.aVisibleSignature;
 import static com.otilm.core.util.builders.PadesVisibleSignaturePlacementDtoBuilder.aPlacement;
@@ -848,9 +849,7 @@ class ContentSigningWorkflowValidatorTest {
 
     /** The stub is lenient. Some tests refuse the workflow before it consults the connector's declaration. */
     private Connector connectorDeclaring(SignatureFamilyDeclarationDto declared) {
-        Connector connector = new Connector();
-        connector.setUuid(UUID.randomUUID());
-        connector.setName("formatting");
+        Connector connector = aConnector().build();
         lenient().when(declarations.family(connector.getUuid(), declared.getCode())).thenReturn(Optional.of(declared));
         return connector;
     }
