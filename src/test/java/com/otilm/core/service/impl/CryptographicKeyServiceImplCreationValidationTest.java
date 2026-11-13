@@ -45,6 +45,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -56,6 +57,7 @@ import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographi
 import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
 import static com.otilm.core.util.builders.ProviderKeyItemBuilder.aProviderKeyItem;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -105,7 +107,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         when(keyTransfer.exportableKeyTypes(any()))
                 .thenAnswer(invocation -> Optional
                         .ofNullable(invocation.<TokenProfileFullModel>getArgument(0).exportableKeyTypes()));
-        service.setKeyCreationRules(rulesWith(new ConnectorCapabilityService()));
+        service.setKeyCreationRules(createRulesWith(new ConnectorCapabilityService()));
     }
 
     @ParameterizedTest
@@ -356,78 +358,80 @@ class CryptographicKeyServiceImplCreationValidationTest {
     }
 
     @Test
-    void createKey_refusesAnExportableKeyOfATypeTheProfileCannotExport() {
+    void refusesAnExportableKey_whenProfileCannotExportItsType() {
         // given
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
         when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
                 .thenReturn(true);
-        service.setKeyCreationRules(rulesWith(capabilities));
+        service.setKeyCreationRules(createRulesWith(capabilities));
         request.setExportable(true);
 
         // when
-        Executable create = () -> createKey(KeyRequestType.SECRET);
+        ThrowingCallable create = () -> createKey(KeyRequestType.SECRET);
 
         // then
-        ValidationException refused = assertThrows(ValidationException.class, create);
-        assertTrue(refused.getMessage().contains("does not support exporting a secret key"));
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("does not support exporting a secret key");
         verifyNoInteractions(client);
     }
 
     @Test
-    void createKey_failsWithTheConnectorErrorWhenWhatTheProfileExportsCannotBeLearned() throws Exception {
+    void propagatesConnectorFailure_whenExportCapabilityCannotBeRead() throws Exception {
         // given
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
         when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
                 .thenReturn(true);
-        service.setKeyCreationRules(rulesWith(capabilities));
+        service.setKeyCreationRules(createRulesWith(capabilities));
         ConnectorException unreachable = new ConnectorException("Connector is down");
         when(keyTransfer.exportableKeyTypes(profile)).thenThrow(unreachable);
         request.setExportable(true);
 
         // when
-        Executable create = () -> createKey(KeyRequestType.KEY_PAIR);
+        ThrowingCallable create = () -> createKey(KeyRequestType.KEY_PAIR);
 
         // then
-        assertSame(unreachable, assertThrows(ConnectorException.class, create));
+        assertThatThrownBy(create).isSameAs(unreachable);
         verifyNoInteractions(client, writer);
     }
 
     @Test
-    void createKey_refusesToDecideWhenTheProfileChangedWhileItsCapabilityWasChecked() throws Exception {
+    void refusesToDecide_whenProfileChangesDuringExportCapabilityCheck() throws Exception {
         // given
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
         when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
                 .thenReturn(true);
-        service.setKeyCreationRules(rulesWith(capabilities));
+        service.setKeyCreationRules(createRulesWith(capabilities));
         when(keyTransfer.exportableKeyTypes(profile)).thenReturn(Optional.empty());
         request.setExportable(true);
 
         // when
-        Executable create = () -> createKey(KeyRequestType.KEY_PAIR);
+        ThrowingCallable create = () -> createKey(KeyRequestType.KEY_PAIR);
 
         // then
-        ValidationException refused = assertThrows(ValidationException.class, create);
-        assertTrue(refused.getMessage().contains("changed while its export capability was being checked"));
+        assertThatThrownBy(create)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("changed while its export capability was being checked");
         verifyNoInteractions(client, writer);
     }
 
     @Test
-    void createKey_acceptsAnExportableKeyOnAConnectorThatCanExport() throws Exception {
+    void acceptsAnExportableKey_whenConnectorSupportsExport() throws Exception {
         // given
         ConnectorCapabilityService capabilities = mock(ConnectorCapabilityService.class);
         when(capabilities.supports(profile.tokenInstance().connectorInterface(), FeatureFlag.KEY_EXPORT))
                 .thenReturn(true);
-        service.setKeyCreationRules(rulesWith(capabilities));
+        service.setKeyCreationRules(createRulesWith(capabilities));
         request.setExportable(true);
         ConnectorException creationReached = new ConnectorException("Creation endpoint reached");
         stubDefinitions(KeyRequestType.KEY_PAIR);
         failAtProviderCreation(KeyRequestType.KEY_PAIR, creationReached);
 
         // when
-        Executable create = () -> createKey(KeyRequestType.KEY_PAIR);
+        ThrowingCallable create = () -> createKey(KeyRequestType.KEY_PAIR);
 
         // then
-        assertSame(creationReached, assertThrows(ConnectorException.class, create));
+        assertThatThrownBy(create).isSameAs(creationReached);
     }
 
     @Test
@@ -444,7 +448,7 @@ class CryptographicKeyServiceImplCreationValidationTest {
         assertSame(creationReached, assertThrows(ConnectorException.class, create));
     }
 
-    private KeyCreationRules rulesWith(ConnectorCapabilityService capabilities) {
+    private KeyCreationRules createRulesWith(ConnectorCapabilityService capabilities) {
         return new KeyCreationRules(adapters, attributeEngine, capabilities, keyTransfer);
     }
 

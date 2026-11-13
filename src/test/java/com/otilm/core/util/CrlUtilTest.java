@@ -49,7 +49,7 @@ class CrlUtilTest {
 
     @ParameterizedTest
     @MethodSource("nextUpdatesAndTheirCurrency")
-    void judgesCurrency_byNextUpdateWithinTheClockSkew(Duration offsetFromNow, boolean expectedCurrent) {
+    void judgesCurrency_whenNextUpdateIsWithinTheClockSkew(Duration offsetFromNow, boolean expectedCurrent) {
         // given
         Date nextUpdate = Date.from(Instant.now().plus(offsetFromNow));
 

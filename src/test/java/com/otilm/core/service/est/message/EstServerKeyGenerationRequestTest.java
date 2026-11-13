@@ -38,7 +38,7 @@ class EstServerKeyGenerationRequestTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"1.2.840.113549.1.9.16.2.37", "1.2.840.113549.1.9.16.2.54"})
+    @ValueSource(strings = {"1.2.840.113549.1.9.16.2.37", "1.2.840.113549.1.9.16.2.54", "2.16.840.1.101.2.1.5.66"})
     void refusesEncryptedKeyDelivery_whenTheRequestCarriesAKeyIdentifierAttribute(String attributeOid)
             throws Exception {
         // given

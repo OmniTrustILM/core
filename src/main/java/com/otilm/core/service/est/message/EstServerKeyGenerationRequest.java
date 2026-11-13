@@ -18,10 +18,17 @@ import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 public final class EstServerKeyGenerationRequest {
 
     /**
-     * {@code id-aa-KP-contentDecryptKeyID} (RFC 7030 section 4.4.1), the attribute that names a symmetric key for the
-     * delivery.
+     * {@code id-aa-decryptKeyID} (RFC 4108), the {@code DecryptKeyIdentifier} attribute that RFC 7030 section 4.4.1.1
+     * uses to name a symmetric key for the delivery.
      */
     private static final ASN1ObjectIdentifier DECRYPT_KEY_IDENTIFIER = PKCSObjectIdentifiers.id_aa.branch("37");
+
+    /**
+     * {@code id-aa-KP-contentDecryptKeyID} (RFC 6032), the equivalent attribute for a key package. RFC 7030 does not
+     * name it, but a client that sends it asks for the same additional encryption, so it is refused as well.
+     */
+    private static final ASN1ObjectIdentifier CONTENT_DECRYPT_KEY_IDENTIFIER = new ASN1ObjectIdentifier(
+            "2.16.840.1.101.2.1.5.66");
 
     /** {@code id-aa-asymmDecryptKeyID}, the attribute that names an asymmetric key for the delivery. */
     private static final ASN1ObjectIdentifier ASYMMETRIC_DECRYPT_KEY_IDENTIFIER = PKCSObjectIdentifiers.id_aa
@@ -33,10 +40,12 @@ public final class EstServerKeyGenerationRequest {
     /**
      * @param request a request that {@link EstRequestDecoder#decode} returned
      * @throws EstException {@link EstError#ENCRYPTED_KEY_DELIVERY_UNSUPPORTED} when the request carries a
-     * {@code DecryptKeyIdentifier} or an {@code AsymmetricDecryptKeyIdentifier} attribute
+     * {@code DecryptKeyIdentifier}, an RFC 6032 {@code id-aa-KP-contentDecryptKeyID} or an
+     * {@code AsymmetricDecryptKeyIdentifier} attribute
      */
     public static void requireUnprotectedDelivery(PKCS10CertificationRequest request) {
-        if (hasAttribute(request, DECRYPT_KEY_IDENTIFIER) || hasAttribute(request, ASYMMETRIC_DECRYPT_KEY_IDENTIFIER)) {
+        if (hasAttribute(request, DECRYPT_KEY_IDENTIFIER) || hasAttribute(request, CONTENT_DECRYPT_KEY_IDENTIFIER)
+                || hasAttribute(request, ASYMMETRIC_DECRYPT_KEY_IDENTIFIER)) {
             log
                     .debug("EST request refused as {}: it asks for encrypted key delivery",
                             EstError.ENCRYPTED_KEY_DELIVERY_UNSUPPORTED);

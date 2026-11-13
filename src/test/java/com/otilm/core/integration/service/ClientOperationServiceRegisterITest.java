@@ -2225,7 +2225,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
         activeAuthorizationFor(issued.getUuid());
         doAnswer(invocation -> {
             UUID successorUuid = invocation.getArgument(1);
-            inOwnTransaction(() -> activeAuthorizationFor(successorUuid));
+            runInOwnTransaction(() -> activeAuthorizationFor(successorUuid));
             throw new IllegalStateException("the copy reported a failure");
         }).when(registrationAuthorizationWriter).copyToSuccessor(Mockito.any(), Mockito.any());
         var closeFailure = new IllegalStateException("closing the copied authorization failed");
@@ -2699,7 +2699,7 @@ class ClientOperationServiceRegisterITest extends BaseSpringBootTest {
     }
 
     /** Runs the step in a transaction of its own, so what it writes commits whatever the surrounding one does. */
-    private void inOwnTransaction(Runnable step) {
+    private void runInOwnTransaction(Runnable step) {
         TransactionTemplate ownTransaction = new TransactionTemplate(transactionManager);
         ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         ownTransaction.executeWithoutResult(status -> step.run());

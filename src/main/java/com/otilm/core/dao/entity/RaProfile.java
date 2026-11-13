@@ -124,7 +124,7 @@ public class RaProfile extends UniquelyIdentifiedAndAudited
     /**
      * EST protocol related objects for RA Profile
      */
-    @OneToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "est_profile_uuid", insertable = false, updatable = false)
     @ToString.Exclude
     private EstProfile estProfile;

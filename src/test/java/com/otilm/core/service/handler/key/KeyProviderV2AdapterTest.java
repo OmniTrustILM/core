@@ -1653,7 +1653,7 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void propagatesOtherConnectorProblem() throws Exception {
+        void propagatesTheProblem_whenConnectorAnswersOtherThanNotFound() throws Exception {
             // given
             RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("key-handle"));
             ConnectorProblemException failure = destroyProblem(ErrorCode.FORBIDDEN);
@@ -1667,7 +1667,7 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
-        void toleratesOtherConnectorProblem_forDeactivatedToken() throws Exception {
+        void toleratesOtherConnectorProblem_whenTokenIsDeactivated() throws Exception {
             // given
             RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("offline-key-handle"));
             ImmutableCryptographicKeyFullModel key = keyWithTokenStatus(TokenInstanceStatus.DEACTIVATED);
@@ -1679,11 +1679,6 @@ class KeyProviderV2AdapterTest {
             // then
             assertThatCode(destroy).doesNotThrowAnyException();
             verify(client).destroyKey(any(), any());
-        }
-
-        private static ConnectorProblemException destroyProblem(ErrorCode errorCode) {
-            return new ConnectorProblemException(
-                    ProblemDetailExtended.fromErrorCode(errorCode, "Key destruction answered", null, null));
         }
 
         @Test
@@ -1747,6 +1742,11 @@ class KeyProviderV2AdapterTest {
                     .of(null, new RemoteKeyReference.UuidReference(UUID.randomUUID()),
                             new RemoteKeyReference.MetadataReference(null),
                             new RemoteKeyReference.MetadataReference(List.of()));
+        }
+
+        private static ConnectorProblemException destroyProblem(ErrorCode errorCode) {
+            return new ConnectorProblemException(
+                    ProblemDetailExtended.fromErrorCode(errorCode, "Key destruction answered", null, null));
         }
     }
 
