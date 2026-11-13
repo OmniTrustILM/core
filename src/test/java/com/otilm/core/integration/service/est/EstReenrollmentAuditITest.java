@@ -237,10 +237,12 @@ class EstReenrollmentAuditITest extends AbstractEstReenrollmentITest {
                                 successorUuid.toString(), deriveClientIdentity(source), estProfile.getName()));
         List<String> everything = logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
         List<String> estMessages = estLines.stream().map(ILoggingEvent::getFormattedMessage).toList();
-        assertThat(everything).isNotEmpty().noneMatch(line -> line.contains(PASSWORD));
-        assertThat(everything).noneMatch(line -> line.contains(encodeBasicCredentials()));
-        assertThat(everything).noneMatch(line -> line.contains(new String(request, StandardCharsets.US_ASCII)));
-        assertThat(everything).noneMatch(line -> line.contains(certificateHeader(source)));
+        assertThat(everything)
+                .isNotEmpty()
+                .noneMatch(line -> line.contains(PASSWORD))
+                .noneMatch(line -> line.contains(encodeBasicCredentials()))
+                .noneMatch(line -> line.contains(new String(request, StandardCharsets.US_ASCII)))
+                .noneMatch(line -> line.contains(certificateHeader(source)));
         String issuedCertificateBody = encodeBase64Der(renewed);
         assertThat(estMessages).noneMatch(line -> line.contains(issuedCertificateBody));
     }

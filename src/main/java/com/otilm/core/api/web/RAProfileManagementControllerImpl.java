@@ -37,6 +37,7 @@ import com.otilm.core.service.RaProfileExternalService;
 import com.otilm.core.util.EstProtocolUrlFactory;
 import java.net.URI;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -292,9 +293,8 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
             ActivateEstForRaProfileRequestDto request)
             throws ConnectorException, AttributeException, NotFoundException {
         return raProfileService
-                .activateEstForRaProfile(SecuredParentUUID.fromString(authorityUuid),
-                        SecuredUUID.fromString(raProfileUuid), SecuredUUID.fromString(estProfileUuid).getValue(),
-                        request, EstProtocolUrlFactory.currentOrigin());
+                .activateEstForRaProfile(SecuredParentUUID.fromString(authorityUuid), requiredUuid(raProfileUuid),
+                        requiredUuid(estProfileUuid).getValue(), request, EstProtocolUrlFactory.currentOrigin());
     }
 
     @Override
@@ -303,8 +303,7 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
     public void deactivateEstForRaProfile(String authorityUuid, @LogResource(uuid = true) String raProfileUuid)
             throws NotFoundException {
         raProfileService
-                .deactivateEstForRaProfile(SecuredParentUUID.fromString(authorityUuid),
-                        SecuredUUID.fromString(raProfileUuid));
+                .deactivateEstForRaProfile(SecuredParentUUID.fromString(authorityUuid), requiredUuid(raProfileUuid));
     }
 
     @Override
@@ -404,4 +403,7 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
                         SecuredUUID.fromString(raProfileUuid));
     }
 
+    private static SecuredUUID requiredUuid(String uuid) {
+        return Objects.requireNonNull(SecuredUUID.fromString(uuid), "A path variable is always present");
+    }
 }

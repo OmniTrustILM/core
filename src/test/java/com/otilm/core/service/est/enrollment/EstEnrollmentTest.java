@@ -377,8 +377,7 @@ class EstEnrollmentTest {
 
     @ParameterizedTest
     @EnumSource(value = CertificateState.class, names = {"FAILED", "REJECTED"})
-    void throwsRegistrationRejected_whenCompletedRegistrationEndsInAStateThatDoesNotAnswer(CertificateState state)
-            throws Exception {
+    void throwsRegistrationRejected_whenCompletedRegistrationEndsInAStateThatDoesNotAnswer(CertificateState state) {
         // given
         stubRegistration(CertificateState.REGISTERED, null);
         stubCompletionRequest();
@@ -392,7 +391,7 @@ class EstEnrollmentTest {
     }
 
     @Test
-    void throwsRegistrationRejected_whenCompletionLosesItsRequestDuringTheWait() throws Exception {
+    void throwsRegistrationRejected_whenCompletionLosesItsRequestDuringTheWait() {
         // given — a refused approval takes the request off, and another request may complete the registration since
         stubRegistration(CertificateState.REGISTERED, null);
         stubCompletionRequest();
@@ -406,7 +405,7 @@ class EstEnrollmentTest {
     }
 
     @Test
-    void answersAcceptedWithoutReadingAgain_whenCompletionIsStillQueuedAfterTheWait() throws Exception {
+    void answersAcceptedWithoutReadingAgain_whenCompletionIsStillQueuedAfterTheWait() {
         // given — the wait read the registration with this request, so a refusal that lands later changes nothing
         stubRegistration(CertificateState.REGISTERED, null);
         stubCompletionRequest();
@@ -439,7 +438,7 @@ class EstEnrollmentTest {
     }
 
     @Test
-    void throwsRegistrationRejected_whenCompletionHoldsNoContentForTheRequest() throws Exception {
+    void throwsRegistrationRejected_whenCompletionHoldsNoContentForTheRequest() {
         // given — the content is read only while the registration still carries this request
         stubRegistration(CertificateState.REGISTERED, null);
         stubCompletionRequest();

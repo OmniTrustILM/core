@@ -115,15 +115,16 @@ class ClientOperationServiceImplCancelTest {
         var adapter = new AuthorityProviderV3Adapter(connectorService, connectorApiFactory, attributeEngine,
                 operationAttributeResolver, outboundContainment, capabilityService);
         when(adapterFactory.forAuthority(authority)).thenReturn(adapter);
-        when(connectorService.getConnectorForApiClient(authority.getConnectorUuid()))
-                .thenReturn(mock(ApiClientConnectorInfo.class));
+        ApiClientConnectorInfo connectorInfo = mock(ApiClientConnectorInfo.class);
+        when(connectorService.getConnectorForApiClient(authority.getConnectorUuid())).thenReturn(connectorInfo);
         when(certificateRepository.findWithAssociationsByUuid(certificate.getUuid()))
                 .thenReturn(Optional.of(certificate));
         when(certificateRepository.findForPollingByUuid(certificate.getUuid())).thenReturn(Optional.of(certificate));
         lenient()
                 .when(certificateRepository.findAndLockWithAssociationsByUuid(certificate.getUuid()))
                 .thenReturn(Optional.of(certificate));
-        lenient().when(transactionManager.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
+        TransactionStatus transaction = mock(TransactionStatus.class);
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(transaction);
     }
 
     @Test

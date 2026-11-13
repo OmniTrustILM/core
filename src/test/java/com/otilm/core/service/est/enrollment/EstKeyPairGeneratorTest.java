@@ -174,8 +174,9 @@ class EstKeyPairGeneratorTest {
         String text = generated.toString();
 
         // then
-        assertThat(text).doesNotContain(generated.keyPair().getPrivate().toString());
-        assertThat(text).doesNotContain(generated.keyPair().getPublic().toString());
+        assertThat(text)
+                .doesNotContain(generated.keyPair().getPrivate().toString())
+                .doesNotContain(generated.keyPair().getPublic().toString());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

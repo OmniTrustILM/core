@@ -77,9 +77,6 @@ class EstReenrollmentTest {
     private ClientOperationInternalService clientOperationService;
 
     @Mock
-    private EstIssuanceWait issuanceWait;
-
-    @Mock
     private EstRequestClaimWriter claimWriter;
 
     @Mock
@@ -120,7 +117,7 @@ class EstReenrollmentTest {
     void createReenrollmentOnARoute() {
         var answers = new EstAnswers(certificateRepository);
         reenrollment = new EstReenrollment(sourceCertificates, clientOperationService, certificateRepository,
-                registrationAuthorizationRepository, issuanceWait, answers, claims);
+                registrationAuthorizationRepository, answers, claims);
         EstProfile estProfile = anEstProfile()
                 .withUuid(UUID.randomUUID())
                 .withAllowRenewal(true)
@@ -138,7 +135,6 @@ class EstReenrollmentTest {
     void refusesClientWithoutVerifyingTheSignature_whenItsCertificateIsNotAccepted() throws Exception {
         // given
         Pkcs10CertificateRequest forgedRequest = spy(EstRequestDecoder.decode(EstCsrFixtures.forgedRequestBody()));
-        EstClientCredentials credentials = EstClientCredentialsFixtures.noCredentials();
         var notAccepted = new EstException(EstError.CERTIFICATE_REJECTED, LABEL);
         when(sourceCertificates.authenticate(route, credentials)).thenThrow(notAccepted);
 
@@ -147,7 +143,7 @@ class EstReenrollmentTest {
 
         // then
         assertThatThrownBy(reenroll).isSameAs(notAccepted);
-        verifyNoInteractions(forgedRequest, clientOperationService, registrationAuthorizationRepository, issuanceWait);
+        verifyNoInteractions(forgedRequest, clientOperationService, registrationAuthorizationRepository);
     }
 
     @Test

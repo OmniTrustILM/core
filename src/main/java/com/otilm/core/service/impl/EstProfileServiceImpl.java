@@ -560,7 +560,7 @@ public class EstProfileServiceImpl implements EstProfileExternalService, EstProf
     }
 
     private List<ResponseAttribute> replaceIssueAttributes(UUID profileUuid, UUID previousConnectorUuid,
-            UUID connectorUuid, List<RequestAttribute> issueAttributes) throws NotFoundException, AttributeException {
+            UUID connectorUuid, List<RequestAttribute> issueAttributes) throws AttributeException {
         if (previousConnectorUuid != null) {
             attributeEngine
                     .deleteOperationObjectAttributesContent(AttributeType.DATA,

@@ -6134,8 +6134,10 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         private static JsonNode readSentRequest(ProducerCallback<Object> send) throws Exception {
             Session session = mock(Session.class);
             ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
-            when(session.createTextMessage(body.capture())).thenReturn(mock(TextMessage.class));
-            send.doInJms(session, mock(MessageProducer.class));
+            TextMessage message = mock(TextMessage.class);
+            MessageProducer producer = mock(MessageProducer.class);
+            when(session.createTextMessage(body.capture())).thenReturn(message);
+            send.doInJms(session, producer);
             return ObjectMapperFactory.wire().readTree(body.getValue());
         }
     }

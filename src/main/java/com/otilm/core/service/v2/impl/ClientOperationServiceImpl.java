@@ -204,6 +204,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
      * wording must fit all of them.
      */
     private static final String CERTIFICATE_REQUESTED_EVENT_MESSAGE = "Certificate requested";
+    private static final String NEW_CERTIFICATE_UUID_DETAIL = "New Certificate UUID";
+    private static final String CANCEL_PROCEEDED_LOCALLY_SUFFIX = "); proceeded with local cancel";
     private static final String INTERNAL_ERROR = "internal error";
     private static final String ISSUANCE_COMPLETION_FAILED = "issuance completion failed";
 
@@ -2290,7 +2292,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
     /** The details the failure of a renewal or rekey records about the successor it was to issue. */
     private static Map<String, Object> successorDetails(UUID successorUuid) {
         Map<String, Object> details = new HashMap<>();
-        details.put("New Certificate UUID", successorUuid);
+        details.put(NEW_CERTIFICATE_UUID_DETAIL, successorUuid);
         return details;
     }
 
@@ -2734,7 +2736,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         logger.debug("Renewing Certificate: {}", oldCertificate);
 
         HashMap<String, Object> additionalInformation = new HashMap<>();
-        additionalInformation.put("New Certificate UUID", certificate.getUuid());
+        additionalInformation.put(NEW_CERTIFICATE_UUID_DETAIL, certificate.getUuid());
         boolean connectorAccepted = false;
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
@@ -2987,7 +2989,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
 
         logger.debug("Rekeying Certificate: {}", oldCertificate);
         HashMap<String, Object> additionalInformation = new HashMap<>();
-        additionalInformation.put("New Certificate UUID", certificate.getUuid());
+        additionalInformation.put(NEW_CERTIFICATE_UUID_DETAIL, certificate.getUuid());
         boolean connectorAccepted = false;
         try {
             // Move the new certificate to PENDING_ISSUE before calling the connector so every path
@@ -4342,7 +4344,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Connector cancel call failed with infrastructure error (proceeding with local cancel): "
                             + infra.getMessage(),
                     "Connector cancel call failed (" + infra.getClass().getSimpleName()
-                            + "); proceeded with local cancel",
+                            + CANCEL_PROCEEDED_LOCALLY_SUFFIX,
                     "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
                     infra.getClass().getSimpleName() + ": " + infra.getMessage(), infra);
             return CancelConfirmation.UNCONFIRMED;
@@ -4358,7 +4360,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
                     "Connector cancel call failed (proceeding with local cancel): "
                             + safeMessage(unexpected, INTERNAL_ERROR),
                     "Connector cancel call failed (" + unexpected.getClass().getSimpleName()
-                            + "); proceeded with local cancel",
+                            + CANCEL_PROCEEDED_LOCALLY_SUFFIX,
                     "Connector cancel call failed for cert {} ({}: {}) — proceeding with local cancel",
                     unexpected.getClass().getSimpleName() + ": " + unexpected.getMessage(), unexpected);
             return CancelConfirmation.UNCONFIRMED;
@@ -4443,7 +4445,7 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         recordCancelSoftFailure(cert, target,
                 "Connector cancel could not be sent (proceeding with local cancel): " + reason,
                 "Connector cancel could not be sent (" + cause.getClass().getSimpleName()
-                        + "); proceeded with local cancel",
+                        + CANCEL_PROCEEDED_LOCALLY_SUFFIX,
                 "Connector cancel for cert {} could not be sent ({}) — proceeding with local cancel",
                 cause.getClass().getSimpleName() + ": " + cause.getMessage(), cause);
         return CancelConfirmation.UNCONFIRMED;

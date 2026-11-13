@@ -79,15 +79,15 @@ class EstKeyRecovery {
      * @param tokenProfileUuid the token profile that the key was created on
      * @param publicKey the public key of the pair
      */
+    record TokenKey(UUID keyUuid, UUID privateKeyItemUuid, UUID tokenProfileUuid, SubjectPublicKeyInfo publicKey) {
+    }
+
     /** A token key of a type that no signature algorithm of the platform signs with, which no retry changes. */
     static final class NoSignatureAlgorithmException extends IllegalStateException implements PlatformException {
 
         NoSignatureAlgorithmException(String algorithm) {
             super("The platform signs with no algorithm " + algorithm + " for an EST request");
         }
-    }
-
-    record TokenKey(UUID keyUuid, UUID privateKeyItemUuid, UUID tokenProfileUuid, SubjectPublicKeyInfo publicKey) {
     }
 
     /**

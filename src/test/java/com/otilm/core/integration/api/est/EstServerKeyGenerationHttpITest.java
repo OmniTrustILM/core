@@ -118,7 +118,6 @@ class EstServerKeyGenerationHttpITest extends AbstractEstHttpITest {
     private static final String CLIENT_SUBJECT = "CN=device-1";
     private static final String ECDSA_SIGNATURE = "SHA256withECDSA";
     private static final int P256_LENGTH = 256;
-    private static final String CONTENT_TRANSFER_ENCODING = "Content-Transfer-Encoding";
     private static final Duration QUEUE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration ANSWER_TIMEOUT = Duration.ofSeconds(30);
     /** A key generation answers a timeout within moments, so a test of it does not wait the default 30 s. */

@@ -66,8 +66,9 @@ class EstConnectorFailuresTest {
         String names = EstConnectorFailures.classNames(failure);
 
         // then
-        assertThat(names).contains(IllegalStateException.class.getName(), ValidationException.class.getName());
-        assertThat(names).doesNotContain("secret");
+        assertThat(names)
+                .contains(IllegalStateException.class.getName(), ValidationException.class.getName())
+                .doesNotContain("secret");
     }
 
     @Test

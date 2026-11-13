@@ -321,7 +321,7 @@ class EstServerKeyGenerationTest {
         }
 
         @Test
-        void completesTheRegistrationOfTheClient_whenTheClientIsIdentifiedByItsRegistration() throws Exception {
+        void completesTheRegistrationOfTheClient_whenTheClientIsIdentifiedByItsRegistration() {
             // given
             UUID registrationUuid = UUID.randomUUID();
             EstClient registrationClient = new EstClient(EstAuthenticationPolicy.CERTIFICATE_REGISTRATION,
@@ -419,7 +419,7 @@ class EstServerKeyGenerationTest {
         }
 
         @Test
-        void recordsAndLogsTheAnswerOnce_whenTheCertificateIsIssued() throws Exception {
+        void recordsAndLogsTheAnswerOnce_whenTheCertificateIsIssued() {
             // given
             submitAndCertify(CertificateState.ISSUED);
             EstClient client = aClient();

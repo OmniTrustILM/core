@@ -69,7 +69,6 @@ public class EstReenrollment {
     private final ClientOperationInternalService clientOperationService;
     private final CertificateRepository certificateRepository;
     private final CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository;
-    private final EstIssuanceWait issuanceWait;
     private final EstAnswers answers;
     private final EstRequestClaims requestClaims;
 
@@ -78,13 +77,12 @@ public class EstReenrollment {
 
     EstReenrollment(EstSourceCertificates sourceCertificates, ClientOperationInternalService clientOperationService,
             CertificateRepository certificateRepository,
-            CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository,
-            EstIssuanceWait issuanceWait, EstAnswers answers, EstRequestClaims requestClaims) {
+            CertificateRegistrationAuthorizationRepository registrationAuthorizationRepository, EstAnswers answers,
+            EstRequestClaims requestClaims) {
         this.sourceCertificates = sourceCertificates;
         this.clientOperationService = clientOperationService;
         this.certificateRepository = certificateRepository;
         this.registrationAuthorizationRepository = registrationAuthorizationRepository;
-        this.issuanceWait = issuanceWait;
         this.answers = answers;
         this.requestClaims = requestClaims;
     }

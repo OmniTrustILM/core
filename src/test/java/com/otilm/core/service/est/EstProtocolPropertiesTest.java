@@ -82,8 +82,10 @@ class EstProtocolPropertiesTest {
         Throwable startupFailure = startupFailureWith(outOfRange);
 
         // then
-        assertThat(startupFailure).isNotNull();
-        assertThat(startupFailure).rootCause().hasMessageContaining(INTERVAL + " must be at least 100 milliseconds");
+        assertThat(startupFailure)
+                .isNotNull()
+                .rootCause()
+                .hasMessageContaining(INTERVAL + " must be at least 100 milliseconds");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

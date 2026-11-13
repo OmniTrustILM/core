@@ -81,15 +81,11 @@ class ProtocolValidationFilterTest {
     private AuthHelper authHelper;
 
     @BeforeEach
-    void createFilter() {
+    void createFilterAndCaptureItsLog() {
         filter = new ProtocolValidationFilter();
         filter.setAuthHelper(authHelper);
         filter.setHandlerExceptionResolver(resolver);
         ReflectionTestUtils.setField(filter, "context", CONTEXT);
-    }
-
-    @BeforeEach
-    void captureTheFilterLog() {
         logged.start();
         filterLogger.addAppender(logged);
     }
