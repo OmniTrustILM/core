@@ -8,6 +8,7 @@ import java.util.UUID;
  *
  * @param identifier the caller-chosen identifier of the document
  * @param signingRecordUuid the UUID of the document's signing record, or {@code null} when the profile records nothing
+ * or its best-effort record could not be staged
  */
 public record SignedItem(String identifier, SignedContent content, UUID signingRecordUuid) {
 

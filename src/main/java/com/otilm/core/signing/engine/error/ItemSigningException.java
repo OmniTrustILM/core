@@ -15,7 +15,12 @@ public class ItemSigningException extends SigningEngineException {
      */
     public ItemSigningException(SigningEngineFailure failure, int itemIndex, String operatorMessage,
             String clientMessage) {
-        super(failure, operatorMessage, clientMessage);
+        this(failure, itemIndex, operatorMessage, null, clientMessage);
+    }
+
+    public ItemSigningException(SigningEngineFailure failure, int itemIndex, String operatorMessage, Throwable cause,
+            String clientMessage) {
+        super(failure, operatorMessage, cause, clientMessage);
         this.itemIndex = itemIndex;
     }
 

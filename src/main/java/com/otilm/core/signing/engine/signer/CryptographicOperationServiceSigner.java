@@ -147,9 +147,10 @@ public class CryptographicOperationServiceSigner implements Signer {
         for (int i = 0; i < digests.size(); i++) {
             if (!PrehashedSignatureVerifier
                     .verifies(signatureAlgorithm, signingKey, digests.get(i), signatures.get(i))) {
-                throw signerFault(
+                throw new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, i,
                         "Signature %d does not verify against its digest under %s; the provider may have hashed it again"
-                                .formatted(i, signatureAlgorithm.getCode()));
+                                .formatted(i, signatureAlgorithm.getCode()),
+                        CLIENT_MESSAGE);
             }
         }
     }
@@ -201,7 +202,13 @@ public class CryptographicOperationServiceSigner implements Signer {
                     "Signing operation returned no signature for item " + index + ": " + result.getDetails(),
                     CLIENT_MESSAGE);
         }
-        return Base64.getDecoder().decode(data);
+        try {
+            return Base64.getDecoder().decode(data);
+        } catch (IllegalArgumentException e) {
+            throw new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, index,
+                    "Signing operation returned a signature for item " + index + " that is not valid base64", e,
+                    CLIENT_MESSAGE);
+        }
     }
 
     private static SigningEngineException signerFault(String message) {

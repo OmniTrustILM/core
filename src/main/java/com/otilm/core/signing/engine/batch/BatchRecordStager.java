@@ -8,6 +8,8 @@ import com.otilm.core.signing.record.SigningRecordInputSource;
 import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class BatchRecordStager {
 
+    private static final Logger logger = LoggerFactory.getLogger(BatchRecordStager.class);
     private static final String STEP = "stageSigningRecords";
     private static final String CLIENT_MESSAGE = "Internal error while storing the signing records";
 
@@ -26,12 +29,14 @@ public class BatchRecordStager {
     }
 
     /**
-     * Stages one record per item at the durability of the profile's persistence mode. A staging failure fails the run
-     * at the {@code stageSigningRecords} step.
+     * Stages one record per item at the durability of the profile's persistence mode. A staging failure under a durable
+     * mode fails the run at the {@code stageSigningRecords} step; under {@code BEST_EFFORT}, whose records may be lost,
+     * it leaves the run without record references.
      *
      * @param signingProfile the run's signing profile
      * @param sources one per item in request order
-     * @return the UUIDs of the records in source order, or an empty list when the profile records nothing
+     * @return the UUIDs of the records in source order, or an empty list when the profile records nothing or its
+     * best-effort records could not be staged
      */
     public List<UUID> stage(SigningProfileModel<?, ?> signingProfile, List<SigningRecordInputSource> sources)
             throws SigningEngineException {
@@ -39,6 +44,12 @@ public class BatchRecordStager {
         try {
             return strategyFactory.strategyFor(mode).recordSigning(signingProfile, sources);
         } catch (RuntimeException e) {
+            if (mode == SigningRecordPersistenceMode.BEST_EFFORT) {
+                logger
+                        .error("Lost {} best-effort signing record(s) of signing profile '{}' while staging them",
+                                sources.size(), signingProfile.name(), e);
+                return List.of();
+            }
             throw SigningEngineException
                     .stepFailed(SigningEngineFailure.STEP_FAILED, STEP, "the signing records could not be staged", e,
                             CLIENT_MESSAGE);

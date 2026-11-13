@@ -51,6 +51,7 @@ import com.otilm.core.service.TokenInstanceExternalService;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.signing.contentsigning.AugmentationRequest;
 import com.otilm.core.signing.contentsigning.ContentSigningItem;
 import com.otilm.core.signing.contentsigning.ContentSigningRequest;
 import com.otilm.core.signing.contentsigning.ManagedContentSigningEngine;
@@ -75,6 +76,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
@@ -86,6 +88,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
@@ -154,6 +158,9 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
     @Autowired
     private SettingExternalService settingService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private CryptographyProviderConnectorMock cryptographyProviderMock;
     private TimestampingFormattingConnectorMock timestampingFormattingMock;
@@ -868,6 +875,64 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
             update.setSigning(signing);
             return update;
+        }
+    }
+
+    // ── CallersTransaction ────────────────────────────────────────────────────
+
+    @Nested
+    class CallersTransaction {
+
+        @Test
+        void keepsTheSigningRecord_whenTheCallersTransactionRollsBack() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("caller-rollback-signed-pades",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            ContentSigningRequest request = signingRequest(SignatureLevel.SIGNED,
+                    "a document to sign".getBytes(StandardCharsets.UTF_8));
+            SigningProfileModel<?, ?> signingProfile = modelOf(contentProfile);
+            ResolvedManagedContentSigningProfile resolvedProfile = resolvedContentSigningProfile(contentProfile);
+
+            // when
+            List<SignedItem> signed = inACallersTransactionThatRollsBack(
+                    () -> engine.sign(request, signingProfile, resolvedProfile, SigningProtocol.CSC_API));
+
+            // then
+            assertThat(recordEntitiesFor(contentProfile))
+                    .extracting(SigningRecord::getUuid)
+                    .containsExactly(signed.getFirst().signingRecordUuid());
+        }
+
+        @Test
+        void keepsTheAugmentationRecord_whenTheCallersTransactionRollsBack() throws Exception {
+            // given
+            SigningProfileDto tsaProfile = createTimestampingProfile("caller-rollback-tsa");
+            SigningProfileDto contentProfile = createContentSigningProfile("caller-rollback-augmented-pades",
+                    SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
+            var augmentation = new AugmentationRequest(SignatureLevel.TIMESTAMPED,
+                    "a document signed elsewhere".getBytes(StandardCharsets.UTF_8), null);
+            SigningProfileModel<?, ?> signingProfile = modelOf(contentProfile);
+            ResolvedManagedContentSigningProfile resolvedProfile = resolvedContentSigningProfile(contentProfile);
+
+            // when
+            inACallersTransactionThatRollsBack(
+                    () -> engine.augment(augmentation, signingProfile, resolvedProfile, SigningProtocol.CSC_API));
+
+            // then
+            assertThat(recordEntitiesFor(contentProfile)).hasSize(1);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private <T> T inACallersTransactionThatRollsBack(Callable<T> work) {
+            return new TransactionTemplate(transactionManager).execute(callersTransaction -> {
+                callersTransaction.setRollbackOnly();
+                try {
+                    return work.call();
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            });
         }
     }
 

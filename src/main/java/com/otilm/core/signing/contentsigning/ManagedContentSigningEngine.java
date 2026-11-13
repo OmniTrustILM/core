@@ -14,6 +14,7 @@ import com.otilm.api.model.connector.signatures.contentsigning.common.SignedDocu
 import com.otilm.api.model.connector.signatures.contentsigning.common.TimestampImprintResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedScheme;
@@ -83,6 +84,7 @@ public class ManagedContentSigningEngine {
      * @param protocol how the run was initiated, as its signing records carry it
      * @return one result per document, in request order
      */
+    @OutsideTransaction
     public List<SignedItem> sign(ContentSigningRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         List<BigInteger> serials = new ArrayList<>();
@@ -117,6 +119,7 @@ public class ManagedContentSigningEngine {
         requireReachableLevel(request.targetLevel(), profile);
         requireDeclaredCeiling(profile);
         requireAcceptedTransfer(profile.familyDeclaration(), request.transferMode());
+        requireWellFormedDigests(request);
         requireAcceptableSigningCertificate(profile);
     }
 
@@ -179,11 +182,11 @@ public class ManagedContentSigningEngine {
     }
 
     private static List<SignedItem> signedItems(List<CompletedDocument> documents, List<UUID> recordUuids) {
-        boolean profileRecordsNothing = recordUuids.isEmpty();
+        boolean withoutRecordReferences = recordUuids.isEmpty();
         List<SignedItem> signed = new ArrayList<>();
         for (int i = 0; i < documents.size(); i++) {
             CompletedDocument document = documents.get(i);
-            UUID recordUuid = profileRecordsNothing ? null : recordUuids.get(i);
+            UUID recordUuid = withoutRecordReferences ? null : recordUuids.get(i);
             signed.add(new SignedItem(document.item().identifier(), document.content(), recordUuid));
         }
         return signed;
@@ -240,6 +243,7 @@ public class ManagedContentSigningEngine {
      * Raises a signature made elsewhere, entering the machine at the signature-timestamp imprint with {@code SIGNED} as
      * the given cursor.
      */
+    @OutsideTransaction
     public SignedContent augment(AugmentationRequest request, SigningProfileModel<?, ?> signingProfile,
             ResolvedManagedContentSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         List<BigInteger> serials = new ArrayList<>();
@@ -313,6 +317,28 @@ public class ManagedContentSigningEngine {
                     "a %s run was given transferMode %s, which %s signing does not accept"
                             .formatted(family.getLabel(), mode.getCode(), family.getLabel()),
                     clientRefusal(family.getLabel(), mode));
+        }
+    }
+
+    /** A digest whose algorithm never produces its length came from no document, so no connector sees it. */
+    private static void requireWellFormedDigests(ContentSigningRequest request) throws SigningEngineException {
+        for (ContentSigningItem item : request.items()) {
+            requireWellFormedDigest("authorized digest", request.authorizedDigestOf(item), item);
+            if (request.transferMode() == DocumentTransferMode.DIGEST_ONLY) {
+                requireWellFormedDigest("digest sent in place of the document",
+                        new DocumentDigest(request.digestAlgorithm(), item.content()), item);
+            }
+        }
+    }
+
+    private static void requireWellFormedDigest(String role, DocumentDigest digest, ContentSigningItem item)
+            throws SigningEngineException {
+        if (!digest.hasLengthOfItsAlgorithm()) {
+            String defect = "%s is %d bytes, but %s produces %d"
+                    .formatted(role, digest.length(), digest.algorithm().getCode(),
+                            digest.algorithm().getDigestSizeBytes());
+            throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT, defect, "The " + defect)
+                    .withItem(item.identifier());
         }
     }
 

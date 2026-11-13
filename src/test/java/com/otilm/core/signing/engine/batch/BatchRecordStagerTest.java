@@ -11,9 +11,10 @@ import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import java.util.List;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -28,11 +29,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class BatchRecordStagerTest {
 
-    private static final SigningRecordPersistenceMode PROFILE_MODE = SigningRecordPersistenceMode.IMMEDIATE;
-    private static final SigningProfileModel<?, ?> RECORDING_PROFILE = aSigningProfile()
-            .withRecordPolicy(recordingEverything().persistenceMode(PROFILE_MODE).build())
-            .build();
-
     @Mock
     private SigningRecordStrategyFactory strategyFactory;
 
@@ -42,35 +38,34 @@ class BatchRecordStagerTest {
     @InjectMocks
     private BatchRecordStager stager;
 
-    private List<SigningRecordInputSource> batch;
-
-    @BeforeEach
-    void stubTheProfileStrategy() {
-        batch = List.of(createRecordableSource(), createRecordableSource());
-        when(strategyFactory.strategyFor(PROFILE_MODE)).thenReturn(strategy);
-    }
-
     @Test
     void returnsTheRecordReferences_whenStagingSucceeds() throws Exception {
         // given
+        var profile = createRecordingProfile(SigningRecordPersistenceMode.IMMEDIATE);
+        var batch = createBatchOf(profile);
         List<UUID> recordUuids = List.of(UUID.randomUUID(), UUID.randomUUID());
-        when(strategy.recordSigning(RECORDING_PROFILE, batch)).thenReturn(recordUuids);
+        stubTheStrategyOf(profile);
+        when(strategy.recordSigning(profile, batch)).thenReturn(recordUuids);
 
         // when
-        List<UUID> references = stager.stage(RECORDING_PROFILE, batch);
+        List<UUID> references = stager.stage(profile, batch);
 
         // then
         assertThat(references).isEqualTo(recordUuids);
     }
 
-    @Test
-    void failsTheRunAtTheStagingStep_whenStagingFails() {
+    @ParameterizedTest
+    @EnumSource(names = {"IMMEDIATE", "DEFERRED_DURABLE"})
+    void failsTheRunAtTheStagingStep_whenDurableStagingFails(SigningRecordPersistenceMode durableMode) {
         // given
+        var profile = createRecordingProfile(durableMode);
+        var batch = createBatchOf(profile);
         var stagingFailure = new IllegalStateException("outbox insert violated a constraint");
-        when(strategy.recordSigning(RECORDING_PROFILE, batch)).thenThrow(stagingFailure);
+        stubTheStrategyOf(profile);
+        when(strategy.recordSigning(profile, batch)).thenThrow(stagingFailure);
 
         // when
-        ThrowingCallable stage = () -> stager.stage(RECORDING_PROFILE, batch);
+        ThrowingCallable stage = () -> stager.stage(profile, batch);
 
         // then
         assertThatThrownBy(stage).isInstanceOfSatisfying(SigningEngineException.class, failure -> {
@@ -81,9 +76,37 @@ class BatchRecordStagerTest {
         });
     }
 
+    @Test
+    void returnsNoReferences_whenBestEffortStagingFails() throws Exception {
+        // given
+        var bestEffortProfile = createRecordingProfile(SigningRecordPersistenceMode.BEST_EFFORT);
+        var batch = createBatchOf(bestEffortProfile);
+        stubTheStrategyOf(bestEffortProfile);
+        when(strategy.recordSigning(bestEffortProfile, batch))
+                .thenThrow(new IllegalStateException("record metadata could not be serialized"));
+
+        // when
+        List<UUID> references = stager.stage(bestEffortProfile, batch);
+
+        // then
+        assertThat(references).isEmpty();
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static SigningRecordInputSource createRecordableSource() {
-        return SigningRecordInputSources.of(aSigningRecordInput().signingProfile(RECORDING_PROFILE).build());
+    private void stubTheStrategyOf(SigningProfileModel<?, ?> profile) {
+        when(strategyFactory.strategyFor(profile.recordPolicy().persistenceMode())).thenReturn(strategy);
+    }
+
+    private static SigningProfileModel<?, ?> createRecordingProfile(SigningRecordPersistenceMode mode) {
+        return aSigningProfile().withRecordPolicy(recordingEverything().persistenceMode(mode).build()).build();
+    }
+
+    private static List<SigningRecordInputSource> createBatchOf(SigningProfileModel<?, ?> profile) {
+        return List.of(createRecordableSource(profile), createRecordableSource(profile));
+    }
+
+    private static SigningRecordInputSource createRecordableSource(SigningProfileModel<?, ?> profile) {
+        return SigningRecordInputSources.of(aSigningRecordInput().signingProfile(profile).build());
     }
 }

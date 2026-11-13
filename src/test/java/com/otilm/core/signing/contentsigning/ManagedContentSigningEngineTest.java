@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenceMode;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
@@ -72,6 +73,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 
+import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
 import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
@@ -1510,6 +1512,32 @@ class ManagedContentSigningEngineTest {
                 assertThat(thrown.itemIdentifier()).isNull();
             });
         }
+
+        @Test
+        void returnsTheDocumentsWithoutRecordReferences_whenBestEffortStagingFails() throws Exception {
+            // given
+            var bestEffortRecording = aSigningProfile()
+                    .withRecordPolicy(
+                            recordingEverything().persistenceMode(SigningRecordPersistenceMode.BEST_EFFORT).build())
+                    .build();
+            stubComputeDtbsEchoingEachDocument();
+            when(acquisitions.signDtbs(any(), any()))
+                    .thenReturn(List.of("signature-1".getBytes(), "signature-2".getBytes()));
+            stubEmbedSignatureValue("signed document".getBytes());
+            stubRecordSource();
+            doThrow(new IllegalStateException("record metadata could not be serialized"))
+                    .when(signingRecordStrategy)
+                    .recordSigning(any(), any());
+
+            // when
+            List<SignedItem> signed = engine
+                    .sign(batchOf(SignatureLevel.SIGNED, "first", "second"), bestEffortRecording, aSignedOnlyProfile(),
+                            SigningProtocol.CSC_API);
+
+            // then
+            assertThat(signed).extracting(SignedItem::identifier).containsExactly("first", "second");
+            assertThat(signed).extracting(SignedItem::signingRecordUuid).containsOnlyNulls();
+        }
     }
 
     // ── Batches ───────────────────────────────────────────────────────────────
@@ -1553,6 +1581,55 @@ class ManagedContentSigningEngineTest {
                 assertThat(thrown.itemIdentifier()).isEqualTo(repeated);
             });
             verifyNoInteractions(formattingClient);
+        }
+
+        @Test
+        void refusesBeforeAnyConnectorCall_whenAnAuthorizedDigestHasTheWrongLength() {
+            // given
+            var truncated = "second";
+            byte[] truncatedDigest = Arrays.copyOf(digestOf(documentNamed(truncated)), 31);
+            var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.INLINE,
+                    DigestAlgorithm.SHA_256,
+                    List
+                            .of(inlineItemNamed("first"),
+                                    new ContentSigningItem(truncated, documentNamed(truncated), truncatedDigest)),
+                    null);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request, aSigningProfile().build(), aSignedOnlyProfile(), SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(thrown.itemIdentifier()).isEqualTo(truncated);
+            });
+            verifyNoInteractions(formattingClient, acquisitions);
+        }
+
+        @Test
+        void refusesBeforeAnyConnectorCall_whenADigestOnlyDocumentIsNotADigest() {
+            // given
+            var sentWhole = "second";
+            byte[] wholeDocument = documentNamed(sentWhole);
+            var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.DIGEST_ONLY,
+                    DigestAlgorithm.SHA_256,
+                    List
+                            .of(digestOnlyItemNamed("first"),
+                                    new ContentSigningItem(sentWhole, wholeDocument, digestOf(wholeDocument))),
+                    null);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(request, aSigningProfile().build(), aSignedOnlyProfileOf(SignatureFamily.CADES),
+                            SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+                assertThat(thrown.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(thrown.itemIdentifier()).isEqualTo(sentWhole);
+            });
+            verifyNoInteractions(formattingClient, acquisitions);
         }
 
         @Test
@@ -1820,6 +1897,15 @@ class ManagedContentSigningEngineTest {
                         digestOf(documentNamed(identifier))))
                 .toList();
         return new ContentSigningRequest(target, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items, null);
+    }
+
+    private static ContentSigningItem inlineItemNamed(String identifier) {
+        return new ContentSigningItem(identifier, documentNamed(identifier), digestOf(documentNamed(identifier)));
+    }
+
+    private static ContentSigningItem digestOnlyItemNamed(String identifier) {
+        byte[] digest = digestOf(documentNamed(identifier));
+        return new ContentSigningItem(identifier, digest, digest);
     }
 
     private static byte[] documentNamed(String identifier) {
