@@ -69,6 +69,7 @@ public class ManagedRawSigningEngine {
     private RawSigningResult signDigests(RawSigningRequest request, SigningProfileModel<?, ?> model,
             ResolvedManagedRawSigningProfile profile, SigningProtocol protocol) throws SigningEngineException {
         List<RawSigningItem> items = request.items();
+        requireItems(items);
         BatchAdmission.admit(items.stream().map(RawSigningItem::identifier).toList());
         requirePrehashedDigests(request.inputMode());
         requireAcceptableSigningCertificate(profile);
@@ -85,6 +86,14 @@ public class ManagedRawSigningEngine {
         List<UUID> recordUuids = recordStager.stage(model, sources);
         return new RawSigningResult(signatureAlgorithm, profile.resolvedScheme().chain().chain(),
                 signedItems(items, signatures, recordUuids));
+    }
+
+    /** The signer refuses an empty batch as a fault of its own, which would report a caller's mistake as Core's. */
+    private static void requireItems(List<RawSigningItem> items) throws SigningEngineException {
+        if (items.isEmpty()) {
+            throw new SigningEngineException(SigningEngineFailure.INVALID_INPUT, "a raw signing run was given no items",
+                    "A request must carry at least one item");
+        }
     }
 
     /** The run owns this rule, so every door that reaches it refuses data signing without a check of its own. */

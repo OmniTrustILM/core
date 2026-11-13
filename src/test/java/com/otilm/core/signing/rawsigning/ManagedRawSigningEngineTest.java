@@ -218,6 +218,23 @@ class ManagedRawSigningEngineTest {
     }
 
     @Test
+    void sign_throwsInvalidInput_whenTheBatchIsEmpty() {
+        // given
+        List<RawSigningItem> noItems = List.of();
+        var request = new RawSigningRequest(SignatureInputMode.PREHASHED_DIGEST, DigestAlgorithm.SHA_256, noItems);
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign)
+                .isInstanceOfSatisfying(SigningEngineException.class,
+                        refusal -> assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT))
+                .hasMessageContaining("at least one item");
+        verifyNoInteractions(signerFactory, recordStager);
+    }
+
+    @Test
     void sign_throwsInvalidInput_whenBatchExceedsTheCap() throws Exception {
         // given
         var cap = 2;
