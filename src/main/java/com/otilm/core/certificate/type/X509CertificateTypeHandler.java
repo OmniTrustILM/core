@@ -13,6 +13,8 @@ import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.container.KeystoreDetection;
+import com.otilm.core.dao.entity.Certificate;
+import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.model.request.CertificateRequest;
 import com.otilm.core.model.request.CrmfCertificateRequest;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
@@ -21,6 +23,7 @@ import com.otilm.core.oid.OidRecord;
 import com.otilm.core.util.CertificateRequestUtils;
 import com.otilm.core.util.CertificateUtil;
 import com.otilm.core.util.CryptographyUtil;
+import com.otilm.core.util.X509ObjectToString;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
@@ -221,6 +224,18 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
         }
     }
 
+    @Override
+    public Certificate stampIssued(Certificate certificate, ParsedCertificate issued) {
+        X509CertificateEntity entity = X509CertificateEntity.from(certificate);
+        CertificateUtil.stampIssuedFields(entity, x509Of(issued));
+        return entity;
+    }
+
+    @Override
+    public String contentToStore(ParsedCertificate certificate) {
+        return X509ObjectToString.toPem(x509Of(certificate));
+    }
+
     /** Shows the extended key usages by the display names of their OIDs, where a name is known. */
     @Override
     public void presentDetail(CertificateDetail detail) {
@@ -253,6 +268,14 @@ public class X509CertificateTypeHandler implements CertificateTypeHandler {
             return new ParsedCertificate(typeCode(), certificate.getEncoded(), propertiesOf(certificate));
         } catch (NoSuchAlgorithmException e) {
             throw new CertificateException(e);
+        }
+    }
+
+    private static X509Certificate x509Of(ParsedCertificate certificate) {
+        try {
+            return CertificateUtil.getX509Certificate(certificate.encoded());
+        } catch (CertificateException e) {
+            throw new CertificateTypeHandlerException("The content is not an X.509 certificate");
         }
     }
 

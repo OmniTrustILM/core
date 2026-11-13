@@ -1658,6 +1658,44 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     @Test
+    void storesPkcs10_whenRenewingWithARequestWithoutAFormat() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        var subjectDn = "CN=renew-no-format";
+        KeyPair currentKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        storeAsCurrentCertificate(currentKeys, subjectDn);
+        ClientCertificateRenewRequestDto request = new ClientCertificateRenewRequestDto();
+        request.setRequest(pkcs10Of(currentKeys, subjectDn));
+
+        // when
+        ClientCertificateDataResponseDto renewed = clientOperationService
+                .renewCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request);
+
+        // then
+        assertThat(storedRequestFormatOf(renewed)).isEqualTo(CertificateRequestFormat.PKCS10);
+    }
+
+    @Test
+    void storesPkcs10_whenRekeyingWithARequestWithoutAFormat() throws Exception {
+        // given
+        stubAuthorityProviderAttributesEndpoints();
+        var subjectDn = "CN=rekey-no-format";
+        storeAsCurrentCertificate(CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null), subjectDn);
+        KeyPair newKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
+        request.setRequest(pkcs10Of(newKeys, subjectDn));
+
+        // when
+        ClientCertificateDataResponseDto rekeyed = clientOperationService
+                .rekeyCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        certificate.getUuid().toString(), request);
+
+        // then
+        assertThat(storedRequestFormatOf(rekeyed)).isEqualTo(CertificateRequestFormat.PKCS10);
+    }
+
+    @Test
     void submitCertificateRequest_storesV2SignatureAttributesForALegacyProviderKey() throws Exception {
         // given
         stubAuthorityProviderAttributesEndpoints();
@@ -2476,7 +2514,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         doAnswer(inv -> {
             placeOnLocation(certUuid, "linked-after-claim");
             return inv.callRealMethod();
-        }).when(certificateService).issueRequestedCertificate(any(), any(), any());
+        }).when(certificateService).issueRequestedCertificate(any(), any(), any(), any());
 
         clientOperationInternalService.issueCertificateAction(certUuid, true);
 
@@ -3479,7 +3517,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
         doThrow(new RuntimeException("internal db detail"))
                 .when(certificateService)
-                .issueRequestedCertificate(any(), any(), any());
+                .issueRequestedCertificate(any(), any(), any(), any());
         ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
         UUID successorUuid = certificate.getUuid();
 
@@ -3539,7 +3577,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                         .willReturn(WireMock.okJson("{ \"certificateData\": \"" + certificateData + "\" }")));
         doThrow(new RuntimeException("internal db detail"))
                 .when(certificateService)
-                .issueRequestedCertificate(any(), any(), any());
+                .issueRequestedCertificate(any(), any(), any(), any());
         ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
         UUID successorUuid = certificate.getUuid();
 
@@ -5747,7 +5785,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             stubIssuedSynchronously(RENEW_PATH);
             doThrow(new RuntimeException("internal db detail"))
                     .when(certificateService)
-                    .issueRequestedCertificate(any(), any(), any());
+                    .issueRequestedCertificate(any(), any(), any(), any());
             ClientCertificateRenewRequestDto request = ClientCertificateRenewRequestDto.builder().build();
 
             // when
@@ -5767,7 +5805,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
             stubIssuedSynchronously(RENEW_PATH);
             doThrow(new RuntimeException("internal db detail"))
                     .when(certificateService)
-                    .issueRequestedCertificate(any(), any(), any());
+                    .issueRequestedCertificate(any(), any(), any(), any());
             ClientCertificateRekeyRequestDto request = new ClientCertificateRekeyRequestDto();
 
             // when
@@ -6195,6 +6233,32 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void storeAsCurrentCertificate(KeyPair holderKeys, String subjectDn) throws Exception {
+        KeyPair issuerKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        X509Certificate issuer = CertificateGeneratorHelper.generateCACertificate(issuerKeys, subjectDn + "-issuer");
+        X509Certificate current = CertificateGeneratorHelper
+                .generateEndEntityCertificate(issuerKeys, issuer, holderKeys, subjectDn, null);
+        CertificateContent content = new CertificateContent();
+        content.setContent(Base64.getEncoder().encodeToString(current.getEncoded()));
+        certificateContentRepository.save(content);
+        certificate.setCertificateContent(content);
+        certificate.setHybridCertificate(false);
+        certificate.setAltKeyUuid(null);
+        certificateRepository.save(certificate);
+    }
+
+    private static String pkcs10Of(KeyPair keys, String subjectDn) throws Exception {
+        return CertificateGeneratorHelper
+                .generateCsrBase64Der(keys.getPrivate(), keys.getPublic(), subjectDn, "SHA256withRSA");
+    }
+
+    private CertificateRequestFormat storedRequestFormatOf(ClientCertificateDataResponseDto response) throws Exception {
+        return certificateExternalService
+                .getCertificate(SecuredUUID.fromString(response.getUuid()))
+                .getCertificateRequest()
+                .getCertificateRequestFormat();
+    }
 
     private ApprovalProfileVersion createApprovalProfileVersion() throws Exception {
         ApprovalStepRequestDto step = new ApprovalStepRequestDto();

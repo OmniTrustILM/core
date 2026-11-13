@@ -79,7 +79,9 @@ import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.certificate.request.IssuanceDefinitionResolver;
+import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.comparator.SearchFieldDataComparator;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
@@ -2782,22 +2784,50 @@ public class CertificateServiceImpl
                         CertificateUtil.getKeyAlgorithmStringFromProviderName(csrPublicKey.getAlgorithm()));
     }
 
+    /** Links the alternative key of a hybrid X.509 certificate; other types have none. */
+    private void uploadAlternativeKey(Certificate certificate, ParsedCertificate issued) throws CertificateException {
+        if (!CertificateType.X509.getCode().equals(issued.typeCode())) {
+            return;
+        }
+        byte[] alternativeKey = CertificateUtil
+                .getX509Certificate(issued.encoded())
+                .getExtensionValue(Extension.subjectAltPublicKeyInfo.getId());
+        if (alternativeKey != null) {
+            uploadCertificateKey(null, certificate, alternativeKey);
+        }
+    }
+
     @Override
     public CertificateDetail issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta)
             throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException,
             AttributeException {
-        X509Certificate x509Cert = CertificateUtil.parseCertificate(certificateData);
-        String fingerprint = CertificateUtil.getThumbprint(x509Cert);
+        return issueRequestedCertificate(uuid, certificateData, meta, null);
+    }
+
+    @Override
+    public CertificateDetail issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta,
+            CertificateType returnedType) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException,
+            NotFoundException, AttributeException {
+        Certificate requested = certificateRepository
+                .findByUuid(uuid)
+                .orElseThrow(() -> new NotFoundException(Certificate.class, uuid));
+        CertificateType requestedType = requested.getCertificateType();
+        if (returnedType != null && returnedType != requestedType) {
+            throw new CertificateException("The authority returned a certificate of type %s where %s was requested"
+                    .formatted(returnedType.getLabel(), requestedType.getLabel()));
+        }
+        CertificateTypeHandler handler = typeHandlerRegistry.require(requestedType.getCode());
+        ParsedCertificate issued = handler
+                .parseCertificate(CertificateUtil.decodeCertificateContent(certificateData))
+                .orElseThrow(() -> new CertificateException(
+                        "The authority returned content that is not a certificate of type "
+                                + requestedType.getLabel()));
+        String fingerprint = issued.properties().fingerprint();
         if (certificateRepository.findByFingerprint(fingerprint).isPresent()) {
             throw new AlreadyExistException("Certificate already exists with fingerprint " + fingerprint);
         }
-        X509CertificateEntity certificate = X509CertificateEntity
-                .from(certificateRepository
-                        .findByUuid(uuid)
-                        .orElseThrow(() -> new NotFoundException(Certificate.class, uuid)));
-        CertificateUtil.stampIssuedFields(certificate, x509Cert);
-        CertificateContent certificateContent = checkAddCertificateContent(fingerprint,
-                X509ObjectToString.toPem(x509Cert));
+        Certificate certificate = handler.stampIssued(requested, issued);
+        CertificateContent certificateContent = checkAddCertificateContent(fingerprint, handler.contentToStore(issued));
         certificate.setFingerprint(fingerprint);
         certificate.setCertificateContent(certificateContent);
         certificate.setCertificateContentId(certificateContent.getId());
@@ -2808,10 +2838,7 @@ public class CertificateServiceImpl
             certificate.setKeyUuid(keyUuid);
         }
 
-        if (x509Cert.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()) != null) {
-            uploadCertificateKey(null, certificate,
-                    x509Cert.getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()));
-        }
+        uploadAlternativeKey(certificate, issued);
 
         stateMachine
                 .transition(certificate, CertificateState.ISSUED, CertificateEvent.ISSUE,

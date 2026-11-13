@@ -346,6 +346,17 @@ public interface CertificateInternalService extends ResourceExtensionService {
             AttributeException;
 
     /**
+     * Stores the certificate the authority issued for a requested one, through the handler of the requested type.
+     *
+     * @param returnedType the type the authority states for the certificate, or null when it states none
+     * @throws CertificateException when the authority states another type than the requested one, or the content is not
+     * a certificate of the requested type
+     */
+    CertificateDetail issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta,
+            CertificateType returnedType) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException,
+            NotFoundException, AttributeException;
+
+    /**
      * List certificates eligible for CA certificate of SCEP requests
      *
      * @param filter Security Filter

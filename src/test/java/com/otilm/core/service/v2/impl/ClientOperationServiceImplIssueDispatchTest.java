@@ -240,7 +240,8 @@ class ClientOperationServiceImplIssueDispatchTest {
 
         // then
         verify(adapter).issue(ArgumentMatchers.eq(certificate), ArgumentMatchers.any());
-        verify(certificateService).issueRequestedCertificate(certUuid, certificateData, List.of());
+        verify(certificateService)
+                .issueRequestedCertificate(certUuid, certificateData, List.of(), CertificateType.X509);
     }
 
     @Test
@@ -312,7 +313,8 @@ class ClientOperationServiceImplIssueDispatchTest {
         // then — the async-acceptance path was taken: no synchronous completion, a poll IS scheduled exactly once,
         // the action event is raised, and the certificate is not failed
         verify(certificateService, never())
-                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.any());
         verify(pollWriter, times(1))
                 .schedule(ArgumentMatchers.eq(certUuid), ArgumentMatchers.eq(CertificateOperation.ISSUE),
                         ArgumentMatchers.any());
@@ -391,7 +393,8 @@ class ClientOperationServiceImplIssueDispatchTest {
 
     private void assertNoFailTransitionAndReconcileEventRecorded() throws Exception {
         verify(certificateService, never())
-                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.any());
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
                         ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
@@ -497,7 +500,7 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .thenReturn(AdapterOperationResult.syncOk(certificateData, List.of(), CertificateType.X509));
         doThrow(new IllegalStateException(leakySecret))
                 .when(certificateService)
-                .issueRequestedCertificate(certUuid, certificateData, List.of());
+                .issueRequestedCertificate(certUuid, certificateData, List.of(), CertificateType.X509);
 
         // when / then — state-divergence rule: surface a shaped error but do NOT roll the cert back to FAILED
         assertThatThrownBy(() -> service.issueCertificateAction(certUuid, true))
@@ -638,7 +641,7 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
         doThrow(new IllegalStateException("persist failed"))
                 .when(certificateService)
-                .issueRequestedCertificate(certUuid, "cert-data", List.of());
+                .issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);
 
         // when
         ThrowingCallable issue = () -> service.issueCertificateAction(certUuid, true);
@@ -855,7 +858,9 @@ class ClientOperationServiceImplIssueDispatchTest {
                 .thenReturn(AdapterOperationResult.syncOk(certificateData, List.of(), CertificateType.X509));
         doAnswer(invocation -> {
             throw new ConnectorException("authority refused: " + connectorText);
-        }).when(certificateService).issueRequestedCertificate(certUuid, certificateData, List.of());
+        })
+                .when(certificateService)
+                .issueRequestedCertificate(certUuid, certificateData, List.of(), CertificateType.X509);
     }
 
     private void stubIssueFailingWithConnectorText(String connectorText) throws Exception {

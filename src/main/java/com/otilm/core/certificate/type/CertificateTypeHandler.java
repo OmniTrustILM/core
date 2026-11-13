@@ -7,6 +7,7 @@ import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
 import com.otilm.api.model.core.certificate.CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import java.util.List;
 import java.util.Optional;
@@ -53,6 +54,15 @@ public interface CertificateTypeHandler {
     Set<CertificateFormat> downloadFormats();
 
     byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding);
+
+    /**
+     * Fills the certificate with what the type stores about an issued certificate and returns it as the entity of the
+     * type. The state of the certificate is left as it is.
+     */
+    Certificate stampIssued(Certificate certificate, ParsedCertificate issued);
+
+    /** The text the content of the certificate is stored as. */
+    String contentToStore(ParsedCertificate certificate);
 
     /**
      * Adjusts the certificate detail for the client, where what the type stores differs from what is shown, such as

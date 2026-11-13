@@ -175,6 +175,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.jetbrains.annotations.NotNull;
 import org.jspecify.annotations.NonNull;
@@ -2812,6 +2813,81 @@ class CertificateServiceITest extends BaseSpringBootTest {
             var certUuid = cert.getUuid();
             assertThatThrownBy(() -> certificateService.issueRequestedCertificate(certUuid, pemCert, null))
                     .isInstanceOf(InvalidTransitionException.class);
+        }
+
+        @Test
+        void issuesTheCertificate_whenTheAuthorityStatesTheRequestedType() throws Exception {
+            // given
+            UUID requestedUuid = savePendingIssueCertificate();
+            var issuedContent = X509ObjectToString.toPem(generateEndEntityCertificate("CN=StatedType-EE"));
+            var statedType = CertificateType.X509;
+
+            // when
+            certificateService.issueRequestedCertificate(requestedUuid, issuedContent, null, statedType);
+
+            // then
+            Certificate reloaded = certificateRepository.findByUuid(requestedUuid).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.ISSUED);
+        }
+
+        @Test
+        void refusesTheCertificate_whenTheAuthorityStatesAnotherTypeThanRequested() throws Exception {
+            // given
+            UUID requestedUuid = savePendingIssueCertificate();
+            var issuedContent = X509ObjectToString.toPem(generateEndEntityCertificate("CN=OtherType-EE"));
+            var statedType = CertificateType.SSH;
+
+            // when
+            ThrowingCallable issue = () -> certificateService
+                    .issueRequestedCertificate(requestedUuid, issuedContent, null, statedType);
+
+            // then
+            assertThatThrownBy(issue)
+                    .isInstanceOf(CertificateException.class)
+                    .hasMessageContaining(statedType.getLabel())
+                    .hasMessageContaining(CertificateType.X509.getLabel());
+            assertNotStoredAsIssued(requestedUuid);
+        }
+
+        @Test
+        void refusesTheContent_whenItIsNotACertificateOfTheRequestedType() {
+            // given
+            UUID requestedUuid = savePendingIssueCertificate();
+            var notACertificate = Base64
+                    .getEncoder()
+                    .encodeToString("not a certificate".getBytes(StandardCharsets.UTF_8));
+
+            // when
+            ThrowingCallable issue = () -> certificateService
+                    .issueRequestedCertificate(requestedUuid, notACertificate, null, null);
+
+            // then
+            assertThatThrownBy(issue)
+                    .isInstanceOf(CertificateException.class)
+                    .hasMessageContaining(CertificateType.X509.getLabel());
+            assertNotStoredAsIssued(requestedUuid);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private UUID savePendingIssueCertificate() {
+            return certificateRepository
+                    .save(aCertificate().withRaProfile(raProfile).withState(CertificateState.PENDING_ISSUE).build())
+                    .getUuid();
+        }
+
+        private void assertNotStoredAsIssued(UUID certificateUuid) {
+            Certificate reloaded = certificateRepository.findByUuid(certificateUuid).orElseThrow();
+            assertThat(reloaded.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+            assertThat(reloaded.getCertificateContent()).isNull();
+        }
+
+        private static X509Certificate generateEndEntityCertificate(String subjectDn) throws Exception {
+            KeyPair issuerKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            X509Certificate issuer = CertificateGeneratorHelper.generateCACertificate(issuerKeys, subjectDn + "-Root");
+            KeyPair holderKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+            return CertificateGeneratorHelper
+                    .generateEndEntityCertificate(issuerKeys, issuer, holderKeys, subjectDn, null);
         }
     }
 

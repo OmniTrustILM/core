@@ -1631,7 +1631,9 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
         logger.info("Certificate {} was issued by authority", certificateUuid);
         try {
             // The connector already returned the certificate synchronously (post-acceptance).
-            certificateService.issueRequestedCertificate(certificateUuid, result.certificateData(), result.meta());
+            certificateService
+                    .issueRequestedCertificate(certificateUuid, result.certificateData(), result.meta(),
+                            result.certificateType());
         } catch (Exception e) {
             logger
                     .warn("Certificate {} was issued by the authority but completing local state failed; reconcile manually",
@@ -2636,7 +2638,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             logger.info("Certificate {} was renewed by authority", certificateUuid);
 
             CertificateDetail certificateDetailDto = certificateService
-                    .issueRequestedCertificate(certificateUuid, renewResult.certificateData(), renewResult.meta());
+                    .issueRequestedCertificate(certificateUuid, renewResult.certificateData(), renewResult.meta(),
+                            renewResult.certificateType());
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
             certificateEventHistoryService
@@ -2905,7 +2908,8 @@ public class ClientOperationServiceImpl implements ClientOperationExternalServic
             logger.info("Certificate {} was rekeyed by authority", certificateUuid);
 
             CertificateDetail certificateDetailDto = certificateService
-                    .issueRequestedCertificate(certificateUuid, rekeyResult.certificateData(), rekeyResult.meta());
+                    .issueRequestedCertificate(certificateUuid, rekeyResult.certificateData(), rekeyResult.meta(),
+                            rekeyResult.certificateType());
 
             additionalInformation.put("New Certificate Serial Number", certificateDetailDto.getSerialNumber());
             certificateEventHistoryService

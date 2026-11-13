@@ -6,16 +6,19 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.X509ObjectToString;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStreamWriter;
 import java.math.BigInteger;
@@ -26,6 +29,7 @@ import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -43,6 +47,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.StubCertificateFixtures.certificate;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -61,6 +66,16 @@ class X509CertificateTypeHandlerTest {
         Security.addProvider(new BouncyCastleProvider());
         chain = CertificateGeneratorHelper.generateCertificateWithIssuer(KeyAlgorithm.RSA, ISSUER_DN, SUBJECT_DN, null);
         otherCaKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+    }
+
+    // the name style that stamping an issued certificate uses reads the OID caches when its class loads
+    @BeforeAll
+    static void cacheOidCategories() {
+        for (OidCategory category : OidCategory.values()) {
+            if (OidHandler.getOidCache(category) == null) {
+                OidHandler.cacheOidCategory(category, new HashMap<>());
+            }
+        }
     }
 
     @Test
@@ -537,6 +552,35 @@ class X509CertificateTypeHandlerTest {
         assertThat(new String(encoded, StandardCharsets.UTF_8)).startsWith("-----BEGIN CERTIFICATE-----");
         assertThat(handler.parseCertificate(encoded).orElseThrow().encoded())
                 .isEqualTo(chain.getEndEntityCertificate().getEncoded());
+    }
+
+    @Test
+    void fillsTheX509Fields_whenStampingAnIssuedCertificate() throws Exception {
+        // given
+        X509Certificate issuedCertificate = chain.getEndEntityCertificate();
+        var requested = aCertificate().withState(CertificateState.PENDING_ISSUE).build();
+
+        // when
+        Certificate stamped = handler.stampIssued(requested, parsedCertificate(issuedCertificate));
+
+        // then
+        assertThat(stamped).isSameAs(requested);
+        assertThat(requested.getSerialNumber()).isEqualTo(issuedCertificate.getSerialNumber().toString(16));
+        assertThat(requested.getSubjectDn()).contains("handler-test-holder");
+        assertThat(requested.getNotAfter()).isEqualTo(issuedCertificate.getNotAfter());
+        assertThat(requested.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+    }
+
+    @Test
+    void returnsThePemOfTheCertificate_whenAskedForTheContentToStore() throws Exception {
+        // given
+        X509Certificate issuedCertificate = chain.getEndEntityCertificate();
+
+        // when
+        String content = handler.contentToStore(parsedCertificate(issuedCertificate));
+
+        // then
+        assertThat(content).isEqualTo(X509ObjectToString.toPem(issuedCertificate));
     }
 
     @Test

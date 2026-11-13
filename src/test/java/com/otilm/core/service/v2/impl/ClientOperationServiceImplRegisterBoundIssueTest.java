@@ -247,7 +247,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
         verify(adapter)
                 .issueRegistered(ArgumentMatchers.eq(certificate), ArgumentMatchers.any(), ArgumentMatchers.any());
-        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
+        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);
     }
 
     @Test
@@ -357,7 +357,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
         issue();
 
-        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", meta);
+        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", meta, CertificateType.X509);
         verify(certificateRegistrationWriter).clear(certUuid);
     }
 
@@ -382,7 +382,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
                         ArgumentMatchers.any());
         verify(certificateRegistrationWriter).clear(certUuid);
         verify(certificateService, never())
-                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.any());
     }
 
     @Test
@@ -474,7 +475,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
         doAnswer(invocation -> {
             throw new ConnectorException("authority refused: " + connectorEcho);
-        }).when(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
+        }).when(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);
 
         // when
         ThrowingCallable issue = this::issue;
@@ -555,7 +556,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
         String leakySecret = "jdbc://internal-host:5432/secret-schema constraint violation";
         doThrow(new IllegalStateException(leakySecret))
                 .when(certificateService)
-                .issueRequestedCertificate(certUuid, "cert-data", List.of());
+                .issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);
 
         assertThatThrownBy(this::issue)
                 .isInstanceOf(CertificateOperationException.class)
@@ -588,7 +589,8 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
                 .hasMessageContaining("reconcile manually");
 
         verify(certificateService, never())
-                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
+                .issueRequestedCertificate(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any(),
+                        ArgumentMatchers.any());
         verify(stateMachine, never())
                 .transition(ArgumentMatchers.any(), ArgumentMatchers.eq(CertificateState.FAILED),
                         ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any());
@@ -612,7 +614,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
 
         verify(adapter)
                 .issueRegistered(ArgumentMatchers.eq(certificate), ArgumentMatchers.any(), ArgumentMatchers.any());
-        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of());
+        verify(certificateService).issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);
     }
 
     // A normal PENDING_APPROVAL issue has no binding, so it must NOT route to the register-bound path even on a
@@ -695,7 +697,7 @@ class ClientOperationServiceImplRegisterBoundIssueTest {
                 .thenReturn(AdapterOperationResult.syncOk("cert-data", List.of(), CertificateType.X509));
         doThrow(new IllegalStateException("persist failed"))
                 .when(certificateService)
-                .issueRequestedCertificate(certUuid, "cert-data", List.of());
+                .issueRequestedCertificate(certUuid, "cert-data", List.of(), CertificateType.X509);
 
         // when
         ThrowingCallable issue = this::issue;

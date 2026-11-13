@@ -11,6 +11,7 @@ import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
 import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
+import com.otilm.core.dao.entity.Certificate;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.PublicKey;
@@ -103,6 +104,16 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
     @Override
     public byte[] encode(ParsedCertificate certificate, CertificateFormat format, CertificateFormatEncoding encoding) {
         return certificate.encoded();
+    }
+
+    @Override
+    public Certificate stampIssued(Certificate certificate, ParsedCertificate issued) {
+        throw new UnsupportedOperationException("The stub type has no entity to store a certificate in");
+    }
+
+    @Override
+    public String contentToStore(ParsedCertificate certificate) {
+        return new String(certificate.encoded(), StandardCharsets.UTF_8);
     }
 
     private static Instant startOfDay(String date) {
