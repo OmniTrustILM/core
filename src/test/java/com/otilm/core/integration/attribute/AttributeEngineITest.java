@@ -121,7 +121,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
@@ -130,10 +132,13 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -3215,5 +3220,207 @@ class AttributeEngineITest extends BaseSpringBootTest {
                 .withName(name)
                 .withStringContent(name + "-value")
                 .build();
+    }
+
+    // ── DefinitionRewrites ────────────────────────────────────────────────────
+
+    @Nested
+    class DefinitionRewrites {
+
+        @Test
+        void skipsUpdate_whenConnectorResubmitsAnUnchangedDataAttribute() {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            inNewTransaction(() -> register(anIssueAttribute(attributeUuid)));
+
+            // when
+            long updates = countDefinitionUpdates(() -> register(anIssueAttribute(attributeUuid)));
+
+            // then
+            assertThat(updates).isZero();
+        }
+
+        @Test
+        void skipsUpdate_whenConnectorResubmitsUnchangedDefaultContent() {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            var defaultValue = "default value";
+            inNewTransaction(() -> register(withDefaultValue(anIssueAttribute(attributeUuid), defaultValue)));
+
+            // when
+            long updates = countDefinitionUpdates(
+                    () -> register(withDefaultValue(anIssueAttribute(attributeUuid), defaultValue)));
+
+            // then
+            assertThat(updates).isZero();
+        }
+
+        @Test
+        void skipsUpdate_whenConnectorResubmitsUnchangedEncryptedDefaultContent() {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            var secretDefault = "secret default";
+            inNewTransaction(
+                    () -> register(encrypted(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
+
+            // when
+            long updates = countDefinitionUpdates(
+                    () -> register(encrypted(withDefaultValue(anIssueAttribute(attributeUuid), secretDefault))));
+
+            // then
+            assertThat(updates).isZero();
+        }
+
+        @Test
+        void storesNewDescription_whenConnectorChangesIt() {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            inNewTransaction(() -> register(anIssueAttribute(attributeUuid)));
+            var changedDescription = "Changed description";
+            DataAttributeV2 changed = anIssueAttribute(attributeUuid);
+            changed.setDescription(changedDescription);
+
+            // when
+            inNewTransaction(() -> register(changed));
+
+            // then
+            AttributeDefinition reloaded = inNewTransaction(
+                    () -> attributeDefinitionRepository.findByAttributeUuid(attributeUuid).orElseThrow());
+            assertThat(reloaded.getDefinition().getDescription()).isEqualTo(changedDescription);
+        }
+
+        @ParameterizedTest
+        @MethodSource("changedIssueAttributes")
+        void writesDefinition_whenConnectorChangesIt(UnaryOperator<DataAttributeV2> original,
+                UnaryOperator<DataAttributeV2> change) {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            inNewTransaction(() -> register(original.apply(anIssueAttribute(attributeUuid))));
+
+            // when
+            long updates = countDefinitionUpdates(
+                    () -> register(change.apply(original.apply(anIssueAttribute(attributeUuid)))));
+
+            // then
+            assertThat(updates).isEqualTo(1);
+        }
+
+        @Test
+        void skipsUpdate_whenConnectorResubmitsAnUnchangedGroupAttribute() {
+            // given
+            UUID attributeUuid = UUID.randomUUID();
+            inNewTransaction(() -> registerGroupAttribute(attributeUuid));
+
+            // when
+            long updates = countDefinitionUpdates(() -> registerGroupAttribute(attributeUuid));
+
+            // then
+            assertThat(updates).isZero();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        static Stream<Arguments> changedIssueAttributes() {
+            UnaryOperator<DataAttributeV2> plain = UnaryOperator.identity();
+            UnaryOperator<DataAttributeV2> withDefault = attribute -> withDefaultValue(attribute, "first");
+            UnaryOperator<DataAttributeV2> encryptedWithDefault = attribute -> encrypted(
+                    withDefaultValue(attribute, "first secret"));
+            return Stream.of(Arguments.of(plain, named("description", attribute -> {
+                attribute.setDescription("Changed description");
+                return attribute;
+            })), Arguments.of(plain, named("properties", attribute -> {
+                attribute.getProperties().setLabel("Changed label");
+                return attribute;
+            })), Arguments.of(plain, named("constraint", attribute -> {
+                attribute
+                        .setConstraints(List
+                                .of(new RegexpAttributeConstraint("Lower case", "Only lower case letters",
+                                        "^[a-z]+$")));
+                return attribute;
+            })), Arguments.of(plain, named("callback", attribute -> {
+                AttributeCallback callback = new AttributeCallback();
+                callback.setCallbackContext("/v1/values");
+                callback.setCallbackMethod("GET");
+                attribute.setAttributeCallback(callback);
+                return attribute;
+            })), Arguments
+                    .of(withDefault, named("default content", attribute -> withDefaultValue(attribute, "second"))),
+                    Arguments
+                            .of(encryptedWithDefault, named("encrypted default content",
+                                    attribute -> withDefaultValue(attribute, "second secret"))));
+        }
+
+        private static Named<UnaryOperator<DataAttributeV2>> named(String change,
+                UnaryOperator<DataAttributeV2> operator) {
+            return Named.of(change, operator);
+        }
+
+        /** An issue attribute as an authority connector declares it on every issuance: a fresh instance each time. */
+        private static DataAttributeV2 anIssueAttribute(UUID attributeUuid) {
+            DataAttributeV2 issueAttribute = new DataAttributeV2();
+            issueAttribute.setUuid(attributeUuid.toString());
+            issueAttribute.setName("perIssuance");
+            issueAttribute.setDescription("Issue attribute");
+            issueAttribute.setContentType(AttributeContentType.STRING);
+            DataAttributeProperties properties = new DataAttributeProperties();
+            properties.setLabel("Per issuance");
+            issueAttribute.setProperties(properties);
+            return issueAttribute;
+        }
+
+        /** Sets default content typed as a connector response deserializes it. */
+        private static DataAttributeV2 withDefaultValue(DataAttributeV2 attribute, String value) {
+            BaseAttributeContentV2<String> content = new BaseAttributeContentV2<>();
+            content.setReference(value);
+            content.setData(value);
+            attribute.setContent(List.of(content));
+            return attribute;
+        }
+
+        private static DataAttributeV2 encrypted(DataAttributeV2 attribute) {
+            attribute.getProperties().setProtectionLevel(ProtectionLevel.ENCRYPTED);
+            return attribute;
+        }
+
+        private void register(DataAttributeV2 attribute) {
+            try {
+                attributeEngine.updateDataAttributeDefinitions(connectorAuthority.getUuid(), null, List.of(attribute));
+            } catch (AttributeException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        private void registerGroupAttribute(UUID attributeUuid) {
+            GroupAttributeV3 groupAttribute = new GroupAttributeV3();
+            groupAttribute.setUuid(attributeUuid.toString());
+            groupAttribute.setName("perIssuanceGroup");
+            AttributeCallback callback = new AttributeCallback();
+            callback.setCallbackContext("/callback");
+            callback.setCallbackMethod("GET");
+            groupAttribute.setAttributeCallback(callback);
+            try {
+                attributeEngine
+                        .updateDataAttributeDefinitions(connectorAuthority.getUuid(), null, List.of(groupAttribute));
+            } catch (AttributeException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+
+        /** Counts the attribute definition rows the work updates when it runs in its own transaction. */
+        private long countDefinitionUpdates(Runnable work) {
+            Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+            boolean statisticsWereEnabled = statistics.isStatisticsEnabled();
+            statistics.setStatisticsEnabled(true);
+            try {
+                statistics.clear();
+                inNewTransaction(() -> {
+                    work.run();
+                    entityManager.flush();
+                });
+                return attributeDefinitionUpdateCount(statistics);
+            } finally {
+                statistics.setStatisticsEnabled(statisticsWereEnabled);
+            }
+        }
     }
 }
