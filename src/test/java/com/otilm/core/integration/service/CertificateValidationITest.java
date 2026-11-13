@@ -3050,7 +3050,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             // given
             ocspResponder
                     .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
-                            .withNonce(asOctetString(requestNonce(request)))
+                            .withNonce(encodeAsOctetString(readRequestNonce(request)))
                             .build());
 
             // when
@@ -3066,7 +3066,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             byte[] nonceOfAnotherRequest = "another request".getBytes(StandardCharsets.US_ASCII);
             ocspResponder
                     .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
-                            .withNonce(asOctetString(nonceOfAnotherRequest))
+                            .withNonce(encodeAsOctetString(nonceOfAnotherRequest))
                             .build());
 
             // when
@@ -3094,12 +3094,12 @@ public class CertificateValidationITest extends BaseSpringBootTest {
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
-        private static byte[] requestNonce(OCSPReq request) {
+        private static byte[] readRequestNonce(OCSPReq request) {
             return request.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce).getExtnValue().getOctets();
         }
 
         /** Encodes the nonce as RFC 6960 defines the extension value, the form a responder that parses it returns. */
-        private static byte[] asOctetString(byte[] nonce) {
+        private static byte[] encodeAsOctetString(byte[] nonce) {
             try {
                 return new DEROctetString(nonce).getEncoded();
             } catch (IOException e) {
