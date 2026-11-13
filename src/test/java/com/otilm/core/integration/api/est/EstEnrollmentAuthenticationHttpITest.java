@@ -565,7 +565,7 @@ class EstEnrollmentAuthenticationHttpITest extends AbstractEstHttpITest {
     /** The answer is the plain text of the error, with the Basic challenge of the realm when the error asks for one. */
     private static void assertAnswered(MockHttpServletResponse response, EstError error) throws Exception {
         assertPlainTextError(response, error);
-        String expectedChallenge = error.challenges() ? "Basic realm=\"" + LABEL + "\"" : null;
+        String expectedChallenge = error.challenges() ? "Basic realm=\"" + LABEL + "\", charset=\"UTF-8\"" : null;
         assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo(expectedChallenge);
     }
 

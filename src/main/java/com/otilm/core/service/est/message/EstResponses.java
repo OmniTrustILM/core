@@ -233,8 +233,9 @@ public final class EstResponses {
         }
     }
 
+    /** Names UTF-8 (RFC 7617), the charset the credentials are decoded with. */
     private static String basicChallenge(String realm) {
-        return "Basic realm=\"" + realm + "\"";
+        return "Basic realm=\"" + realm + "\", charset=\"UTF-8\"";
     }
 
     private static byte[] textOf(EstError error) {

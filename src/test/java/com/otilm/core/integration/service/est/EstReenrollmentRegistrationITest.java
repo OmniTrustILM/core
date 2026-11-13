@@ -356,7 +356,7 @@ class EstReenrollmentRegistrationITest extends AbstractEstReenrollmentITest {
             ResponseEntity<byte[]> answer = new EstExceptionHandlingAdvice().handleEstException(refusal);
             assertThat(answer.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
             assertThat(answer.getHeaders().getFirst(HttpHeaders.WWW_AUTHENTICATE))
-                    .isEqualTo("Basic realm=\"" + EST_PROFILE_NAME + "\"");
+                    .isEqualTo("Basic realm=\"" + EST_PROFILE_NAME + "\", charset=\"UTF-8\"");
             assertThat(new String(answer.getBody(), StandardCharsets.UTF_8)).isEqualTo(EstError.UNAUTHORIZED.text());
         });
     }

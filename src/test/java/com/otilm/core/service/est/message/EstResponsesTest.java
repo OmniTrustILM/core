@@ -65,7 +65,7 @@ class EstResponsesTest {
     private static final String PLAIN_TEXT_UTF8 = "text/plain; charset=UTF-8";
     private static final String CRLF = "\r\n";
     private static final String REALM = "devices";
-    private static final String BASIC_CHALLENGE = "Basic realm=\"devices\"";
+    private static final String BASIC_CHALLENGE = "Basic realm=\"devices\", charset=\"UTF-8\"";
 
     private static final Map<EstError, Row> STATUS_TABLE = Map
             .ofEntries(
@@ -515,7 +515,7 @@ class EstResponsesTest {
 
             // then
             assertThat(response.getHeaders().getFirst(HttpHeaders.WWW_AUTHENTICATE))
-                    .isEqualTo("Basic realm=\"" + realm + "\"");
+                    .isEqualTo("Basic realm=\"" + realm + "\", charset=\"UTF-8\"");
         }
     }
 

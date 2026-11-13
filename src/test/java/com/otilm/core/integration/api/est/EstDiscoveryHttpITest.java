@@ -540,7 +540,8 @@ class EstDiscoveryHttpITest extends AbstractEstHttpITest {
 
             // then
             assertPlainTextError(response, EstError.UNAUTHORIZED);
-            assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo("Basic realm=\"" + LABEL + "\"");
+            assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE))
+                    .isEqualTo("Basic realm=\"" + LABEL + "\", charset=\"UTF-8\"");
         }
 
         @Test

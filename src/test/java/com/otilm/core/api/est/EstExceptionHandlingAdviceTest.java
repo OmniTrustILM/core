@@ -73,7 +73,7 @@ class EstExceptionHandlingAdviceTest {
             // then
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
             assertThat(response.getHeaders().getFirst(HttpHeaders.WWW_AUTHENTICATE))
-                    .isEqualTo("Basic realm=\"devices\"");
+                    .isEqualTo("Basic realm=\"devices\", charset=\"UTF-8\"");
         }
 
         @Test
@@ -85,7 +85,8 @@ class EstExceptionHandlingAdviceTest {
             ResponseEntity<byte[]> response = advice.handleEstException(refusal);
 
             // then
-            assertThat(response.getHeaders().getFirst(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo("Basic realm=\"est\"");
+            assertThat(response.getHeaders().getFirst(HttpHeaders.WWW_AUTHENTICATE))
+                    .isEqualTo("Basic realm=\"est\", charset=\"UTF-8\"");
         }
 
         @Test
