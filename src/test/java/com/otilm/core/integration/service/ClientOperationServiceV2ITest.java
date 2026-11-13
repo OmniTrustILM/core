@@ -6086,7 +6086,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         @ParameterizedTest
-        @MethodSource("com.otilm.core.integration.service.ClientOperationServiceV2ITest#proxiedCancelAnswers")
+        @MethodSource("proxiedCancelAnswers")
         void returnsTheConfirmationAndFailsTheCertificate_whenTheProxyRelaysTheCancelAnswer(int connectorStatus,
                 CancelConfirmation expectedConfirmation) throws Exception {
             // given
@@ -6108,6 +6108,15 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Arguments> proxiedCancelAnswers() {
+            return Stream
+                    .of(Arguments.of(named("204 cancelled", 204), CancelConfirmation.CANCELLED),
+                            Arguments.of(named("404 not tracked", 404), CancelConfirmation.NOT_TRACKED),
+                            Arguments.of(named("500 server error", 500), CancelConfirmation.UNCONFIRMED),
+                            Arguments.of(named("302 redirect", 302), CancelConfirmation.UNCONFIRMED),
+                            Arguments.of(named("307 redirect", 307), CancelConfirmation.UNCONFIRMED));
+        }
 
         /**
          * Answers each cancel request Core puts on the proxy queue as the proxy would relay a bodiless connector reply.
@@ -6462,15 +6471,6 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private static Stream<Arguments> proxiedCancelAnswers() {
-        return Stream
-                .of(Arguments.of(named("204 cancelled", 204), CancelConfirmation.CANCELLED),
-                        Arguments.of(named("404 not tracked", 404), CancelConfirmation.NOT_TRACKED),
-                        Arguments.of(named("500 server error", 500), CancelConfirmation.UNCONFIRMED),
-                        Arguments.of(named("302 redirect", 302), CancelConfirmation.UNCONFIRMED),
-                        Arguments.of(named("307 redirect", 307), CancelConfirmation.UNCONFIRMED));
-    }
 
     private static Stream<Arguments> connectorCancelAnswers() {
         return Stream
