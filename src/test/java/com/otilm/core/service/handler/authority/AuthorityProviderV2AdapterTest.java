@@ -43,6 +43,7 @@ import org.springframework.http.ResponseEntity;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static com.otilm.core.util.builders.CertificateRequestEntityBuilder.aCertificateRequest;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -142,6 +143,24 @@ class AuthorityProviderV2AdapterTest {
         assertEquals(AdapterOperationOutcome.SYNC_OK, result.outcome());
         assertEquals("issuedCertData==", result.certificateData());
         assertFalse(result.isAsync());
+    }
+
+    @Test
+    void passesOnTheTypeTheAuthorityStates_whenItIssuesSynchronously() throws Exception {
+        // given
+        var statedType = CertificateType.SSH;
+        CertificateDataResponseDto responseBody = new CertificateDataResponseDto();
+        responseBody.setCertificateData("issuedCertData==");
+        responseBody.setCertificateType(statedType);
+        when(certClient
+                .issueCertificate(eq(connectorInfo), eq("auth-instance-uuid"), any(CertificateSignRequestDto.class)))
+                .thenReturn(ResponseEntity.ok(responseBody));
+
+        // when
+        AdapterOperationResult result = adapter.issue(cert, new ClientCertificateIssueRequestDto());
+
+        // then
+        assertThat(result.certificateType()).isEqualTo(statedType);
     }
 
     @Test

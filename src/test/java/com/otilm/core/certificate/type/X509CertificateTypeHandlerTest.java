@@ -1,23 +1,31 @@
 package com.otilm.core.certificate.type;
 
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttributeV3;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
+import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.certificate.X509CertificateRequestDetail;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.oid.OidCategory;
 import com.otilm.core.certificate.type.stub.StubCertificateTypeHandler;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.helpers.CertificateGeneratorHelper;
 import com.otilm.core.helpers.CertificateGeneratorHelper.CertificateChainInfo;
 import com.otilm.core.oid.OidHandler;
 import com.otilm.core.oid.OidRecord;
+import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.util.CertificateTestUtil;
 import com.otilm.core.util.CertificateUtil;
+import com.otilm.core.util.X509ObjectToString;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.math.BigInteger;
@@ -25,16 +33,26 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.PublicKey;
 import java.security.Security;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.DERBitString;
 import org.bouncycastle.asn1.crmf.CertReqMessages;
+import org.bouncycastle.asn1.pkcs.CertificationRequest;
+import org.bouncycastle.asn1.pkcs.CertificationRequestInfo;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.cert.crmf.CertificateRequestMessageBuilder;
 import org.bouncycastle.cert.crmf.jcajce.JcaCertificateRequestMessageBuilder;
@@ -49,8 +67,14 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static com.otilm.core.util.StubCertificateFixtures.certificate;
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class X509CertificateTypeHandlerTest {
 
@@ -63,10 +87,16 @@ class X509CertificateTypeHandlerTest {
     private final X509CertificateTypeHandler handler = new X509CertificateTypeHandler();
 
     @BeforeAll
-    static void generateChain() throws Exception {
+    static void generateChainAndCacheOidCategories() throws Exception {
         Security.addProvider(new BouncyCastleProvider());
         chain = CertificateGeneratorHelper.generateCertificateWithIssuer(KeyAlgorithm.RSA, ISSUER_DN, SUBJECT_DN, null);
         otherCaKeys = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        // the name style that stamping an issued certificate uses reads the OID caches when its class loads
+        for (OidCategory category : OidCategory.values()) {
+            if (OidHandler.getOidCache(category) == null) {
+                OidHandler.cacheOidCategory(category, new HashMap<>());
+            }
+        }
     }
 
     @Test
@@ -546,6 +576,266 @@ class X509CertificateTypeHandlerTest {
     }
 
     @Test
+    void readsTheRequest_whenItIsGivenInBase64InTheNamedFormat() throws Exception {
+        // given
+        KeyPair holderKeys = chain.getEndEntityCertificateKeyPair();
+        byte[] csr = pkcs10(holderKeys, SUBJECT_DN);
+
+        // when
+        ParsedRequest parsed = handler
+                .readRequest(Base64.getEncoder().encodeToString(csr), CertificateRequestFormat.PKCS10);
+
+        // then
+        assertThat(parsed.format()).isEqualTo(CertificateRequestFormat.PKCS10);
+        assertThat(parsed.encoded()).isEqualTo(csr);
+        assertThat(parsed.holder()).isEqualTo(SUBJECT_DN);
+        assertThat(parsed.publicKey()).isEqualTo(holderKeys.getPublic());
+    }
+
+    @Test
+    void throwsRequestException_whenTheContentIsNotARequest() {
+        // given
+        var notARequest = Base64.getEncoder().encodeToString("not a request".getBytes(StandardCharsets.UTF_8));
+
+        // when
+        ThrowingCallable read = () -> handler.readRequest(notARequest, CertificateRequestFormat.PKCS10);
+
+        // then
+        assertThatThrownBy(read).isInstanceOf(CertificateRequestException.class);
+    }
+
+    @Test
+    void acceptsTheRequest_whenItIsForTheKeyOfTheCertificate() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest sameKey = handler
+                .parseRequest(pkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN))
+                .orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.requireSameKey(sameKey, leaf);
+
+        // then
+        assertThatCode(check).doesNotThrowAnyException();
+    }
+
+    @Test
+    void refusesTheRequest_whenItIsForAnotherKeyThanTheCertificate() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest anotherKey = handler.parseRequest(pkcs10(otherCaKeys, SUBJECT_DN)).orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.requireSameKey(anotherKey, leaf);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Public key of certificate and CSR does not match");
+    }
+
+    @Test
+    void refusesAsValidation_whenTheKeyOfTheRequestCannotBeDecoded() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest undecodableKey = handler
+                .readRequest(Base64.getEncoder().encodeToString(createPkcs10WithUnknownKeyAlgorithm(SUBJECT_DN)),
+                        CertificateRequestFormat.PKCS10);
+
+        // when
+        ThrowingCallable check = () -> handler.requireSameKey(undecodableKey, leaf);
+
+        // then
+        assertThat(undecodableKey.publicKey()).isNull();
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Unable to validate the public key of CSR and certificate");
+    }
+
+    @Test
+    void refusesTheRekeyRequest_whenItLacksTheAlternativeKeyOfTheCertificate() throws Exception {
+        // given
+        ParsedCertificate hybrid = parsedCertificate(CertificateTestUtil.createHybridCertificate());
+        ParsedRequest withoutAlternativeKey = handler.parseRequest(pkcs10(otherCaKeys, SUBJECT_DN)).orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.checkRekeyRequest(withoutAlternativeKey, hybrid);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Certificate contains alternative key, but CSR does not");
+    }
+
+    @Test
+    void acceptsTheRekeyRequest_whenItHasANewKeyAndTheSameHolder() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest newKey = handler.parseRequest(pkcs10(otherCaKeys, SUBJECT_DN)).orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.checkRekeyRequest(newKey, leaf);
+
+        // then
+        assertThatCode(check).doesNotThrowAnyException();
+    }
+
+    @Test
+    void refusesTheRekeyRequest_whenItKeepsTheKeyOfTheCertificate() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        ParsedRequest sameKey = handler
+                .parseRequest(pkcs10(chain.getEndEntityCertificateKeyPair(), SUBJECT_DN))
+                .orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.checkRekeyRequest(sameKey, leaf);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Public key of certificate and CSR are same");
+    }
+
+    @Test
+    void refusesTheRekeyRequest_whenItNamesAnotherHolder() throws Exception {
+        // given
+        ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
+        var anotherHolder = "CN=another-holder";
+        ParsedRequest renamed = handler.parseRequest(pkcs10(otherCaKeys, anotherHolder)).orElseThrow();
+
+        // when
+        ThrowingCallable check = () -> handler.checkRekeyRequest(renamed, leaf);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Subject DN of certificate and CSR does not match");
+    }
+
+    @Test
+    void signsARequestForTheHolderOfTheCertificate_whenGeneratingARekeyRequest() throws Exception {
+        // given
+        var cryptographicOperationService = mock(CryptographicOperationInternalService.class);
+        handler.setCryptographicOperationService(cryptographicOperationService);
+        X509Certificate current = chain.getEndEntityCertificate();
+        var signing = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), null, null, null);
+        var signedRequest = "signed-rekey-request";
+        when(cryptographicOperationService
+                .generateCsr(signing.keyUuid(), signing.tokenProfileUuid(), current.getSubjectX500Principal(), null,
+                        signing.signatureAttributes(), null, null, null))
+                .thenReturn(signedRequest);
+
+        // when
+        String generated = handler.generateRekeyRequest(parsedCertificate(current), signing);
+
+        // then
+        assertThat(generated).isEqualTo(signedRequest);
+    }
+
+    @Test
+    void refusesToGenerateARekeyRequest_whenAHybridCertificateGetsNoAlternativeKey() throws Exception {
+        // given
+        ParsedCertificate hybrid = parsedCertificate(CertificateTestUtil.createHybridCertificate());
+        var withoutAlternativeKey = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), null, null,
+                null);
+
+        // when
+        ThrowingCallable generate = () -> handler.generateRekeyRequest(hybrid, withoutAlternativeKey);
+
+        // then
+        assertThatThrownBy(generate)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Missing alternative key for re-keying of hybrid certificate");
+    }
+
+    @Test
+    void signsTheRequestWithTheGivenKeys_whenGeneratingARequestFromAttributes() throws Exception {
+        // given
+        var cryptographicOperationService = mock(CryptographicOperationInternalService.class);
+        handler.setCryptographicOperationService(cryptographicOperationService);
+        var signing = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), UUID.randomUUID(),
+                UUID.randomUUID(), List.of());
+        var signedRequest = "signed-request";
+        when(cryptographicOperationService
+                .generateCsr(eq(signing.keyUuid()), eq(signing.tokenProfileUuid()), any(), any(),
+                        eq(signing.signatureAttributes()), eq(signing.altKeyUuid()), eq(signing.altTokenProfileUuid()),
+                        eq(signing.altSignatureAttributes())))
+                .thenReturn(signedRequest);
+
+        // when
+        String generated = handler.generateRequest(List.of(), List.of(), CertificateRequestFormat.PKCS10, signing);
+
+        // then
+        assertThat(generated).isEqualTo(signedRequest);
+    }
+
+    @Test
+    void refusesToGenerate_whenTheFormatIsCrmf() {
+        // given
+        var signing = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), null, null, null);
+        var unsupportedFormat = CertificateRequestFormat.CRMF;
+
+        // when
+        ThrowingCallable generate = () -> handler.generateRequest(List.of(), List.of(), unsupportedFormat, signing);
+
+        // then
+        assertThatThrownBy(generate)
+                .isInstanceOf(CertificateException.class)
+                .hasMessageContaining("CRMF format is not supported");
+    }
+
+    @Test
+    void throwsValidation_whenTheKeyServiceFailsToSignTheRequest() throws Exception {
+        // given
+        var cryptographicOperationService = mock(CryptographicOperationInternalService.class);
+        handler.setCryptographicOperationService(cryptographicOperationService);
+        var signing = new RequestSigning(UUID.randomUUID(), UUID.randomUUID(), List.of(), null, null, null);
+        var signingFailure = "the key cannot sign";
+        when(cryptographicOperationService.generateCsr(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenThrow(new IOException(signingFailure));
+
+        // when
+        ThrowingCallable generate = () -> handler
+                .generateRekeyRequest(parsedCertificate(chain.getEndEntityCertificate()), signing);
+
+        // then
+        assertThatThrownBy(generate)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Failed to generate the CSR")
+                .hasMessageContaining(signingFailure);
+    }
+
+    @Test
+    void fillsTheX509Fields_whenStampingAnIssuedCertificate() throws Exception {
+        // given
+        X509Certificate issuedCertificate = chain.getEndEntityCertificate();
+        var requested = aCertificate().withState(CertificateState.PENDING_ISSUE).build();
+
+        // when
+        Certificate stamped = handler.stampIssued(requested, parsedCertificate(issuedCertificate));
+
+        // then
+        assertThat(stamped).isSameAs(requested);
+        assertThat(requested.getSerialNumber()).isEqualTo(issuedCertificate.getSerialNumber().toString(16));
+        assertThat(requested.getSubjectDn()).contains("handler-test-holder");
+        assertThat(requested.getNotAfter()).isEqualTo(issuedCertificate.getNotAfter());
+        assertThat(requested.getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+    }
+
+    @Test
+    void returnsThePemOfTheCertificate_whenAskedForTheContentToStore() throws Exception {
+        // given
+        X509Certificate issuedCertificate = chain.getEndEntityCertificate();
+
+        // when
+        String content = handler.contentToStore(parsedCertificate(issuedCertificate));
+
+        // then
+        assertThat(content).isEqualTo(X509ObjectToString.toPem(issuedCertificate));
+    }
+
+    @Test
     void returnsSignedDataCarryingTheCertificate_whenEncodingPkcs7() throws Exception {
         // given
         ParsedCertificate leaf = parsedCertificate(chain.getEndEntityCertificate());
@@ -688,6 +978,14 @@ class X509CertificateTypeHandlerTest {
             writer.writeObject(certificate);
         }
         return out.toByteArray();
+    }
+
+    private static byte[] createPkcs10WithUnknownKeyAlgorithm(String subjectDn) throws Exception {
+        var unknownKey = new SubjectPublicKeyInfo(new AlgorithmIdentifier(new ASN1ObjectIdentifier("1.2.3.4.5")),
+                new byte[16]);
+        var unsigned = new CertificationRequest(new CertificationRequestInfo(new X500Name(subjectDn), unknownKey, null),
+                new AlgorithmIdentifier(PKCSObjectIdentifiers.sha256WithRSAEncryption), new DERBitString(new byte[8]));
+        return unsigned.getEncoded();
     }
 
     private static byte[] pkcs10(KeyPair keys, String subjectDn) throws Exception {

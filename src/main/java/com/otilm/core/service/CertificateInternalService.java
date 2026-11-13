@@ -17,6 +17,7 @@ import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.core.certificate.type.IssuedCertificateRefusedException;
 import com.otilm.core.config.cache.CacheConfig;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CertificateContent;
@@ -344,6 +345,17 @@ public interface CertificateInternalService extends ResourceExtensionService {
     CertificateDetail issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta)
             throws CertificateException, NoSuchAlgorithmException, AlreadyExistException, NotFoundException,
             AttributeException;
+
+    /**
+     * Stores the certificate the authority issued for a requested one, through the handler of the requested type.
+     *
+     * @param returnedType the type the authority states for the certificate, or null when it states none
+     * @throws IssuedCertificateRefusedException when the authority states another type than the requested one, or the
+     * content is not a certificate of the requested type
+     */
+    CertificateDetail issueRequestedCertificate(UUID uuid, String certificateData, List<MetadataAttribute> meta,
+            CertificateType returnedType) throws CertificateException, NoSuchAlgorithmException, AlreadyExistException,
+            NotFoundException, AttributeException;
 
     /**
      * List certificates eligible for CA certificate of SCEP requests

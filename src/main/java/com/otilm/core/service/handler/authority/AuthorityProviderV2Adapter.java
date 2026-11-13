@@ -277,6 +277,7 @@ public class AuthorityProviderV2Adapter extends AbstractAuthorityProviderAdapter
             return AdapterOperationResult.asyncAccepted(body != null ? body.getMeta() : null);
         }
         return AdapterOperationResult
-                .syncOk(body != null ? body.getCertificateData() : null, body != null ? body.getMeta() : null, null);
+                .syncOk(body != null ? body.getCertificateData() : null, body != null ? body.getMeta() : null,
+                        body != null ? body.getCertificateType() : null);
     }
 }

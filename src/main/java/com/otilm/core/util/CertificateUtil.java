@@ -346,13 +346,18 @@ public class CertificateUtil {
     }
 
     public static X509Certificate parseCertificate(String cert) throws CertificateException {
-        cert = cert
-                .replace("-----BEGIN CERTIFICATE-----", "")
-                .replace("-----END CERTIFICATE-----", "")
-                .replace("\r", "")
-                .replace("\n", "");
-        byte[] decoded = Base64.getDecoder().decode(cert);
-        return getX509Certificate(decoded);
+        return getX509Certificate(decodeCertificateContent(cert));
+    }
+
+    /** The binary content of a certificate given in Base64, with or without the PEM lines of a certificate. */
+    public static byte[] decodeCertificateContent(String cert) {
+        return Base64
+                .getDecoder()
+                .decode(cert
+                        .replace("-----BEGIN CERTIFICATE-----", "")
+                        .replace("-----END CERTIFICATE-----", "")
+                        .replace("\r", "")
+                        .replace("\n", ""));
     }
 
     public static String getThumbprint(byte[] encodedContent) throws NoSuchAlgorithmException {

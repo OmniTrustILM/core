@@ -1,5 +1,8 @@
 package com.otilm.core.certificate.type.stub;
 
+import com.otilm.api.exception.CertificateRequestException;
+import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateOperation;
@@ -9,8 +12,10 @@ import com.otilm.core.certificate.type.CertificateTypeHandler;
 import com.otilm.core.certificate.type.CertificateTypeHandlerException;
 import com.otilm.core.certificate.type.ParsedCertificate;
 import com.otilm.core.certificate.type.ParsedRequest;
+import com.otilm.core.certificate.type.RequestSigning;
 import com.otilm.core.certificate.type.Validity;
 import com.otilm.core.certificate.type.ValidityPrecision;
+import com.otilm.core.dao.entity.Certificate;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
@@ -81,6 +86,38 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
     }
 
     @Override
+    public ParsedRequest readRequest(String content, CertificateRequestFormat format)
+            throws CertificateRequestException {
+        return parseRequest(content.getBytes(StandardCharsets.UTF_8))
+                .orElseThrow(() -> new CertificateRequestException("The content is not a stub request"));
+    }
+
+    @Override
+    public String generateRequest(List<DataAttributeV3> definitions, List<RequestAttribute> requestAttributes,
+            CertificateRequestFormat format, RequestSigning signing) {
+        throw new UnsupportedOperationException("The stub type generates no requests");
+    }
+
+    @Override
+    public String generateRekeyRequest(ParsedCertificate current, RequestSigning signing) {
+        throw new UnsupportedOperationException("The stub type generates no requests");
+    }
+
+    @Override
+    public void requireSameKey(ParsedRequest request, ParsedCertificate certificate) {
+        if (!request.publicKey().equals(certificate.properties().publicKey())) {
+            throw new CertificateTypeHandlerException("The stub request is for another key than the certificate");
+        }
+    }
+
+    @Override
+    public void checkRekeyRequest(ParsedRequest request, ParsedCertificate current) {
+        if (request.publicKey().equals(current.properties().publicKey())) {
+            throw new CertificateTypeHandlerException("The stub request keeps the key of the certificate");
+        }
+    }
+
+    @Override
     public boolean verifySignature(ParsedCertificate certificate, ParsedCertificate issuer) {
         return true;
     }
@@ -108,6 +145,16 @@ public class StubCertificateTypeHandler implements CertificateTypeHandler {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         certificates.forEach(certificate -> out.writeBytes(certificate.encoded()));
         return out.toByteArray();
+    }
+
+    @Override
+    public Certificate stampIssued(Certificate certificate, ParsedCertificate issued) {
+        throw new UnsupportedOperationException("The stub type has no entity to store a certificate in");
+    }
+
+    @Override
+    public String contentToStore(ParsedCertificate certificate) {
+        return new String(certificate.encoded(), StandardCharsets.UTF_8);
     }
 
     private static Instant startOfDay(String date) {
