@@ -90,7 +90,16 @@ public class ProtocolValidationFilter extends OncePerRequestFilter {
             EstResponses.write(response, error, EstRequestGuard.allowedMethod(operationPath));
             return;
         }
-        authHelper.authenticateAsSystemUser(AuthHelper.EST_USERNAME);
+        try {
+            authHelper.authenticateAsSystemUser(AuthHelper.EST_USERNAME);
+        } catch (RuntimeException e) {
+            // Before MVC, so the EST advice cannot answer it; the class only, as the text may carry service details.
+            log
+                    .warn("EST request refused as {}: the EST user could not be authenticated ({})",
+                            EstError.SERVICE_UNAVAILABLE, e.getClass().getName());
+            EstResponses.write(response, EstError.SERVICE_UNAVAILABLE, null);
+            return;
+        }
         filterChain.doFilter(new EstBoundedRequest(request, EstRequestGuard.MAX_BODY_BYTES), response);
     }
 }

@@ -43,6 +43,7 @@ import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -271,6 +272,28 @@ class ProtocolValidationFilterTest {
                 .singleElement(STRING)
                 .contains("NOT_FOUND", "GET")
                 .doesNotContain("client-label", "client-operation");
+    }
+
+    @Test
+    void writesServiceUnavailable_whenTheEstUserCannotBeAuthenticated() throws Exception {
+        // given — the auth service is down, with text in its failure the client must not see
+        var authFailureText = "auth-service-detail-9e1f";
+        doThrow(new IllegalStateException(authFailureText))
+                .when(authHelper)
+                .authenticateAsSystemUser(AuthHelper.EST_USERNAME);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", ENROLLMENT_PATH);
+        request.setContentType(EstMediaTypes.PKCS10);
+        request.setContent(new byte[0]);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        // when
+        filter.doFilter(request, response, filterChain);
+
+        // then
+        assertRefusedAs(EstError.SERVICE_UNAVAILABLE, response);
+        assertThat(response.getContentAsString()).doesNotContain(authFailureText);
+        assertThat(warningsLogged()).noneMatch(line -> line.contains(authFailureText));
+        verifyNoInteractions(filterChain, resolver);
     }
 
     /** Another character where the leading dot or either slash of the EST path belongs must not pass as EST. */
