@@ -1,0 +1,18 @@
+profile: floor-v1
+kubernetes:
+  minor: '1.36'
+  measured: v1.36.1
+architecture: arm64
+os: Debian GNU/Linux 13 (trixie)
+kernel: 7.0.14-linuxkit
+containerd: 2.3.1
+gvisor:
+  release: release-20261019.0
+  platform: systrap
+calico: 3.33.0
+busybox:
+  version: 1.37.0
+  image: docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c
+fixtureRevision: 3
+admissionNegativeCases: 59
+emptyDirVolumeMode: absent; STRICT must reject and controlled IGNORE dryrun must prune

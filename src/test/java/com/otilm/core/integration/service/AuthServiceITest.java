@@ -75,6 +75,31 @@ class AuthServiceITest extends BaseSpringBootTest {
         List<ResourceSyncRequestDto> resources = contextRefreshListener.getResources();
 
         Assertions.assertEquals(resources.size(), authResources.size());
+        Assertions
+                .assertEquals(
+                        resources.stream().map(resource -> resource.getName().getCode()).collect(Collectors.toSet()),
+                        authResources.stream().map(AuthResourceDto::getName).collect(Collectors.toSet()));
+    }
+
+    @Test
+    void aiModelActionsAreRegisteredForAuthServiceSync() {
+        List<String> registeredActions = contextRefreshListener
+                .getResources()
+                .stream()
+                .filter(resource -> Resource.AI_MODEL.getCode().equals(resource.getName().getCode()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("AI_MODEL missing from auth-service sync payload"))
+                .getActions();
+        Assertions.assertEquals(Set.of("connect", "use"), Set.copyOf(registeredActions));
+        AuthResourceDto advertised = authService
+                .getAuthResources()
+                .stream()
+                .filter(resource -> Resource.AI_MODEL.getCode().equals(resource.getName()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("AI_MODEL missing from auth-service response"));
+        Assertions
+                .assertEquals(Set.of("connect", "use"),
+                        advertised.getActions().stream().map(action -> action.getName()).collect(Collectors.toSet()));
     }
 
     /**
@@ -481,6 +506,24 @@ class AuthServiceITest extends BaseSpringBootTest {
     private String getAuthResourcesMockResponse() {
         return """
                 [
+                    {
+                        "uuid": "90000000-0000-4000-8000-000000000001",
+                        "name": "aiModels",
+                        "displayName": "AI Model",
+                        "objectAccess": true,
+                        "actions": [
+                            {
+                                "uuid": "90000000-0000-4000-8000-000000000002",
+                                "name": "connect",
+                                "displayName": "Connect"
+                            },
+                            {
+                                "uuid": "90000000-0000-4000-8000-000000000003",
+                                "name": "use",
+                                "displayName": "Use"
+                            }
+                        ]
+                    },
                     {
                         "uuid": "d6ab6d7d-3335-4304-8cb2-f73300c2d56c",
                         "name": "acmeAccounts",

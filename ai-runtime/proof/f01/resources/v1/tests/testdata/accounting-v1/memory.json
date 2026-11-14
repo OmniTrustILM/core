@@ -1,0 +1,864 @@
+{
+  "rows": [
+    {
+      "sample": 0,
+      "monotonic": 100.875,
+      "realtime": 1793059301.0,
+      "lateSeconds": 0.0,
+      "counterReadStart": 101.0,
+      "counterReadEnd": 101.25,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048476"
+          ],
+          "memory.peak": [
+            "1048476"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 0
+          }
+        }
+      }
+    },
+    {
+      "sample": 1,
+      "monotonic": 101.625,
+      "realtime": 1793059301.75,
+      "lateSeconds": 0.0,
+      "counterReadStart": 101.75,
+      "counterReadEnd": 102.0,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048526"
+          ],
+          "memory.peak": [
+            "1048526"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 100
+          }
+        }
+      }
+    },
+    {
+      "sample": 2,
+      "monotonic": 102.375,
+      "realtime": 1793059302.5,
+      "lateSeconds": 0.0,
+      "counterReadStart": 102.5,
+      "counterReadEnd": 102.75,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048576"
+          ],
+          "memory.peak": [
+            "1048576"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 200
+          }
+        }
+      }
+    },
+    {
+      "sample": 3,
+      "monotonic": 103.875,
+      "realtime": 1793059304.0,
+      "lateSeconds": 0.0,
+      "counterReadStart": 104.0,
+      "counterReadEnd": 104.25,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048526"
+          ],
+          "memory.peak": [
+            "1048576"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 350
+          }
+        }
+      }
+    },
+    {
+      "sample": 4,
+      "monotonic": 104.625,
+      "realtime": 1793059304.75,
+      "lateSeconds": 0.0,
+      "counterReadStart": 104.75,
+      "counterReadEnd": 105.0,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048476"
+          ],
+          "memory.peak": [
+            "1048576"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 450
+          }
+        }
+      }
+    },
+    {
+      "sample": 5,
+      "monotonic": 105.375,
+      "realtime": 1793059305.5,
+      "lateSeconds": 0.0,
+      "counterReadStart": 105.5,
+      "counterReadEnd": 105.75,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048576"
+          ],
+          "memory.peak": [
+            "1048576"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 550
+          }
+        }
+      }
+    },
+    {
+      "sample": 6,
+      "monotonic": 106.875,
+      "realtime": 1793059307.0,
+      "lateSeconds": 0.0,
+      "counterReadStart": 107.0,
+      "counterReadEnd": 107.25,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "5242880"
+          ],
+          "memory.peak": [
+            "5242880"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 2500
+          }
+        }
+      }
+    },
+    {
+      "sample": 7,
+      "monotonic": 107.625,
+      "realtime": 1793059307.75,
+      "lateSeconds": 0.0,
+      "counterReadStart": 107.75,
+      "counterReadEnd": 108.0,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "5242980"
+          ],
+          "memory.peak": [
+            "5242980"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 2600
+          }
+        }
+      }
+    },
+    {
+      "sample": 8,
+      "monotonic": 108.375,
+      "realtime": 1793059308.5,
+      "lateSeconds": 0.0,
+      "counterReadStart": 108.5,
+      "counterReadEnd": 108.75,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "5243080"
+          ],
+          "memory.peak": [
+            "5243080"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 2700
+          }
+        }
+      }
+    },
+    {
+      "sample": 9,
+      "monotonic": 109.875,
+      "realtime": 1793059310.0,
+      "lateSeconds": 0.0,
+      "counterReadStart": 110.0,
+      "counterReadEnd": 110.25,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048586"
+          ],
+          "memory.peak": [
+            "5243080"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 2800
+          }
+        }
+      }
+    },
+    {
+      "sample": 10,
+      "monotonic": 110.625,
+      "realtime": 1793059310.75,
+      "lateSeconds": 0.0,
+      "counterReadStart": 110.75,
+      "counterReadEnd": 111.0,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048581"
+          ],
+          "memory.peak": [
+            "5243080"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 2900
+          }
+        }
+      }
+    },
+    {
+      "sample": 11,
+      "monotonic": 111.375,
+      "realtime": 1793059311.5,
+      "lateSeconds": 0.0,
+      "counterReadStart": 111.5,
+      "counterReadEnd": 111.75,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048576"
+          ],
+          "memory.peak": [
+            "5243080"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 3000
+          }
+        }
+      }
+    },
+    {
+      "sample": 12,
+      "monotonic": 112.125,
+      "realtime": 1793059312.25,
+      "lateSeconds": 0.0,
+      "counterReadStart": 112.25,
+      "counterReadEnd": 112.5,
+      "status": "verified",
+      "groups": {
+        "/synthetic/pod": {
+          "pids.max": [
+            "256"
+          ],
+          "pids.current": [
+            "53"
+          ],
+          "pids.events": {
+            "max": 0
+          },
+          "memory.max": [
+            "268435456"
+          ],
+          "memory.current": [
+            "1048576"
+          ],
+          "memory.peak": [
+            "5243080"
+          ],
+          "memory.events": {
+            "low": 0,
+            "high": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_kill": 0
+          },
+          "cpu.max": [
+            "50000",
+            "100000"
+          ],
+          "cpu.stat": {
+            "usage_usec": 3100
+          }
+        }
+      }
+    }
+  ],
+  "facts": {
+    "schema": "f01-a2-accounting-v1",
+    "target": {
+      "uid": "12345678-1234-1234-1234-123456789abc",
+      "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "f01-a2-memory-control",
+      "startTime": "2026-10-27T00:00:00Z"
+    },
+    "ownership": {
+      "sentryPid": 10,
+      "sentryStartTicks": 100,
+      "root": "/run/synthetic",
+      "runtimeType": "io.containerd.runsc.v1"
+    },
+    "init": {
+      "pid": 2,
+      "startTicks": 200
+    },
+    "worker": {
+      "pid": 3,
+      "startTicks": 201
+    },
+    "aggregate": "/synthetic/pod",
+    "deadlineMonotonic": 130.0,
+    "markers": {
+      "READY": {
+        "receivedMonotonic": 100.75,
+        "target": {
+          "uid": "12345678-1234-1234-1234-123456789abc",
+          "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "f01-a2-memory-control",
+          "startTime": "2026-10-27T00:00:00Z"
+        },
+        "ownership": {
+          "sentryPid": 10,
+          "sentryStartTicks": 100,
+          "root": "/run/synthetic",
+          "runtimeType": "io.containerd.runsc.v1"
+        },
+        "init": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "actor": {
+          "pid": 3,
+          "startTicks": 201
+        },
+        "ticksBefore": 100,
+        "ticksAfter": 100
+      },
+      "NO_EFFECT": {
+        "receivedMonotonic": 103.75,
+        "target": {
+          "uid": "12345678-1234-1234-1234-123456789abc",
+          "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "f01-a2-memory-control",
+          "startTime": "2026-10-27T00:00:00Z"
+        },
+        "ownership": {
+          "sentryPid": 10,
+          "sentryStartTicks": 100,
+          "root": "/run/synthetic",
+          "runtimeType": "io.containerd.runsc.v1"
+        },
+        "init": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "actor": {
+          "pid": 3,
+          "startTicks": 201
+        },
+        "ticksBefore": 100,
+        "ticksAfter": 100
+      },
+      "EFFECT_HELD": {
+        "receivedMonotonic": 106.75,
+        "target": {
+          "uid": "12345678-1234-1234-1234-123456789abc",
+          "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "f01-a2-memory-control",
+          "startTime": "2026-10-27T00:00:00Z"
+        },
+        "ownership": {
+          "sentryPid": 10,
+          "sentryStartTicks": 100,
+          "root": "/run/synthetic",
+          "runtimeType": "io.containerd.runsc.v1"
+        },
+        "init": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "actor": {
+          "pid": 3,
+          "startTicks": 201
+        },
+        "ticksBefore": 100,
+        "ticksAfter": 101
+      },
+      "RELEASED": {
+        "receivedMonotonic": 109.75,
+        "target": {
+          "uid": "12345678-1234-1234-1234-123456789abc",
+          "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "f01-a2-memory-control",
+          "startTime": "2026-10-27T00:00:00Z"
+        },
+        "ownership": {
+          "sentryPid": 10,
+          "sentryStartTicks": 100,
+          "root": "/run/synthetic",
+          "runtimeType": "io.containerd.runsc.v1"
+        },
+        "init": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "actor": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "ticksBefore": 100,
+        "ticksAfter": 100
+      },
+      "HOLD_END": {
+        "receivedMonotonic": 113.0,
+        "target": {
+          "uid": "12345678-1234-1234-1234-123456789abc",
+          "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "f01-a2-memory-control",
+          "startTime": "2026-10-27T00:00:00Z"
+        },
+        "ownership": {
+          "sentryPid": 10,
+          "sentryStartTicks": 100,
+          "root": "/run/synthetic",
+          "runtimeType": "io.containerd.runsc.v1"
+        },
+        "init": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "actor": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "ticksBefore": 100,
+        "ticksAfter": 100
+      }
+    },
+    "signalStarts": [
+      103.0,
+      106.0,
+      109.0
+    ],
+    "witnesses": [
+      {
+        "sample": 10,
+        "counterReadStart": 110.75,
+        "counterReadEnd": 111.0,
+        "queryStartedMonotonic": 110.625,
+        "queryReceivedMonotonic": 110.6875,
+        "target": {
+          "uid": "12345678-1234-1234-1234-123456789abc",
+          "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "f01-a2-memory-control",
+          "startTime": "2026-10-27T00:00:00Z"
+        },
+        "ownership": {
+          "sentryPid": 10,
+          "sentryStartTicks": 100,
+          "root": "/run/synthetic",
+          "runtimeType": "io.containerd.runsc.v1"
+        },
+        "init": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "pids": [
+          2
+        ]
+      },
+      {
+        "sample": 11,
+        "counterReadStart": 111.5,
+        "counterReadEnd": 111.75,
+        "queryStartedMonotonic": 111.375,
+        "queryReceivedMonotonic": 111.4375,
+        "target": {
+          "uid": "12345678-1234-1234-1234-123456789abc",
+          "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "f01-a2-memory-control",
+          "startTime": "2026-10-27T00:00:00Z"
+        },
+        "ownership": {
+          "sentryPid": 10,
+          "sentryStartTicks": 100,
+          "root": "/run/synthetic",
+          "runtimeType": "io.containerd.runsc.v1"
+        },
+        "init": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "pids": [
+          2
+        ]
+      },
+      {
+        "sample": 12,
+        "counterReadStart": 112.25,
+        "counterReadEnd": 112.5,
+        "queryStartedMonotonic": 112.125,
+        "queryReceivedMonotonic": 112.1875,
+        "target": {
+          "uid": "12345678-1234-1234-1234-123456789abc",
+          "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "name": "f01-a2-memory-control",
+          "startTime": "2026-10-27T00:00:00Z"
+        },
+        "ownership": {
+          "sentryPid": 10,
+          "sentryStartTicks": 100,
+          "root": "/run/synthetic",
+          "runtimeType": "io.containerd.runsc.v1"
+        },
+        "init": {
+          "pid": 2,
+          "startTicks": 200
+        },
+        "pids": [
+          2
+        ]
+      }
+    ],
+    "normalExit": {
+      "receivedMonotonic": 113.25,
+      "target": {
+        "uid": "12345678-1234-1234-1234-123456789abc",
+        "cid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "name": "f01-a2-memory-control",
+        "startTime": "2026-10-27T00:00:00Z"
+      },
+      "ownership": {
+        "sentryPid": 10,
+        "sentryStartTicks": 100,
+        "root": "/run/synthetic",
+        "runtimeType": "io.containerd.runsc.v1"
+      },
+      "init": {
+        "pid": 2,
+        "startTicks": 200
+      },
+      "exitCode": 0
+    },
+    "observerExit": {
+      "receivedMonotonic": 113.5,
+      "exitCode": 0,
+      "lastSample": 12,
+      "counterReadStart": 112.25,
+      "counterReadEnd": 112.5
+    },
+    "watchdogIntervened": false
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "f01-a2-memory-control",
+    "namespace": "ilm-sandbox-a2",
+    "labels": {
+      "ilm.ai/proof": "a2-v1"
+    }
+  },
+  "spec": {
+    "os": {
+      "name": "linux"
+    },
+    "runtimeClassName": "runsc-f01-a2-v1",
+    "serviceAccountName": "runner",
+    "automountServiceAccountToken": false,
+    "enableServiceLinks": false,
+    "restartPolicy": "Never",
+    "activeDeadlineSeconds": 30,
+    "terminationGracePeriodSeconds": 1,
+    "dnsPolicy": "None",
+    "dnsConfig": {
+      "nameservers": [
+        "127.0.0.1"
+      ]
+    },
+    "securityContext": {
+      "runAsNonRoot": true,
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "fsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "containers": [
+      {
+        "name": "fixed-proof",
+        "image": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+        "imagePullPolicy": "Never",
+        "command": [
+          "/bin/busybox",
+          "ash",
+          "-c"
+        ],
+        "args": [
+          "exec /bin/busybox awk 'BEGIN {\n  for (i=1; i<=1024; i++) {\n    s=sprintf(\"%08x\",i)\n    for (j=0; j<9; j++) s=s s\n    a[i]=s\n    if (length(a[i])!=4096) exit 42\n    if (i%1024==0) { printf \"ALLOCATED_PAYLOAD_BYTES %d\\n\",i*4096; fflush() }\n  }\n  printf \"ALLOCATION_COMPLETED %d\\n\",1024*4096; fflush()\n  system(\"/bin/busybox sleep 3\")\n}'"
+        ],
+        "securityContext": {
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        },
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "64Mi",
+            "ephemeral-storage": "16Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "256Mi",
+            "ephemeral-storage": "32Mi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "scratch",
+            "mountPath": "/scratch"
+          },
+          {
+            "name": "scratch",
+            "mountPath": "/tmp"
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "scratch",
+        "emptyDir": {
+          "medium": "Memory",
+          "sizeLimit": "16Mi"
+        }
+      }
+    ]
+  }
+}

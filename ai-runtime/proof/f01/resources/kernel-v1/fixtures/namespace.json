@@ -1,0 +1,95 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "ilm-resource-sec-r1",
+        "labels": {
+          "pod-security.kubernetes.io/enforce": "restricted",
+          "pod-security.kubernetes.io/enforce-version": "v1.36",
+          "pod-security.kubernetes.io/audit": "restricted",
+          "pod-security.kubernetes.io/warn": "restricted"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "name": "runner",
+        "namespace": "ilm-resource-sec-r1"
+      },
+      "automountServiceAccountToken": false
+    },
+    {
+      "apiVersion": "networking.k8s.io/v1",
+      "kind": "NetworkPolicy",
+      "metadata": {
+        "name": "deny-all",
+        "namespace": "ilm-resource-sec-r1"
+      },
+      "spec": {
+        "podSelector": {},
+        "policyTypes": [
+          "Ingress",
+          "Egress"
+        ]
+      }
+    },
+    {
+      "apiVersion": "crd.projectcalico.org/v1",
+      "kind": "GlobalNetworkPolicy",
+      "metadata": {
+        "name": "ilm-resource-sec-r1-deny"
+      },
+      "spec": {
+        "order": 10,
+        "selector": "projectcalico.org/namespace == 'ilm-resource-sec-r1'",
+        "types": [
+          "Ingress",
+          "Egress"
+        ],
+        "ingress": [
+          {
+            "action": "Deny"
+          }
+        ],
+        "egress": [
+          {
+            "action": "Deny"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ResourceQuota",
+      "metadata": {
+        "name": "bounded-lab",
+        "namespace": "ilm-resource-sec-r1"
+      },
+      "spec": {
+        "hard": {
+          "pods": "1",
+          "requests.cpu": "100m",
+          "requests.memory": "64Mi",
+          "limits.cpu": "500m",
+          "limits.memory": "256Mi",
+          "requests.ephemeral-storage": "16Mi",
+          "limits.ephemeral-storage": "32Mi"
+        }
+      }
+    },
+    {
+      "apiVersion": "node.k8s.io/v1",
+      "kind": "RuntimeClass",
+      "metadata": {
+        "name": "runsc-f01-kernel-cg-r1"
+      },
+      "handler": "runsc-f01-a2-v1"
+    }
+  ]
+}

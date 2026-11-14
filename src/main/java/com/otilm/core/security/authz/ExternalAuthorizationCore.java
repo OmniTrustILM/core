@@ -7,6 +7,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.dao.repository.GroupAssociationRepository;
 import com.otilm.core.dao.repository.OwnerAssociationRepository;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.ai.AiReadInvocationContext;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
 import com.otilm.core.security.authz.opa.OpaClient;
@@ -15,6 +16,7 @@ import com.otilm.core.security.authz.opa.dto.OpaRequestDetails;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.util.AuthHelper;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,9 +24,11 @@ import java.util.Optional;
 import java.util.UUID;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 /**
@@ -61,6 +65,9 @@ class ExternalAuthorizationCore {
     }
 
     AuthorizationDecision decide(Authentication authentication, AuthorizationRequest request) {
+        if (AiReadInvocationContext.isActive()) {
+            return decideScoped(authentication, request);
+        }
         if (!(authentication instanceof PlatformAuthenticationToken
                 || authentication instanceof AnonymousAuthenticationToken)) {
             log
@@ -89,6 +96,71 @@ class ExternalAuthorizationCore {
                             .formatted(request.contextLabel()), e);
             return new AuthorizationDecision(false);
         }
+    }
+
+    private AuthorizationDecision decideScoped(Authentication authentication, AuthorizationRequest request) {
+        try {
+            var context = AiReadInvocationContext.current().orElseThrow();
+            PlatformUserDetails principal = context.requirePinnedActor(authentication);
+            context.requirePinnedActor(SecurityContextHolder.getContext().getAuthentication());
+            if (request.parentUuidGetterClass().isPresent()) {
+                return new AuthorizationDecision(false);
+            }
+            var resources = scopedResources(request, context);
+            for (OpaRequestedResource resource : resources) {
+                OpaResourceAccessResult result = opaClient
+                        .checkResourceAccess(OpaPolicy.METHOD.policyName, resource, principal.getRawData(),
+                                new OpaRequestDetails(null));
+                if (result == null || !result.isAuthorized() || result.getAllow() == null
+                        || result.getAllow().isEmpty()) {
+                    return new AuthorizationDecision(false);
+                }
+            }
+            return new AuthorizationDecision(true);
+        } catch (Exception failure) {
+            return new AuthorizationDecision(false);
+        }
+    }
+
+    private static List<OpaRequestedResource> scopedResources(AuthorizationRequest request,
+            AiReadInvocationContext context) {
+        Map<String, String> properties = request.properties();
+        OpaRequestedResource resource = scopedResource(properties.get(NAME_PROP_NAME), properties.get(ACTION_PROP_NAME),
+                request.objectUuids(), context);
+        List<OpaRequestedResource> resources = new ArrayList<>();
+        if (!Resource.NONE.getCode().equals(properties.get(PARENT_NAME_PROP_NAME))) {
+            resources
+                    .add(scopedResource(properties.get(PARENT_NAME_PROP_NAME), properties.get(PARENT_ACTION_PROP_NAME),
+                            request.parentUuids(), context));
+        }
+        resources.add(resource);
+        return resources;
+    }
+
+    private static OpaRequestedResource scopedResource(String name, String action, List<SecuredUUID> objects,
+            AiReadInvocationContext context) {
+        List<UUID> uuids = objects.stream().map(SecuredUUID::getValue).toList();
+        boolean certificates = Resource.CERTIFICATE.getCode().equals(name)
+                && (ResourceAction.LIST.getCode().equals(action) || ResourceAction.DETAIL.getCode().equals(action));
+        boolean profile = Resource.RA_PROFILE.getCode().equals(name) && ResourceAction.MEMBERS.getCode().equals(action);
+        if ((!certificates && !profile) || uuids.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new AccessDeniedException("Certificate read action unavailable");
+        }
+        if (certificates && (!context.scope().certificateUuids().containsAll(uuids)
+                || (ResourceAction.DETAIL.getCode().equals(action) && uuids.isEmpty()))) {
+            throw new AccessDeniedException("Certificate read object unavailable");
+        }
+        if (profile && uuids.stream().anyMatch(uuid -> !context.scope().raProfileUuid().equals(uuid))) {
+            throw new AccessDeniedException("Certificate read profile unavailable");
+        }
+        OpaRequestedResource resource = new OpaRequestedResource(
+                Map.of(NAME_PROP_NAME, name, ACTION_PROP_NAME, action));
+        if (profile) {
+            resource.setObjectUUIDs(List.of(context.scope().raProfileUuid().toString()));
+        } else if (!uuids.isEmpty()) {
+            resource.setObjectUUIDs(uuids.stream().map(UUID::toString).toList());
+        }
+        return resource;
     }
 
     private AuthorizationDecision check(String principal, AuthorizationRequest request) {

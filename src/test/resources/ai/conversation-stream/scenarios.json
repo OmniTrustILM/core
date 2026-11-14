@@ -1,0 +1,15 @@
+{
+  "scope": "Synthetic fixed manual certificate-read proof; not production defaults or deployment readiness",
+  "maxFrameBytes": 32768,
+  "maxCursorBytes": 512,
+  "maxReaders": 4,
+  "maxReadBatch": 8,
+  "maxHistoryEntries": 64,
+  "maxEventValueBytes": 30000,
+  "maxCommandBytes": 4096,
+  "maxCommandKeyBytes": 128,
+  "authorizationBudgetSeconds": 5,
+  "revisionAttempts": 3,
+  "labCandidate": {"byteIdleSeconds": 30, "heartbeatSeconds": 10, "overallSeconds": 120},
+  "blockedWriteProof": "Requires observed outstanding write, actual socket buffers and sufficient payload before natural timeout; timer/teardown closure is not a pass"
+}

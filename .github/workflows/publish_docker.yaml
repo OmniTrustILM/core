@@ -25,5 +25,6 @@ jobs:
       image: ilm/core
       cache-scope: core
       pre-build: maven
+      build-ai-runtime-protocol: true
       build-args: |
         VERSION=${{ github.ref_name }}

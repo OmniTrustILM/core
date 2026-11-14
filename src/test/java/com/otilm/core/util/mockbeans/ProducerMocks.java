@@ -72,6 +72,21 @@ public class ProducerMocks {
     public static class RecordedNotificationMessages {
 
         private final List<NotificationMessage> messages = new CopyOnWriteArrayList<>();
+        private final List<String> certificateEvents = new CopyOnWriteArrayList<>();
+
+        @EventListener
+        public void onCertificateValidation(com.otilm.core.events.transaction.CertificateValidationEvent event) {
+            certificateEvents.add("validation");
+        }
+
+        @EventListener
+        public void onCertificateHistory(com.otilm.core.events.transaction.UpdateCertificateHistoryEvent event) {
+            certificateEvents.add("history");
+        }
+
+        public List<String> certificateEvents() {
+            return List.copyOf(certificateEvents);
+        }
 
         @EventListener
         public void onNotificationMessage(NotificationMessage message) {
@@ -84,6 +99,7 @@ public class ProducerMocks {
 
         public void clear() {
             messages.clear();
+            certificateEvents.clear();
         }
     }
 

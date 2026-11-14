@@ -1,0 +1,93 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "f01-a2-process-control",
+    "namespace": "ilm-sandbox-a2",
+    "labels": {
+      "ilm.ai/proof": "a2-v1"
+    }
+  },
+  "spec": {
+    "os": {
+      "name": "linux"
+    },
+    "runtimeClassName": "runsc-f01-a2-v1",
+    "serviceAccountName": "runner",
+    "automountServiceAccountToken": false,
+    "enableServiceLinks": false,
+    "restartPolicy": "Never",
+    "activeDeadlineSeconds": 27,
+    "terminationGracePeriodSeconds": 1,
+    "dnsPolicy": "None",
+    "dnsConfig": {
+      "nameservers": [
+        "127.0.0.1"
+      ]
+    },
+    "securityContext": {
+      "runAsNonRoot": true,
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "fsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "containers": [
+      {
+        "name": "fixed-proof",
+        "image": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+        "imagePullPolicy": "Never",
+        "command": [
+          "/bin/busybox",
+          "ash",
+          "-c"
+        ],
+        "args": [
+          "set -eu\n/bin/busybox mkfifo /scratch/f01-process-gate\nexec 3<>/scratch/f01-process-gate\n: > /scratch/f01-process-input\ni=0\nwhile [ \"$i\" -lt 16 ]; do\n  i=$((i+1))\n  printf '%s\\n' \"$i\" >> /scratch/f01-process-input\ndone\nexec /bin/busybox xargs -r -n 1 -P 16 /bin/busybox ash -c 'case \"$1\" in 1) tag=a2w01;; 2) tag=a2w02;; 3) tag=a2w03;; 4) tag=a2w04;; 5) tag=a2w05;; 6) tag=a2w06;; 7) tag=a2w07;; 8) tag=a2w08;; 9) tag=a2w09;; 10) tag=a2w10;; 11) tag=a2w11;; 12) tag=a2w12;; 13) tag=a2w13;; 14) tag=a2w14;; 15) tag=a2w15;; 16) tag=a2w16;; *) exit 1;; esac; printf \"%s\" \"$tag\" > /proc/self/comm || exit 1; IFS= read -r comm < /proc/self/comm || exit 1; [ \"$comm\" = \"$tag\" ] || exit 1; exec 4< /proc/self/status || exit 1; lines=0; seen_pid=0; seen_uid=0; seen_threads=0; pid=; while [ \"$lines\" -lt 128 ]; do if IFS= read -r status_line <&4; then lines=$((lines+1)); else break; fi; case \"$status_line\" in \"Pid:\t\"*) [ \"$seen_pid\" -eq 0 ] || exit 1; pid=${status_line#\"Pid:\t\"}; case \"$pid\" in \"\"|0*|*[!0-9]*) exit 1;; esac; seen_pid=1;; Pid:*) exit 1;; Uid:*) [ \"$seen_uid\" -eq 0 ] && [ \"$status_line\" = \"Uid:\t65532\t65532\t65532\t65532\" ] || exit 1; seen_uid=1;; Threads:*) [ \"$seen_threads\" -eq 0 ] && [ \"$status_line\" = \"Threads:\t1\" ] || exit 1; seen_threads=1;; esac; done; exec 4<&- || exit 1; [ \"$lines\" -lt 128 ] && [ \"$seen_pid\" -eq 1 ] && [ \"$seen_uid\" -eq 1 ] && [ \"$seen_threads\" -eq 1 ] || exit 1; printf \"A2_WORKER_READY tag=%s pid=%s uid=65532,65532,65532,65532 threads=1\\n\" \"$tag\" \"$pid\" || exit 1; IFS= read -r -t 12 token <&3 || :' f01-child < /scratch/f01-process-input"
+        ],
+        "securityContext": {
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        },
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "64Mi",
+            "ephemeral-storage": "16Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "256Mi",
+            "ephemeral-storage": "32Mi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "scratch",
+            "mountPath": "/scratch"
+          },
+          {
+            "name": "scratch",
+            "mountPath": "/tmp"
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "scratch",
+        "emptyDir": {
+          "medium": "Memory",
+          "sizeLimit": "16Mi"
+        }
+      }
+    ]
+  }
+}

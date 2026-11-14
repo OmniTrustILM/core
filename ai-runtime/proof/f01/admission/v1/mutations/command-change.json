@@ -1,0 +1,9 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/0/command",
+    "value": [
+      "/bin/true"
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+[
+  {
+    "op": "replace",
+    "path": "/spec/containers/0/args/0",
+    "value": "set -eu; id; uname -a; dmesg | head -5; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; echo TOKEN_ABSENT; test ! -S /run/host-services/ssh-auth.sock; echo HOST_AGENT_ABSENT; grep -Eq \"^[^ ]+ / [^ ]+ ro([ ,]|$)\" /proc/mounts; echo ROOT_MOUNT_READONLY; touch /scratch/floor-v1; test -f /tmp/floor-v1; echo SHARED_SCRATCH_WRITABLE; grep -E \" /(scratch|tmp) \" /proc/mounts; echo FLOOR_V1_READY; cat /proc/self/limits; test \"$(id -u)\" = 65532; if (ulimit -u 257); then echo NPROC_RAISE_UNEXPECTED; exit 42; else echo NPROC_RAISE_REFUSED; fi; echo A2_FLOOR_READY; sleep 12 "
+  }
+]

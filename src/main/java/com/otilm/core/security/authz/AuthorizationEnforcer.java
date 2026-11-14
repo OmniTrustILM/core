@@ -2,6 +2,8 @@ package com.otilm.core.security.authz;
 
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.model.auth.ResourceAction;
+import com.otilm.core.security.authn.client.AuthenticationInfo;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.access.AccessDeniedException;
@@ -10,9 +12,9 @@ import org.springframework.security.access.AccessDeniedException;
  * Imperative front door to the platform authorization check.
  *
  * <p>
- * Verifies that the currently authenticated principal may perform {@code action} on {@code resource} for the given
- * object UUIDs, using the same OPA {@code method} policy and group/owner-association fallback as the declarative
- * {@code @ExternalAuthorization} path. Throws {@link AccessDeniedException} on denial; returns normally on grant.
+ * The session-based methods use the same OPA policy and group/owner-association fallback as the declarative
+ * {@code @ExternalAuthorization} path. The bounded current-principal overload requires fresh method and exact-object
+ * votes without that fallback. Methods throw {@link AccessDeniedException} on denial and return normally on grant.
  *
  * <p>
  * <b>Runtime cost:</b> every call performs a blocking outbound HTTP request to OPA, and a denied direct check falls
@@ -32,6 +34,13 @@ public interface AuthorizationEnforcer {
      * check fails.
      */
     void enforce(Resource resource, ResourceAction action, List<SecuredUUID> objectUuids) throws AccessDeniedException;
+
+    /**
+     * Checks method and exact-object votes within the caller's remaining budget, without session, cache or owner/group
+     * fallback. The caller must freshly resolve and verify the supplied principal before each call.
+     */
+    void enforce(Resource resource, ResourceAction action, AuthenticationInfo currentPrincipal, UUID objectUuid,
+            Duration timeout) throws AccessDeniedException;
 
     /**
      * Whether {@code userUuid} may perform {@code action} on the object. For the current principal the decision is made

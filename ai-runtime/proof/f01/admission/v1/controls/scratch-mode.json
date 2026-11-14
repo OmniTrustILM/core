@@ -1,0 +1,7 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/volumes/0/emptyDir/mode",
+    "value": 493
+  }
+]

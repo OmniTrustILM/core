@@ -1,3 +1,7 @@
+otilm:
+  ai:
+    enabled: ${OTILM_AI_ENABLED:false}
+
 app:
   version: '@project.version@'
 

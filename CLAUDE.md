@@ -302,3 +302,30 @@ Do not restate the version anywhere else — not here, not in a README, not in a
 goes stale the moment the pin moves, and then the floor can only be inferred again: the oldest server the
 migrations happen to parse on, the newest feature the native queries happen to use, and the image the
 tests happen to run give three different answers. The pin is the answer.
+
+## AI runtime boundaries
+
+Keep `otilm.ai.enabled` default false and enforce the shared feature gate at every new execution
+admission boundary, including management probes. The startup property is immutable until Core
+restarts. Enabling it never grants readiness or permissions, or automatically enables durable
+runtime control. Preserve authorized cancellation, status, fencing, cleanup and outcome recording
+while new execution is disabled. Trusted gateway evidence refresh remains independent of this
+admission switch, with current native authority, deployment and expiry checks still mandatory.
+
+Treat prompts, model output and decoded runtime identifiers as untrusted input. Derive the execution actor,
+resource scope and permissions from current server-owned state and verified native workload identity.
+
+Keep provider credentials, platform tokens and workload private keys outside runner access. Dedicated runtime
+routes must enforce their physical caller role; forwarded headers and caller-supplied identity fields grant no authority.
+
+Preserve one operation budget across authorization, API reads, SQL and cleanup. Check the remaining budget around
+blocking work. A timeout or uncertain external result must not trigger a blind retry or release a cleanup reservation.
+
+Missing, expired or unverifiable security controls deny execution. Negative observations durably disable it;
+successful verification alone does not re-enable it. Re-enablement requires the administrator's explicit action.
+
+Log fixed operation/status values and correlation identifiers. Never log prompts, context, credentials, request bodies,
+authentication responses or exception messages that may contain them. Keep metadata-only tracing on runtime boundaries.
+
+Distinguish component tests from deployed security evidence. A manifest, mock, model refusal or successful HTTP status
+cannot establish sandbox enforcement, workload identity, protected-service authorization or absence of side effects.

@@ -15,6 +15,43 @@ The management of certificates and cryptographic keys is abstracted through ILM 
 
 For more information, refer to the [ILM documentation](https://docs.otilm.com).
 
+## Build
+
+Use JDK 21 and install the shared runtime protocol before building Core:
+
+```sh
+mvn -B -ntp -f ai-runtime/pom.xml install
+mvn -B -ntp verify
+```
+
+Integration tests require Docker. Core remains a separate application JAR; the
+[runtime build](ai-runtime/pom.xml) supplies its shared protocol library.
+
+## AI runtime
+
+New AI execution is disabled by default. Set `OTILM_AI_ENABLED=true` to opt in through
+`otilm.ai.enabled`. Changing this property requires restarting Core.
+
+Execution still requires the applicable verified runtime controls, explicit administrative
+enablement and current user/model permissions. Successful verification alone never re-enables
+execution. Status, cancellation, fencing, cleanup and outcome recording remain subject to
+their existing authorization checks when new execution is disabled. Authenticated gateway
+evidence refresh continues so already admitted results can be recorded. While execution is
+disabled, refreshed evidence does not make a gateway ready or permit new model requests.
+
+Budgeted AI writer database acquisitions use a separate two-connection pool and their remaining
+operation budget. The supported connector is pgjdbc 42.7.13 with a single literal IPv4
+endpoint, explicit JDBC username/password and `gssEncMode=disable`. Existing TLS verification
+and certificate settings are retained; TLS connections also require an explicit `sslpassword`
+(empty for an unencrypted key). Custom socket factories, executors, authentication callbacks,
+hostname verifiers, validation queries, internal-query isolation and connection initialization
+SQL are unavailable for this connector. An AI writer cannot join an existing ordinary transaction;
+nested writers using the same AI budget retain their transaction.
+Budgeted writers fail closed for unsupported setups or budgets of 350ms or less. Ordinary database
+connections keep their existing datasource and configuration. Owned socket deadlines cover
+connection startup, validation, borrowed SQL and connection cleanup; query cancellation retains
+its owning connection. Shutdown closes those sockets before joining pool workers.
+
 ## Access Control
 
 `Core` access control requires the following to run:

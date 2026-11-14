@@ -1,0 +1,93 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "f01-a2-cpu-control",
+    "namespace": "ilm-sandbox-a2",
+    "labels": {
+      "ilm.ai/proof": "a2-v1"
+    }
+  },
+  "spec": {
+    "os": {
+      "name": "linux"
+    },
+    "runtimeClassName": "runsc-f01-a2-v1",
+    "serviceAccountName": "runner",
+    "automountServiceAccountToken": false,
+    "enableServiceLinks": false,
+    "restartPolicy": "Never",
+    "activeDeadlineSeconds": 27,
+    "terminationGracePeriodSeconds": 1,
+    "dnsPolicy": "None",
+    "dnsConfig": {
+      "nameservers": [
+        "127.0.0.1"
+      ]
+    },
+    "securityContext": {
+      "runAsNonRoot": true,
+      "runAsUser": 65532,
+      "runAsGroup": 65532,
+      "fsGroup": 65532,
+      "seccompProfile": {
+        "type": "RuntimeDefault"
+      }
+    },
+    "containers": [
+      {
+        "name": "fixed-proof",
+        "image": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+        "imagePullPolicy": "Never",
+        "command": [
+          "/bin/busybox",
+          "ash",
+          "-c"
+        ],
+        "args": [
+          "# Held fixed accounting body; runtime support remains a prerequisite.\nset -eu\nset -f\numask 077\nmode=external; init_tag=a2ci; worker_tag=a2cw\ninit_stat() {\n IFS= read -r raw < /proc/self/stat || exit 40\n spid=${raw%% *}; tail=${raw##*) }\n [ \"$tail\" != \"$raw\" ] && [ \"$spid\" = \"$$$$\" ] || exit 41\n set -- $tail\n [ \"$#\" -ge 20 ] || exit 42\n istart=${20}; iu=${12}; is=${13}\n for tick in \"$iu\" \"$is\"; do case \"$tick\" in ''|*[!0-9]*) exit 43;; esac; done\n case \"$istart\" in ''|0|*[!0-9]*) exit 43;; esac\n}\ninit_stat\noriginal_start=$istart\nIFS= read -r default_init < /proc/self/comm || exit 44\ncase \"$default_init\" in ''|*[!A-Za-z0-9_.-]*) exit 45;; esac\n[ \"${#default_init}\" -le 15 ] || exit 46\nprintf '%s' \"$init_tag\" > /proc/self/comm || exit 47\nIFS= read -r named_init < /proc/self/comm || exit 48\n[ \"$named_init\" = \"$init_tag\" ] || exit 49\ninit_stat\n[ \"$istart\" = \"$original_start\" ] || exit 50\nprintf 'NAME init %s %s %s %s\\n' \"$default_init\" \"$init_tag\" \"$$$$\" \"$istart\" || exit 51\n/bin/busybox mkfifo /scratch/f01-accounting-gate /scratch/f01-accounting-ack || exit 52\nexec 3<> /scratch/f01-accounting-gate || exit 53\nexec 4<> /scratch/f01-accounting-ack || exit 54\ncount=0\non_usr1() {\n count=$((count+1))\n [ \"$count\" -le 3 ] || exit 55\n printf 'NEXT\\n' >&3 || exit 56\n printf 'ACK:%s\\n' \"$count\" >&4 || exit 57\n}\ntrap on_usr1 USR1\n/bin/busybox awk -v init=\"$$$$\" -v initStart=\"$istart\" -v tag=\"$worker_tag\" '\nfunction die(n) { exit n }\nfunction identity( raw,tail,n,a,p,start,r) {\n r=(getline raw < \"/proc/self/stat\"); close(\"/proc/self/stat\")\n if(r!=1) die(60)\n p=raw; sub(/ .*/,\"\",p)\n tail=raw; sub(/^.*\\) /,\"\",tail)\n n=split(tail,a,\" \")\n if(tail==raw || p !~ /^[1-9][0-9]*$/ || n<20) die(61)\n start=a[20]; user=a[12]; system_ticks=a[13]\n if(start !~ /^[1-9][0-9]*$/ || user !~ /^[0-9]+$/ || system_ticks !~ /^[0-9]+$/) die(62)\n if(length(p)>15 || length(start)>15 || length(user)>15 || length(system_ticks)>15) die(63)\n if(savedPid!=\"\" && (p!=savedPid || start!=savedStart)) die(64)\n savedPid=p; savedStart=start\n}\nfunction stat(phase) {\n identity()\n printf \"STAT %s %s %s %s %s\\n\",phase,savedPid,savedStart,user,system_ticks; fflush()\n}\nfunction gate() {\n if((getline token)!=1 || token!=\"NEXT\") die(65)\n}\nBEGIN {\n identity()\n r=(getline defaultName < \"/proc/self/comm\"); close(\"/proc/self/comm\")\n if(r!=1 || defaultName !~ /^[A-Za-z0-9_.-]+$/ || length(defaultName)>15) die(66)\n printf \"%s\",tag > \"/proc/self/comm\"\n if(close(\"/proc/self/comm\")!=0) die(67)\n r=(getline named < \"/proc/self/comm\"); close(\"/proc/self/comm\")\n if(r!=1 || named!=tag) die(68)\n identity()\n printf \"NAME worker %s %s %s %s\\n\",defaultName,tag,savedPid,savedStart; fflush()\n for(fd=3;fd<=4;fd++) {\n  path=\"/proc/self/fdinfo/\" fd\n  r=(getline closed < path); close(path)\n  if(r!=-1) die(69)\n }\n seen=0\n while((r=(getline info < \"/proc/self/fdinfo/0\"))==1) {\n  if(info ~ /^flags:[ \\t]+/) {\n   split(info,f); if(f[2] !~ /^[0-7]+$/ || f[2] !~ /0$/) die(70)\n   seen++\n  }\n }\n close(\"/proc/self/fdinfo/0\")\n if(r!=0 || seen!=1) die(71)\n printf \"FD_OK readonly0 closed3 closed4\\n\"; fflush()\n stat(\"READY\")\n printf \"READY init=%s start=%s worker=%s workerStart=%s\\n\",init,initStart,savedPid,savedStart; fflush()\n gate(); stat(\"NO_EFFECT_BEFORE\"); stat(\"NO_EFFECT_AFTER\")\n printf \"NO_EFFECT\\n\"; fflush()\n gate(); stat(\"EFFECT_BEFORE\"); x=0; for(i=0;i<1000000;i++) x=(x+i)%104729; stat(\"EFFECT_AFTER\")\n printf \"EFFECT_HELD\\n\"; fflush()\n gate(); identity()\n printf \"WORKER_EXIT 0 %s %s\\n\",savedPid,savedStart; fflush()\n exit 0\n}' < /scratch/f01-accounting-gate 3>&- 4>&- &\nworker=$!\nordinal=1\nwhile [ \"$ordinal\" -le 3 ]; do\n printf 'INTENT %s %s\\n' \"$ordinal\" \"$worker\" || exit 72\n\n attempt=1\n while :; do\n  token=\n  set +e\n  IFS= read -r token <&4\n  status=$?\n  set -e\n  case \"$token\" in\n   '') token_kind=EMPTY;;\n   ACK:1) token_kind=ACK_1;;\n   ACK:2) token_kind=ACK_2;;\n   ACK:3) token_kind=ACK_3;;\n   *) token_kind=OTHER;;\n  esac\n  # Bounded raw status/count/category precedes every outcome validation.\n  printf 'RAW_READ %s %s %s %s\\n' \"$ordinal\" \"$status\" \"$count\" \"$token_kind\" || exit 77\n  if [ \"$status\" -eq 0 ]; then\n   [ \"$token\" = \"ACK:$ordinal\" ] && [ \"$count\" -eq \"$ordinal\" ] || exit 76\n   break\n  fi\n  # Retain one nonzero/empty read, then require exact ACK0; never resend a signal.\n  [ \"$mode\" = external ] && [ \"$status\" -ge 1 ] && [ \"$status\" -le 255 ] && [ -z \"$token\" ] &&\n   [ \"$attempt\" -eq 1 ] && [ \"$count\" -eq \"$ordinal\" ] || exit 78\n  attempt=2\n done\n printf 'ACK %s %s\\n' \"$ordinal\" \"$worker\" || exit 80\n ordinal=$((ordinal+1))\ndone\nset +e\nwait \"$worker\"\nstatus=$?\nset -e\n[ \"$status\" -eq 0 ] && [ \"$count\" -eq 3 ] || exit 81\nprintf 'WAIT_FINAL 0 %s\\n' \"$worker\" || exit 82\ninit_stat\n[ \"$istart\" = \"$original_start\" ] || exit 83\nIFS= read -r named_init < /proc/self/comm || exit 84\n[ \"$named_init\" = \"$init_tag\" ] || exit 85\nprintf 'INIT_FINAL %s %s %s\\n' \"$$$$\" \"$istart\" \"$init_tag\" || exit 86\nprintf 'RELEASED init=%s start=%s user=%s sys=%s\\n' \"$$$$\" \"$istart\" \"$iu\" \"$is\" || exit 87\ntoken=\nset +e\nIFS= read -r -t 3 token <&3\nstatus=$?\nset -e\n[ \"$status\" -eq 1 ] && [ -z \"$token\" ] || exit 88\nprintf 'HOLD_TIMEOUT rc=1 token=\\n' || exit 89\ninit_stat\n[ \"$istart\" = \"$original_start\" ] || exit 90\nprintf 'HOLD_END init=%s start=%s user=%s sys=%s\\n' \"$$$$\" \"$istart\" \"$iu\" \"$is\" || exit 91\n"
+        ],
+        "securityContext": {
+          "allowPrivilegeEscalation": false,
+          "readOnlyRootFilesystem": true,
+          "capabilities": {
+            "drop": [
+              "ALL"
+            ]
+          }
+        },
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "64Mi",
+            "ephemeral-storage": "16Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "256Mi",
+            "ephemeral-storage": "32Mi"
+          }
+        },
+        "volumeMounts": [
+          {
+            "name": "scratch",
+            "mountPath": "/scratch"
+          },
+          {
+            "name": "scratch",
+            "mountPath": "/tmp"
+          }
+        ]
+      }
+    ],
+    "volumes": [
+      {
+        "name": "scratch",
+        "emptyDir": {
+          "medium": "Memory",
+          "sizeLimit": "16Mi"
+        }
+      }
+    ]
+  }
+}

@@ -1,6 +1,9 @@
 package com.otilm.core.serialization;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.StreamReadConstraints;
+import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.databind.AnnotationIntrospector;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
@@ -21,6 +24,62 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 public final class ObjectMapperFactory {
 
     private ObjectMapperFactory() {
+    }
+
+    /** Exact text-model request syntax; caller-owned field and byte limits remain separate. */
+    public static ObjectMapper aiModelPayload() {
+        return boundedAi(StreamReadConstraints
+                .builder()
+                .maxNestingDepth(8)
+                .maxNumberLength(12)
+                .maxStringLength(1048576)
+                .build());
+    }
+
+    /** Bounded nonstreaming provider results, with duplicate keys and trailing documents rejected. */
+    public static ObjectMapper aiModelResult() {
+        return boundedAi(StreamReadConstraints
+                .builder()
+                .maxNestingDepth(12)
+                .maxNumberLength(20)
+                .maxStringLength(1048576)
+                .build());
+    }
+
+    /** Closed internal gateway control messages; never used for ordinary platform authentication. */
+    public static ObjectMapper aiGatewayWire() {
+        return boundedAi(StreamReadConstraints
+                .builder()
+                .maxNestingDepth(32)
+                .maxNameLength(128)
+                .maxNumberLength(64)
+                .maxStringLength(1500000)
+                .build());
+    }
+
+    /** Kubernetes metadata permits qualified annotation names longer than the internal policy keys. */
+    public static ObjectMapper aiKubernetesWire() {
+        return boundedAi(StreamReadConstraints
+                .builder()
+                .maxNestingDepth(32)
+                .maxNameLength(512)
+                .maxNumberLength(64)
+                .maxStringLength(1500000)
+                .build());
+    }
+
+    /** Node-only observation encoding preserves the existing runtime's Jackson 3 wire shape. */
+    public static tools.jackson.databind.json.JsonMapper aiRunContext() {
+        return tools.jackson.databind.json.JsonMapper.builder().build();
+    }
+
+    private static ObjectMapper boundedAi(StreamReadConstraints constraints) {
+        return new ObjectMapper(JsonFactory
+                .builder()
+                .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+                .disable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION)
+                .streamReadConstraints(constraints)
+                .build()).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     }
 
     /**

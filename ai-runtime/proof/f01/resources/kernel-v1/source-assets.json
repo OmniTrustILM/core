@@ -1,0 +1,162 @@
+{
+  "schema": "f01-kernel-helper-source-assets-v1",
+  "scope": "Maintained helper source and fixed synthetic fixture assets; not a deployable node/cohort manifest.",
+  "files": [
+    {
+      "path": "python/fixture_builder.py",
+      "bytes": 7876,
+      "sha256": "74e34783da6dad78832f0e27d1888a086f82889793f0f88d22996392b3473567",
+      "mode": 420
+    },
+    {
+      "path": "python/high_outcomes.py",
+      "bytes": 15622,
+      "sha256": "8bf620a1065ff5290062c35065f647c9263ef1e951f98047a8a1d4b8d0a1a93e",
+      "mode": 420
+    },
+    {
+      "path": "python/kernel_cleanup.py",
+      "bytes": 12783,
+      "sha256": "b1d834750f89518d3075fdb9a8b3bd40ca29ecb7bd146b005333ca5110e8d789",
+      "mode": 420
+    },
+    {
+      "path": "python/kernel_collect.py",
+      "bytes": 38611,
+      "sha256": "d64860c3cdb55fae14e4b4d68677a7e5079de790640a622ba526666e348acb5a",
+      "mode": 420
+    },
+    {
+      "path": "python/kernel_observer.py",
+      "bytes": 29801,
+      "sha256": "9cebbca920ba66ff2ce6b330bcee04137b54cf500979c22e1374544d52e2400c",
+      "mode": 420
+    },
+    {
+      "path": "python/kernel_owner.py",
+      "bytes": 5383,
+      "sha256": "e72567db3d60903bab11a411579063cc1cdacb720e3afea0bbc0abdb7a9dc10b",
+      "mode": 420
+    },
+    {
+      "path": "python/kernel_protocol.py",
+      "bytes": 5596,
+      "sha256": "8545fcca972a921e39b3469320debab8190b69b51a04309589d88a3e3b6a3ec3",
+      "mode": 420
+    },
+    {
+      "path": "python/kernel_runtime.py",
+      "bytes": 6349,
+      "sha256": "980d11b82421dbc4f78cae791770027176915df9fba48aee169765c31f8bb72f",
+      "mode": 420
+    },
+    {
+      "path": "python/pids_calibration.py",
+      "bytes": 3143,
+      "sha256": "7b54fe64e7cd89eb8670259f4f95b9745ee83f0de7c9bb78ccb94c1a83ac11ae",
+      "mode": 420
+    },
+    {
+      "path": "python/prefix_activation.py",
+      "bytes": 7899,
+      "sha256": "8906210117f8268802e07088f63431dcc532e4be57afbca76d7fdafe543809d2",
+      "mode": 420
+    },
+    {
+      "path": "python/prefix_file.py",
+      "bytes": 5038,
+      "sha256": "a03ce7d2e0a3513b0606ff499c70464fe2f5facd3aa3854fdbf4eb7980e049aa",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/golden/cpu-deadline.sh",
+      "bytes": 1720,
+      "sha256": "3a6d231c9f8c660af3e689853724a5e2dbdd3c182acdda29d6de153cad11ac55",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/golden/memory-control.sh",
+      "bytes": 5450,
+      "sha256": "bcb795badb1a580fd7279c1d7bf869d3267852775b9797c70a0c9b6b0a671d48",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/golden/memory-limit.sh",
+      "bytes": 1850,
+      "sha256": "893b28619f21b995d06ee0fdfea49c480d7f7f1f4634485bf54cd74909463fe2",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/golden/process-limit.sh",
+      "bytes": 2112,
+      "sha256": "e52ce0acd574b3054a05afe76786c7b605d27e9bdf4d82a6125fb5819d40df72",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/golden/scratch-a.sh",
+      "bytes": 2116,
+      "sha256": "30ede0ac267ef72db9a4cc49e656c7da20e5c7b6d0e98a3b60e600d5df177214",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/golden/scratch-b.sh",
+      "bytes": 2151,
+      "sha256": "3cb41d74ad1099c576bd7c9e69fd6a9d13ccbfc4cb2a541dc371d144d4a296f5",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/namespace.json",
+      "bytes": 2190,
+      "sha256": "b57943c9dab651715744fcdd61f534e0213f9fce1bd2d366c60f6c8a025e0496",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/policy.json",
+      "bytes": 33556,
+      "sha256": "8d40a22d88ef54bcb7b76eef40ab3025c64c7855a7e767c07603b032ce1a54ee",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/profiles/cpu-deadline.json",
+      "bytes": 3950,
+      "sha256": "6bf040b36137bc1c1731d96dd45cb03882fd5f7f68b52f7904a489cf7837ad77",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/profiles/memory-control.json",
+      "bytes": 7995,
+      "sha256": "5eaa1d1f1f277a706617fee2eb4ee7fbbd3b3fe71d079c66698690990fa82526",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/profiles/memory-limit.json",
+      "bytes": 4089,
+      "sha256": "f29c7813a34a1fdd546ba7bb10ec66be153a399b1ec30e434919037298b076bd",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/profiles/process-limit.json",
+      "bytes": 4368,
+      "sha256": "037f6592c552e08df5ec45b120ee63345221cdcf619ff0a791ec2b15cd12119e",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/profiles/scratch-a.json",
+      "bytes": 4353,
+      "sha256": "d4da31a42baee2adce0d026bb134061ab4684175e73f5dcb78ef98e7c1400c69",
+      "mode": 420
+    },
+    {
+      "path": "fixtures/profiles/scratch-b.json",
+      "bytes": 4392,
+      "sha256": "d8d99063a15c4c5a6bb35d96a007ab1ebb318a100220e110f90db5e7486efdcf",
+      "mode": 420
+    },
+    {
+      "path": "python/scratch_metadata.py",
+      "bytes": 7801,
+      "sha256": "98c04fbff10becb400867b9baf0ccd4c0f2afb35ff388defd223c32d95da8366",
+      "mode": 420
+    }
+  ]
+}

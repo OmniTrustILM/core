@@ -1,6 +1,7 @@
 package com.otilm.core.security.authn.client;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.core.logging.enums.ActorType;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
@@ -17,6 +18,8 @@ import com.otilm.core.security.exception.AuthenticationServiceException;
 import com.otilm.core.service.AuditLogInternalService;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.AuthHelper;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -38,6 +41,8 @@ import reactor.core.publisher.Mono;
 public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClient {
 
     protected final Logger logger = LoggerFactory.getLogger(this.getClass());
+
+    private static final String USERNAME_FIELD = "username";
 
     private final ObjectMapper objectMapper;
     private final String customAuthServiceBaseUrl;
@@ -62,6 +67,66 @@ public class PlatformAuthenticationClient extends PlatformBaseAuthenticationClie
     public AuthenticationInfo authenticateByUserUuid(UUID userUuid) {
         return restoreActorMdc(AuthMethod.USER_PROXY, authenticationCache
                 .getOrAuthenticateByUserUuid(userUuid, () -> authenticate(AuthMethod.USER_PROXY, userUuid, false)));
+    }
+
+    /** Direct, bounded authentication for a pinned actor; failures never carry upstream response material. */
+    public AuthenticationInfo authenticateByUserUuidAuthoritatively(UUID userUuid, Duration timeout) {
+        if (userUuid == null || timeout == null || timeout.isZero() || timeout.isNegative()
+                || timeout.compareTo(Duration.ofSeconds(5)) > 0 || Thread.currentThread().isInterrupted()) {
+            throw authoritativeFailure();
+        }
+        try {
+            AuthenticationRequestDto payload = new AuthenticationRequestDto();
+            payload.setAuthMethod(AuthMethod.USER_PROXY);
+            payload.setUserUuid(userUuid.toString());
+            String body = WebClient
+                    .builder()
+                    .baseUrl(customAuthServiceBaseUrl)
+                    .build()
+                    .post()
+                    .uri("/auth")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .bodyValue(payload)
+                    .exchangeToMono(response -> response.statusCode().is2xxSuccessful()
+                            ? response.bodyToMono(String.class)
+                            : response.releaseBody().then(Mono.error(authoritativeFailure())))
+                    .block(timeout);
+            JsonNode response = body == null ? null : objectMapper.readTree(body);
+            return authoritativeInfo(userUuid, response);
+        } catch (Exception failure) {
+            throw authoritativeFailure();
+        }
+    }
+
+    private AuthenticationInfo authoritativeInfo(UUID actor, JsonNode response) {
+        if (response == null || !response.isObject() || !response.path("authenticated").isBoolean()
+                || !response.path("authenticated").booleanValue() || !response.path("data").isObject()) {
+            throw authoritativeFailure();
+        }
+        JsonNode data = response.path("data");
+        JsonNode user = data.path("user");
+        JsonNode roles = data.path("roles");
+        if (!user.isObject() || !user.path("uuid").isTextual()
+                || !actor.toString().equals(user.path("uuid").textValue()) || !user.path(USERNAME_FIELD).isTextual()
+                || user.path(USERNAME_FIELD).textValue().isBlank()
+                || "anonymousUser".equals(user.path(USERNAME_FIELD).textValue()) || !user.path("enabled").isBoolean()
+                || !user.path("enabled").booleanValue() || !roles.isArray() || !data.path("permissions").isObject()) {
+            throw authoritativeFailure();
+        }
+        var authorities = new ArrayList<org.springframework.security.core.GrantedAuthority>();
+        for (JsonNode role : roles) {
+            if (!role.isObject() || !role.path("name").isTextual() || role.path("name").textValue().isBlank()) {
+                throw authoritativeFailure();
+            }
+            authorities.add(new SimpleGrantedAuthority(role.path("name").textValue()));
+        }
+        return new AuthenticationInfo(AuthMethod.USER_PROXY, actor.toString(), user.path(USERNAME_FIELD).textValue(),
+                authorities, data.toString());
+    }
+
+    private static PlatformAuthenticationException authoritativeFailure() {
+        return new PlatformAuthenticationException("Authoritative authentication unavailable");
     }
 
     public AuthenticationInfo authenticateByCertificate(ParsedCertificate certificate) {

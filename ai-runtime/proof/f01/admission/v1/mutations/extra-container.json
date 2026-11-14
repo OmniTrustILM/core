@@ -1,0 +1,49 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/-",
+    "value": {
+      "name": "extra",
+      "image": "docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c",
+      "imagePullPolicy": "Never",
+      "command": [
+        "/bin/sh",
+        "-c"
+      ],
+      "args": [
+        "set -eu; id; uname -a; dmesg | head -5; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; echo TOKEN_ABSENT; test ! -S /run/host-services/ssh-auth.sock; echo HOST_AGENT_ABSENT; grep -Eq \"^[^ ]+ / [^ ]+ ro([ ,]|$)\" /proc/mounts; echo ROOT_MOUNT_READONLY; touch /scratch/floor-v1; test -f /tmp/floor-v1; echo SHARED_SCRATCH_WRITABLE; grep -E \" /(scratch|tmp) \" /proc/mounts; echo FLOOR_V1_READY; sleep 120"
+      ],
+      "securityContext": {
+        "allowPrivilegeEscalation": false,
+        "readOnlyRootFilesystem": true,
+        "capabilities": {
+          "drop": [
+            "ALL"
+          ]
+        }
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi",
+          "ephemeral-storage": "16Mi"
+        },
+        "limits": {
+          "cpu": "500m",
+          "memory": "256Mi",
+          "ephemeral-storage": "32Mi"
+        }
+      },
+      "volumeMounts": [
+        {
+          "name": "scratch",
+          "mountPath": "/scratch"
+        },
+        {
+          "name": "scratch",
+          "mountPath": "/tmp"
+        }
+      ]
+    }
+  }
+]

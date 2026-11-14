@@ -1,0 +1,7 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/containers/0/resources/limits/cpu",
+    "value": "400m"
+  }
+]

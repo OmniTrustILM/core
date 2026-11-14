@@ -1,0 +1,30 @@
+[
+  {
+    "op": "replace",
+    "path": "/metadata/name",
+    "value": "f01-a2-cpu-control"
+  },
+  {
+    "op": "replace",
+    "path": "/metadata/labels",
+    "value": {
+      "ilm.ai/proof": "a2-v1"
+    }
+  },
+  {
+    "op": "replace",
+    "path": "/spec/containers/0/command",
+    "value": [
+      "/bin/busybox",
+      "ash",
+      "-c"
+    ]
+  },
+  {
+    "op": "replace",
+    "path": "/spec/containers/0/args",
+    "value": [
+      "exec /bin/busybox awk 'BEGIN { x=0; for (i=0; i<1000000; i++) x=(x+i)%104729; printf \"CPU_CONTROL_DONE %d\\n\",x }'"
+    ]
+  }
+]

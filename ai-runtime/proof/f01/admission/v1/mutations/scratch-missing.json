@@ -1,0 +1,10 @@
+[
+  {
+    "op": "remove",
+    "path": "/spec/volumes"
+  },
+  {
+    "op": "remove",
+    "path": "/spec/containers/0/volumeMounts"
+  }
+]

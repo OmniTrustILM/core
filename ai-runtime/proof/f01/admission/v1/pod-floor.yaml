@@ -1,0 +1,173 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "admissionregistration.k8s.io/v1",
+      "kind": "ValidatingAdmissionPolicy",
+      "metadata": {
+        "name": "f01-floor-v1"
+      },
+      "spec": {
+        "failurePolicy": "Fail",
+        "matchConstraints": {
+          "resourceRules": [
+            {
+              "apiGroups": [
+                ""
+              ],
+              "apiVersions": [
+                "v1"
+              ],
+              "operations": [
+                "CREATE",
+                "UPDATE"
+              ],
+              "resources": [
+                "pods",
+                "pods/ephemeralcontainers",
+                "pods/resize"
+              ],
+              "scope": "Namespaced"
+            }
+          ]
+        },
+        "variables": [
+          {
+            "name": "s",
+            "expression": "object.spec"
+          },
+          {
+            "name": "c",
+            "expression": "object.spec.containers[0]"
+          },
+          {
+            "name": "p",
+            "expression": "object.spec.securityContext"
+          },
+          {
+            "name": "sc",
+            "expression": "object.spec.containers[0].securityContext"
+          }
+        ],
+        "validations": [
+          {
+            "expression": "!has(request.subResource) || request.subResource == ''",
+            "message": "F01_SUBRESOURCE",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "object.metadata.name == 'f01-floor-v1' && object.metadata.namespace == 'ilm-sandbox' && (!has(object.metadata.generateName) || object.metadata.generateName == '') && has(object.metadata.labels) && size(object.metadata.labels) == 1 && object.metadata.labels['ilm.ai/proof'] == 'floor-v1'",
+            "message": "F01_METADATA",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "!has(object.metadata.ownerReferences) && (!has(object.metadata.finalizers) || size(object.metadata.finalizers) == 0)",
+            "message": "F01_METADATA_CONTROL",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "request.operation == 'CREATE' ? (!has(object.metadata.annotations) || size(object.metadata.annotations) == 0) : ((!has(object.metadata.annotations) || object.metadata.annotations.all(k, k in ['cni.projectcalico.org/containerID', 'cni.projectcalico.org/podIP', 'cni.projectcalico.org/podIPs'])) && has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations))",
+            "message": "F01_ANNOTATIONS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "!has(variables.s.affinity) && !has(variables.s.ephemeralContainers) && !has(variables.s.hostAliases) && !has(variables.s.hostUsers) && !has(variables.s.hostname) && !has(variables.s.hostnameOverride) && !has(variables.s.imagePullSecrets) && !has(variables.s.initContainers) && !has(variables.s.nodeSelector) && !has(variables.s.overhead) && !has(variables.s.priorityClassName) && !has(variables.s.readinessGates) && !has(variables.s.resourceClaims) && !has(variables.s.resources) && !has(variables.s.schedulingGates) && !has(variables.s.schedulingGroup) && !has(variables.s.setHostnameAsFQDN) && !has(variables.s.shareProcessNamespace) && !has(variables.s.subdomain) && !has(variables.s.topologySpreadConstraints)",
+            "message": "F01_POD_FIELDS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.runtimeClassName) && variables.s.runtimeClassName == \"runsc\" && has(variables.s.serviceAccountName) && variables.s.serviceAccountName == \"runner\" && has(variables.s.automountServiceAccountToken) && variables.s.automountServiceAccountToken == false && has(variables.s.enableServiceLinks) && variables.s.enableServiceLinks == false && has(variables.s.restartPolicy) && variables.s.restartPolicy == \"Never\" && has(variables.s.activeDeadlineSeconds) && variables.s.activeDeadlineSeconds == 27 && has(variables.s.terminationGracePeriodSeconds) && variables.s.terminationGracePeriodSeconds == 1 && has(variables.s.dnsPolicy) && variables.s.dnsPolicy == \"None\" && has(variables.s.serviceAccount) && variables.s.serviceAccount == 'runner' && has(variables.s.schedulerName) && variables.s.schedulerName == 'default-scheduler' && has(variables.s.preemptionPolicy) && variables.s.preemptionPolicy == 'PreemptLowerPriority' && has(variables.s.priority) && variables.s.priority == 0 && (!has(variables.s.hostNetwork) || !variables.s.hostNetwork) && (!has(variables.s.hostPID) || !variables.s.hostPID) && (!has(variables.s.hostIPC) || !variables.s.hostIPC) && (!has(variables.s.nodeName) || variables.s.nodeName == '' || (request.operation == 'UPDATE' && has(oldObject.spec.nodeName) && variables.s.nodeName == oldObject.spec.nodeName))",
+            "message": "F01_POD_FIXED",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.os) && variables.s.os.name == 'linux' && has(variables.s.dnsConfig) && has(variables.s.dnsConfig.nameservers) && variables.s.dnsConfig.nameservers == ['127.0.0.1'] && !has(variables.s.dnsConfig.searches) && !has(variables.s.dnsConfig.options)",
+            "message": "F01_OS_DNS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.tolerations) && size(variables.s.tolerations) == 2 && variables.s.tolerations.all(t, has(t.key) && has(t.operator) && has(t.effect) && has(t.tolerationSeconds) && t.key in ['node.kubernetes.io/not-ready', 'node.kubernetes.io/unreachable'] && t.operator == 'Exists' && (!has(t.value) || t.value == '') && t.effect == 'NoExecute' && t.tolerationSeconds == 300) && variables.s.tolerations[0].key != variables.s.tolerations[1].key",
+            "message": "F01_TOLERATIONS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.securityContext) && (!has(variables.p.appArmorProfile) && !has(variables.p.fsGroupChangePolicy) && !has(variables.p.seLinuxChangePolicy) && !has(variables.p.seLinuxOptions) && !has(variables.p.supplementalGroups) && !has(variables.p.supplementalGroupsPolicy) && !has(variables.p.sysctls) && !has(variables.p.windowsOptions))",
+            "message": "F01_POD_SECURITY_FIELDS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.securityContext) && has(variables.p.runAsNonRoot) && variables.p.runAsNonRoot && has(variables.p.runAsUser) && variables.p.runAsUser == 65532 && has(variables.p.runAsGroup) && variables.p.runAsGroup == 65532 && has(variables.p.fsGroup) && variables.p.fsGroup == 65532 && has(variables.p.seccompProfile) && variables.p.seccompProfile.type == 'RuntimeDefault' && !has(variables.p.seccompProfile.localhostProfile)",
+            "message": "F01_POD_SECURITY",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "size(variables.s.containers) == 1",
+            "message": "F01_CONTAINER_COUNT",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "!has(variables.c.env) && !has(variables.c.envFrom) && !has(variables.c.lifecycle) && !has(variables.c.livenessProbe) && !has(variables.c.ports) && !has(variables.c.readinessProbe) && !has(variables.c.resizePolicy) && !has(variables.c.restartPolicy) && !has(variables.c.restartPolicyRules) && !has(variables.c.startupProbe) && !has(variables.c.volumeDevices) && !has(variables.c.workingDir)",
+            "message": "F01_CONTAINER_FIELDS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.name) && variables.c.name == \"fixed-proof\" && has(variables.c.image) && variables.c.image == \"docker.io/library/busybox@sha256:d82c2ab94640ded77cf76514ce6a84870761105058a4a9e51b05a8a79be97a6c\" && has(variables.c.imagePullPolicy) && variables.c.imagePullPolicy == \"Never\" && has(variables.c.command) && variables.c.command == [\"/bin/sh\", \"-c\"] && has(variables.c.args) && variables.c.args == [\"set -eu; id; uname -a; dmesg | head -5; test ! -e /var/run/secrets/kubernetes.io/serviceaccount/token; echo TOKEN_ABSENT; test ! -S /run/host-services/ssh-auth.sock; echo HOST_AGENT_ABSENT; grep -Eq \\\"^[^ ]+ / [^ ]+ ro([ ,]|$)\\\" /proc/mounts; echo ROOT_MOUNT_READONLY; touch /scratch/floor-v1; test -f /tmp/floor-v1; echo SHARED_SCRATCH_WRITABLE; grep -E \\\" /(scratch|tmp) \\\" /proc/mounts; echo FLOOR_V1_READY; sleep 120\"] && has(variables.c.terminationMessagePath) && variables.c.terminationMessagePath == '/dev/termination-log' && has(variables.c.terminationMessagePolicy) && variables.c.terminationMessagePolicy == 'File' && (!has(variables.c.stdin) || !variables.c.stdin) && (!has(variables.c.stdinOnce) || !variables.c.stdinOnce) && (!has(variables.c.tty) || !variables.c.tty)",
+            "message": "F01_EXECUTABLE",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.securityContext) && (!has(variables.sc.appArmorProfile) && !has(variables.sc.procMount) && !has(variables.sc.runAsGroup) && !has(variables.sc.runAsNonRoot) && !has(variables.sc.runAsUser) && !has(variables.sc.seLinuxOptions) && !has(variables.sc.seccompProfile) && !has(variables.sc.windowsOptions))",
+            "message": "F01_CONTAINER_SECURITY_FIELDS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.securityContext) && has(variables.sc.allowPrivilegeEscalation) && !variables.sc.allowPrivilegeEscalation && has(variables.sc.readOnlyRootFilesystem) && variables.sc.readOnlyRootFilesystem && (!has(variables.sc.privileged) || !variables.sc.privileged) && has(variables.sc.capabilities) && has(variables.sc.capabilities.drop) && variables.sc.capabilities.drop == ['ALL'] && (!has(variables.sc.capabilities.add) || size(variables.sc.capabilities.add) == 0)",
+            "message": "F01_CONTAINER_SECURITY",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.resources) && !has(variables.c.resources.claims) && has(variables.c.resources.requests) && has(variables.c.resources.limits) && size(variables.c.resources.requests) == 3 && size(variables.c.resources.limits) == 3 && ['cpu','memory','ephemeral-storage'].all(k, k in variables.c.resources.requests && k in variables.c.resources.limits)",
+            "message": "F01_RESOURCE_KEYS",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.resources) && has(variables.c.resources.requests) && has(variables.c.resources.limits) && ['cpu','memory','ephemeral-storage'].all(k, k in variables.c.resources.requests && k in variables.c.resources.limits) && (quantity(variables.c.resources.requests['cpu']).compareTo(quantity('100m')) == 0 && quantity(variables.c.resources.requests['memory']).compareTo(quantity('64Mi')) == 0 && quantity(variables.c.resources.requests['ephemeral-storage']).compareTo(quantity('16Mi')) == 0 && quantity(variables.c.resources.limits['cpu']).compareTo(quantity('500m')) == 0 && quantity(variables.c.resources.limits['memory']).compareTo(quantity('256Mi')) == 0 && quantity(variables.c.resources.limits['ephemeral-storage']).compareTo(quantity('32Mi')) == 0)",
+            "message": "F01_RESOURCES",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.s.volumes) && size(variables.s.volumes) == 1 && variables.s.volumes[0].name == 'scratch' && has(variables.s.volumes[0].emptyDir) && has(variables.s.volumes[0].emptyDir.medium) && variables.s.volumes[0].emptyDir.medium == 'Memory' && has(variables.s.volumes[0].emptyDir.sizeLimit) && quantity(variables.s.volumes[0].emptyDir.sizeLimit).compareTo(quantity('16Mi')) == 0 && !has(variables.s.volumes[0].awsElasticBlockStore) && !has(variables.s.volumes[0].azureDisk) && !has(variables.s.volumes[0].azureFile) && !has(variables.s.volumes[0].cephfs) && !has(variables.s.volumes[0].cinder) && !has(variables.s.volumes[0].configMap) && !has(variables.s.volumes[0].csi) && !has(variables.s.volumes[0].downwardAPI) && !has(variables.s.volumes[0].ephemeral) && !has(variables.s.volumes[0].fc) && !has(variables.s.volumes[0].flexVolume) && !has(variables.s.volumes[0].flocker) && !has(variables.s.volumes[0].gcePersistentDisk) && !has(variables.s.volumes[0].gitRepo) && !has(variables.s.volumes[0].glusterfs) && !has(variables.s.volumes[0].hostPath) && !has(variables.s.volumes[0].image) && !has(variables.s.volumes[0].iscsi) && !has(variables.s.volumes[0].nfs) && !has(variables.s.volumes[0].persistentVolumeClaim) && !has(variables.s.volumes[0].photonPersistentDisk) && !has(variables.s.volumes[0].portworxVolume) && !has(variables.s.volumes[0].projected) && !has(variables.s.volumes[0].quobyte) && !has(variables.s.volumes[0].rbd) && !has(variables.s.volumes[0].scaleIO) && !has(variables.s.volumes[0].secret) && !has(variables.s.volumes[0].storageos) && !has(variables.s.volumes[0].vsphereVolume)",
+            "message": "F01_SCRATCH",
+            "reason": "Forbidden"
+          },
+          {
+            "expression": "has(variables.c.volumeMounts) && size(variables.c.volumeMounts) == 2 && variables.c.volumeMounts.all(m, m.name == 'scratch' && m.mountPath in ['/scratch','/tmp'] && (!has(m.readOnly) || !m.readOnly) && !has(m.mountPropagation) && !has(m.recursiveReadOnly) && !has(m.subPath) && !has(m.subPathExpr)) && variables.c.volumeMounts[0].mountPath != variables.c.volumeMounts[1].mountPath",
+            "message": "F01_MOUNTS",
+            "reason": "Forbidden"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "admissionregistration.k8s.io/v1",
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "metadata": {
+        "name": "f01-floor-v1"
+      },
+      "spec": {
+        "policyName": "f01-floor-v1",
+        "validationActions": [
+          "Deny"
+        ],
+        "matchResources": {
+          "namespaceSelector": {
+            "matchLabels": {
+              "kubernetes.io/metadata.name": "ilm-sandbox"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

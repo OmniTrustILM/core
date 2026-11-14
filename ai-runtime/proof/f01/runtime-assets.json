@@ -1,0 +1,580 @@
+{
+  "scope": "Explicit runtime asset whitelist, including all production Python modules. Offline tests, fixtures and quality tooling are development assets.",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 9472,
+      "sha256": "301153a7e62a22ff60f2feb105f6725b123bf0b8f77713f7af019029dfdef4ce"
+    },
+    {
+      "path": "admission/v1/cases.tsv",
+      "bytes": 2471,
+      "sha256": "31fbfad2b6bda62c4a5769c5acd3c416cc5ad325c08c902490b5ba0aa5541fdd"
+    },
+    {
+      "path": "admission/v1/controls/scratch-mode.json",
+      "bytes": 91,
+      "sha256": "0a588007c8967ca1661f639c2f4d9473461c2b1fbde10ebebc8266d25110caca"
+    },
+    {
+      "path": "admission/v1/field-inventory.json",
+      "bytes": 3158,
+      "sha256": "e02d693366712d1552102a7677952723c1739a2ba54e43f009eff5b5b4220f20"
+    },
+    {
+      "path": "admission/v1/field-inventory.md",
+      "bytes": 4246,
+      "sha256": "9763bd238f23b0cbba8430e0faaaebee94ae91f0f052719104db8c1bffa60bc4"
+    },
+    {
+      "path": "admission/v1/mutations/allow-escalation.json",
+      "bytes": 122,
+      "sha256": "a62139abc72f361c86fe06fc64b8a64ee8dff99588152e8a284b82bb0fa61401"
+    },
+    {
+      "path": "admission/v1/mutations/annotation-update.json",
+      "bytes": 120,
+      "sha256": "281b3a95010a85175d652a347cfa2263faf65d4933c6a90357701125d7318c44"
+    },
+    {
+      "path": "admission/v1/mutations/args-change.json",
+      "bytes": 110,
+      "sha256": "0a7cb234dee97c1a310c94dffa55005073236a8c73a4ff5a1a88ecabfe31caf7"
+    },
+    {
+      "path": "admission/v1/mutations/automount-true.json",
+      "bytes": 97,
+      "sha256": "d3d4063d1b53ce9e47541331dba3c9e426f8adb0f6bbb5f7c00b2649f3bd33ee"
+    },
+    {
+      "path": "admission/v1/mutations/capabilities-drop-missing.json",
+      "bytes": 99,
+      "sha256": "542e48cc5a60a0f434edafba1ac4d5db071fb82ef9e182f864d56cd9c55c044b"
+    },
+    {
+      "path": "admission/v1/mutations/capability-add.json",
+      "bytes": 135,
+      "sha256": "8a37b6b70b52baeeab6a528caab8b5655027f547c6cff2f45f1c338846b6e7a3"
+    },
+    {
+      "path": "admission/v1/mutations/cni-annotation.json",
+      "bytes": 136,
+      "sha256": "5836afe443dd7200407daea9133b113a29745df397b8aaaca0f312e09164ff68"
+    },
+    {
+      "path": "admission/v1/mutations/command-change.json",
+      "bytes": 110,
+      "sha256": "1ea1bdd807f0709f73ed086e70a88907180c52572c7cf4e44ddacdded4be8456"
+    },
+    {
+      "path": "admission/v1/mutations/container-security-missing.json",
+      "bytes": 81,
+      "sha256": "66a9b599246ba871d0acff70f36df09aede2f978eb43830cd3fd161a05e17fd1"
+    },
+    {
+      "path": "admission/v1/mutations/container-uid.json",
+      "bytes": 108,
+      "sha256": "ccae2e8cbea939799d8cdfaead636fd728bf1832f838ab5ff0c1697a80b838ab"
+    },
+    {
+      "path": "admission/v1/mutations/cpu-limit-missing.json",
+      "bytes": 86,
+      "sha256": "35f43bcdc1d009cbff87b7fcecdc3fa29e2600f81f56d184c44f7c80edf99d35"
+    },
+    {
+      "path": "admission/v1/mutations/csi-volume.json",
+      "bytes": 165,
+      "sha256": "a10ed87f48cfabbf72c34ec8dd5f5ed4324feaa82c0c7605ffdeba6b489723bc"
+    },
+    {
+      "path": "admission/v1/mutations/dns-override.json",
+      "bytes": 111,
+      "sha256": "d71afd443ecc79610e9ca529e94ebc96d342df90238c541a8d177e404e93a3c0"
+    },
+    {
+      "path": "admission/v1/mutations/env-literal.json",
+      "bytes": 157,
+      "sha256": "c8cdd7cbec1d6a0fed441d8a76e2cb0b4ec29175eb7d7a7d54f3ad6feacc01fe"
+    },
+    {
+      "path": "admission/v1/mutations/env-secretKeyRef.json",
+      "bytes": 265,
+      "sha256": "55913cc439eb5fa94a0ad12c561d9685fb7c2e9c5f285d3cf21dac785804eeca"
+    },
+    {
+      "path": "admission/v1/mutations/envFrom-secret.json",
+      "bytes": 171,
+      "sha256": "1eda3ed25a19a4b484bb91d9385a28e73056a3c491e4e9f4e96a249f1d507b5f"
+    },
+    {
+      "path": "admission/v1/mutations/ephemeral-subresource.json",
+      "bytes": 630,
+      "sha256": "52ea5dda6e5f04cc224b73fa628fff28547fdccb437d86bf7001dc8c1ea66474"
+    },
+    {
+      "path": "admission/v1/mutations/extra-container.json",
+      "bytes": 1449,
+      "sha256": "f43d65b133a56a45d78f441bce0b061ea60a164cfe56b2d0614e11b44de0aff8"
+    },
+    {
+      "path": "admission/v1/mutations/extra-label.json",
+      "bytes": 92,
+      "sha256": "f0721d908c0142a740287af5bcfcbfaff6bd9b91a933f6b31961a09088b1a749"
+    },
+    {
+      "path": "admission/v1/mutations/finalizer.json",
+      "bytes": 122,
+      "sha256": "99ad77dab15748980153e0d0691af4e1f33b9d52cbc27582f124d6cab0eb61e2"
+    },
+    {
+      "path": "admission/v1/mutations/host-alias.json",
+      "bytes": 181,
+      "sha256": "04ff00d12a4f70b6a5ffa8f50ff4d095ef077ef701d0563e5c30405ee7da1568"
+    },
+    {
+      "path": "admission/v1/mutations/host-users.json",
+      "bytes": 79,
+      "sha256": "db269795e8f334e354eb17ac3c42e0b02611bcafce6b7613a0336ca8258b39e4"
+    },
+    {
+      "path": "admission/v1/mutations/hostIPC.json",
+      "bytes": 76,
+      "sha256": "3e8e8d72a250253d9977f65b347b9cf49f3906dd69e33c0b73c450ffa873f2d2"
+    },
+    {
+      "path": "admission/v1/mutations/hostNetwork.json",
+      "bytes": 80,
+      "sha256": "fc62d0c0ff97f6d403f8cc9b780efb7ba6d6f4ff4c813161962a12d7646791df"
+    },
+    {
+      "path": "admission/v1/mutations/hostPID.json",
+      "bytes": 76,
+      "sha256": "af6fbfb0660dd7a1dd76af63e7ea75d6a9f959bdbfb1e5768e60816653d36494"
+    },
+    {
+      "path": "admission/v1/mutations/hostPath-volume.json",
+      "bytes": 161,
+      "sha256": "94c804b3163fc8298e654984bd302ac053a5cd1ab4224dc5bdc2affee251e913"
+    },
+    {
+      "path": "admission/v1/mutations/hostPort.json",
+      "bytes": 164,
+      "sha256": "0a096a2dd55e48ef8fc5dd6b75644e71d2932968a32c41693228e1607d9135fd"
+    },
+    {
+      "path": "admission/v1/mutations/hostname-override.json",
+      "bytes": 92,
+      "sha256": "22141fec6484617295bdac0ecc1bfc041305f5f9e520e5f641a96e5a3f07df3b"
+    },
+    {
+      "path": "admission/v1/mutations/image-other-digest.json",
+      "bytes": 182,
+      "sha256": "da23c2def9b28c543be4881a802a4ce5e07cd93e3617eceaf7012e955c82e007"
+    },
+    {
+      "path": "admission/v1/mutations/image-pull-secret.json",
+      "bytes": 132,
+      "sha256": "41524d14f6e7cb53a17481e6c6f6b862319e38df52c538640b8c50bc3e99ff8c"
+    },
+    {
+      "path": "admission/v1/mutations/image-tag.json",
+      "bytes": 117,
+      "sha256": "9ac56679620cda6a32f788132107aa33bedf60ab794ad343a86c80ab97a2a973"
+    },
+    {
+      "path": "admission/v1/mutations/image-update.json",
+      "bytes": 117,
+      "sha256": "9ac56679620cda6a32f788132107aa33bedf60ab794ad343a86c80ab97a2a973"
+    },
+    {
+      "path": "admission/v1/mutations/init-sidecar.json",
+      "bytes": 1584,
+      "sha256": "dc35898651065d02c5f3c17dab72b0eb6897f9776ea4dd389a51b2fc2368307a"
+    },
+    {
+      "path": "admission/v1/mutations/memory-limit-oversize.json",
+      "bytes": 108,
+      "sha256": "e282b703f5c443bb114bff5dfaa5cdb826dee16f389804f6caec21394cde1d11"
+    },
+    {
+      "path": "admission/v1/mutations/mount-propagation.json",
+      "bytes": 126,
+      "sha256": "8ace101294f4ee6ce06de2c7bc99fbd9806c97b058c79b8310944e0d1035de58"
+    },
+    {
+      "path": "admission/v1/mutations/mount-subPath.json",
+      "bytes": 111,
+      "sha256": "51d315d13701c225069073595bd4cd964436c6083798cc8d3d4adfddf87102ad"
+    },
+    {
+      "path": "admission/v1/mutations/name-change.json",
+      "bytes": 92,
+      "sha256": "f7e3fba27a14e5a575b473764768928d1d7c9ff499a04dcd0954dd8b7de7a658"
+    },
+    {
+      "path": "admission/v1/mutations/node-selector.json",
+      "bytes": 110,
+      "sha256": "6ecdcfbec88ac368339fed9d599b9371d86eb1c81b16f13ddf76903d7816b1f2"
+    },
+    {
+      "path": "admission/v1/mutations/pod-resources.json",
+      "bytes": 156,
+      "sha256": "0b52ded58b630c25ac4e67f227d3fbea79b191507d72f4b78400da9ed2a03728"
+    },
+    {
+      "path": "admission/v1/mutations/pod-security-missing.json",
+      "bytes": 68,
+      "sha256": "59ed9dcb8e03867fecf297cf4efa3919aaa3255ea0e17a1a6f4c3bbf25d183f8"
+    },
+    {
+      "path": "admission/v1/mutations/probe.json",
+      "bytes": 176,
+      "sha256": "212f27b9b13d690dacfdfbf39eb571dfdceb92dddf7691a41948792e2c8a6e83"
+    },
+    {
+      "path": "admission/v1/mutations/profile-label-missing.json",
+      "bytes": 63,
+      "sha256": "3f584717ac4944033233f4d1bb138be32aff519abe584f53b25a223b19cc906e"
+    },
+    {
+      "path": "admission/v1/mutations/projected-sa-token.json",
+      "bytes": 309,
+      "sha256": "2bcaadc96a01b3d068040fddda4a6a21783418158e6ae03af93bae803a3a6de3"
+    },
+    {
+      "path": "admission/v1/mutations/pvc-volume.json",
+      "bytes": 178,
+      "sha256": "698ccff041cee2b9096da987df22fd7be849d0ff6e3524aead634995138780b2"
+    },
+    {
+      "path": "admission/v1/mutations/resize-subresource.json",
+      "bytes": 104,
+      "sha256": "c4d53bdf2209c10a88c0bcb2add482114528b3bd14933d5ec046290abdc180c7"
+    },
+    {
+      "path": "admission/v1/mutations/resource-claim.json",
+      "bytes": 172,
+      "sha256": "9c10882601e7c1b02d08ad84c402d7060f35433178f9366ddc1afe0bfdd94fc7"
+    },
+    {
+      "path": "admission/v1/mutations/rootfs-writable.json",
+      "bytes": 121,
+      "sha256": "01a27d000ee20663e20aa0db1a82d804824df6cef695cb42850dfd5574a7ea22"
+    },
+    {
+      "path": "admission/v1/mutations/runtime-missing.json",
+      "bytes": 69,
+      "sha256": "a98eccb09ed9dac55d4ee56792e3ff9e3be4738078d12c7e2e08b5a6485b343d"
+    },
+    {
+      "path": "admission/v1/mutations/runtime-runc.json",
+      "bytes": 104,
+      "sha256": "1bac17c6009cd19c32f41b6ff35a24f20ae74283b5c56190819af4181bd8a9dd"
+    },
+    {
+      "path": "admission/v1/mutations/sa-default.json",
+      "bytes": 92,
+      "sha256": "cc6e53dca1b7b2c5f031f3b50bedbdf2873b4000f880c2b1ce50383f684888c5"
+    },
+    {
+      "path": "admission/v1/mutations/scratch-missing.json",
+      "bytes": 135,
+      "sha256": "f309dfa0f844f98bf5059e78b74aaf79a6792361ba852ae009db8511e3853045"
+    },
+    {
+      "path": "admission/v1/mutations/scratch-oversize.json",
+      "bytes": 99,
+      "sha256": "6280c6f92b23cc8a91138c960372353f1ffe66255d4a27565439efef82ba886f"
+    },
+    {
+      "path": "admission/v1/mutations/seccomp-unconfined.json",
+      "bytes": 129,
+      "sha256": "43d70733a3416fa6955440f438ffc038831a2b52d74cc095f47985746763d8ac"
+    },
+    {
+      "path": "admission/v1/mutations/secret-volume.json",
+      "bytes": 164,
+      "sha256": "55e19bf929ae69fae7996e48fc38582e151f694785d7ab4e87b3dd26afcb9c54"
+    },
+    {
+      "path": "admission/v1/mutations/shared-process.json",
+      "bytes": 90,
+      "sha256": "25bdbe08220bbdb9079f705ce1e4371fb48147b2a86dfae93819812bba256614"
+    },
+    {
+      "path": "admission/v1/mutations/storage-limit-missing.json",
+      "bytes": 100,
+      "sha256": "88678a069a014a93da6a5feff237c5f7cd032df62cc568201835b8484329c09e"
+    },
+    {
+      "path": "admission/v1/mutations/tmp-mount-missing.json",
+      "bytes": 80,
+      "sha256": "3dde687a2afd19a1a1f18a7c7df4063915c85afedb82a50980eb1bc5068356c3"
+    },
+    {
+      "path": "admission/v1/mutations/uid-root.json",
+      "bytes": 91,
+      "sha256": "e13e8c6c2178deace81a82f7f0a7284b2bc4efe3243846427f4dcbded958c000"
+    },
+    {
+      "path": "admission/v1/mutations/working-directory.json",
+      "bytes": 98,
+      "sha256": "617d46ca54a4127cccda0291fdd72b920d447aaca9cb7798f7288ba82b1009b9"
+    },
+    {
+      "path": "admission/v1/pod-floor.yaml",
+      "bytes": 14253,
+      "sha256": "9249282ed1c418d52d7d5eb7a78760efebf27dcfe66d9f9922e823ddd4eb2841"
+    },
+    {
+      "path": "admission/v1/rejected-runtime.yaml",
+      "bytes": 96,
+      "sha256": "3cf35c8a6c6a1c94d85702e0947b1f0c4b50119539c1478ce0e803bed0ca66cc"
+    },
+    {
+      "path": "check-api-absence.sh",
+      "bytes": 2392,
+      "sha256": "b7bb4b279d3cf9de3d3a4401f8bb9424bcfdb2a579b6bb08463e79d7bec2e2ed"
+    },
+    {
+      "path": "profile/v1/namespace.yaml",
+      "bytes": 2110,
+      "sha256": "2a2b3859fd70581ccf0cd48f5ab53c8463e9ed304c63fcfd03c9f8d1a9a513e3"
+    },
+    {
+      "path": "profile/v1/pod.yaml",
+      "bytes": 1749,
+      "sha256": "a07fd4a0c36611611c552b78b7125ed8ae1a698ccb244a6a554dcd3c563934f0"
+    },
+    {
+      "path": "resources/v1/README.md",
+      "bytes": 6770,
+      "sha256": "77bdaefcb9f75411afbeb7f44d15a6d992dddcf98765fa97f0d1baa7aab925f9"
+    },
+    {
+      "path": "resources/v1/cases.tsv",
+      "bytes": 5979,
+      "sha256": "df03084c64f91e4afc39da123d392736b6df35c96758768e5e0b40b9197b9ea5"
+    },
+    {
+      "path": "resources/v1/check-resources.sh",
+      "bytes": 6983,
+      "sha256": "1ed84a5b77def4b4dc730933180e8632e30ee0a39748e8265d45eec9373f67e9"
+    },
+    {
+      "path": "resources/v1/health.sh",
+      "bytes": 2205,
+      "sha256": "31c4ea4bb1942c661efdf64e6de0c8f775498b71015296180eddda5f458bcd29"
+    },
+    {
+      "path": "resources/v1/mutations/args-cross-paired.json",
+      "bytes": 723,
+      "sha256": "749384910ddf771635f46f35c1e5eba1c9238603301446c725a24ee09b6fd802"
+    },
+    {
+      "path": "resources/v1/mutations/args-one-byte.json",
+      "bytes": 679,
+      "sha256": "e379c6b9ee8634cd402f0c096acd2aa594be09c419b541edbcaa9e0477b2ac72"
+    },
+    {
+      "path": "resources/v1/mutations/deadline-31.json",
+      "bytes": 92,
+      "sha256": "4c906f5f2f5f0b6a3d9d88dbd3ab84216cea5c1b8c06544acf0847505f439b11"
+    },
+    {
+      "path": "resources/v1/mutations/deadline-missing.json",
+      "bytes": 74,
+      "sha256": "3014b326af0dd34c0a8209274106c6f879de1c8d0840fd6c5ac7d51b2b47e179"
+    },
+    {
+      "path": "resources/v1/mutations/old-cpu-control.json",
+      "bytes": 564,
+      "sha256": "0ff09574bac2d57c963d61c10fd76c10945a34c1d5dea7915948c91e0af26f86"
+    },
+    {
+      "path": "resources/v1/mutations/old-memory-control.json",
+      "bytes": 805,
+      "sha256": "e8229ff43b24a149850ce641899f339c0ef388af682a011fc59efb186755dbed"
+    },
+    {
+      "path": "resources/v1/mutations/profile-label-remove-update.json",
+      "bytes": 77,
+      "sha256": "90b5f4d34b3e322bf9f8a217d3d5cff8f12cfb9a41b68b7b2ce31c39d2b90b14"
+    },
+    {
+      "path": "resources/v1/mutations/runtime-a1.json",
+      "bytes": 92,
+      "sha256": "ee718d85ce9a1f077c8e8c0bbc037e3603896269c2c4998db0effe4afed73261"
+    },
+    {
+      "path": "resources/v1/namespace.yaml",
+      "bytes": 2153,
+      "sha256": "cbfc23c29f7454f278c174340a59f0bc9503445c122198df8c95c99dceaf18ba"
+    },
+    {
+      "path": "resources/v1/observe-resource.sh",
+      "bytes": 635,
+      "sha256": "2b786da8f3e35129dcfb931b111f9a47fbe74ffb6f4363d46a4ee65e0fccc0dd"
+    },
+    {
+      "path": "resources/v1/pod-floor.yaml",
+      "bytes": 33533,
+      "sha256": "a7ca56fc29d76de8b12af5c745e73e876b35ba949ee44390add4f2dccba52ceb"
+    },
+    {
+      "path": "resources/v1/prepare-runtime.sh",
+      "bytes": 8553,
+      "sha256": "28dab7f4f97ed77629f2d88d32d4a01f5c912c91beda07fef18b4c0e32bf58a5"
+    },
+    {
+      "path": "resources/v1/profiles/cpu-control.yaml",
+      "bytes": 7717,
+      "sha256": "0a381721962299561d34d1ed2ec7faee7e9a23743ae3835d47d7c9db1b6e0b96"
+    },
+    {
+      "path": "resources/v1/profiles/cpu-deadline.yaml",
+      "bytes": 2278,
+      "sha256": "e52f9cd898973d3945305f599cb1f3f188c9639535b84ea9f65e1b80095b7eda"
+    },
+    {
+      "path": "resources/v1/profiles/floor-control.yaml",
+      "bytes": 2652,
+      "sha256": "c4e3f036f8748d1762b00660a3ca2ee921d4ee06c642b093087559797e7c5504"
+    },
+    {
+      "path": "resources/v1/profiles/memory-control.yaml",
+      "bytes": 7899,
+      "sha256": "9fc3fa9f67132d29c47aa42c72c68d597015d5fd3d79e0fd1cac14a3539b0105"
+    },
+    {
+      "path": "resources/v1/profiles/memory-limit.yaml",
+      "bytes": 2419,
+      "sha256": "ac5340f81ff765f6b8ed0c1a96e39c184fbe1a797f9370ba832f17f3acd36db1"
+    },
+    {
+      "path": "resources/v1/profiles/process-control.yaml",
+      "bytes": 3717,
+      "sha256": "7f044c2d78fc3719d9350ed605d4cc22d154447a82ddbceb34a5f99c4f86f4a0"
+    },
+    {
+      "path": "resources/v1/profiles/process-limit.yaml",
+      "bytes": 2690,
+      "sha256": "818f454ead5d1276f5ca114bb3814460e08ee1a40932a624525e068536efc486"
+    },
+    {
+      "path": "resources/v1/profiles/scratch-a.yaml",
+      "bytes": 2681,
+      "sha256": "5175dc5d267f15eed7247f52d548ae0813373177d21acab3725c937b27178334"
+    },
+    {
+      "path": "resources/v1/profiles/scratch-b.yaml",
+      "bytes": 2720,
+      "sha256": "4adbecfa3fedd272927141bf4d60100fc26686348c4652ec4299f8e17ebd1f17"
+    },
+    {
+      "path": "resources/v1/python/accounting_dispatch.py",
+      "bytes": 477,
+      "sha256": "1d488b6edb595c3df81d655ef6237d88ddf29220267ca5e28e6227b5b5934d88"
+    },
+    {
+      "path": "resources/v1/python/cleanup_host.py",
+      "bytes": 1726,
+      "sha256": "bb80df2f4b78125362525d8c9a8110cefb0f680838c29d31708f7d655226c90e"
+    },
+    {
+      "path": "resources/v1/python/cleanup_mapping.py",
+      "bytes": 1934,
+      "sha256": "75682916d64b18ec7de0be274e9a68a16ea017e3825176b2647afdbf109b97c2"
+    },
+    {
+      "path": "resources/v1/python/live_window.py",
+      "bytes": 9216,
+      "sha256": "7956a8edb24340f7115d4a43de564e2e685d54a44c74f6b308d8ea140dc8a961"
+    },
+    {
+      "path": "resources/v1/python/observer.py",
+      "bytes": 108892,
+      "sha256": "9df097eb5519f45c330816485feebccf1899f854e324670ca078830bd9891a83"
+    },
+    {
+      "path": "resources/v1/python/observer_wait.py",
+      "bytes": 179,
+      "sha256": "4bebb3611ff4aecf8188f177aa22346f6a9e1ba99ccc01b7e18d6f513a541ef2"
+    },
+    {
+      "path": "resources/v1/python/outer_watchdog.py",
+      "bytes": 2342,
+      "sha256": "c7faf5a62ec34ba94cedbe8ab2a81def7b554bbf753a5ef55ebdf04287a1e2ed"
+    },
+    {
+      "path": "resources/v1/python/qualify_small_control.py",
+      "bytes": 4798,
+      "sha256": "b611c2783b60329514f93c485a65176422c070305ffef868d6c8c01e65f5b8be"
+    },
+    {
+      "path": "resources/v1/python/verify_active_config.py",
+      "bytes": 244,
+      "sha256": "b627dc647d70a2a725a77638c43ae8590f58e8ad35f3597c5b1e10ae89384294"
+    },
+    {
+      "path": "resources/v1/python/verify_floor_runtime.py",
+      "bytes": 1139,
+      "sha256": "291c4e3d7c4eebe0bdef14ac81047fbfed794c5e29608c09f377c9c039b6ba3a"
+    },
+    {
+      "path": "resources/v1/python/verify_handler_addition.py",
+      "bytes": 272,
+      "sha256": "ceaf5b2096d467c1e540d2fe420135f1c7e21c0044caaafbb0cf8ff5f82481af"
+    },
+    {
+      "path": "resources/v1/python/verify_handler_candidate.py",
+      "bytes": 789,
+      "sha256": "df8ea3a04d76d46609f49a6b02dc7a581426ac111c949675b1089c173c98b0cf"
+    },
+    {
+      "path": "resources/v1/python/verify_node_lease.py",
+      "bytes": 373,
+      "sha256": "1c275bc7b0958740f9b4f4a79f644e634180b3548e3b376f539f54b16cd8f5d1"
+    },
+    {
+      "path": "resources/v1/python/verify_recovery_config.py",
+      "bytes": 233,
+      "sha256": "0fdab6820afa9d6f820e78ea8825678f0ee08d200f7e514123b1b8a27ff9014b"
+    },
+    {
+      "path": "resources/v1/python/verify_watchdog_clock.py",
+      "bytes": 646,
+      "sha256": "33ecd26948795f707679a6f76a904eee91584eb8195ab8eac192cd43887bdb37"
+    },
+    {
+      "path": "resources/v1/run-floor-control.sh",
+      "bytes": 20226,
+      "sha256": "78c989b4515addd7c1afc033763e627515e6042b900ccb1c443b758dbae17372"
+    },
+    {
+      "path": "resources/v1/run-resources.sh",
+      "bytes": 17775,
+      "sha256": "1528e0fafe72ea68b88f12c2acc6859d637ae71f5b1dfc2d31040b984047142d"
+    },
+    {
+      "path": "resources/v1/versions.yaml",
+      "bytes": 10650,
+      "sha256": "d9a6dd213c11359b028d871b6098bebcbbc9af42e5e01e439967ad2dc0519a2f"
+    },
+    {
+      "path": "run-admission.sh",
+      "bytes": 17618,
+      "sha256": "5cc1b41ee67be0dea9ed71d4555cd22729105f34b4cfd24a0afa007961969753"
+    },
+    {
+      "path": "versions.yaml",
+      "bytes": 501,
+      "sha256": "c4c12655d33bee29ed7298a6a0ceef91ad36d7b09f6e34dab1e70aad42559922"
+    },
+    {
+      "path": "resources/v1/floor-common.sh",
+      "bytes": 3161,
+      "sha256": "bd9047d020b3df9660ee491ea6cd05c0fbc3b79a2c0b9e0a4606ad88aee57f67"
+    }
+  ]
+}

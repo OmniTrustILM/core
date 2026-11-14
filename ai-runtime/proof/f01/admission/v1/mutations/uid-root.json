@@ -1,0 +1,7 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/securityContext/runAsUser",
+    "value": 0
+  }
+]

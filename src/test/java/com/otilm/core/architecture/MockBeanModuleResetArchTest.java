@@ -18,9 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * singletons, which Spring's reset lifecycle does not touch — it only discovers {@code @MockitoBean} fields on the test
  * class, its superclasses and its enclosing classes.
  *
- * {@code MockBeanResetListener} resets them instead, and {@code BaseSpringBootTest} is the only class registering it.
- * An importer that does not inherit from there keeps its stubbings and interactions across tests sharing the cached
- * context. This pins the two together.
+ * {@code MockBeanResetListener} resets them instead, and {@code MockModuleTestSupport} registers it for both ordinary
+ * integration tests and tests using real authorization clients. An importer that does not inherit from there keeps its
+ * stubbings and interactions across tests sharing the cached context. This pins the two together.
  */
 class MockBeanModuleResetArchTest {
 
@@ -28,7 +28,7 @@ class MockBeanModuleResetArchTest {
 
     private static final Path MODULE_ROOT = TEST_ROOT.resolve("com/otilm/core/util/mockbeans");
 
-    private static final String LISTENER_ROOT = "BaseSpringBootTest";
+    private static final String LISTENER_ROOT = "MockModuleTestSupport";
 
     @Test
     void everyMockModuleImporterInheritsTheMockResetListener() {
