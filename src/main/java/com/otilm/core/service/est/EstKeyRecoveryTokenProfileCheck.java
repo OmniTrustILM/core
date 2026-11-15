@@ -10,6 +10,7 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.service.handler.KeyCreationRules;
 import java.util.List;
@@ -30,11 +31,13 @@ public class EstKeyRecoveryTokenProfileCheck {
 
     private final TokenProfileRepository tokenProfileRepository;
     private final KeyCreationRules keyCreationRules;
+    private final TransactionHandler transactionHandler;
 
     public EstKeyRecoveryTokenProfileCheck(TokenProfileRepository tokenProfileRepository,
-            KeyCreationRules keyCreationRules) {
+            KeyCreationRules keyCreationRules, TransactionHandler transactionHandler) {
         this.tokenProfileRepository = tokenProfileRepository;
         this.keyCreationRules = keyCreationRules;
+        this.transactionHandler = transactionHandler;
     }
 
     /**
@@ -78,9 +81,11 @@ public class EstKeyRecoveryTokenProfileCheck {
             throw new ValidationException(
                     "Key recovery token profile " + tokenProfile.getName() + " does not belong to a token");
         }
-        return tokenProfileRepository
-                .findFullModelByUuidAndTokenInstanceReferenceUuid(tokenProfile.getUuid(),
-                        tokenProfile.getTokenInstanceReferenceUuid())
+        // Read in a transaction of its own, so that no connection is held while the connector is asked afterwards.
+        return transactionHandler
+                .runInTransaction(() -> tokenProfileRepository
+                        .findFullModelByUuidAndTokenInstanceReferenceUuid(tokenProfile.getUuid(),
+                                tokenProfile.getTokenInstanceReferenceUuid()))
                 .orElseThrow(() -> new NotFoundException(TokenProfile.class, tokenProfile.getUuid()));
     }
 

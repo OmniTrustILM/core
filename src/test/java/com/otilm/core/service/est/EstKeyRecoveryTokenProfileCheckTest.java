@@ -12,6 +12,7 @@ import com.otilm.api.model.common.attribute.v2.content.StringAttributeContentV2;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.TokenProfileRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.crypto.TokenProfileFullModel;
 import com.otilm.core.service.handler.KeyCreationRules;
 import java.util.List;
@@ -48,7 +49,7 @@ class EstKeyRecoveryTokenProfileCheckTest {
 
     @BeforeEach
     void createCheck() {
-        check = new EstKeyRecoveryTokenProfileCheck(tokenProfileRepository, keyCreationRules);
+        check = new EstKeyRecoveryTokenProfileCheck(tokenProfileRepository, keyCreationRules, new TransactionHandler());
     }
 
     @Test

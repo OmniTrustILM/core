@@ -22,6 +22,7 @@ import com.otilm.api.model.core.est.EstProfileDetailDto;
 import com.otilm.api.model.core.est.EstProfileDto;
 import com.otilm.api.model.core.protocol.ProtocolCertificateAssociationsRequestDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeOperation;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
@@ -121,7 +122,7 @@ public class EstProfileServiceImpl implements EstProfileExternalService, EstProf
 
     @Override
     @ExternalAuthorization(resource = Resource.EST_PROFILE, action = ResourceAction.CREATE)
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @OutsideTransaction
     public EstProfileDetailDto createEstProfile(EstProfileRequestDto request, String origin)
             throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
         requireNameIsFree(request.getName());
@@ -132,11 +133,12 @@ public class EstProfileServiceImpl implements EstProfileExternalService, EstProf
 
     @Override
     @ExternalAuthorization(resource = Resource.EST_PROFILE, action = ResourceAction.UPDATE)
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @OutsideTransaction
     public EstProfileDetailDto updateEstProfile(SecuredUUID uuid, EstProfileEditRequestDto request, String origin)
             throws ConnectorException, AttributeException, NotFoundException {
         requireProfileExists(uuid);
-        List<UUID> acceptedSecretUuids = estProfileRepository.findBasicCredentialSecretUuids(uuid.getValue());
+        List<UUID> acceptedSecretUuids = transactionTemplate
+                .execute(status -> estProfileRepository.findBasicCredentialSecretUuids(uuid.getValue()));
         References references = referenceResolver.resolve(request, acceptedSecretUuids);
         SecurityResourceFilter customAttributesFilter = attributeEngine.loadCustomAttributesSecurityResourceFilter();
         return writeInTransaction(() -> update(uuid, request, references, customAttributesFilter, origin));
@@ -194,7 +196,7 @@ public class EstProfileServiceImpl implements EstProfileExternalService, EstProf
      */
     @Override
     @ExternalAuthorization(resource = Resource.EST_PROFILE, action = ResourceAction.UPDATE)
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @OutsideTransaction
     public void updateRaProfile(SecuredUUID uuid, UUID raProfileUuid) throws NotFoundException {
         RaProfile raProfile = referenceResolver.resolveRaProfile(raProfileUuid);
         self.setRaProfileInOwnTransaction(uuid, raProfile);
@@ -258,10 +260,13 @@ public class EstProfileServiceImpl implements EstProfileExternalService, EstProf
 
     /** EST Profile names and the names of RA Profiles with EST activated share one namespace of EST labels. */
     private void requireNameIsFree(String name) throws AlreadyExistException {
-        if (estProfileRepository.findByName(name).isPresent()) {
+        // Each read in a transaction of its own, so that no connection stays bound while the connector is asked later.
+        boolean nameTaken = Boolean.TRUE
+                .equals(transactionTemplate.execute(status -> estProfileRepository.findByName(name).isPresent()));
+        if (nameTaken) {
             throw new AlreadyExistException("EST Profile with name '" + name + "' already exists.");
         }
-        requireNoRaProfileLabelled(name);
+        transactionTemplate.executeWithoutResult(status -> requireNoRaProfileLabelled(name));
     }
 
     /**

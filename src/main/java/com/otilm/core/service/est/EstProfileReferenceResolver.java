@@ -16,6 +16,7 @@ import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.SecretRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.security.authz.AuthorizationEnforcer;
 import com.otilm.core.security.authz.SecuredUUID;
@@ -51,6 +52,7 @@ public class EstProfileReferenceResolver {
     private final TokenProfileInternalService tokenProfileService;
     private final ExtendedAttributeService extendedAttributeService;
     private final EstKeyRecoveryTokenProfileCheck keyRecoveryCheck;
+    private final TransactionHandler transactionHandler;
 
     // S107: one collaborator per kind of reference the resolver checks.
     @SuppressWarnings("java:S107")
@@ -58,7 +60,7 @@ public class EstProfileReferenceResolver {
             RaProfileInternalService raProfileService, RaProfileRepository raProfileRepository,
             SecretRepository secretRepository, CertificateInternalService certificateService,
             TokenProfileInternalService tokenProfileService, ExtendedAttributeService extendedAttributeService,
-            EstKeyRecoveryTokenProfileCheck keyRecoveryCheck) {
+            EstKeyRecoveryTokenProfileCheck keyRecoveryCheck, TransactionHandler transactionHandler) {
         this.attributeEngine = attributeEngine;
         this.authorizationEnforcer = authorizationEnforcer;
         this.raProfileService = raProfileService;
@@ -68,6 +70,7 @@ public class EstProfileReferenceResolver {
         this.tokenProfileService = tokenProfileService;
         this.extendedAttributeService = extendedAttributeService;
         this.keyRecoveryCheck = keyRecoveryCheck;
+        this.transactionHandler = transactionHandler;
     }
 
     /**
@@ -76,17 +79,61 @@ public class EstProfileReferenceResolver {
     public References resolve(BaseEstProfileRequestDto request, Collection<UUID> acceptedSecretUuids)
             throws ConnectorException, AttributeException, NotFoundException {
         attributeEngine.validateCustomAttributesContent(Resource.EST_PROFILE, request.getCustomAttributes());
-        RaProfile raProfile = resolveRaProfile(request.getRaProfileUuid());
-        List<UUID> secretUuids = distinct(request.getBasicCredentialSecretUuids());
-        List<UUID> keptSecretUuids = secretUuids.stream().filter(acceptedSecretUuids::contains).toList();
-        checkBasicCredentialSecrets(secretUuids, keptSecretUuids);
-        List<UUID> certificateUuids = resolveTrustedCaCertificates(request.getTrustedCaCertificateUuids());
-        TokenProfile tokenProfile = resolveKeyRecoveryTokenProfile(request.getKeyRecoveryTokenProfileUuid());
+        References local = readLocally(request, acceptedSecretUuids);
+        RaProfile raProfile = local.raProfile();
+        TokenProfile tokenProfile = local.keyRecoveryTokenProfile();
         validateIssueAttributes(raProfile, request.getIssueCertificateAttributes());
         if (request.isKeyRecovery()) {
             keyRecoveryCheck.check(tokenProfile, request.getKeyRecoveryKeyAttributes());
         }
-        return new References(raProfile, secretUuids, keptSecretUuids, certificateUuids, tokenProfile);
+        return local;
+    }
+
+    /**
+     * Reads what the request refers to in one transaction, so that the connector is asked only once the connection is
+     * released.
+     */
+    private References readLocally(BaseEstProfileRequestDto request, Collection<UUID> acceptedSecretUuids)
+            throws NotFoundException {
+        return readInTransaction(() -> {
+            RaProfile raProfile = resolveRaProfile(request.getRaProfileUuid());
+            List<UUID> secretUuids = distinct(request.getBasicCredentialSecretUuids());
+            List<UUID> keptSecretUuids = secretUuids.stream().filter(acceptedSecretUuids::contains).toList();
+            checkBasicCredentialSecrets(secretUuids, keptSecretUuids);
+            List<UUID> certificateUuids = resolveTrustedCaCertificates(request.getTrustedCaCertificateUuids());
+            TokenProfile tokenProfile = resolveKeyRecoveryTokenProfile(request.getKeyRecoveryTokenProfileUuid());
+            return new References(raProfile, secretUuids, keptSecretUuids, certificateUuids, tokenProfile);
+        });
+    }
+
+    private <T> T readInTransaction(Read<T> read) throws NotFoundException {
+        try {
+            return transactionHandler.runInTransaction(() -> {
+                try {
+                    return read.get();
+                } catch (NotFoundException e) {
+                    throw new NotFoundFailure(e);
+                }
+            });
+        } catch (NotFoundFailure failure) {
+            throw failure.notFound;
+        }
+    }
+
+    @FunctionalInterface
+    private interface Read<T> {
+
+        T get() throws NotFoundException;
+    }
+
+    private static final class NotFoundFailure extends RuntimeException {
+
+        private final transient NotFoundException notFound;
+
+        private NotFoundFailure(NotFoundException notFound) {
+            super(notFound);
+            this.notFound = notFound;
+        }
     }
 
     /**
@@ -107,10 +154,12 @@ public class EstProfileReferenceResolver {
         if (raProfileUuid == null) {
             return null;
         }
-        raProfileService.getRaProfileEntity(SecuredUUID.fromUUID(raProfileUuid));
-        return raProfileRepository
-                .findWithAuthorityByUuid(raProfileUuid)
-                .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        return readInTransaction(() -> {
+            raProfileService.getRaProfileEntity(SecuredUUID.fromUUID(raProfileUuid));
+            return raProfileRepository
+                    .findWithAuthorityByUuid(raProfileUuid)
+                    .orElseThrow(() -> new NotFoundException(RaProfile.class, raProfileUuid));
+        });
     }
 
     /**

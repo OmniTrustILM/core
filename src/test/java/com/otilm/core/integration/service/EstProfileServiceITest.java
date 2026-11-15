@@ -78,7 +78,9 @@ import com.otilm.core.util.builders.EstProfileRequestDtoBuilder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.CryptographyProviderV2ConnectorMock;
 import com.otilm.core.util.seeders.TokenProfileSeeder;
+import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.EntityManager;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -91,6 +93,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
@@ -120,6 +123,7 @@ class EstProfileServiceITest extends BaseSpringBootTest {
     private static final String SYSTEM_DEFAULT_CLASH = "Another EST Profile became the system default at the same time; repeat the request";
     private static final String CREDENTIALS_CHANGED = "The basic credentials of the EST Profile changed at the same time; repeat the request";
     private static final UUID KEY_ATTRIBUTE_UUID = UUID.fromString("5e3f0f7e-3d56-4a41-9a1b-6f0d7c2a8b11");
+    private static final int SLOW_VALIDATION_MILLIS = 1500;
     private static final String CHANGED_MEANWHILE = "changed meanwhile";
     private static final String ISSUE_ATTRIBUTES_VALIDATION = "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes/validate";
     private static final String ISSUE_ATTRIBUTES_OF_THE_CURRENT_CONNECTOR = "The issue certificate attributes of the EST Profile are for the connector of its current RA Profile; update the EST Profile with issue certificate attributes for the new RA Profile instead";
@@ -180,6 +184,9 @@ class EstProfileServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Autowired
     private TransactionTemplate transactionTemplate;
@@ -740,6 +747,28 @@ class EstProfileServiceITest extends BaseSpringBootTest {
         }
 
         @Test
+        void holdsNoPooledConnection_whenConnectorValidatesTheIssueAttributes() throws Exception {
+            // given
+            RaProfile raProfile = AuthorityFixtures
+                    .v2Authority(collectAuthorityRepos(), connectorServer, "MOCK")
+                    .raProfile();
+            var attributeUuid = UUID.randomUUID();
+            stubIssueAttributes(connectorServer, attributeUuid, SLOW_VALIDATION_MILLIS);
+            EstProfileRequestDto request = anEstProfileRequest()
+                    .withRaProfile(raProfile.getUuid())
+                    .withIssueCertificateAttributes(List.of(createIssueAttribute(attributeUuid, "devices")))
+                    .build();
+            List<Integer> inUseWhileValidating = new CopyOnWriteArrayList<>();
+
+            // when
+            runWhileTheConnectorValidates(connectorServer, () -> inUseWhileValidating.add(countActiveConnections()),
+                    () -> estProfileService.createEstProfile(request, ORIGIN));
+
+            // then
+            assertThat(inUseWhileValidating).as("connections in use while the connector validates").containsExactly(0);
+        }
+
+        @Test
         void keepsIssueAttributes_whenConnectorValidatesThem() throws Exception {
             // given
             RaProfile raProfile = AuthorityFixtures
@@ -1004,6 +1033,14 @@ class EstProfileServiceITest extends BaseSpringBootTest {
                 return result;
             } finally {
                 executor.shutdownNow();
+            }
+        }
+
+        private int countActiveConnections() {
+            try {
+                return dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean().getActiveConnections();
+            } catch (SQLException e) {
+                throw new IllegalStateException(e);
             }
         }
 

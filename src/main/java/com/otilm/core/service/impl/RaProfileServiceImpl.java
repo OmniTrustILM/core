@@ -30,6 +30,7 @@ import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesU
 import com.otilm.api.model.core.raprofile.RaProfileCertificateValidationSettingsUpdateDto;
 import com.otilm.api.model.core.raprofile.RaProfileDto;
 import com.otilm.api.model.core.scheduler.PaginationRequestDto;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.ApprovalProfileRelation;
@@ -98,7 +99,6 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service(Resource.Codes.RA_PROFILE)
@@ -658,15 +658,16 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.UPDATE,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
-    @org.springframework.transaction.annotation.Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @OutsideTransaction
     public RaProfileEstDetailResponseDto activateEstForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid,
             UUID estProfileUuid, ActivateEstForRaProfileRequestDto request, String origin)
             throws ConnectorException, ValidationException, AttributeException, NotFoundException {
-        RaProfile raProfile = raProfileRepository
-                .findWithAuthorityByUuid(uuid.getValue())
+        // Each read in a transaction of its own, so that no connection stays bound while the connector is asked.
+        RaProfile raProfile = transactionTemplate
+                .execute(status -> raProfileRepository.findWithAuthorityByUuid(uuid.getValue()))
                 .orElseThrow(() -> new NotFoundException(RaProfile.class, uuid));
         requireUnderAuthority(raProfile, authorityUuid, uuid);
-        requireNameFreeAsEstLabel(raProfile.getName());
+        transactionTemplate.executeWithoutResult(status -> requireNameFreeAsEstLabel(raProfile.getName()));
         EstProfile estProfile = resolveEstProfile(estProfileUuid);
         UUID connectorUuid = requireConnectorUuid(raProfile);
 
@@ -1095,8 +1096,8 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     private EstProfile resolveEstProfile(UUID estProfileUuid) throws NotFoundException {
         SecuredUUID securedUuid = SecuredUUID.fromUUID(estProfileUuid);
         authorizationEnforcer.enforce(Resource.EST_PROFILE, ResourceAction.DETAIL, securedUuid);
-        return estProfileRepository
-                .findByUuid(securedUuid)
+        return transactionTemplate
+                .execute(status -> estProfileRepository.findByUuid(securedUuid))
                 .orElseThrow(() -> new NotFoundException(EstProfile.class, estProfileUuid));
     }
 
