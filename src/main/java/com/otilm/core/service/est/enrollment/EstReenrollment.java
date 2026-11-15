@@ -37,6 +37,7 @@ import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.writer.est.EstRequestClaimLostException;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -189,7 +190,7 @@ public class EstReenrollment {
                 .info("EST {} {} for certificate {}, new certificate {}, client {}, realm {}", describe(kind), outcome,
                         source.uuid(), successorUuid, identity, route.realm());
         if (RequestContextHolder.getRequestAttributes() != null) {
-            LoggingHelper.putLogResourceInfo(Resource.CERTIFICATE, false, successorUuid.toString(), null);
+            LoggingHelper.putLogResourceInfo(Resource.CERTIFICATE, false, Objects.toString(successorUuid, null), null);
             auditOperationDataOverride
                     .set(new EstReenrollmentAudit(route.label(), policy, identity, source.uuid(), outcome));
         }

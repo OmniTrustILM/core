@@ -3,6 +3,8 @@ package com.otilm.core.service.est.enrollment;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.core.aop.AuditOperationDataOverride;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.est.EstProfile;
@@ -41,6 +43,7 @@ import java.util.function.Consumer;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,12 +54,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.builders.EstProfileBuilder.anEstProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -247,6 +254,32 @@ class EstReenrollmentTest {
         // then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("7");
+    }
+
+    @Test
+    void answersAccepted_whenAnIdenticalRequestHoldsTheClaimDuringAnHttpRequest() throws Exception {
+        // given — inside an HTTP request, where the answer is also written to the audit record
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        reenrollment.setAuditOperationOverride(mock(AuditOperationOverride.class));
+        reenrollment.setAuditOperationDataOverride(mock(AuditOperationDataOverride.class));
+        KeyPair sourceKeys = PkiFixtures.keyPair();
+        Pkcs10CertificateRequest csr = requestOf(sourceKeys);
+        authenticatesAs(dueSourceOf(sourceKeys));
+        when(claims.answerOnce(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            ClaimedRequest request = invocation.getArgument(4);
+            return request.pending();
+        });
+
+        // when
+        ResponseEntity<byte[]> response = reenrollment.reenroll(route, csr, credentials);
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+    }
+
+    @AfterEach
+    void leaveTheRequest() {
+        RequestContextHolder.resetRequestAttributes();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

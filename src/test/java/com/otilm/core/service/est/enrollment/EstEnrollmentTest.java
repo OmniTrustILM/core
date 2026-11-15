@@ -13,6 +13,7 @@ import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.api.model.core.est.EstAuthenticationPolicy;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
+import com.otilm.core.aop.AuditOperationDataOverride;
 import com.otilm.core.certificate.request.RequestAttributePolicyViolationException;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
 import com.otilm.core.dao.entity.RaProfile;
@@ -69,6 +70,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.builders.EstProfileBuilder.anEstProfile;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,6 +83,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -158,6 +163,7 @@ class EstEnrollmentTest {
 
     @AfterEach
     void releaseTheLog() {
+        RequestContextHolder.resetRequestAttributes();
         enrollmentLogger.detachAppender(logged);
         logged.stop();
         enrollmentLogger.setLevel(previousLevel);
@@ -179,6 +185,25 @@ class EstEnrollmentTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("30");
         assertThat(response.getBody()).isNull();
+    }
+
+    @Test
+    void answersAccepted_whenAnIdenticalRequestHoldsTheClaimDuringAnHttpRequest() throws Exception {
+        // given — inside an HTTP request, where the answer is also written to the audit record
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        enrollment = new EstEnrollment(clientOperationService, clientOperationExternalService, certificateService,
+                certificateRepository, issueRequests, issuanceWait, new EstAnswers(certificateRepository), claims);
+        enrollment.setAuditOperationDataOverride(mock(AuditOperationDataOverride.class));
+        when(claims.answerOnce(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            ClaimedRequest request = invocation.getArgument(4);
+            return request.pending();
+        });
+
+        // when
+        ResponseEntity<byte[]> response = enrollment.enroll(route, aClient(), csr, credentials());
+
+        // then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
     }
 
     @Test
