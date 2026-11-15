@@ -35,9 +35,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Generates the key pair Core makes for an EST client that asks for it, of the algorithm and parameters of the public
  * key in the client's request: RSA modulus length with exponent 65537, elliptic curve name, or the EdDSA, ML-DSA,
- * SLH-DSA or Falcon algorithm. {@link SignatureVerificationBounds} limits what may be asked for; the compliance profile
- * of the RA profile decides whether a type or size is allowed. An RSASSA-PSS key is answered with a
- * {@code rsaEncryption} key of the same length.
+ * SLH-DSA or Falcon algorithm. {@link SignatureVerificationBounds} limits what may be asked for, and no RSA modulus
+ * longer than 4096 bits is generated; the compliance profile of the RA profile decides whether a type or size is
+ * allowed. An RSASSA-PSS key is answered with a {@code rsaEncryption} key of the same length.
  */
 final class EstKeyPairGenerator {
 
@@ -52,6 +52,12 @@ final class EstKeyPairGenerator {
      * key size, which is the compliance profile's decision.
      */
     private static final int MIN_GENERATED_RSA_MODULUS_BITS = 512;
+
+    /**
+     * The longest RSA modulus that a key is generated for. Generating a key costs the platform the time of the
+     * generation, and a client chooses the length, so a longer one is refused before any generation starts.
+     */
+    private static final int MAX_GENERATED_RSA_MODULUS_BITS = 4096;
     private static final int SHA256_MAX_CURVE_BITS = 256;
     private static final int SHA384_MAX_CURVE_BITS = 384;
 
@@ -79,7 +85,7 @@ final class EstKeyPairGenerator {
      * @param extensions the extensions that the client's request asks for; {@code null} when it asks for none
      * @return the new pair and the signed request
      * @throws EstException {@link EstError#BAD_REQUEST} when the key is one that {@link SignatureVerificationBounds}
-     * refuses, whose RSA modulus is shorter than 512 bits, or whose type cannot be generated;
+     * refuses, whose RSA modulus is shorter than 512 or longer than 4096 bits, or whose type cannot be generated;
      * {@link EstError#INTERNAL_ERROR} when generating or signing fails
      */
     static GeneratedKey generate(SubjectPublicKeyInfo clientKey, X500Name subject, Extensions extensions) {
@@ -111,6 +117,9 @@ final class EstKeyPairGenerator {
                 int modulusBits = RSAPublicKey.getInstance(clientKey.parsePublicKey()).getModulus().bitLength();
                 if (modulusBits < MIN_GENERATED_RSA_MODULUS_BITS) {
                     throw new InvalidKeyException("RSA modulus is too short to generate a key like it");
+                }
+                if (modulusBits > MAX_GENERATED_RSA_MODULUS_BITS) {
+                    throw new InvalidKeyException("RSA modulus is too long to generate a key like it");
                 }
                 return initialized("RSA", new RSAKeyGenParameterSpec(modulusBits, RSAKeyGenParameterSpec.F4))
                         .generateKeyPair();

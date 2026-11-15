@@ -287,6 +287,29 @@ class EstServerKeyGenerationTest {
         }
 
         @Test
+        void throwsBadRequestBeforeVerifyingTheRegistrationChallenge_whenTheClientsRsaKeyIsLongerThanGenerated()
+                throws Exception {
+            // given
+            var longerThanGenerated = 4097;
+            var clientRequest = new Pkcs10CertificateRequest(Base64
+                    .getDecoder()
+                    .decode(EstCsrFixtures
+                            .requestBodyWithRsaPublicKey(PKCSObjectIdentifiers.rsaEncryption, longerThanGenerated,
+                                    RSAKeyGenParameterSpec.F4)));
+            UUID registrationUuid = UUID.randomUUID();
+            EstClient registrationClient = new EstClient(EstAuthenticationPolicy.CERTIFICATE_REGISTRATION,
+                    "registration:" + registrationUuid, registrationUuid);
+
+            // when
+            ThrowingCallable generate = () -> serverKeyGeneration
+                    .generate(route, registrationClient, clientRequest, credentials);
+
+            // then
+            assertThatThrownBy(generate).satisfies(thrown -> assertRefusal(thrown, EstError.BAD_REQUEST));
+            verifyNoInteractions(enrollment);
+        }
+
+        @Test
         void submitsARequestOfANewKeyForTheClientsSubject_whenGenerating() throws Exception {
             // given
             AtomicReference<Pkcs10CertificateRequest> submitted = submitAndCertify(CertificateState.ISSUED);

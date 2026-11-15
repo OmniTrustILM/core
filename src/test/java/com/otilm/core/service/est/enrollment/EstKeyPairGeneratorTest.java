@@ -138,6 +138,22 @@ class EstKeyPairGeneratorTest {
     }
 
     @ParameterizedTest(name = "RSA {0} bits")
+    @ValueSource(ints = {4097, 6144, 8192})
+    @Timeout(5)
+    void refusesWithBadRequestBeforeGenerating_whenRsaModulusIsLongerThanTheAllowedMaximum(int modulusBits)
+            throws Exception {
+        // given
+        SubjectPublicKeyInfo tooLongKey = SignatureVerificationBoundsFixtures
+                .rsaPublicKeyInfo(PKCSObjectIdentifiers.rsaEncryption, modulusBits, RSAKeyGenParameterSpec.F4);
+
+        // when
+        ThrowingCallable generate = () -> EstKeyPairGenerator.generate(tooLongKey, SUBJECT, null);
+
+        // then
+        assertBadRequest(generate);
+    }
+
+    @ParameterizedTest(name = "RSA {0} bits")
     @ValueSource(ints = {16, 256, 511})
     @Timeout(30)
     void refusesWithBadRequest_whenRsaModulusIsTooShortToGenerate(int modulusBits) throws Exception {
