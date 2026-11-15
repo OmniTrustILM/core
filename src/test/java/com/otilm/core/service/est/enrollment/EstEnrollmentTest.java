@@ -188,7 +188,7 @@ class EstEnrollmentTest {
     }
 
     @Test
-    void answersAccepted_whenAnIdenticalRequestHoldsTheClaimDuringAnHttpRequest() throws Exception {
+    void answersAccepted_whenAnIdenticalRequestHoldsTheClaimDuringAnHttpRequest() {
         // given — inside an HTTP request, where the answer is also written to the audit record
         RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
         enrollment = new EstEnrollment(clientOperationService, clientOperationExternalService, certificateService,
