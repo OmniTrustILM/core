@@ -992,8 +992,13 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 && problem.getProblemDetail().getErrorCode() == ErrorCode.OPERATION_NOT_TRACKED;
     }
 
+    /**
+     * The connector answered 404, with or without the code of a missing resource: another status with that code, as a
+     * gateway's problem document on a 503, says nothing about the key.
+     */
     private static boolean isAlreadyGone(ConnectorException e) {
         return e instanceof ConnectorEntityNotFoundException || e instanceof ConnectorProblemException problem
+                && problem.getProblemDetail().getStatus() == HttpStatus.NOT_FOUND.value()
                 && problem.getProblemDetail().getErrorCode() == ErrorCode.RESOURCE_NOT_FOUND;
     }
 

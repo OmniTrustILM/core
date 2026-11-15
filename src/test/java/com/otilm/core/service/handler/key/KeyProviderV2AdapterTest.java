@@ -1653,6 +1653,21 @@ class KeyProviderV2AdapterTest {
         }
 
         @Test
+        void propagatesTheProblem_whenResourceNotFoundComesWithAnotherStatusThanNotFound() throws Exception {
+            // given
+            RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("key-handle"));
+            ConnectorProblemException gatewayFailure = destroyProblem(ErrorCode.RESOURCE_NOT_FOUND);
+            gatewayFailure.getProblemDetail().setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+            when(client.destroyKey(any(), any())).thenThrow(gatewayFailure);
+
+            // when
+            ThrowingCallable destroy = () -> adapter.destroyKeyItem(cryptographicKey, reference);
+
+            // then
+            assertThatThrownBy(destroy).isSameAs(gatewayFailure);
+        }
+
+        @Test
         void propagatesTheProblem_whenConnectorAnswersOtherThanNotFound() throws Exception {
             // given
             RemoteKeyReference reference = new RemoteKeyReference.MetadataReference(metadata("key-handle"));
