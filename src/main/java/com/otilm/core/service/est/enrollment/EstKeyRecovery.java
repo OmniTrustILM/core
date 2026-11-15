@@ -25,6 +25,7 @@ import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.est.EstKeyRecoveryKeyAttributes;
 import com.otilm.core.service.est.EstRoute;
@@ -58,14 +59,17 @@ class EstKeyRecovery {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final CryptographicKeyExternalService keyService;
+    private final CryptographicKeyInternalService keyDestroyer;
     private final CryptographicKeyExportExternalService keyExportService;
     private final CryptographicOperationInternalService cryptographicOperationService;
     private final TokenProfileRepository tokenProfileRepository;
 
-    EstKeyRecovery(CryptographicKeyExternalService keyService, CryptographicKeyExportExternalService keyExportService,
+    EstKeyRecovery(CryptographicKeyExternalService keyService, CryptographicKeyInternalService keyDestroyer,
+            CryptographicKeyExportExternalService keyExportService,
             CryptographicOperationInternalService cryptographicOperationService,
             TokenProfileRepository tokenProfileRepository) {
         this.keyService = keyService;
+        this.keyDestroyer = keyDestroyer;
         this.keyExportService = keyExportService;
         this.cryptographicOperationService = cryptographicOperationService;
         this.tokenProfileRepository = tokenProfileRepository;
@@ -234,7 +238,7 @@ class EstKeyRecovery {
     private void destroy(UUID certificateUuid, UUID keyUuid) {
         log.warn("Key {} created for certificate {} requested through EST is destroyed", keyUuid, certificateUuid);
         try {
-            keyService.destroyKey(List.of(keyUuid.toString()));
+            keyDestroyer.destroyUnusedKey(keyUuid);
         } catch (Exception e) {
             log
                     .error("Key {} created for certificate {} requested through EST could not be destroyed: {}",

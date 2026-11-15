@@ -29,6 +29,7 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.CryptographicKeyExportExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.est.EstRoute;
 import com.otilm.core.service.est.enrollment.EstKeyRecovery.TokenKey;
@@ -92,6 +93,9 @@ class EstKeyRecoveryTest {
     private CryptographicKeyExternalService keyService;
 
     @Mock
+    private CryptographicKeyInternalService keyDestroyer;
+
+    @Mock
     private CryptographicKeyExportExternalService keyExportService;
 
     @Mock
@@ -119,7 +123,7 @@ class EstKeyRecoveryTest {
     /** The logger is a process-wide singleton, so what is set on it here is taken off again after each test. */
     @BeforeEach
     void createKeyRecoveryAndCaptureTheLog() {
-        keyRecovery = new EstKeyRecovery(keyService, keyExportService, cryptographicOperationService,
+        keyRecovery = new EstKeyRecovery(keyService, keyDestroyer, keyExportService, cryptographicOperationService,
                 tokenProfileRepository);
         tokenKey = new TokenKey(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 SubjectPublicKeyInfo.getInstance(tokenKeyPair.getPublic().getEncoded()));
@@ -209,7 +213,7 @@ class EstKeyRecoveryTest {
 
             // then
             assertThatThrownBy(create).isInstanceOf(IllegalStateException.class);
-            verify(keyService).destroyKey(List.of(created.getUuid()));
+            verify(keyDestroyer).destroyUnusedKey(UUID.fromString(created.getUuid()));
         }
     }
 
@@ -404,7 +408,7 @@ class EstKeyRecoveryTest {
             keyRecovery.destroy(certificateUuid, tokenKey);
 
             // then
-            verify(keyService).destroyKey(List.of(tokenKey.keyUuid().toString()));
+            verify(keyDestroyer).destroyUnusedKey(tokenKey.keyUuid());
             assertThat(logged.list)
                     .filteredOn(event -> event.getLevel() == Level.WARN)
                     .extracting(ILoggingEvent::getFormattedMessage)
@@ -416,7 +420,7 @@ class EstKeyRecoveryTest {
         @Test
         void logsTheFailureByItsClassWithoutThrowing_whenTheKeyCannotBeDestroyed() throws Exception {
             // given
-            doThrow(new ConnectorException("token says no")).when(keyService).destroyKey(any());
+            doThrow(new ConnectorException("token says no")).when(keyDestroyer).destroyUnusedKey(any());
 
             // when
             ThrowingCallable destroy = () -> keyRecovery.destroy(null, tokenKey);

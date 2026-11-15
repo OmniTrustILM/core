@@ -707,9 +707,17 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         verifyPermissionsForAssociatedToken(key, "destroy", ResourceAction.DETAIL);
 
         List<CryptographicKeyItemBasicModel> items = resolveKeyItems(key, parseKeyItemUuids(keyItemUuids));
-        KeyDestructionResult result = destroyKeyItemsInternal(key, items);
+        KeyDestructionResult result = destroyKeyItemsInternal(key, items, false);
         result.throwIfFailed();
         logger.atInfo().addArgument(key::toIdentifierString).log("Key destroyed: {}");
+    }
+
+    @Override
+    public void destroyUnusedKey(UUID keyUuid) throws ConnectorException, NotFoundException {
+        CryptographicKeyFullModel key = getCryptographicKeyFullModel(keyUuid);
+        KeyDestructionResult result = destroyKeyItemsInternal(key, key.items(), true);
+        result.throwIfFailed();
+        logger.atInfo().addArgument(key::toIdentifierString).log("Unused key destroyed: {}");
     }
 
     @Override
@@ -798,7 +806,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
         }
         KeyDestructionResult result = new KeyDestructionResult();
         for (CryptographicKeyFullModel key : keys) {
-            result.merge(destroyKeyItemsInternal(key, key.items()));
+            result.merge(destroyKeyItemsInternal(key, key.items(), false));
         }
         result.throwIfFailed();
         logger.info("Keys destroyed: {}", keys.stream().map(CryptographicKeyFullModel::toIdentifierString).toList());
@@ -1000,7 +1008,7 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             selections.put(key, resolveKeyItems(key, selectedUuids));
         }
         KeyDestructionResult result = new KeyDestructionResult();
-        selections.forEach((key, selectedItems) -> result.merge(destroyKeyItemsInternal(key, selectedItems)));
+        selections.forEach((key, selectedItems) -> result.merge(destroyKeyItemsInternal(key, selectedItems, false)));
         result.throwIfFailed();
         logger.info("Key items destroyed: {}", keyItemUuids);
     }
@@ -1602,13 +1610,13 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     private KeyDestructionResult destroyKeyItemsInternal(CryptographicKeyFullModel key,
-            List<CryptographicKeyItemBasicModel> keyItems) {
+            List<CryptographicKeyItemBasicModel> keyItems, boolean activeWhenUnused) {
         KeyDestructionResult result = new KeyDestructionResult();
-        boolean keyInUse = keyItems.stream().anyMatch(item -> item.state() == KeyState.ACTIVE)
-                && certificateRepository.existsUsingKey(key.uuid());
+        boolean activeAllowed = activeWhenUnused && keyItems.stream().anyMatch(item -> item.state() == KeyState.ACTIVE)
+                && !certificateRepository.existsUsingKey(key.uuid());
         for (CryptographicKeyItemBasicModel item : keyItems) {
             try {
-                if (destroyKeyItem(key, item, keyInUse)) {
+                if (destroyKeyItem(key, item, activeAllowed)) {
                     result.destroyedCount++;
                 } else {
                     result.invalidStateItems.add("%s (%s)".formatted(item.uuid(), item.state().getLabel()));
@@ -1629,22 +1637,19 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
     }
 
     /**
-     * A key item is destroyed when it is out of use: pre-active, deactivated or compromised, or active in a key that no
-     * certificate uses, which is read once for the key as its items are destroyed.
+     * A key item is destroyed when it is pre-active, deactivated or compromised, or, only where the caller allows it,
+     * active.
      */
-    private static boolean isDestroyable(CryptographicKeyItemBasicModel keyItem, boolean keyInUse) {
+    private static boolean isDestroyable(CryptographicKeyItemBasicModel keyItem, boolean activeAllowed) {
         KeyState state = keyItem.state();
-        if (state == KeyState.PRE_ACTIVE || state == KeyState.DEACTIVATED || state == KeyState.COMPROMISED) {
-            return true;
-        }
-        return state == KeyState.ACTIVE && !keyInUse;
+        return state == KeyState.PRE_ACTIVE || state == KeyState.DEACTIVATED || state == KeyState.COMPROMISED
+                || (state == KeyState.ACTIVE && activeAllowed);
     }
 
     private boolean destroyKeyItem(CryptographicKeyFullModel key, CryptographicKeyItemBasicModel keyItem,
-            boolean keyInUse) throws ConnectorException, NotFoundException {
-        if (!isDestroyable(keyItem, keyInUse)) {
-            String inUse = keyItem.state() == KeyState.ACTIVE ? " and a certificate uses it" : "";
-            String message = "Invalid state of key " + keyItem.uuid() + ". Key is " + keyItem.state().getLabel() + inUse
+            boolean activeAllowed) throws ConnectorException, NotFoundException {
+        if (!isDestroyable(keyItem, activeAllowed)) {
+            String message = "Invalid state of key " + keyItem.uuid() + ". Key is " + keyItem.state().getLabel()
                     + ", hence can't be set to " + KeyState.DESTROYED.getLabel() + ".";
             keyEventHistoryService
                     .addEventHistory(KeyEvent.DESTROY, KeyEventStatus.FAILED, message, null, keyItem.uuid());
@@ -1759,13 +1764,11 @@ public class CryptographicKeyServiceImpl implements CryptographicKeyExternalServ
             List<String> messages = new ArrayList<>();
             if (!invalidStateItems.isEmpty()) {
                 String invalidStatesMessage = "Key items could not be destroyed because their current states do not allow destruction. "
-                        + "Destruction is allowed only in states %s, %s, or %s, or %s when no certificate uses the key. "
-                        + "Affected key items (ID and state): %s.";
+                        + "Destruction is allowed only in states %s, %s, or %s. Affected key items (ID and state): %s.";
                 messages
                         .add(invalidStatesMessage
                                 .formatted(KeyState.PRE_ACTIVE.getLabel(), KeyState.DEACTIVATED.getLabel(),
-                                        KeyState.COMPROMISED.getLabel(), KeyState.ACTIVE.getLabel(),
-                                        String.join(", ", invalidStateItems)));
+                                        KeyState.COMPROMISED.getLabel(), String.join(", ", invalidStateItems)));
             }
             messages.addAll(failures);
             messages.add("Successfully destroyed key items in this batch: %d.".formatted(destroyedCount));

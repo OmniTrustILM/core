@@ -31,6 +31,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -41,6 +42,7 @@ import org.springframework.security.access.AccessDeniedException;
 import static com.otilm.core.util.builders.CryptographicKeyBuilder.aCryptographicKey;
 import static com.otilm.core.util.builders.CryptographicKeyItemBuilder.aKeyItem;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -84,7 +86,6 @@ class CryptographicKeyServiceImplDestroyTest {
         service.setKeyOperationCache(mock(KeyOperationCache.class));
         service.setAuthorizationEnforcer(authorization);
         service.setCertificateRepository(certificates);
-        when(certificates.existsUsingKey(any())).thenReturn(true);
         loadParents();
     }
 
@@ -290,18 +291,63 @@ class CryptographicKeyServiceImplDestroyTest {
 
     @ParameterizedTest
     @EnumSource(Operation.class)
-    void finalizesTheActiveItem_whenNoCertificateUsesItsKey(Operation operation) throws Exception {
+    void refusesTheActiveItem_whenNoCertificateUsesItsKey(Operation operation) throws Exception {
+        // given
+        firstItem.setState(KeyState.ACTIVE);
+        loadParents();
+        when(certificates.existsUsingKey(any())).thenReturn(false);
+
+        // when
+        Executable destroy = () -> destroy(operation);
+
+        // then
+        assertThrows(ValidationException.class, destroy);
+        verify(writer, never()).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
+        verifyNoInteractions(certificates);
+    }
+
+    @Test
+    void destroysEveryItemIncludingTheActiveOne_whenNoCertificateUsesTheKey() throws Exception {
         // given
         firstItem.setState(KeyState.ACTIVE);
         loadParents();
         when(certificates.existsUsingKey(firstParent.getUuid())).thenReturn(false);
 
         // when
-        destroy(operation);
+        service.destroyUnusedKey(firstParent.getUuid());
 
         // then
         verify(adapter).destroyKeyItem(model(firstParent), model(firstItem).reference());
         verify(writer).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
+        verify(writer).finalizeKeyItemDestruction(any(), eq(siblingItem.getUuid()));
+    }
+
+    @Test
+    void keepsTheActiveItem_whenACertificateUsesTheKey() throws Exception {
+        // given
+        firstItem.setState(KeyState.ACTIVE);
+        loadParents();
+        when(certificates.existsUsingKey(firstParent.getUuid())).thenReturn(true);
+
+        // when
+        ThrowingCallable destroy = () -> service.destroyUnusedKey(firstParent.getUuid());
+
+        // then
+        assertThatThrownBy(destroy).isInstanceOf(ValidationException.class);
+        verify(writer, never()).finalizeKeyItemDestruction(any(), eq(firstItem.getUuid()));
+        verify(writer).finalizeKeyItemDestruction(any(), eq(siblingItem.getUuid()));
+    }
+
+    @Test
+    void checksNoPermission_whenDestroyingAnUnusedKey() throws Exception {
+        // given
+        when(certificates.existsUsingKey(any())).thenReturn(false);
+
+        // when
+        service.destroyUnusedKey(firstParent.getUuid());
+
+        // then
+        verifyNoInteractions(authorization);
     }
 
     @Test
