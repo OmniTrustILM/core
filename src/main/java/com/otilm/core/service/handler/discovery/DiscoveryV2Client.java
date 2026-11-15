@@ -207,6 +207,7 @@ public class DiscoveryV2Client {
         ConnectorDto connector = connectorOf(run);
         DiscoveryDrainRequestDto request = new DiscoveryDrainRequestDto();
         Set<String> sentSecrets = populate(request, run, connector);
+        request.setDeliveryModes(drainOffer(run));
         request.setAfterSequence(afterSequence);
         request.setMaxItems(maxItems);
         request.setMaxBytes(Math.min(maxBytes, pageCeiling(run)));
@@ -280,6 +281,22 @@ public class DiscoveryV2Client {
         outboundContainment.recordExpandedSecretsFromRequest(request.getAttributes(), sentSecrets);
         byResource.values().forEach(sent -> outboundContainment.recordExpandedSecretsFromRequest(sent, sentSecrets));
         return sentSecrets;
+    }
+
+    /**
+     * The configured offer, with checkpointed prepended when it lacks it and the run is already in checkpointed
+     * delivery: such a run can only continue that way, and a connector answers a drain that does not offer it as busy.
+     */
+    private List<DiscoveryDeliveryMode> drainOffer(Discovery run) {
+        List<DiscoveryDeliveryMode> configured = deliveryModeOffer.offered();
+        if (run.getDeliveryMode() != DiscoveryDeliveryMode.CHECKPOINTED
+                || configured.contains(DiscoveryDeliveryMode.CHECKPOINTED)) {
+            return configured;
+        }
+        List<DiscoveryDeliveryMode> withCheckpointed = new ArrayList<>(configured.size() + 1);
+        withCheckpointed.add(DiscoveryDeliveryMode.CHECKPOINTED);
+        withCheckpointed.addAll(configured);
+        return withCheckpointed;
     }
 
     /**

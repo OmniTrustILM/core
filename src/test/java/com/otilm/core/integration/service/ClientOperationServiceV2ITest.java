@@ -9,6 +9,8 @@ import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.verification.LoggedRequest;
+import com.otilm.api.clients.mq.model.ConnectorResponse;
+import com.otilm.api.clients.mq.model.ProxyMessage;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.CertificateOperationException;
 import com.otilm.api.exception.ConnectorException;
@@ -57,6 +59,7 @@ import com.otilm.api.model.core.cryptography.key.KeyState;
 import com.otilm.api.model.core.cryptography.key.KeyUsage;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
+import com.otilm.api.model.core.proxy.ProxyStatus;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
 import com.otilm.api.model.core.v2.ClientCertificateIssueRequestDto;
 import com.otilm.api.model.core.v2.ClientCertificateRegistrationDto;
@@ -87,6 +90,7 @@ import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
 import com.otilm.core.dao.entity.EntityInstanceReference;
 import com.otilm.core.dao.entity.Location;
+import com.otilm.core.dao.entity.Proxy;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenInstanceReference;
 import com.otilm.core.dao.entity.TokenProfile;
@@ -106,6 +110,7 @@ import com.otilm.core.dao.repository.CryptographicKeyRepository;
 import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
 import com.otilm.core.dao.repository.FunctionGroupRepository;
 import com.otilm.core.dao.repository.LocationRepository;
+import com.otilm.core.dao.repository.ProxyRepository;
 import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.dao.repository.TokenInstanceReferenceRepository;
 import com.otilm.core.dao.repository.TokenProfileRepository;
@@ -114,6 +119,8 @@ import com.otilm.core.messaging.jms.listeners.poll.PendingIssueReaper;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.messaging.model.IssueActionData;
+import com.otilm.core.messaging.proxy.ProxyMessageCorrelator;
+import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.model.crypto.AttributesWithOwner;
@@ -132,6 +139,7 @@ import com.otilm.core.service.CryptographicKeyInternalService;
 import com.otilm.core.service.CryptographicOperationExternalService;
 import com.otilm.core.service.CryptographicOperationInternalService;
 import com.otilm.core.service.impl.LocationServiceImpl;
+import com.otilm.core.service.v2.CancelConfirmation;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
@@ -146,6 +154,9 @@ import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.WireMockResponseGate;
 import com.otilm.core.util.builders.AuthorityFixtures;
 import com.otilm.core.util.builders.CertificateRequestEntityBuilder;
+import jakarta.jms.MessageProducer;
+import jakarta.jms.Session;
+import jakarta.jms.TextMessage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
@@ -162,6 +173,7 @@ import java.security.SignatureException;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -178,6 +190,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -205,15 +218,19 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.jms.core.ProducerCallback;
 import org.springframework.security.concurrent.DelegatingSecurityContextExecutorService;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -222,6 +239,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -229,7 +247,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -246,6 +266,7 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
     private static final String ISSUE_ATTRIBUTES_PATH = "/v2/authorityProvider/authorities/[^/]+/certificates/issue/attributes";
     private static final String VALIDATE_ISSUE_ATTRIBUTES_PATH = ISSUE_ATTRIBUTES_PATH + "/validate";
+    private static final String REDIRECT_TARGET = "https://gateway.invalid/login";
     private static final String LOCATION_PUSH_PATH = "/v1/entityProvider/entities/[^/]+/locations/push";
 
     private static final String SAMPLE_PKCS10 = """
@@ -606,6 +627,77 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(CertificateState.FAILED,
                         certificateRepository.findByUuid(seen.getFirst()).orElseThrow().getState());
+    }
+
+    @Test
+    void issueCertificate_runsTheOnStoredHookWithTheNewCertificateBeforeItsStoreCommits() throws Exception {
+        // given
+        stubIssueEndpoints();
+        List<UUID> seen = new ArrayList<>();
+        List<String> order = new ArrayList<>();
+        Consumer<UUID> onStored = uuid -> {
+            seen.add(uuid);
+            order.add("hook");
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    order.add("commit");
+                }
+            });
+        };
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID(), onStored);
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), protocolInfo);
+
+        // then
+        UUID stored = UUID.fromString(response.getUuid());
+        assertThat(seen).containsExactly(stored);
+        assertThat(order).containsExactly("hook", "commit");
+        assertThat(certificateRepository.findByUuid(stored)).isPresent();
+    }
+
+    @Test
+    void issueCertificate_rollsTheStoreBackAndSurfacesTheFailure_whenTheOnStoredHookFails() throws Exception {
+        // given
+        stubIssueEndpoints();
+        List<UUID> seen = new ArrayList<>();
+        var hookFailure = new IllegalStateException("claim lost");
+        Consumer<UUID> onStored = uuid -> {
+            seen.add(uuid);
+            throw hookFailure;
+        };
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID(), onStored);
+        SecuredParentUUID authorityUuid = authorityInstanceReference.getSecuredParentUuid();
+        SecuredUUID raProfileUuid = raProfile.getSecuredUuid();
+        ClientCertificateIssueRequestDto request = issueRequest();
+
+        // when
+        ThrowingCallable issue = () -> clientOperationInternalService
+                .issueCertificate(authorityUuid, raProfileUuid, request, protocolInfo);
+
+        // then
+        assertThatThrownBy(issue).isInstanceOf(CertificateOperationException.class).hasCause(hookFailure);
+        assertThat(seen).hasSize(1);
+        assertThat(certificateRepository.findByUuid(seen.getFirst())).isEmpty();
+        verify(actionProducer, never()).produceMessage(any());
+    }
+
+    @Test
+    void issueCertificate_commitsTheStore_whenTheProtocolInfoHasNoOnStoredHook() throws Exception {
+        // given
+        stubIssueEndpoints();
+        CertificateProtocolInfo protocolInfo = CertificateProtocolInfo.est(UUID.randomUUID());
+
+        // when
+        ClientCertificateDataResponseDto response = clientOperationInternalService
+                .issueCertificate(authorityInstanceReference.getSecuredParentUuid(), raProfile.getSecuredUuid(),
+                        issueRequest(), protocolInfo);
+
+        // then
+        assertThat(certificateRepository.findByUuid(UUID.fromString(response.getUuid()))).isPresent();
     }
 
     private void stubIssueEndpoints() throws Exception {
@@ -4102,10 +4194,11 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
                 .stream()
                 .filter(h -> h.getStatus() == CertificateEventStatus.FAILED)
                 .map(CertificateEventHistory::getMessage)
-                .filter(message -> message.startsWith("Connector cancel call failed"))
+                .filter(message -> message.startsWith("Connector cancel could not be sent"))
                 .toList();
         Assertions
-                .assertEquals(List.of("Connector cancel call failed (proceeding with local cancel): internal error"),
+                .assertEquals(
+                        List.of("Connector cancel could not be sent (proceeding with local cancel): internal error"),
                         failures);
     }
 
@@ -4171,6 +4264,33 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
 
         Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
         Assertions.assertEquals(CertificateState.FAILED, after.getState());
+    }
+
+    @Test
+    void failsTheCertificateAndRecordsTheFailure_whenTheConnectorRedirectsTheCancel() {
+        // given
+        certificate.setState(CertificateState.PENDING_ISSUE);
+        certificateRepository.save(certificate);
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/cancel"))
+                        .willReturn(WireMock.aResponse().withStatus(302).withHeader("Location", REDIRECT_TARGET)));
+        CancelPendingCertificateRequestDto req = new CancelPendingCertificateRequestDto();
+
+        // when
+        Assertions
+                .assertDoesNotThrow(() -> clientOperationService
+                        .cancelPendingCertificateOperation(
+                                SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                                raProfile.getSecuredUuid(), certificate.getUuid().toString(), req));
+
+        // then
+        Certificate after = certificateRepository.findByUuid(certificate.getUuid()).orElseThrow();
+        assertThat(after.getState()).isEqualTo(CertificateState.FAILED);
+        assertThat(certificateEventHistoryRepository.findByCertificateOrderByCreatedDesc(after))
+                .anyMatch(h -> h.getStatus() == CertificateEventStatus.FAILED
+                        && h.getMessage().startsWith("Connector cancel call failed"));
     }
 
     @Test
@@ -4243,6 +4363,64 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         Assertions
                 .assertEquals(CertificateState.PENDING_ISSUE, after.getState(),
                         "state MUST NOT change on 4xx connector rejection — the upstream operation was not cancelled");
+    }
+
+    @ParameterizedTest
+    @MethodSource("connectorCancelAnswers")
+    void returnsTheConfirmationAndFailsTheCertificate_whenTheConnectorAnswersTheCancel(
+            ResponseDefinitionBuilder connectorAnswer, CancelConfirmation expectedConfirmation) throws Exception {
+        // given
+        certificate.setState(CertificateState.PENDING_ISSUE);
+        certificateRepository.save(certificate);
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/cancel"))
+                        .willReturn(connectorAnswer));
+
+        // when
+        CancelConfirmation confirmation = clientOperationService
+                .cancelPendingCertificateOperationWithConfirmation(
+                        SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                        raProfile.getSecuredUuid(), certificate.getUuid().toString(),
+                        new CancelPendingCertificateRequestDto());
+
+        // then
+        assertThat(confirmation).isEqualTo(expectedConfirmation);
+        assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getState())
+                .isEqualTo(CertificateState.FAILED);
+    }
+
+    @Test
+    void throwsValidationAndKeepsTheCertificatePending_whenTheConnectorRefusesTheConfirmedCancel() {
+        // given
+        certificate.setState(CertificateState.PENDING_ISSUE);
+        certificateRepository.save(certificate);
+        mockServer
+                .stubFor(WireMock
+                        .post(WireMock
+                                .urlPathMatching("/v2/authorityProvider/authorities/[^/]+/certificates/issue/cancel"))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(422)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("[\"Issuance is past the point of no return\"]")));
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid());
+        SecuredUUID raProfileSecuredUuid = raProfile.getSecuredUuid();
+        String certificateUuid = certificate.getUuid().toString();
+        CancelPendingCertificateRequestDto request = new CancelPendingCertificateRequestDto();
+
+        // when
+        ThrowingCallable cancel = () -> clientOperationService
+                .cancelPendingCertificateOperationWithConfirmation(authorityUuid, raProfileSecuredUuid, certificateUuid,
+                        request);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("past the point of no return");
+        assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getState())
+                .isEqualTo(CertificateState.PENDING_ISSUE);
     }
 
     @Test
@@ -5875,6 +6053,104 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
         }
     }
 
+    // ── ProxiedCancel ─────────────────────────────────────────────────────────
+
+    @Nested
+    class ProxiedCancel {
+
+        private static final String CANCEL_ISSUE_PATH_SUFFIX = "/certificates/issue/cancel";
+
+        @Autowired
+        private ProxyRepository proxyRepository;
+
+        @Autowired
+        private ProxyMessageCorrelator correlator;
+
+        @Autowired
+        private JmsTemplate jmsTemplate;
+
+        @BeforeEach
+        void routeTheConnectorThroughAProxy() {
+            Proxy proxy = new Proxy();
+            proxy.setName("cancel-proxy");
+            proxy.setCode("CANCEL_PROXY");
+            proxy.setStatus(ProxyStatus.CONNECTED);
+            connector.setProxy(proxyRepository.save(proxy));
+            connector = connectorRepository.save(connector);
+        }
+
+        @AfterEach
+        void forgetTheProxyReplies() {
+            reset(jmsTemplate);
+            correlator.clearPendingRequests();
+        }
+
+        @ParameterizedTest
+        @MethodSource("proxiedCancelAnswers")
+        void returnsTheConfirmationAndFailsTheCertificate_whenTheProxyRelaysTheCancelAnswer(int connectorStatus,
+                CancelConfirmation expectedConfirmation) throws Exception {
+            // given
+            certificate.setState(CertificateState.PENDING_ISSUE);
+            certificateRepository.save(certificate);
+            answerTheProxiedCancelWith(connectorStatus);
+
+            // when
+            CancelConfirmation confirmation = clientOperationService
+                    .cancelPendingCertificateOperationWithConfirmation(
+                            SecuredParentUUID.fromUUID(raProfile.getAuthorityInstanceReferenceUuid()),
+                            raProfile.getSecuredUuid(), certificate.getUuid().toString(),
+                            new CancelPendingCertificateRequestDto());
+
+            // then
+            assertThat(confirmation).isEqualTo(expectedConfirmation);
+            assertThat(certificateRepository.findByUuid(certificate.getUuid()).orElseThrow().getState())
+                    .isEqualTo(CertificateState.FAILED);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static Stream<Arguments> proxiedCancelAnswers() {
+            return Stream
+                    .of(Arguments.of(named("204 cancelled", 204), CancelConfirmation.CANCELLED),
+                            Arguments.of(named("404 not tracked", 404), CancelConfirmation.NOT_TRACKED),
+                            Arguments.of(named("500 server error", 500), CancelConfirmation.UNCONFIRMED),
+                            Arguments.of(named("302 redirect", 302), CancelConfirmation.UNCONFIRMED),
+                            Arguments.of(named("307 redirect", 307), CancelConfirmation.UNCONFIRMED));
+        }
+
+        /**
+         * Answers each cancel request Core puts on the proxy queue as the proxy would relay a bodiless connector reply.
+         * The correlator registers a request before it is sent, so the reply can complete it while it is being sent.
+         */
+        private void answerTheProxiedCancelWith(int connectorStatus) {
+            doAnswer(invocation -> {
+                JsonNode request = readSentRequest(invocation.getArgument(1));
+                if (request.path("connectorRequest").path("path").asText().endsWith(CANCEL_ISSUE_PATH_SUFFIX)) {
+                    correlator
+                            .completeRequest(ProxyMessage
+                                    .builder()
+                                    .correlationId(request.path("correlationId").asText())
+                                    .proxyId("CANCEL_PROXY")
+                                    .timestamp(Instant.now())
+                                    .connectorResponse(ConnectorResponse.builder().statusCode(connectorStatus).build())
+                                    .build());
+                }
+                return null;
+            }).when(jmsTemplate).execute(anyString(), ArgumentMatchers.<ProducerCallback<Object>>any());
+        }
+
+        /** Runs the send against a stand-in session, where the real message converter writes the request. */
+        private static JsonNode readSentRequest(ProducerCallback<Object> send) throws Exception {
+            Session session = mock(Session.class);
+            ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+            TextMessage message = mock(TextMessage.class);
+            MessageProducer producer = mock(MessageProducer.class);
+            when(session.createTextMessage(body.capture())).thenReturn(message);
+            send.doInJms(session, producer);
+            return ObjectMapperFactory.wire().readTree(body.getValue());
+        }
+    }
+
     // ── RenewCertificateAction ────────────────────────────────────────────────
 
     @Nested
@@ -6195,6 +6471,30 @@ class ClientOperationServiceV2ITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static Stream<Arguments> connectorCancelAnswers() {
+        return Stream
+                .of(Arguments
+                        .of(named("204 cancelled", WireMock.aResponse().withStatus(204)), CancelConfirmation.CANCELLED),
+                        Arguments
+                                .of(named("404 not tracked", WireMock.aResponse().withStatus(404)),
+                                        CancelConfirmation.NOT_TRACKED),
+                        Arguments
+                                .of(named("500 server error", WireMock.aResponse().withStatus(500)),
+                                        CancelConfirmation.UNCONFIRMED),
+                        Arguments
+                                .of(named("connection reset",
+                                        WireMock.aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)),
+                                        CancelConfirmation.UNCONFIRMED),
+                        Arguments
+                                .of(named("302 redirect",
+                                        WireMock.aResponse().withStatus(302).withHeader("Location", REDIRECT_TARGET)),
+                                        CancelConfirmation.UNCONFIRMED),
+                        Arguments
+                                .of(named("307 redirect",
+                                        WireMock.aResponse().withStatus(307).withHeader("Location", REDIRECT_TARGET)),
+                                        CancelConfirmation.UNCONFIRMED));
+    }
 
     private ApprovalProfileVersion createApprovalProfileVersion() throws Exception {
         ApprovalStepRequestDto step = new ApprovalStepRequestDto();

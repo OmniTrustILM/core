@@ -1,27 +1,47 @@
 package com.otilm.core.service.handler;
 
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorCommunicationException;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
+import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.client.v1.signing.contentsigning.ContentSigningFormattingSyncApiClient;
+import com.otilm.api.interfaces.client.v2.InfoSyncApiClient;
 import com.otilm.api.model.client.connector.v2.ConnectorInterface;
 import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
+import com.otilm.api.model.client.connector.v2.InfoResponse;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.ContentSigningDeclarationDto;
 import com.otilm.api.model.core.connector.v2.ConnectInfoV2;
+import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.repository.ConnectorContentSigningDeclarationRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
+import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.http.HttpStatus;
 
+import static com.otilm.core.util.builders.ConnectorBuilder.aConnector;
+import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class ConnectorV2AdapterTest {
 
-    // validateConnection(ConnectInfo) is a pure check over the supplied interface list, so it is exercised
-    // without Spring/mocks; the autowired collaborators are deliberately left unset.
     private final ConnectorV2Adapter adapter = new ConnectorV2Adapter();
 
     @Test
@@ -92,22 +112,210 @@ class ConnectorV2AdapterTest {
     }
 
     @Test
-    void updateConnectorFunctions_forgetsWhatTheConnectorsProfilesExport() throws Exception {
+    void refusesAnswer_whenAContentSigningConnectorSendsNoDeclaration() {
         // given
-        KeyTransferCapabilityWriter capabilities = mock(KeyTransferCapabilityWriter.class);
-        adapter.setKeyTransferCapabilityWriter(capabilities);
-        adapter.setConnectorInterfaceRepository(mock(ConnectorInterfaceRepository.class));
-        Connector connector = new Connector();
-        connector.setUuid(UUID.randomUUID());
-        ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
-                ConnectorInterface.METRICS, ConnectorInterface.CRYPTOGRAPHY);
+        ConnectInfoV2 connectInfo = contentSigningConnectInfo();
+        connectInfo.setContentSigningDeclaration(null);
 
         // when
-        adapter.updateConnectorFunctions(connector, connectInfo);
+        ThrowingCallable validate = () -> adapter.validateConnection(connectInfo);
 
         // then
-        verify(capabilities).forgetForConnector(connector.getUuid());
+        assertThatThrownBy(validate).isInstanceOf(ValidationException.class).hasMessageContaining("declaration");
     }
+
+    // ── CheckConnection ──────────────────────────────────────────────────────
+
+    @Nested
+    class CheckConnection {
+
+        @Test
+        void fetchesTheDeclaration_whenTheConnectorServesContentSigning() throws Exception {
+            // given
+            ContentSigningDeclarationDto declared = aFamilyDeclaration().buildDeclaration();
+            ApiClientConnectorInfo connectorInfo = mock(ApiClientConnectorInfo.class);
+            ConnectorApiFactory apiFactory = apiFactoryAnswering(connectorInfo,
+                    infoResponse(ConnectorInterface.CONTENT_SIGNING_FORMATTING), declared);
+            adapter.setConnectorApiFactory(apiFactory);
+
+            // when
+            ConnectInfoV2 connectInfo = adapter.checkConnection(connectorInfo);
+
+            // then
+            assertThat(connectInfo.getContentSigningDeclaration()).isSameAs(declared);
+        }
+
+        @ParameterizedTest
+        @MethodSource("declarationRouteFaults")
+        void reportsAConnectorFault_whenTheDeclarationRouteFails(ConnectorException fault) throws Exception {
+            // given
+            ApiClientConnectorInfo connectorInfo = mock(ApiClientConnectorInfo.class);
+            ConnectorApiFactory apiFactory = apiFactoryAnswering(connectorInfo,
+                    infoResponse(ConnectorInterface.CONTENT_SIGNING_FORMATTING), null);
+            when(apiFactory.getContentSigningFormattingApiClient(connectorInfo).getDeclaration(connectorInfo))
+                    .thenThrow(fault);
+            adapter.setConnectorApiFactory(apiFactory);
+
+            // when
+            ThrowingCallable connect = () -> adapter.checkConnection(connectorInfo);
+
+            // then
+            assertThatThrownBy(connect)
+                    .isExactlyInstanceOf(ConnectorException.class)
+                    .hasMessageContaining("content-signing declaration")
+                    .hasCause(fault);
+        }
+
+        @Test
+        void passesTheFailureThrough_whenTheConnectorIsUnreachable() throws Exception {
+            // given
+            ApiClientConnectorInfo connectorInfo = mock(ApiClientConnectorInfo.class);
+            ConnectorApiFactory apiFactory = apiFactoryAnswering(connectorInfo,
+                    infoResponse(ConnectorInterface.CONTENT_SIGNING_FORMATTING), null);
+            var unreachable = new ConnectorCommunicationException("connection refused", connectorInfo);
+            when(apiFactory.getContentSigningFormattingApiClient(connectorInfo).getDeclaration(connectorInfo))
+                    .thenThrow(unreachable);
+            adapter.setConnectorApiFactory(apiFactory);
+
+            // when
+            ThrowingCallable connect = () -> adapter.checkConnection(connectorInfo);
+
+            // then
+            assertThatThrownBy(connect).isSameAs(unreachable);
+        }
+
+        @Test
+        void asksForNoDeclaration_whenTheConnectorServesNoContentSigning() throws Exception {
+            // given
+            ApiClientConnectorInfo connectorInfo = mock(ApiClientConnectorInfo.class);
+            ConnectorApiFactory apiFactory = apiFactoryAnswering(connectorInfo,
+                    infoResponse(ConnectorInterface.AUTHORITY), null);
+            adapter.setConnectorApiFactory(apiFactory);
+
+            // when
+            ConnectInfoV2 connectInfo = adapter.checkConnection(connectorInfo);
+
+            // then
+            assertThat(connectInfo.getContentSigningDeclaration()).isNull();
+            verify(apiFactory, never()).getContentSigningFormattingApiClient(connectorInfo);
+        }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static InfoResponse infoResponse(ConnectorInterface functionalInterface) {
+            InfoResponse infoResponse = new InfoResponse();
+            infoResponse
+                    .setInterfaces(List
+                            .of(iface(ConnectorInterface.INFO), iface(ConnectorInterface.HEALTH),
+                                    iface(ConnectorInterface.METRICS), iface(functionalInterface)));
+            return infoResponse;
+        }
+
+        private static Stream<ConnectorException> declarationRouteFaults() {
+            return Stream
+                    .of(new ConnectorEntityNotFoundException("declaration not found"),
+                            new ConnectorServerException("declaration failed", HttpStatus.INTERNAL_SERVER_ERROR));
+        }
+
+        private static ConnectorApiFactory apiFactoryAnswering(ApiClientConnectorInfo connectorInfo,
+                InfoResponse infoResponse, ContentSigningDeclarationDto declaration) throws Exception {
+            ConnectorApiFactory apiFactory = mock(ConnectorApiFactory.class);
+            InfoSyncApiClient infoClient = mock(InfoSyncApiClient.class);
+            when(apiFactory.getInfoApiClientV2(connectorInfo)).thenReturn(infoClient);
+            when(infoClient.getConnectorInfo(connectorInfo)).thenReturn(infoResponse);
+            ContentSigningFormattingSyncApiClient formattingClient = mock(ContentSigningFormattingSyncApiClient.class);
+            when(apiFactory.getContentSigningFormattingApiClient(connectorInfo)).thenReturn(formattingClient);
+            when(formattingClient.getDeclaration(connectorInfo)).thenReturn(declaration);
+            return apiFactory;
+        }
+    }
+
+    // ── UpdateConnectorFunctions ─────────────────────────────────────────────
+
+    @Nested
+    class UpdateConnectorFunctions {
+
+        @Test
+        void forgetsWhatTheConnectorsProfilesExport() throws Exception {
+            // given
+            KeyTransferCapabilityWriter capabilities = mock(KeyTransferCapabilityWriter.class);
+            adapter.setKeyTransferCapabilityWriter(capabilities);
+            adapter.setConnectorInterfaceRepository(mock(ConnectorInterfaceRepository.class));
+            adapter.setContentSigningDeclarationRepository(mock(ConnectorContentSigningDeclarationRepository.class));
+            Connector connector = aConnector().build();
+            ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
+                    ConnectorInterface.METRICS, ConnectorInterface.CRYPTOGRAPHY);
+
+            // when
+            adapter.updateConnectorFunctions(connector, connectInfo);
+
+            // then
+            verify(capabilities).forgetForConnector(connector.getUuid());
+        }
+
+        @Test
+        void storesTheDeclaration_whenTheConnectorSendsOne() throws Exception {
+            // given
+            ConnectorContentSigningDeclarationRepository declarations = wireDeclarations();
+            Connector connector = aConnector().build();
+            ConnectInfoV2 connectInfo = contentSigningConnectInfo();
+
+            // when
+            adapter.updateConnectorFunctions(connector, connectInfo);
+
+            // then
+            verify(declarations)
+                    .save(argThat(stored -> stored.getConnectorUuid().equals(connector.getUuid())
+                            && stored.getDeclaration() == connectInfo.getContentSigningDeclaration()));
+        }
+
+        @Test
+        void forgetsTheDeclaration_whenTheConnectorServesNoContentSigning() throws Exception {
+            // given
+            ConnectorContentSigningDeclarationRepository declarations = wireDeclarations();
+            Connector connector = aConnector().build();
+            ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
+                    ConnectorInterface.METRICS, ConnectorInterface.AUTHORITY);
+            connectInfo.setContentSigningDeclaration(aFamilyDeclaration().buildDeclaration());
+
+            // when
+            adapter.updateConnectorFunctions(connector, connectInfo);
+
+            // then
+            verify(declarations).deleteById(connector.getUuid());
+        }
+
+        @Test
+        void failsItsInvariant_whenAnUnvalidatedFormattingAnswerLacksTheDeclaration() {
+            // given
+            ConnectorContentSigningDeclarationRepository declarations = wireDeclarations();
+            Connector connector = aConnector().build();
+            ConnectInfoV2 withoutDeclaration = contentSigningConnectInfo();
+            withoutDeclaration.setContentSigningDeclaration(null);
+
+            // when
+            ThrowingCallable update = () -> adapter.updateConnectorFunctions(connector, withoutDeclaration);
+
+            // then
+            assertThatThrownBy(update)
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("validateConnection refuses");
+            verifyNoInteractions(declarations);
+        }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private ConnectorContentSigningDeclarationRepository wireDeclarations() {
+            ConnectorContentSigningDeclarationRepository declarations = mock(
+                    ConnectorContentSigningDeclarationRepository.class);
+            adapter.setContentSigningDeclarationRepository(declarations);
+            adapter.setKeyTransferCapabilityWriter(mock(KeyTransferCapabilityWriter.class));
+            adapter.setConnectorInterfaceRepository(mock(ConnectorInterfaceRepository.class));
+            return declarations;
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static ConnectInfoV2 connectInfo(ConnectorInterface... codes) {
         ConnectInfoV2 connectInfo = new ConnectInfoV2();
@@ -117,5 +325,12 @@ class ConnectorV2AdapterTest {
 
     private static ConnectorInterfaceInfo iface(ConnectorInterface code) {
         return new ConnectorInterfaceInfo(code, "2.0", List.of());
+    }
+
+    private static ConnectInfoV2 contentSigningConnectInfo() {
+        ConnectInfoV2 connectInfo = connectInfo(ConnectorInterface.INFO, ConnectorInterface.HEALTH,
+                ConnectorInterface.METRICS, ConnectorInterface.CONTENT_SIGNING_FORMATTING);
+        connectInfo.setContentSigningDeclaration(aFamilyDeclaration().buildDeclaration());
+        return connectInfo;
     }
 }

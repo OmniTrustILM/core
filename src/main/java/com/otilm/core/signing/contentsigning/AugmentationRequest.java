@@ -6,8 +6,8 @@ import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * One augmentation run's input: a document signed elsewhere, to be raised to {@code targetLevel} without releasing a
- * key or computing a data-to-be-signed.
+ * One augmentation run's input: a document signed elsewhere, to be raised to {@code targetLevel} without signing it or
+ * computing a data-to-be-signed.
  *
  * @param targetLevel the level asked for, which the profile's ceiling has the final say over
  * @param signedDocument the document as signed elsewhere

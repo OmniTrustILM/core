@@ -57,6 +57,7 @@ import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParam
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.cryptography.v2.operations.SignatureAlgorithmAttribute;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.connector.ConnectorStatus;
@@ -75,6 +76,7 @@ import com.otilm.core.dao.entity.AttributeDefinition;
 import com.otilm.core.dao.entity.AttributeRelation;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.ConnectorContentSigningDeclaration;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.CryptographicKey;
 import com.otilm.core.dao.entity.CryptographicKeyItem;
@@ -87,6 +89,7 @@ import com.otilm.core.dao.repository.AttributeContent2ObjectRepository;
 import com.otilm.core.dao.repository.AttributeDefinitionRepository;
 import com.otilm.core.dao.repository.AttributeRelationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
+import com.otilm.core.dao.repository.ConnectorContentSigningDeclarationRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.CryptographicKeyItemRepository;
@@ -174,6 +177,7 @@ import static com.otilm.core.util.builders.RequestAttributeV3Builder.aCustomAttr
 import static com.otilm.core.util.builders.RsaSignatureAttributesBuilder.rsaSignatureAttributes;
 import static com.otilm.core.util.builders.SearchFilterRequestDtoBuilder.aPropertyEqualsFilter;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
+import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequestFromExistingProfile;
 import static com.otilm.core.util.builders.SigningRecordEntityBuilder.aSigningRecord;
@@ -309,6 +313,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
     @Autowired
     private EntityManagerFactory entityManagerFactory;
 
+    @Autowired
+    private ConnectorContentSigningDeclarationRepository declarationRepository;
+
     /**
      * The row is re-read because the field's instance predates {@code certificateUploader.validate} and would write a
      * stale NOT_CHECKED validation status back.
@@ -325,7 +332,7 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
 
     private ConnectorDetailDto registerTimestampedRungConnector(ContentSigningFormattingMock mock, String name)
             throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
-        mock.advertiseTimestampedRung().stubPerOperationFormattingAttributes();
+        mock.stubAdesFamiliesUpTo(SignatureLevel.TIMESTAMPED).stubPerOperationFormattingAttributes();
         return connectorService.createConnector(aV2ConnectorRequest().withName(name).withUrl(mock.getUrl()).build());
     }
 
@@ -1529,6 +1536,51 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
+        void refusesTheProfile_whenTheFamilyListsOnlyOtherAlgorithms() {
+            // given — the default signing attributes select SHA256withRSA
+            var listedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
+            declarationRepository
+                    .save(new ConnectorContentSigningDeclaration(
+                            UUID.fromString(contentSigningFormattingConnector.getUuid()),
+                            aFamilyDeclaration(SignatureFamily.PADES)
+                                    .withHighestLevel(SignatureLevel.SIGNED)
+                                    .withSignatureAlgorithms(Set.of(listedAlgorithm))
+                                    .buildDeclaration()));
+
+            // when
+            ThrowableAssert.ThrowingCallable create = () -> signingProfileService
+                    .createSigningProfile(managedPadesSigningRequest("ct-managed-content-algorithm-refused",
+                            defaultSigningCertificate.getUuid()));
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining(SignatureAlgorithm.SHA256_WITH_RSA.getCode())
+                    .hasMessageContaining(listedAlgorithm.getCode());
+        }
+
+        @Test
+        void createsTheProfile_whenTheFamilyListsTheResolvedAlgorithm() throws Exception {
+            // given — the default signing attributes select SHA256withRSA
+            var resolvedAlgorithm = SignatureAlgorithm.SHA256_WITH_RSA;
+            declarationRepository
+                    .save(new ConnectorContentSigningDeclaration(
+                            UUID.fromString(contentSigningFormattingConnector.getUuid()),
+                            aFamilyDeclaration(SignatureFamily.PADES)
+                                    .withHighestLevel(SignatureLevel.SIGNED)
+                                    .withSignatureAlgorithms(Set.of(resolvedAlgorithm))
+                                    .buildDeclaration()));
+
+            // when
+            SigningProfileDto created = signingProfileService
+                    .createSigningProfile(managedPadesSigningRequest("ct-managed-content-algorithm-listed",
+                            defaultSigningCertificate.getUuid()));
+
+            // then
+            assertThat(created.getWorkflow()).isInstanceOf(ContentSigningWorkflowDto.class);
+        }
+
+        @Test
         void delegatedScheme_rawWorkflow_setsExpectedAttributes()
                 throws AlreadyExistException, AttributeException, ConnectorException, NotFoundException {
             // when
@@ -1686,33 +1738,31 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void managedScheme_contentSigningWorkflowWithAConnectorLackingTheFeature_throwsValidationException()
-                throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
-            // given: a formatting connector advertising no content-signing feature, and no per-operation route either
-            ContentSigningFormattingMock featurelessMock = connectorMockFactory.startContentSigningFormatting();
+        void refusesAContentSigningWorkflow_whenTheConnectorDoesNotDeclareTheFamily() throws Exception {
+            // given: a formatting connector declaring only the xades family
+            ContentSigningFormattingMock xadesOnlyMock = connectorMockFactory.startContentSigningFormatting();
             try {
-                featurelessMock.advertiseNoContentSigningFeature();
-                ConnectorDetailDto featureless = connectorService
+                xadesOnlyMock.stubDeclaration(aFamilyDeclaration(SignatureFamily.XADES).buildDeclaration());
+                ConnectorDetailDto xadesOnly = connectorService
                         .createConnector(aV2ConnectorRequest()
-                                .withName("content-signing-formatting-featureless")
-                                .withUrl(featurelessMock.getUrl())
+                                .withName("content-signing-formatting-xades-only")
+                                .withUrl(xadesOnlyMock.getUrl())
                                 .build());
 
                 // when
                 ThrowableAssert.ThrowingCallable create = () -> signingProfileService
                         .createSigningProfile(aSigningProfileRequest()
-                                .withName("ct-managed-content-featureless-connector")
+                                .withName("ct-managed-content-xades-only-connector")
                                 .withStaticKeyManagedSigning(defaultSigningCertificate.getUuid())
-                                .withManagedContentSigning(UUID.fromString(featureless.getUuid()))
+                                .withManagedContentSigning(UUID.fromString(xadesOnly.getUuid()))
                                 .build());
 
                 // then: the family-specific gate refuses it before the connector is asked for its schemas
                 assertThatThrownBy(create)
                         .isInstanceOf(ValidationException.class)
-                        .hasMessageContaining(
-                                "does not advertise the 'Content Signing' feature on its 'PAdES Formatting' interface");
+                        .hasMessageContaining("does not declare the pades family");
             } finally {
-                featurelessMock.stop();
+                xadesOnlyMock.stop();
             }
         }
 
@@ -1956,6 +2006,21 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
             // then
             assertThrows(ValidationException.class, createProfile,
                     "createSigningProfile must reject a certificate whose chain is incomplete");
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private SigningProfileRequestDto managedPadesSigningRequest(String name, UUID certificateUuid) {
+            return aSigningProfileRequest()
+                    .withName(name)
+                    .withStaticKeyManagedSigning(certificateUuid)
+                    .withContentSigning(aContentSigningWorkflow()
+                            .withSignatureFormattingConnector(
+                                    UUID.fromString(contentSigningFormattingConnector.getUuid()))
+                            .withFamily(SignatureFamily.PADES)
+                            .withMaxLevel(SignatureLevel.SIGNED)
+                            .build())
+                    .build();
         }
     }
 
@@ -3709,8 +3774,9 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void discovery_atALevelTheProviderDoesNotReach_isRefusedTheWaySaveWouldRefuseIt() {
-            // given: the registered provider advertises content signing but no timestamped rung
+        void refusesAsSaveWould_whenTheProviderDoesNotReachTheLevel() {
+            // given — the registered provider declares the AdES families up to SIGNED only
+
             // when: the form asks for the descriptors of a TIMESTAMPED ceiling
             ThrowableAssert.ThrowingCallable discover = () -> signingProfileService
                     .listContentSigningFormattingConnectorAttributes(
@@ -3756,31 +3822,77 @@ class SigningProfileServiceImplITest extends BaseSpringBootTest {
         }
 
         @Test
-        void discovery_forAFamilyTheProviderDoesNotServe_isRefusedTheWaySaveWouldRefuseIt()
-                throws ConnectorException, AlreadyExistException, AttributeException, NotFoundException {
-            // given: a provider advertising no content-signing feature on the PAdES interface
-            ContentSigningFormattingMock featurelessMock = connectorMockFactory.startContentSigningFormatting();
+        void refusesAsSaveWould_whenTheProviderDoesNotDeclareTheFamily() throws Exception {
+            // given: a provider declaring only the xades family
+            ContentSigningFormattingMock xadesOnlyMock = connectorMockFactory.startContentSigningFormatting();
             try {
-                featurelessMock.advertiseNoContentSigningFeature();
-                ConnectorDetailDto featureless = connectorService
+                xadesOnlyMock.stubDeclaration(aFamilyDeclaration(SignatureFamily.XADES).buildDeclaration());
+                ConnectorDetailDto xadesOnly = connectorService
                         .createConnector(aV2ConnectorRequest()
-                                .withName("content-signing-formatting-featureless-discovery")
-                                .withUrl(featurelessMock.getUrl())
+                                .withName("content-signing-formatting-xades-only-discovery")
+                                .withUrl(xadesOnlyMock.getUrl())
                                 .build());
 
                 // when
                 ThrowableAssert.ThrowingCallable discover = () -> signingProfileService
-                        .listContentSigningFormattingConnectorAttributes(UUID.fromString(featureless.getUuid()),
+                        .listContentSigningFormattingConnectorAttributes(UUID.fromString(xadesOnly.getUuid()),
                                 SignatureFamily.PADES, SignatureLevel.SIGNED, SecuredUUID.fromUUID(null));
 
                 // then: refused with save's own message, before the provider is asked for any schema
                 assertThatThrownBy(discover)
                         .isInstanceOf(ValidationException.class)
-                        .hasMessageContaining(
-                                "does not advertise the 'Content Signing' feature on its 'PAdES Formatting' interface");
+                        .hasMessageContaining("does not declare the pades family");
             } finally {
-                featurelessMock.stop();
+                xadesOnlyMock.stop();
             }
+        }
+    }
+
+    // ── ConnectorDeclarations ─────────────────────────────────────────────────
+
+    @Nested
+    class ConnectorDeclarations {
+
+        @Test
+        void returnsTheFamiliesTheConnectorDeclares() throws Exception {
+            // given — the registered provider declares the four AdES families
+
+            // when
+            List<SignatureFamilyDeclarationDto> declared = signingProfileService
+                    .listSignatureFormattingConnectorDeclarations(
+                            UUID.fromString(contentSigningFormattingConnector.getUuid()), SecuredUUID.fromUUID(null));
+
+            // then
+            assertThat(declared)
+                    .extracting(SignatureFamilyDeclarationDto::getCode)
+                    .containsExactlyInAnyOrder(SignatureFamily.PADES, SignatureFamily.XADES, SignatureFamily.CADES,
+                            SignatureFamily.JADES);
+        }
+
+        @Test
+        void returnsNothing_whenTheConnectorServesNoContentSigning() throws Exception {
+            // given — the timestamping formatting connector declares no content-signing family
+
+            // when
+            List<SignatureFamilyDeclarationDto> declared = signingProfileService
+                    .listSignatureFormattingConnectorDeclarations(
+                            UUID.fromString(timestampingFormattingConnector.getUuid()), SecuredUUID.fromUUID(null));
+
+            // then
+            assertThat(declared).isEmpty();
+        }
+
+        @Test
+        void throwsNotFound_whenTheConnectorDoesNotExist() {
+            // given
+            UUID unknownConnector = UUID.randomUUID();
+
+            // when
+            ThrowableAssert.ThrowingCallable listDeclarations = () -> signingProfileService
+                    .listSignatureFormattingConnectorDeclarations(unknownConnector, SecuredUUID.fromUUID(null));
+
+            // then
+            assertThatThrownBy(listDeclarations).isInstanceOf(NotFoundException.class);
         }
     }
 

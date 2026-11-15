@@ -15,6 +15,7 @@ import com.otilm.api.model.core.raprofile.RaProfileCertificateRequestAttributesU
 import com.otilm.api.model.core.raprofile.ValueSourceBindingDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SettingsSectionCategory;
+import com.otilm.core.aop.OutsideTransaction;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.certificate.request.DefaultRequestAttributeSet;
 import com.otilm.core.certificate.request.RequestAttributeSetResolver;
@@ -26,6 +27,7 @@ import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.repository.RaProfileCertificateRequestAttributeRepository;
 import com.otilm.core.dao.repository.RaProfileValueSourceBindingRepository;
 import com.otilm.core.dao.repository.SettingRepository;
+import com.otilm.core.events.transaction.TransactionHandler;
 import com.otilm.core.service.RaProfileCertificateRequestAttributeService;
 import com.otilm.core.service.v2.ExtendedAttributeService;
 import com.otilm.core.service.writer.RaProfileCertificateRequestAttributeWriter;
@@ -36,7 +38,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -50,41 +51,59 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
     private final ExtendedAttributeService extendedAttributeService;
     private final SettingRepository settingRepository;
     private final ObjectMapper objectMapper;
+    private final TransactionHandler transactionHandler;
 
     @Autowired
     public RaProfileCertificateRequestAttributeServiceImpl(
             RaProfileCertificateRequestAttributeRepository requestAttributeRepository,
             RaProfileValueSourceBindingRepository valueSourceBindingRepository,
             RaProfileCertificateRequestAttributeWriter writer, ExtendedAttributeService extendedAttributeService,
-            SettingRepository settingRepository, ObjectMapper objectMapper) {
+            SettingRepository settingRepository, ObjectMapper objectMapper, TransactionHandler transactionHandler) {
         this.requestAttributeRepository = requestAttributeRepository;
         this.valueSourceBindingRepository = valueSourceBindingRepository;
         this.writer = writer;
         this.extendedAttributeService = extendedAttributeService;
         this.settingRepository = settingRepository;
         this.objectMapper = objectMapper;
+        this.transactionHandler = transactionHandler;
     }
 
     @Override
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
+    @OutsideTransaction
     public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile, AttributeSetMergeMode mode)
             throws ConnectorException, NotFoundException {
-        return resolve(raProfile, loadStoredSet(raProfile), mode);
+        return resolve(raProfile, readStoredInputs(raProfile), mode);
     }
 
     @Override
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
+    @OutsideTransaction
     public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile)
             throws ConnectorException, NotFoundException {
-        RaProfileCertificateRequestAttribute stored = loadStoredSet(raProfile);
-        return resolve(raProfile, stored, stored == null ? null : stored.getMergeMode());
+        StoredInputs stored = readStoredInputs(raProfile);
+        return resolve(raProfile, stored, stored.mergeMode());
     }
 
-    private List<BaseAttribute> resolve(RaProfile raProfile, RaProfileCertificateRequestAttribute stored,
-            AttributeSetMergeMode mode) throws ConnectorException, NotFoundException {
-        List<BaseAttribute> staticSet = stored == null
-                ? new ArrayList<>()
-                : deserializeOrEmpty(stored.getRequestAttributes());
+    /** What the database holds for the resolution, read in a transaction of its own before the connector is asked. */
+    private record StoredInputs(List<BaseAttribute> staticSet, AttributeSetMergeMode mergeMode,
+            List<ValueSourceBindingSpec> bindings) {
+    }
+
+    private StoredInputs readStoredInputs(RaProfile raProfile) {
+        return transactionHandler.runInTransaction(() -> {
+            RaProfileCertificateRequestAttribute stored = loadStoredSet(raProfile);
+            return new StoredInputs(
+                    stored == null ? new ArrayList<>() : deserializeOrEmpty(stored.getRequestAttributes()),
+                    stored == null ? null : stored.getMergeMode(), loadValueSourceBindings(raProfile));
+        });
+    }
+
+    private List<BaseAttribute> resolve(RaProfile raProfile, StoredInputs stored, AttributeSetMergeMode mode)
+            throws ConnectorException, NotFoundException {
+        List<BaseAttribute> staticSet = stored.staticSet();
         AttributeSetMergeMode effective = RequestAttributeSetResolver.effectiveMode(mode);
         List<BaseAttribute> connectorSet = effective == AttributeSetMergeMode.STATIC_ONLY
                 ? List.of()
@@ -101,10 +120,10 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
                                 + "authority connector nor the static set yielded any definition; falling back to "
                                 + "the platform default set", raProfile.getName(), effective.getCode());
             }
-            merged = new ArrayList<>(getDefaultSet());
+            merged = new ArrayList<>(transactionHandler.runInTransaction(this::getDefaultSet));
         }
 
-        return RequestAttributeSetResolver.applyValueSourceBindings(merged, loadValueSourceBindings(raProfile));
+        return RequestAttributeSetResolver.applyValueSourceBindings(merged, stored.bindings());
     }
 
     private RaProfileCertificateRequestAttribute loadStoredSet(RaProfile raProfile) {

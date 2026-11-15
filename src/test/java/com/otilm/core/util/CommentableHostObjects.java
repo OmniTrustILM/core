@@ -27,6 +27,7 @@ import com.otilm.core.dao.entity.VaultInstance;
 import com.otilm.core.dao.entity.VaultProfile;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.notifications.NotificationProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.dao.entity.signing.SigningProfile;
@@ -50,6 +51,7 @@ import com.otilm.core.dao.repository.TokenProfileRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
 import com.otilm.core.dao.repository.VaultProfileRepository;
 import com.otilm.core.dao.repository.cmp.CmpProfileRepository;
+import com.otilm.core.dao.repository.est.EstProfileRepository;
 import com.otilm.core.dao.repository.notifications.NotificationProfileRepository;
 import com.otilm.core.dao.repository.scep.ScepProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
@@ -69,6 +71,7 @@ import com.otilm.core.service.ConnectorExternalService;
 import com.otilm.core.service.CryptographicKeyExternalService;
 import com.otilm.core.service.DiscoveryExternalService;
 import com.otilm.core.service.EntityInstanceExternalService;
+import com.otilm.core.service.EstProfileExternalService;
 import com.otilm.core.service.LocationExternalService;
 import com.otilm.core.service.NotificationProfileExternalService;
 import com.otilm.core.service.RaProfileExternalService;
@@ -89,6 +92,7 @@ import java.util.UUID;
 import org.springframework.context.ApplicationContext;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static com.otilm.core.util.builders.EstProfileBuilder.anEstProfile;
 
 /**
  * Persists a minimal host object of any commentable resource and deletes it through the real service delete path. Every
@@ -245,6 +249,10 @@ public class CommentableHostObjects {
                 profile.setName("tst-tsp-profile");
                 yield context.getBean(TspProfileRepository.class).save(profile).getUuid();
             }
+            case EST_PROFILE -> {
+                EstProfile profile = anEstProfile().withName("tst-est-profile").build();
+                yield context.getBean(EstProfileRepository.class).save(profile).getUuid();
+            }
             default -> throw new IllegalArgumentException("Not a commentable resource: " + resource);
         };
     }
@@ -291,6 +299,7 @@ public class CommentableHostObjects {
             case SCEP_PROFILE -> context.getBean(ScepProfileExternalService.class).deleteScepProfile(securedUuid);
             case CMP_PROFILE -> context.getBean(CmpProfileExternalService.class).deleteCmpProfile(securedUuid);
             case TSP_PROFILE -> context.getBean(TspProfileExternalService.class).deleteTspProfile(securedUuid);
+            case EST_PROFILE -> context.getBean(EstProfileExternalService.class).deleteEstProfile(securedUuid);
             default -> throw new IllegalArgumentException("No delete path for resource: " + resource);
         }
     }

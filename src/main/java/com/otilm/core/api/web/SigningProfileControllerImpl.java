@@ -17,6 +17,7 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.logging.enums.Module;
@@ -143,6 +144,14 @@ public class SigningProfileControllerImpl implements SigningProfileController {
         return signingProfileService
                 .listSigningCertificates(signingWorkflowType, qualifiedTimestamp, requireNonRepudiation,
                         requiredExtendedKeyUsageOids);
+    }
+
+    @Override
+    @AuditLogged(module = Module.SIGNING, resource = Resource.SIGNING_PROFILE, operation = Operation.LIST)
+    public List<SignatureFamilyDeclarationDto> listSignatureFormattingConnectorDeclarations(UUID connectorUuid,
+            @LogResource(uuid = true) UUID signingProfileUuid) throws NotFoundException {
+        return signingProfileService
+                .listSignatureFormattingConnectorDeclarations(connectorUuid, SecuredUUID.fromUUID(signingProfileUuid));
     }
 
     @Override

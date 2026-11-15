@@ -56,6 +56,7 @@ public class DiscoveryDrainTickWorker {
     private final TransactionHandler transactionHandler;
     private final DiscoveryWorkLease lease;
     private final DiscoveryBusyDeferral busyDeferral;
+    private final DiscoverySlicePermits slicePermits;
     private final int maxItems;
     private final long maxBytes;
 
@@ -63,10 +64,12 @@ public class DiscoveryDrainTickWorker {
             DiscoveryEventIngestor ingestor, DiscoveryWorkWriter workWriter, DiscoveryWorkProducer workProducer,
             DiscoveryRunTerminator terminator, DiscoveryTickBudget budget, DiscoveryWorkProperties workProperties,
             TransactionHandler transactionHandler, DiscoveryWorkLease lease, DiscoveryBusyDeferral busyDeferral,
-            DiscoveryDeliveryModeOffer deliveryModeOffer, @Value("${discovery.drain.max-items:500}") int maxItems,
+            DiscoverySlicePermits slicePermits, DiscoveryDeliveryModeOffer deliveryModeOffer,
+            @Value("${discovery.drain.max-items:500}") int maxItems,
             @Value("${discovery.drain.max-bytes:5242880}") long maxBytes) {
         this.lease = lease;
         this.busyDeferral = busyDeferral;
+        this.slicePermits = slicePermits;
         this.discoveryRepository = discoveryRepository;
         this.client = client;
         this.ingestor = ingestor;
@@ -116,9 +119,23 @@ public class DiscoveryDrainTickWorker {
             workWriter.deleteForRun(discoveryUuid, DiscoveryWorkType.DRAIN);
             return;
         }
+        if (run.getStatus() == DiscoveryStatus.STOPPED && isCheckpointed(run)) {
+            // A checkpointed connector scans while it answers a drain, so a stray tick must not reach it before a
+            // resume. The stop deleted the row, and resume re-creates it.
+            logger.debug("Dropping drain tick for discovery {}: the checkpointed run is stopped", discoveryUuid);
+            tick.releaseOnly();
+            return;
+        }
 
         long revision = run.getCheckpointRevision();
         DiscoveryTickFence fence = CheckpointRevision.fence(revision, run.getDeliveryMode());
+        boolean holdsASlicePermit = isCheckpointed(run);
+        if (holdsASlicePermit && !slicePermits.tryAcquire()) {
+            // No waiting: the row is due again at once for the next sweep, and the claim's charge is given back.
+            logger.debug("Drain for discovery {} deferred: this node's slice cap is taken", discoveryUuid);
+            tick.reschedule(attempt, OffsetDateTime.now(ZoneOffset.UTC));
+            return;
+        }
         DiscoveryResultsResponseDto page;
         try {
             // Outside any transaction, by the platform's connector-call rule.
@@ -132,6 +149,10 @@ public class DiscoveryDrainTickWorker {
                     .endConnectorOwned(discoveryUuid, DiscoveryStatus.FAILED,
                             "The discovery run can no longer be addressed at its connector");
             return;
+        } finally {
+            if (holdsASlicePermit) {
+                slicePermits.release();
+            }
         }
 
         if (page.getItems() == null || page.getMore() == null || page.getHighestSequence() == null) {
@@ -223,6 +244,12 @@ public class DiscoveryDrainTickWorker {
             return;
         }
         if (!DiscoveryRunState.COMPLETED.getCode().equals(run.getConnectorState())) {
+            if (isCheckpointed(run)) {
+                // Only the status says whether a checkpointed run has finished, and its connector may say "nothing
+                // more" on its last slice or only on the empty page after it. Asking now hands the run over without
+                // waiting for the status ladder; while the connector waits on its source, this follows the idle drains.
+                workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
+            }
             // The connector is still producing and has nothing ready this moment.
             budget.refreshAtSlowestRung(tick);
             return;

@@ -7,6 +7,6 @@ import java.beans.PropertyEditorSupport;
 public class SignatureFamilyConverter extends PropertyEditorSupport {
     @Override
     public void setAsText(final String text) throws IllegalArgumentException {
-        setValue(SignatureFamily.findByCode(text));
+        setValue(new SignatureFamily(text));
     }
 }

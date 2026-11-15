@@ -1,7 +1,10 @@
 package com.otilm.core.util;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import org.bouncycastle.asn1.ASN1InputStream;
 import org.bouncycastle.asn1.ASN1OctetString;
@@ -13,8 +16,17 @@ import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
 
 public final class CrlUtil {
+    private static final Duration CLOCK_SKEW = Duration.ofMinutes(5);
 
     private CrlUtil() {
+    }
+
+    /**
+     * @return whether a CRL with this next update is current, which it stays for the clock skew after it; a CRL without
+     * a next update never is
+     */
+    public static boolean isCurrent(Date nextUpdate) {
+        return nextUpdate != null && !nextUpdate.toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
     }
 
     /**

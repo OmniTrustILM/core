@@ -9,6 +9,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.model.discovery.DiscoveryWorkType;
 import com.otilm.core.service.handler.discovery.DiscoveryDeliveryModeOffer;
 import com.otilm.core.service.handler.discovery.DiscoveryProviderV2Adapter;
 import com.otilm.core.service.handler.discovery.DiscoveryV2Client;
@@ -19,6 +20,7 @@ import com.otilm.core.util.seeders.DiscoveryRunSeeder;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,7 +28,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -93,7 +99,8 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
 
     @Test
     void failsTheRun_whenInitiateAnswersWithAModeThatWasNotOffered() throws Exception {
-        // given — the shipped offer, which names buffered only
+        // given
+        offerBufferedOnly();
         Discovery run = runSeeder.seedUnstartedV2Run();
         var notOffered = DiscoveryDeliveryMode.CHECKPOINTED;
         stubInitiateAnswering(notOffered);
@@ -171,6 +178,43 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
     }
 
     @Test
+    void keepsTheRunStopped_whenTheResumeCannotScheduleItsWork() throws Exception {
+        // given
+        offerCheckpointedAndBuffered();
+        Discovery run = stoppableV2Run(DiscoveryStatus.STOPPED, DiscoveryDeliveryMode.CHECKPOINTED);
+        when(client.resume(any())).thenReturn(resumeAnswering(DiscoveryDeliveryMode.CHECKPOINTED));
+        var agendaUnavailable = new IllegalStateException("the drain row could not be written");
+        doThrow(agendaUnavailable).when(workWriter).expedite(any(), eq(DiscoveryWorkType.DRAIN), any());
+
+        // when
+        ThrowingCallable resume = () -> adapter.resume(run);
+
+        // then
+        assertThatThrownBy(resume).isSameAs(agendaUnavailable);
+        Discovery persisted = reload(run);
+        assertThat(persisted.getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
+        assertThat(persisted.getCheckpointRevision()).isEqualTo(run.getCheckpointRevision());
+        verify(client, never()).cancel(any());
+    }
+
+    @Test
+    void cancelsTheRunAtItsConnector_whenABufferedResumeCannotScheduleItsWork() throws Exception {
+        // given
+        Discovery run = stoppableV2Run(DiscoveryStatus.STOPPED, DiscoveryDeliveryMode.BUFFERED);
+        when(client.resume(any())).thenReturn(resumeAnswering(DiscoveryDeliveryMode.BUFFERED));
+        var agendaUnavailable = new IllegalStateException("the drain row could not be written");
+        doThrow(agendaUnavailable).when(workWriter).expedite(any(), eq(DiscoveryWorkType.DRAIN), any());
+
+        // when
+        ThrowingCallable resume = () -> adapter.resume(run);
+
+        // then
+        assertThatThrownBy(resume).isSameAs(agendaUnavailable);
+        verify(client).cancel(any());
+        assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.STOPPED);
+    }
+
+    @Test
     void recordsCheckpointed_whenAResumeSwitchesABufferedRun() throws Exception {
         // given
         offerCheckpointedAndBuffered();
@@ -204,7 +248,8 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
 
     @Test
     void failsTheRun_whenAResumeAnswersWithAModeThatWasNotOffered() throws Exception {
-        // given — the shipped offer, which names buffered only
+        // given
+        offerBufferedOnly();
         Discovery run = stoppableV2Run(DiscoveryStatus.STOPPED, DiscoveryDeliveryMode.BUFFERED);
         var notOffered = DiscoveryDeliveryMode.CHECKPOINTED;
         when(client.resume(any())).thenReturn(resumeAnswering(notOffered));
@@ -222,6 +267,11 @@ class DiscoveryDeliveryModeITest extends BaseSpringBootTest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** What an operator who dropped checkpointed from discovery.delivery.modes offers. */
+    private void offerBufferedOnly() {
+        ReflectionTestUtils.setField(adapter, OFFER_FIELD, new DiscoveryDeliveryModeOffer("buffered"));
+    }
 
     private void offerCheckpointedAndBuffered() {
         ReflectionTestUtils.setField(adapter, OFFER_FIELD, new DiscoveryDeliveryModeOffer("checkpointed,buffered"));

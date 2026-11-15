@@ -4,30 +4,19 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.cryptography.key.KeyRequestType;
 import com.otilm.api.model.connector.cryptography.v2.material.EncryptedKeyMaterialV2Dto;
 import com.otilm.api.model.core.secret.Passphrase;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.function.Supplier;
 import org.bouncycastle.asn1.pkcs.EncryptedPrivateKeyInfo;
-import org.bouncycastle.asn1.pkcs.PBEParameter;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
-import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PKCS8Generator;
-import org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8DecryptorProviderBuilder;
 import org.bouncycastle.openssl.jcajce.JceOpenSSLPKCS8EncryptorBuilder;
 import org.bouncycastle.openssl.jcajce.JcePEMDecryptorProviderBuilder;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.OutputEncryptor;
 import org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfoBuilder;
-import org.bouncycastle.util.io.Streams;
 import org.springframework.stereotype.Component;
 
 /**
@@ -63,8 +52,6 @@ public class KeyNormalizer {
 
     /** Iterations of the envelope's key derivation, as the contract recommends. */
     static final int ENVELOPE_ITERATIONS = 600_000;
-
-    private static final int TRANSPORT_PASSPHRASE_BYTES = 32;
 
     private static final String ENVELOPE_LIMIT = "protected key size";
 
@@ -120,7 +107,7 @@ public class KeyNormalizer {
         try {
             return masked(keyFile, () -> described(privateKeyInfo));
         } finally {
-            overwrite(privateKeyInfo);
+            Pkcs8Envelopes.overwrite(privateKeyInfo);
         }
     }
 
@@ -136,7 +123,7 @@ public class KeyNormalizer {
             }
             return masked(keyFile, () -> seal(description, privateKeyInfo));
         } finally {
-            overwrite(privateKeyInfo);
+            Pkcs8Envelopes.overwrite(privateKeyInfo);
         }
     }
 
@@ -179,133 +166,30 @@ public class KeyNormalizer {
         return privateKeyInfo.getPrivateKeyAlgorithm().getAlgorithm().getId();
     }
 
-    /** Overwrites the private key in place: the structure hands out the array it holds rather than a copy. */
-    private static void overwrite(PrivateKeyInfo privateKeyInfo) {
-        Arrays.fill(privateKeyInfo.getPrivateKey().getOctets(), (byte) 0);
-    }
-
     private static OpenedKey open(KeyFile keyFile, Passphrase passphrase, DerivationBudget budget) {
         return switch (keyFile) {
             case KeyFile.Plain(PrivateKeyInfo privateKeyInfo) -> new OpenedKey.Pkcs8(privateKeyInfo);
             case KeyFile.Pkcs8Protected(EncryptedPrivateKeyInfo envelope) ->
-                new OpenedKey.Pkcs8(decrypt(envelope, passphrase, budget));
+                new OpenedKey.Pkcs8(Pkcs8Envelopes.decrypt(envelope, passphrase, budget));
             case KeyFile.TraditionalProtected traditional -> new OpenedKey.Pkcs8(decrypt(traditional, passphrase));
             case KeyFile.JceksSealed(JceksSealedKey sealed) -> sealed.open(passphrase);
             case KeyFile.OpenSsh(byte[] blob) -> new OpenedKey.Pkcs8(OpenSshKey.open(blob, passphrase));
         };
     }
 
-    /**
-     * The key the envelope protects. Under an empty passphrase, a key under a PKCS#12 scheme is opened first with the
-     * key OpenSSL and the JDK derive from an empty password, then with the one Bouncy Castle derives; the second
-     * derivation is charged to the budget before it runs, as the first was when the file was read.
-     */
-    private static PrivateKeyInfo decrypt(EncryptedPrivateKeyInfo envelope, Passphrase passphrase,
-            DerivationBudget budget) {
-        if (!emptyUnderPkcs12(envelope, passphrase)) {
-            return decrypt(envelope, passphrase);
-        }
-        try {
-            return decryptTerminated(envelope, passphrase);
-        } catch (ValidationException terminatorDoesNotOpen) {
-            KeyProtection.requireAccepted(envelope.getEncryptionAlgorithm(), budget);
-            return decrypt(envelope, passphrase);
-        }
-    }
-
-    /** Whether the passphrase is empty and the envelope under a PKCS#12 scheme, which derive a key two ways. */
-    private static boolean emptyUnderPkcs12(EncryptedPrivateKeyInfo envelope, Passphrase passphrase) {
-        return passphrase != null && passphrase.codePointLength() == 0
-                && KeyProtection.isPkcs12(envelope.getEncryptionAlgorithm().getAlgorithm());
-    }
-
-    /** The key under a PKCS#12 scheme, opened with the key OpenSSL and the JDK derive from an empty password. */
-    private static PrivateKeyInfo decryptTerminated(EncryptedPrivateKeyInfo envelope, Passphrase passphrase) {
-        byte[] plaintext = decryptWith(passphrase, characters -> EmptyPassphrase
-                .decryptTerminated(envelope.getEncryptionAlgorithm(), envelope.getEncryptedData()));
-        return KeyFileReader.parse(plaintext, PrivateKeyInfo::getInstance);
-    }
-
-    /** The key the envelope protects; an empty passphrase opens a PBES2 key its writer protected with one. */
-    private static PrivateKeyInfo decrypt(EncryptedPrivateKeyInfo envelope, Passphrase passphrase) {
-        AlgorithmIdentifier protection = envelope.getEncryptionAlgorithm();
-        boolean pbes1 = KeyProtection.isPbes1(protection.getAlgorithm());
-        byte[] plaintext = decryptWith(passphrase, characters -> {
-            if (JavaKeyStoreProtection.JKS.equals(protection.getAlgorithm())) {
-                return JavaKeyStoreProtection.decryptJks(envelope.getEncryptedData(), characters);
-            }
-            if (JavaKeyStoreProtection.JCEKS.equals(protection.getAlgorithm())) {
-                return JavaKeyStoreProtection
-                        .decryptJceks(PBEParameter.getInstance(protection.getParameters()), envelope.getEncryptedData(),
-                                characters);
-            }
-            if (characters.length == 0 && EmptyPassphrase.decrypts(protection)) {
-                return EmptyPassphrase.decrypt(protection, envelope.getEncryptedData());
-            }
-            char[] password = pbes1 ? pbes1Password(characters) : characters;
-            try (InputStream decrypted = new JceOpenSSLPKCS8DecryptorProviderBuilder()
-                    .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                    .build(password)
-                    .get(protection)
-                    .getInputStream(new ByteArrayInputStream(envelope.getEncryptedData()))) {
-                return Streams.readAll(decrypted);
-            } finally {
-                Arrays.fill(password, '\0');
-            }
-        });
-        return KeyFileReader.parse(plaintext, PrivateKeyInfo::getInstance);
-    }
-
-    /**
-     * The passphrase as OpenSSL derives a PBES1 key from it, one character for each of its UTF-8 bytes, since Bouncy
-     * Castle keeps only the low byte of each character for this scheme.
-     */
-    private static char[] pbes1Password(char[] characters) {
-        ByteBuffer encoded = StandardCharsets.UTF_8.encode(CharBuffer.wrap(characters));
-        char[] octets = new char[encoded.remaining()];
-        for (int i = 0; i < octets.length; i++) {
-            octets[i] = (char) (encoded.get(i) & 0xFF);
-        }
-        Arrays.fill(encoded.array(), (byte) 0);
-        return octets;
-    }
-
     private static PrivateKeyInfo decrypt(KeyFile.TraditionalProtected key, Passphrase passphrase) {
-        byte[] plaintext = decryptWith(passphrase,
-                characters -> new JcePEMDecryptorProviderBuilder()
-                        .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-                        .build(characters)
-                        .get(key.cipher())
-                        .decrypt(key.cipherText(), key.iv()));
+        byte[] plaintext = Pkcs8Envelopes
+                .decryptWith(passphrase,
+                        characters -> new JcePEMDecryptorProviderBuilder()
+                                .setProvider(BouncyCastleProvider.PROVIDER_NAME)
+                                .build(characters)
+                                .get(key.cipher())
+                                .decrypt(key.cipherText(), key.iv()));
         return key.kind().privateKeyInfo(plaintext);
     }
 
-    /**
-     * The decrypted content. A missing or wrong passphrase, a damaged file and content nested too deeply to be a key
-     * all read the same, so a refusal says nothing about the passphrase.
-     */
-    private static byte[] decryptWith(Passphrase passphrase, Decryption decryption) {
-        if (passphrase == null) {
-            throw KeyFileRefusal.unreadableKey();
-        }
-        char[] characters = passphrase.characters();
-        byte[] plaintext;
-        try {
-            plaintext = decryption.apply(characters);
-        } catch (IOException | OperatorCreationException | GeneralSecurityException | RuntimeException e) {
-            throw KeyFileRefusal.unreadableKey();
-        } finally {
-            Arrays.fill(characters, '\0');
-        }
-        if (!NestingDepth.within(plaintext, MAXIMUM_NESTING_DEPTH)) {
-            Arrays.fill(plaintext, (byte) 0);
-            throw KeyFileRefusal.unreadableKey();
-        }
-        return plaintext;
-    }
-
     private NormalizedKey seal(KeyDescription description, PrivateKeyInfo privateKeyInfo) {
-        char[] transport = transportPassphrase();
+        char[] transport = Pkcs8Envelopes.transportPassphrase(random);
         try {
             OutputEncryptor encryptor = new JceOpenSSLPKCS8EncryptorBuilder(PKCS8Generator.AES_256_CBC)
                     .setProvider(BouncyCastleProvider.PROVIDER_NAME)
@@ -326,25 +210,5 @@ public class KeyNormalizer {
         } finally {
             Arrays.fill(transport, '\0');
         }
-    }
-
-    /** 256 random bits in base64url without padding: 43 characters that encode the same in any character set. */
-    private char[] transportPassphrase() {
-        byte[] secret = new byte[TRANSPORT_PASSPHRASE_BYTES];
-        random.nextBytes(secret);
-        byte[] encoded = Base64.getUrlEncoder().withoutPadding().encode(secret);
-        char[] characters = new char[encoded.length];
-        for (int i = 0; i < encoded.length; i++) {
-            characters[i] = (char) encoded[i];
-        }
-        Arrays.fill(secret, (byte) 0);
-        Arrays.fill(encoded, (byte) 0);
-        return characters;
-    }
-
-    @FunctionalInterface
-    private interface Decryption {
-
-        byte[] apply(char[] passphrase) throws IOException, OperatorCreationException, GeneralSecurityException;
     }
 }

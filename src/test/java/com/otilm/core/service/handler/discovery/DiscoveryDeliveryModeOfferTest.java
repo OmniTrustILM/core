@@ -21,7 +21,7 @@ class DiscoveryDeliveryModeOfferTest {
     private static final Path SHIPPED_CONFIG = Path.of("src/main/resources/application.yml");
 
     @Test
-    void offersBufferedOnly_whenTheShippedDefaultApplies() {
+    void offersCheckpointedThenBuffered_whenTheShippedDefaultApplies() {
         // given
         String shippedDefault = shippedDefaultOf("discovery.delivery.modes");
 
@@ -29,7 +29,7 @@ class DiscoveryDeliveryModeOfferTest {
         List<DiscoveryDeliveryMode> offered = new DiscoveryDeliveryModeOffer(shippedDefault).offered();
 
         // then
-        assertThat(offered).containsExactly(DiscoveryDeliveryMode.BUFFERED);
+        assertThat(offered).containsExactly(DiscoveryDeliveryMode.CHECKPOINTED, DiscoveryDeliveryMode.BUFFERED);
     }
 
     @Test

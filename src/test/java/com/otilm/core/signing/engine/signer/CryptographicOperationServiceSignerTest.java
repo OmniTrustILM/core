@@ -14,6 +14,7 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.service.CryptographicOperationInternalService;
+import com.otilm.core.signing.engine.error.ItemSigningException;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.security.KeyPair;
@@ -362,9 +363,9 @@ class CryptographicOperationServiceSignerTest {
         @Test
         void throwsSignerFault_whenMultiItemResultHasNoData() throws Exception {
             // given
-            var failedIdentifier = "1";
+            var failedIndex = 1;
             var connectorDetails = "Signature failed: boom";
-            var failedResult = new SignatureResponseData(null, failedIdentifier, connectorDetails);
+            var failedResult = new SignatureResponseData(null, Integer.toString(failedIndex), connectorDetails);
             given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
                     .willReturn(createSignatureResponse(createSignatureResult("0", SIG_A), failedResult));
             var twoItems = List.of(DTBS_0, DTBS_1);
@@ -374,13 +375,31 @@ class CryptographicOperationServiceSignerTest {
 
             // then
             assertThatThrownBy(signTwoItems)
-                    .isInstanceOf(SigningEngineException.class)
                     .hasMessageNotContaining(connectorDetails)
-                    .satisfies(ex -> {
-                        SigningEngineException failure = (SigningEngineException) ex;
+                    .isInstanceOfSatisfying(ItemSigningException.class, failure -> {
                         assertThat(failure.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT);
-                        assertThat(failure.operatorMessage()).contains("item " + failedIdentifier, connectorDetails);
+                        assertThat(failure.itemIndex()).isEqualTo(failedIndex);
+                        assertThat(failure.operatorMessage()).contains("item " + failedIndex, connectorDetails);
                     });
+        }
+
+        @Test
+        void throwsSignerFault_whenMultiItemResultIsNotBase64() throws Exception {
+            // given
+            var malformedIndex = 1;
+            var notBase64 = new SignatureResponseData("not base64!", Integer.toString(malformedIndex), null);
+            given(cryptographicOperationService.signDataWithoutEventHistory(any(), any(), any(), any(), any()))
+                    .willReturn(createSignatureResponse(createSignatureResult("0", SIG_A), notBase64));
+            var twoItems = List.of(DTBS_0, DTBS_1);
+
+            // when
+            ThrowingCallable signTwoItems = () -> signer.signAll(twoItems);
+
+            // then
+            assertThatThrownBy(signTwoItems).isInstanceOfSatisfying(ItemSigningException.class, failure -> {
+                assertThat(failure.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT);
+                assertThat(failure.itemIndex()).isEqualTo(malformedIndex);
+            }).hasCauseInstanceOf(IllegalArgumentException.class);
         }
 
         @ParameterizedTest
@@ -562,9 +581,10 @@ class CryptographicOperationServiceSignerTest {
             // given
             var messages = List.of(buildMessage(1), buildMessage(2));
             var digests = hashWithSha256(messages);
+            var rehashedIndex = 1;
             var firstSignedCorrectly = signWithJdk("SHA256withRSA", rsaKeyPair.getPrivate(), messages).getFirst();
             var secondSignedOverTheDigestAsData = signWithJdk("SHA256withRSA", rsaKeyPair.getPrivate(),
-                    List.of(digests.get(1))).getFirst();
+                    List.of(digests.get(rehashedIndex))).getFirst();
             given(callPrehashedSign())
                     .willReturn(answerWithSignatures(List.of(firstSignedCorrectly, secondSignedOverTheDigestAsData)));
 
@@ -572,9 +592,10 @@ class CryptographicOperationServiceSignerTest {
             ThrowingCallable signDigests = () -> signer.signAll(digests, SignatureInputMode.PREHASHED_DIGEST);
 
             // then
-            assertThatThrownBy(signDigests).isInstanceOfSatisfying(SigningEngineException.class, ex -> {
+            assertThatThrownBy(signDigests).isInstanceOfSatisfying(ItemSigningException.class, ex -> {
                 assertThat(ex.failure()).isEqualTo(SigningEngineFailure.SIGNER_FAULT);
-                assertThat(ex.operatorMessage()).contains("Signature 1 does not verify");
+                assertThat(ex.itemIndex()).isEqualTo(rehashedIndex);
+                assertThat(ex.operatorMessage()).contains("Signature " + rehashedIndex + " does not verify");
                 assertThat(ex.clientMessage()).isEqualTo("Internal signing error");
             });
         }

@@ -75,6 +75,8 @@ public ... someMethod(...) {
 }
 ```
 
+`NOT_SUPPORTED` holds no transaction, but it is still a transaction scope: a step 1 read that runs outside a transaction binds an EntityManager that keeps its connection through step 2 until the method returns, with or without open-in-view (see "Open-in-view keeps what a request reads managed"). Where that connection must not wait on the external system, run each read before the call in a transaction of its own, or leave the annotation off an entry point that no caller runs inside a transaction, as the EST services do.
+
 Symmetrically: when the external call comes AFTER the local commit, commit first then call externally.
 
 Under open-in-view, the request's EntityManager keeps the connection of the first transaction that runs on it. A method
@@ -146,7 +148,7 @@ Don't span the lock across slow external calls (see "Transactions and external c
 
 ## Open-in-view keeps what a request reads managed
 
-`spring.jpa.open-in-view` is on, so an entity read through the request's EntityManager stays managed there until the response is written, and every transaction that runs on that EntityManager flushes the changes made to it, as a whole row unless the entity is `@DynamicUpdate`. A `Propagation.NOT_SUPPORTED` method does not keep them out: the transactions it starts run on the request's EntityManager until it first uses that EntityManager outside a transaction, on EntityManagers of their own from then until it returns, and the request's next transaction runs on the request's EntityManager again. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it can pass whatever the code does.
+Open-in-view is on for every endpoint except EST's: `OpenEntityManagerInViewConfig` registers Spring's interceptor itself, with `spring.jpa.open-in-view` off. An entity read through the request's EntityManager stays managed there until the response is written, and every transaction that runs on that EntityManager flushes the changes made to it, as a whole row unless the entity is `@DynamicUpdate`. A `Propagation.NOT_SUPPORTED` method does not keep them out: the transactions it starts run on the request's EntityManager until it first uses that EntityManager outside a transaction, on EntityManagers of their own from then until it returns, and the request's next transaction runs on the request's EntityManager again. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it can pass whatever the code does. Without open-in-view, a `NOT_SUPPORTED` method is still a transaction scope: its first read outside a transaction binds an EntityManager that keeps its connection until the method returns, which is why the EST entry points, which wait for a certificate, carry no transactional annotation.
 
 ## New operator-facing settings go through the Settings UI, not env vars
 

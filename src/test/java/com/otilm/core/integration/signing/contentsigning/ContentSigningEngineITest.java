@@ -15,15 +15,19 @@ import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.common.signature.SignatureParameterGroup;
 import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
-import com.otilm.api.model.connector.signatures.contentsigning.common.InlineDocumentTransferDto;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
 import com.otilm.api.model.core.cryptography.tokenprofile.TokenProfileDetailDto;
+import com.otilm.api.model.core.settings.PlatformSettingsDto;
+import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
+import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.api.model.core.signing.signingrecord.SigningRecordListDto;
 import com.otilm.core.config.ConnectorApiClientProperties;
@@ -39,16 +43,20 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.CryptographicKeyExternalService;
+import com.otilm.core.service.SettingExternalService;
 import com.otilm.core.service.SigningProfileExternalService;
 import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.SigningRecordExternalService;
 import com.otilm.core.service.TokenInstanceExternalService;
 import com.otilm.core.service.TokenProfileExternalService;
 import com.otilm.core.service.v2.ConnectorExternalService;
+import com.otilm.core.settings.SettingsCache;
+import com.otilm.core.signing.contentsigning.AugmentationRequest;
+import com.otilm.core.signing.contentsigning.ContentSigningItem;
 import com.otilm.core.signing.contentsigning.ContentSigningRequest;
-import com.otilm.core.signing.contentsigning.DocumentDigest;
 import com.otilm.core.signing.contentsigning.ManagedContentSigningEngine;
 import com.otilm.core.signing.contentsigning.SignedContent;
+import com.otilm.core.signing.contentsigning.SignedItem;
 import com.otilm.core.signing.contentsigning.parameters.SignatureParameterResolver;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
@@ -63,9 +71,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.spec.AlgorithmParameterSpec;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
@@ -74,9 +85,11 @@ import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1ConnectorRequest;
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
@@ -85,6 +98,7 @@ import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequ
 import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static com.otilm.core.util.builders.PadesVisibleSignatureDtoBuilder.aVisibleSignature;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
+import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
 import static com.otilm.core.util.builders.SigningRecordPolicyRequestDtoBuilder.aSigningRecordPolicyRequest;
 import static com.otilm.core.util.builders.TimestampingWorkflowRequestDtoBuilder.aTimestampingWorkflow;
@@ -142,6 +156,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     @Autowired
     private TestCertificateAuthority testCertificateAuthority;
 
+    @Autowired
+    private SettingExternalService settingService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     private CryptographyProviderConnectorMock cryptographyProviderMock;
     private TimestampingFormattingConnectorMock timestampingFormattingMock;
     private ContentSigningFormattingMock contentSigningFormattingMock;
@@ -152,6 +172,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     private TokenInstanceDetailDto tokenInstance;
     private TokenProfileDetailDto tokenProfile;
     private TestCertificateAuthority.TrustedCa trustedCa;
+    private KeyPair signingKeyPair;
+    private UUID signingKeyReference;
 
     private record PostQuantumKey(SignatureAlgorithm signatureAlgorithm, KeyAlgorithm keyAlgorithm,
             DigestAlgorithm expectedDigest) {
@@ -172,7 +194,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         timestampingFormattingMock = connectorMockFactory.startTimestampingFormatting();
         contentSigningFormattingMock = connectorMockFactory
                 .startContentSigningFormatting()
-                .advertiseTimestampedRung()
+                .stubAdesFamiliesUpTo(SignatureLevel.TIMESTAMPED)
                 .stubPerOperationFormattingAttributes()
                 .stubBaselineAndTimestampOperations();
 
@@ -204,17 +226,19 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                 .createTokenProfile(SecuredParentUUID.fromString(tokenInstance.getUuid()),
                         aTokenProfileRequest().withName("soft-token-profile").build());
 
-        KeyPair keyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        signingKeyPair = CertificateGeneratorHelper.generateKeyPair(KeyAlgorithm.RSA, null);
+        signingKeyReference = UUID.randomUUID();
         cryptographyProviderMock
-                .stubKeyPairCreation(Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
+                .stubKeyPairCreation(Base64.getEncoder().encodeToString(signingKeyPair.getPublic().getEncoded()),
+                        KeyAlgorithm.RSA, signingKeyReference);
         cryptographicKeyService
                 .createKey(UUID.fromString(tokenInstance.getUuid()),
                         SecuredParentUUID.fromString(tokenProfile.getUuid()), KeyRequestType.KEY_PAIR,
                         aKeyPairRequest().withName("soft-key-pair").build());
 
         trustedCa = testCertificateAuthority.createTrustedCa("CN=Test Root CA");
-        signingCertificate = trustedCa.issueSigningCertificate(keyPair, "CN=Test Signing");
-        timestampingCertificate = trustedCa.issueTimestampingCertificate(keyPair, "CN=Test TSA");
+        signingCertificate = trustedCa.issueSigningCertificate(signingKeyPair, "CN=Test Signing");
+        timestampingCertificate = trustedCa.issueTimestampingCertificate(signingKeyPair, "CN=Test TSA");
 
         cryptographyProviderMock.stubSignData("connector-signature".getBytes(StandardCharsets.UTF_8));
         timestampingFormattingMock.stubFormattingAttributes().stubFormatDtbs().stubFormatResponse();
@@ -239,8 +263,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     class SignatureLevels {
 
         @ParameterizedTest
-        @EnumSource(SignatureFamily.class)
-        void signsToTimestampedLevel_andTracesToItsTimestampRecord(SignatureFamily family) throws Exception {
+        @ValueSource(strings = {
+                SignatureFamily.Codes.PADES,
+                SignatureFamily.Codes.XADES,
+                SignatureFamily.Codes.CADES,
+                SignatureFamily.Codes.JADES})
+        void signsToTimestampedLevel_whenTheCeilingIsTimestamped(SignatureFamily family) throws Exception {
             // given: a profile of this family whose ceiling is TIMESTAMPED, pointing at an ILM-managed TSA profile
             SigningProfileDto tsaProfile = createTimestampingProfile("timestamped-run-tsa");
             SigningProfileDto contentProfile = createContentSigningProfile(profileName("timestamped-run", family),
@@ -250,7 +278,9 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             // when
             SignedContent signed = engine
                     .sign(signingRequest(SignatureLevel.TIMESTAMPED, document), modelOf(contentProfile),
-                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API)
+                    .getFirst()
+                    .content();
 
             // then: the document came back timestamped, with a serial that names a real timestamp record
             assertThat(signed.level()).isEqualTo(SignatureLevel.TIMESTAMPED);
@@ -271,8 +301,12 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         @ParameterizedTest
-        @EnumSource(SignatureFamily.class)
-        void signsToSignedLevel_andLeavesARecord(SignatureFamily family) throws Exception {
+        @ValueSource(strings = {
+                SignatureFamily.Codes.PADES,
+                SignatureFamily.Codes.XADES,
+                SignatureFamily.Codes.CADES,
+                SignatureFamily.Codes.JADES})
+        void signsToSignedLevel_whenTheCeilingIsSigned(SignatureFamily family) throws Exception {
             // given: a profile of this family whose ceiling is SIGNED, which names no timestamp source
             SigningProfileDto contentProfile = createContentSigningProfile(profileName("signed-run", family), family,
                     SignatureLevel.SIGNED, null);
@@ -281,7 +315,9 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             // when
             SignedContent signed = engine
                     .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
-                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API)
+                    .getFirst()
+                    .content();
 
             // then: the run stopped at SIGNED, embedded no timestamp, and still left its record
             assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
@@ -725,6 +761,267 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
     }
 
+    // ── Batches ───────────────────────────────────────────────────────────────
+
+    @Nested
+    class Batches {
+
+        private PlatformSettingsDto originalPlatformSettings;
+
+        @BeforeEach
+        void registerTheSigningKeyAndRememberThePlatformSettings() {
+            cryptographyProviderMock
+                    .stubRealSigning()
+                    .registerSigningKey(signingKeyReference, signingKeyPair.getPrivate(),
+                            SignatureAlgorithm.SHA256_WITH_RSA);
+            originalPlatformSettings = SettingsCache.getSettings(SettingsSection.PLATFORM);
+        }
+
+        /** The settings cache outlives the test. A lowered cap left in it would refuse the next test's batch. */
+        @AfterEach
+        void restoreThePlatformSettings() {
+            new SettingsCache()
+                    .cacheSettings(SettingsSection.PLATFORM,
+                            originalPlatformSettings != null ? originalPlatformSettings : new PlatformSettingsDto());
+        }
+
+        @Test
+        void signsEveryDocumentWithOneSignRequest() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("batch-pades", SignatureFamily.PADES,
+                    SignatureLevel.SIGNED, null);
+            ContentSigningRequest batch = batchOf(SignatureLevel.SIGNED, "first", "second", "third");
+
+            // when
+            List<SignedItem> signed = engine
+                    .sign(batch, modelOf(contentProfile), resolvedContentSigningProfile(contentProfile),
+                            SigningProtocol.CSC_API);
+
+            // then
+            assertThat(signed).extracting(SignedItem::identifier).containsExactly("first", "second", "third");
+            cryptographyProviderMock.verifySignRequests(1);
+        }
+
+        @Test
+        void returnsEachDocumentsRecordReference() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("recorded-batch-pades",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            ContentSigningRequest batch = batchOf(SignatureLevel.SIGNED, "first", "second", "third");
+
+            // when
+            List<SignedItem> signed = engine
+                    .sign(batch, modelOf(contentProfile), resolvedContentSigningProfile(contentProfile),
+                            SigningProtocol.CSC_API);
+
+            // then
+            List<UUID> recordUuids = recordEntitiesFor(contentProfile).stream().map(SigningRecord::getUuid).toList();
+            assertThat(signed)
+                    .extracting(SignedItem::signingRecordUuid)
+                    .containsExactlyInAnyOrderElementsOf(recordUuids);
+        }
+
+        @Test
+        void namesTheDocument_whenItsBindingFails() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("foreign-echo-batch-pades",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            var foreignEchoed = "second";
+            contentSigningFormattingMock.stubComputeDtbsEchoingForeignDigestFor(documentNamed(foreignEchoed));
+            ContentSigningRequest batch = batchOf(SignatureLevel.SIGNED, "first", foreignEchoed, "third");
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(batch, modelOf(contentProfile), resolvedContentSigningProfile(contentProfile),
+                            SigningProtocol.CSC_API);
+
+            // then: the run stopped before the key and the record store
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, e -> {
+                assertThat(e.failure()).isEqualTo(SigningEngineFailure.BINDING_VIOLATION);
+                assertThat(e.itemIdentifier()).isEqualTo(foreignEchoed);
+            });
+            cryptographyProviderMock.verifyNoDataWasSigned();
+            assertThat(recordsFor(contentProfile.getName())).isEmpty();
+        }
+
+        @Test
+        void refusesTheBatch_whenItCarriesMoreDocumentsThanTheCap() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("capped-batch-pades", SignatureFamily.PADES,
+                    SignatureLevel.SIGNED, null);
+            var cap = 2;
+            settingService.updatePlatformSettings(signingCapUpdate(cap));
+            ContentSigningRequest batch = batchOf(SignatureLevel.SIGNED, "first", "second", "third");
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(batch, modelOf(contentProfile), resolvedContentSigningProfile(contentProfile),
+                            SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, e -> {
+                assertThat(e.failure()).isEqualTo(SigningEngineFailure.INVALID_INPUT);
+                assertThat(e.clientMessage()).contains("at most " + cap + " items");
+            });
+            cryptographyProviderMock.verifyNoDataWasSigned();
+            assertThat(recordsFor(contentProfile.getName())).isEmpty();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static PlatformSettingsUpdateDto signingCapUpdate(int maxItemsPerRequest) {
+            SigningSettingsDto signing = new SigningSettingsDto();
+            signing.setMaxItemsPerRequest(maxItemsPerRequest);
+            PlatformSettingsUpdateDto update = new PlatformSettingsUpdateDto();
+            update.setSigning(signing);
+            return update;
+        }
+    }
+
+    // ── CallersTransaction ────────────────────────────────────────────────────
+
+    @Nested
+    class CallersTransaction {
+
+        @Test
+        void keepsTheSigningRecord_whenTheCallersTransactionRollsBack() throws Exception {
+            // given
+            SigningProfileDto contentProfile = createContentSigningProfile("caller-rollback-signed-pades",
+                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+            ContentSigningRequest request = signingRequest(SignatureLevel.SIGNED,
+                    "a document to sign".getBytes(StandardCharsets.UTF_8));
+            SigningProfileModel<?, ?> signingProfile = modelOf(contentProfile);
+            ResolvedManagedContentSigningProfile resolvedProfile = resolvedContentSigningProfile(contentProfile);
+
+            // when
+            List<SignedItem> signed = inACallersTransactionThatRollsBack(
+                    () -> engine.sign(request, signingProfile, resolvedProfile, SigningProtocol.CSC_API));
+
+            // then
+            assertThat(recordEntitiesFor(contentProfile))
+                    .extracting(SigningRecord::getUuid)
+                    .containsExactly(signed.getFirst().signingRecordUuid());
+        }
+
+        @Test
+        void keepsTheAugmentationRecord_whenTheCallersTransactionRollsBack() throws Exception {
+            // given
+            SigningProfileDto tsaProfile = createTimestampingProfile("caller-rollback-tsa");
+            SigningProfileDto contentProfile = createContentSigningProfile("caller-rollback-augmented-pades",
+                    SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
+            var augmentation = new AugmentationRequest(SignatureLevel.TIMESTAMPED,
+                    "a document signed elsewhere".getBytes(StandardCharsets.UTF_8), null);
+            SigningProfileModel<?, ?> signingProfile = modelOf(contentProfile);
+            ResolvedManagedContentSigningProfile resolvedProfile = resolvedContentSigningProfile(contentProfile);
+
+            // when
+            inACallersTransactionThatRollsBack(
+                    () -> engine.augment(augmentation, signingProfile, resolvedProfile, SigningProtocol.CSC_API));
+
+            // then
+            assertThat(recordEntitiesFor(contentProfile)).hasSize(1);
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private <T> T inACallersTransactionThatRollsBack(Callable<T> work) {
+            return new TransactionTemplate(transactionManager).execute(callersTransaction -> {
+                callersTransaction.setRollbackOnly();
+                try {
+                    return work.call();
+                } catch (Exception e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+        }
+    }
+
+    // ── ConnectorDeclaration ──────────────────────────────────────────────────
+
+    @Nested
+    class ConnectorDeclaration {
+
+        private static final SignatureFamily CONNECTOR_ONLY_FAMILY = new SignatureFamily("mrtd");
+
+        @Test
+        void signsAFamilyThePlatformDoesNotKnow_whenTheConnectorDeclaresIt() throws Exception {
+            // given
+            contentSigningFormattingMock
+                    .stubDeclaration(aFamilyDeclaration(CONNECTOR_ONLY_FAMILY)
+                            .withHighestLevel(SignatureLevel.SIGNED)
+                            .buildDeclaration());
+            reconnectContentSigningFormatting();
+            SigningProfileDto contentProfile = createContentSigningProfile("connector-only-family",
+                    CONNECTOR_ONLY_FAMILY, SignatureLevel.SIGNED, null);
+            byte[] document = "a travel document".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            SignedContent signed = engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API)
+                    .getFirst()
+                    .content();
+
+            // then
+            assertThat(signed.level()).isEqualTo(SignatureLevel.SIGNED);
+            assertThat(recordsFor(contentProfile.getName())).hasSize(1);
+        }
+
+        @Test
+        void refusesTheRun_whenAReconnectNarrowedTheFamilysAlgorithms() throws Exception {
+            // given — the profile was saved while PAdES accepted every algorithm
+            SigningProfileDto contentProfile = createContentSigningProfile("narrowed-algorithms", SignatureFamily.PADES,
+                    SignatureLevel.SIGNED, null);
+            var onlyAcceptedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
+            contentSigningFormattingMock
+                    .stubDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                            .withHighestLevel(SignatureLevel.SIGNED)
+                            .withSignatureAlgorithms(Set.of(onlyAcceptedAlgorithm))
+                            .buildDeclaration());
+            reconnectContentSigningFormatting();
+            byte[] document = "a document".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            refusal -> assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        @Test
+        void refusesTheRun_whenAReconnectLoweredTheFamilysLevels() throws Exception {
+            // given — the profile was saved while PAdES reached TIMESTAMPED
+            SigningProfileDto tsaProfile = createTimestampingProfile("lowered-levels-tsa");
+            SigningProfileDto contentProfile = createContentSigningProfile("lowered-levels", SignatureFamily.PADES,
+                    SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
+            contentSigningFormattingMock.stubAdesFamiliesUpTo(SignatureLevel.SIGNED);
+            reconnectContentSigningFormatting();
+            byte[] document = "a document".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            ThrowingCallable sign = () -> engine
+                    .sign(signingRequest(SignatureLevel.TIMESTAMPED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then
+            assertThatThrownBy(sign)
+                    .isInstanceOfSatisfying(SigningEngineException.class,
+                            refusal -> assertThat(refusal.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED));
+            cryptographyProviderMock.verifyNoDataWasSigned();
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        private void reconnectContentSigningFormatting() throws Exception {
+            connectorService.reconnect(SecuredUUID.fromString(contentSigningFormattingConnector.getUuid()));
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static String documentText(SignedContent signed) {
@@ -747,10 +1044,25 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
     private static ContentSigningRequest signingRequest(SignatureLevel targetLevel, byte[] document,
             DigestAlgorithm authorizedDigest, SignatureParametersDto signatureParameters) throws Exception {
-        return new ContentSigningRequest(targetLevel, new InlineDocumentTransferDto(document),
-                new DocumentDigest(authorizedDigest,
-                        MessageDigest.getInstance(authorizedDigest.getCode()).digest(document)),
+        ContentSigningItem item = new ContentSigningItem("document-1", document,
+                MessageDigest.getInstance(authorizedDigest.getCode()).digest(document));
+        return new ContentSigningRequest(targetLevel, DocumentTransferMode.INLINE, authorizedDigest, List.of(item),
                 signatureParameters);
+    }
+
+    private static ContentSigningRequest batchOf(SignatureLevel targetLevel, String... identifiers) throws Exception {
+        List<ContentSigningItem> items = new ArrayList<>();
+        for (String identifier : identifiers) {
+            byte[] document = documentNamed(identifier);
+            byte[] authorizedDigest = MessageDigest.getInstance("SHA-256").digest(document);
+            items.add(new ContentSigningItem(identifier, document, authorizedDigest));
+        }
+        return new ContentSigningRequest(targetLevel, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items,
+                null);
+    }
+
+    private static byte[] documentNamed(String identifier) {
+        return ("document " + identifier).getBytes(StandardCharsets.UTF_8);
     }
 
     private SigningProfileModel<?, ?> modelOf(SigningProfileDto profile) throws NotFoundException {
@@ -857,7 +1169,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     }
 
     private static String profileName(String prefix, SignatureFamily family) {
-        return prefix + "-" + family.getCode();
+        return prefix + "-" + family.code();
     }
 
     private static SigningRecordPolicyRequestDto recordingEverything() {

@@ -11,13 +11,19 @@ public record Validity(Instant notBefore, Instant notAfter, ValidityPrecision pr
 
     private static final Duration ONE_DAY = Duration.ofDays(1);
 
+    /**
+     * The moment the validity ends: the last instant of a period with a time, and the start of the day after the last
+     * day of a period with dates only. This is what is stored as the end of the certificate.
+     */
+    public Instant expiry() {
+        return precision == ValidityPrecision.DATE ? notAfter.plus(ONE_DAY) : notAfter;
+    }
+
     public ValidityStatus statusAt(Instant moment) {
         if (moment.isBefore(notBefore)) {
             return ValidityStatus.NOT_YET_VALID;
         }
-        boolean expired = precision == ValidityPrecision.DATE
-                ? !moment.isBefore(notAfter.plus(ONE_DAY))
-                : moment.isAfter(notAfter);
+        boolean expired = precision == ValidityPrecision.DATE ? !moment.isBefore(expiry()) : moment.isAfter(notAfter);
         return expired ? ValidityStatus.EXPIRED : ValidityStatus.VALID;
     }
 }

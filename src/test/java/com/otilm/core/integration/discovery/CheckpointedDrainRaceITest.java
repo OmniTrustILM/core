@@ -35,9 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /**
- * Two duplicate drain ticks of one checkpointed run, built from the same revision, applying their pages at the same
- * time. The run's row lock serializes them and the revision decides: exactly one page lands. Not transactional, so each
- * tick commits on its own connection as it does in production.
+ * Duplicate drain ticks of one checkpointed run applying their pages at once: the run's row lock serializes them and
+ * the revision decides. Not transactional, so each tick commits on its own connection as it does in production.
  */
 class CheckpointedDrainRaceITest extends BaseSpringBootTest {
 

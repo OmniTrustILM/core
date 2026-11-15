@@ -10,11 +10,13 @@ import com.otilm.api.model.client.approvalprofile.ApprovalProfileRelationDto;
 import com.otilm.api.model.client.compliance.SimplifiedComplianceProfileDto;
 import com.otilm.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateCmpForRaProfileRequestDto;
+import com.otilm.api.model.client.raprofile.ActivateEstForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateScepForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.AddRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.EditRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.RaProfileAcmeDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileCmpDetailResponseDto;
+import com.otilm.api.model.client.raprofile.RaProfileEstDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileScepDetailResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.core.certificate.CertificateDetail;
@@ -26,6 +28,7 @@ import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public interface RaProfileExternalService {
 
@@ -111,6 +114,50 @@ public interface RaProfileExternalService {
      * @throws NotFoundException in case the entity is not found
      */
     void deactivateCmpForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException;
+
+    /**
+     * Get the RA Profile EST protocol details
+     *
+     * @param authorityUuid UUID of the Authority
+     * @param uuid UUID of the RA Profile
+     * @param origin scheme, host and port the EST URL of the RA Profile is composed on
+     * @return RA Profile EST protocol details, only {@code estAvailable} is set while EST is not active
+     * @throws NotFoundException in case the RA Profile is not found, also when it is not under the authority
+     */
+    RaProfileEstDetailResponseDto getEstForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid, String origin)
+            throws NotFoundException;
+
+    /**
+     * Activate the EST protocol for the RA Profile, which is then served under its name as the EST label. The EST
+     * Profile's UUID is not a {@link SecuredUUID}: the authorization of this method would take it for one of the RA
+     * Profiles it is checked on. The caller needs DETAIL on the EST Profile, checked before it is looked up.
+     *
+     * @param authorityUuid UUID of the Authority
+     * @param uuid UUID of the RA Profile
+     * @param estProfileUuid UUID of the EST Profile
+     * @param request Attributes to issue certificates with
+     * @param origin scheme, host and port the EST URL of the RA Profile is composed on
+     * @return RA Profile EST protocol details
+     * @throws ConnectorException in case the connector throws an exception
+     * @throws ValidationException in case the RA Profile name cannot be an EST label or is already the label of an EST
+     * Profile, the authority of the RA Profile has no connector or was given another one while the issue attributes
+     * were validated, or the attributes are invalid
+     * @throws AttributeException in case the attribute is not found
+     * @throws NotFoundException in case the RA Profile or the EST Profile is not found, also when the RA Profile is not
+     * under the authority or was moved to another one while the issue attributes were validated
+     */
+    RaProfileEstDetailResponseDto activateEstForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid,
+            UUID estProfileUuid, ActivateEstForRaProfileRequestDto request, String origin)
+            throws ConnectorException, ValidationException, AttributeException, NotFoundException;
+
+    /**
+     * Deactivate the EST protocol for the RA Profile
+     *
+     * @param authorityUuid UUID of the Authority
+     * @param uuid UUID of the RA Profile
+     * @throws NotFoundException in case the RA Profile is not found, also when it is not under the authority
+     */
+    void deactivateEstForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid) throws NotFoundException;
 
     List<BaseAttribute> listRevokeCertificateAttributes(SecuredParentUUID authorityUuid, SecuredUUID uuid)
             throws ConnectorException, NotFoundException;

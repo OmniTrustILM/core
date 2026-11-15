@@ -46,6 +46,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -90,15 +91,14 @@ class DiscoveryV2ClientTest {
     private DiscoverySyncApiClient apiClient;
 
     private static final String OFFERED_MODES = "checkpointed,buffered";
+    private static final String BUFFERED_ONLY = "buffered";
 
     private DiscoveryV2Client client;
     private Discovery run;
 
     @BeforeEach
-    void setUp() {
-        client = new DiscoveryV2Client(connectorApiFactory, connectorRepository, attributeEngine, credentialService,
-                resourceService, authHelper, new OutboundSecretContainment(new ObjectMapper()),
-                new DiscoveryDeliveryModeOffer(OFFERED_MODES));
+    void createClientAndRun() {
+        client = clientOffering(OFFERED_MODES);
         // Runs the elevated body inline: the bare mock returns null without invoking it, so every assertion about
         // what the loaders received would pass while resolving nothing.
         lenient()
@@ -148,6 +148,63 @@ class DiscoveryV2ClientTest {
         // then
         assertThat(sent.getDeliveryModes())
                 .containsExactly(DiscoveryDeliveryMode.CHECKPOINTED, DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    @Test
+    void offersCheckpointed_whenACheckpointedRunDrainsWhileOnlyBufferedIsConfigured() throws Exception {
+        // given
+        client = clientOffering(BUFFERED_ONLY);
+        run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+
+        // when
+        DiscoveryV2ScopedRequestDto sent = sendAndCapture("results");
+
+        // then
+        assertThat(sent.getDeliveryModes())
+                .containsExactly(DiscoveryDeliveryMode.CHECKPOINTED, DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    @Test
+    void offersCheckpointed_whenACheckpointedRunIsAcknowledgedWhileOnlyBufferedIsConfigured() throws Exception {
+        // given
+        client = clientOffering(BUFFERED_ONLY);
+        run.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
+        when(apiClient.results(any(), any())).thenReturn(new DiscoveryResultsResponseDto());
+
+        // when
+        client.acknowledge(run, 42L);
+
+        // then
+        assertThat(capturedDrain().getDeliveryModes())
+                .containsExactly(DiscoveryDeliveryMode.CHECKPOINTED, DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = DiscoveryDeliveryMode.class, names = {"CHECKPOINTED", "BUFFERED"})
+    void offersOnlyTheConfiguredModes_whenAResumeIsSentWhileOnlyBufferedIsConfigured(DiscoveryDeliveryMode recorded)
+            throws Exception {
+        // given
+        client = clientOffering(BUFFERED_ONLY);
+        run.setDeliveryMode(recorded);
+
+        // when
+        DiscoveryV2ScopedRequestDto sent = sendAndCapture("resume");
+
+        // then
+        assertThat(sent.getDeliveryModes()).containsExactly(DiscoveryDeliveryMode.BUFFERED);
+    }
+
+    @Test
+    void offersOnlyTheConfiguredModes_whenABufferedRunDrainsWhileOnlyBufferedIsConfigured() throws Exception {
+        // given
+        client = clientOffering(BUFFERED_ONLY);
+        run.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+
+        // when
+        DiscoveryV2ScopedRequestDto sent = sendAndCapture("results");
+
+        // then
+        assertThat(sent.getDeliveryModes()).containsExactly(DiscoveryDeliveryMode.BUFFERED);
     }
 
     @Test
@@ -453,7 +510,6 @@ class DiscoveryV2ClientTest {
         return sent.getValue();
     }
 
-    /** Sends the named call for the run and returns the request the connector received. */
     private DiscoveryV2ScopedRequestDto sendAndCapture(String operation) throws Exception {
         ArgumentCaptor<DiscoveryRunRequestDto> runRequest = ArgumentCaptor.forClass(DiscoveryRunRequestDto.class);
         switch (operation) {
@@ -492,6 +548,12 @@ class DiscoveryV2ClientTest {
             default -> throw new IllegalArgumentException("No such call: " + operation);
         }
         return runRequest.getValue();
+    }
+
+    private DiscoveryV2Client clientOffering(String modes) {
+        return new DiscoveryV2Client(connectorApiFactory, connectorRepository, attributeEngine, credentialService,
+                resourceService, authHelper, new OutboundSecretContainment(new ObjectMapper()),
+                new DiscoveryDeliveryModeOffer(modes));
     }
 
     private DiscoveryDrainRequestDto capturedDrain() throws Exception {

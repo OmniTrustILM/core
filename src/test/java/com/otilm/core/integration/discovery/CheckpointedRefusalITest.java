@@ -172,14 +172,15 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         assertThat(reload(run).getStatus()).isEqualTo(DiscoveryStatus.IN_PROGRESS);
     }
 
-    /** A resume commits the run before it expedites the status row, so for a moment the tick still holds its row. */
+    /** The status half of the fence alone: the resume's run-row writes land while the tick still holds its row. */
     @Test
-    void endsNothing_whenAResumeCommitsWhileTheLastStatusAttemptOfTheStoppedRunFails() throws Exception {
+    void endsNothing_whenAResumeIntoCheckpointedCommitsWhileTheLastStatusAttemptOfTheStoppedRunFails()
+            throws Exception {
         // given
-        Discovery run = persistAsStopped(runIn(DiscoveryDeliveryMode.CHECKPOINTED));
+        Discovery run = persistAsStopped(runIn(DiscoveryDeliveryMode.BUFFERED));
         armRow(run, DiscoveryWorkType.STATUS, LAST_ALLOWED_STATUS_ATTEMPT);
         when(client.status(any())).thenAnswer(call -> {
-            commitTheResume(run);
+            commitTheResumeAsCheckpointed(run);
             throw serverFailure(HttpStatus.INTERNAL_SERVER_ERROR);
         });
 
@@ -368,7 +369,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
 
         // then
         DiscoveryWork row = row(run, DiscoveryWorkType.DRAIN);
-        assertThat(row.getAttempt()).as("the claim's charge is given back").isEqualTo(attemptTheTickCarries);
+        assertThat(row.getAttempt()).isEqualTo(attemptTheTickCarries);
         assertThat(row.getLeaseToken()).isNull();
         assertThat(row.getBusySince()).isNotNull();
         assertThat(Duration.between(before, row.getNextDueAt()))
@@ -604,7 +605,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         return discoveryRepository.saveAndFlush(run);
     }
 
-    /** The resume transaction alone, before the resume expedites the agenda rows. */
+    /** The run-row writes of a resume, without the expedites the adapter commits with them, so a tick keeps its row. */
     private void commitTheResume(Discovery run) {
         Discovery current = reload(run);
         current.setStatus(DiscoveryStatus.IN_PROGRESS);
@@ -614,11 +615,17 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         discoveryRepository.saveAndFlush(current);
     }
 
-    /** The resume transaction of a resume whose connector answered in buffered mode. */
     private void commitTheResumeAsBuffered(Discovery run) {
         commitTheResume(run);
         Discovery current = reload(run);
         current.setDeliveryMode(DiscoveryDeliveryMode.BUFFERED);
+        discoveryRepository.saveAndFlush(current);
+    }
+
+    private void commitTheResumeAsCheckpointed(Discovery run) {
+        commitTheResume(run);
+        Discovery current = reload(run);
+        current.setDeliveryMode(DiscoveryDeliveryMode.CHECKPOINTED);
         discoveryRepository.saveAndFlush(current);
     }
 
@@ -642,10 +649,7 @@ class CheckpointedRefusalITest extends BaseSpringBootTest {
         discoveryRepository.saveAndFlush(current);
     }
 
-    /**
-     * A stop, which deletes the drain row, and a resume whose connector answered in buffered mode, which re-creates it:
-     * two raised revisions and a run that is no longer checkpointed.
-     */
+    /** A stop, which deletes the drain row, and a resume into buffered delivery, which re-creates it. */
     private void stopAndResumeAsBuffered(Discovery run) {
         workWriter.deleteForRun(run.getUuid(), DiscoveryWorkType.DRAIN);
         Discovery current = reload(run);

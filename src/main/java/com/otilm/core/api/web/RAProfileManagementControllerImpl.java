@@ -10,11 +10,13 @@ import com.otilm.api.model.client.approvalprofile.ApprovalProfileDto;
 import com.otilm.api.model.client.compliance.SimplifiedComplianceProfileDto;
 import com.otilm.api.model.client.raprofile.ActivateAcmeForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateCmpForRaProfileRequestDto;
+import com.otilm.api.model.client.raprofile.ActivateEstForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.ActivateScepForRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.AddRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.EditRaProfileRequestDto;
 import com.otilm.api.model.client.raprofile.RaProfileAcmeDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileCmpDetailResponseDto;
+import com.otilm.api.model.client.raprofile.RaProfileEstDetailResponseDto;
 import com.otilm.api.model.client.raprofile.RaProfileScepDetailResponseDto;
 import com.otilm.api.model.common.UuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
@@ -32,8 +34,10 @@ import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
 import com.otilm.core.security.authz.SecurityFilter;
 import com.otilm.core.service.RaProfileExternalService;
+import com.otilm.core.util.EstProtocolUrlFactory;
 import java.net.URI;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -271,6 +275,38 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
     }
 
     @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE,
+            affiliatedResource = Resource.EST_PROFILE, operation = Operation.GET_PROTOCOL_INFO)
+    public RaProfileEstDetailResponseDto getEstForRaProfile(String authorityUuid,
+            @LogResource(uuid = true) String raProfileUuid) throws NotFoundException {
+        return raProfileService
+                .getEstForRaProfile(SecuredParentUUID.fromString(authorityUuid), SecuredUUID.fromString(raProfileUuid),
+                        EstProtocolUrlFactory.currentOrigin());
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE,
+            affiliatedResource = Resource.EST_PROFILE, operation = Operation.ACTIVATE_PROTOCOL)
+    public RaProfileEstDetailResponseDto activateEstForRaProfile(String authorityUuid,
+            @LogResource(uuid = true) String raProfileUuid,
+            @LogResource(uuid = true, affiliated = true) String estProfileUuid,
+            ActivateEstForRaProfileRequestDto request)
+            throws ConnectorException, AttributeException, NotFoundException {
+        return raProfileService
+                .activateEstForRaProfile(SecuredParentUUID.fromString(authorityUuid), requiredUuid(raProfileUuid),
+                        requiredUuid(estProfileUuid).getValue(), request, EstProtocolUrlFactory.currentOrigin());
+    }
+
+    @Override
+    @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE,
+            affiliatedResource = Resource.EST_PROFILE, operation = Operation.DEACTIVATE_PROTOCOL)
+    public void deactivateEstForRaProfile(String authorityUuid, @LogResource(uuid = true) String raProfileUuid)
+            throws NotFoundException {
+        raProfileService
+                .deactivateEstForRaProfile(SecuredParentUUID.fromString(authorityUuid), requiredUuid(raProfileUuid));
+    }
+
+    @Override
     @AuditLogged(module = Module.CERTIFICATES, resource = Resource.RA_PROFILE, operation = Operation.CHECK_COMPLIANCE)
     public void checkCompliance(@LogResource(uuid = true) List<String> uuids) throws NotFoundException {
         raProfileService.checkCompliance(SecuredUUID.fromList(uuids));
@@ -367,4 +403,7 @@ public class RAProfileManagementControllerImpl implements RAProfileManagementCon
                         SecuredUUID.fromString(raProfileUuid));
     }
 
+    private static SecuredUUID requiredUuid(String uuid) {
+        return Objects.requireNonNull(SecuredUUID.fromString(uuid), "A path variable is always present");
+    }
 }

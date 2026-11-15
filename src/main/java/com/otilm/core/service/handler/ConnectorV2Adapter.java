@@ -1,7 +1,9 @@
 package com.otilm.core.service.handler;
 
 import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorInfo;
@@ -10,11 +12,14 @@ import com.otilm.api.model.client.connector.v2.ConnectorInterfaceInfo;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.client.connector.v2.HealthInfo;
 import com.otilm.api.model.client.connector.v2.InfoResponse;
+import com.otilm.api.model.connector.signatures.contentsigning.declaration.ContentSigningDeclarationDto;
 import com.otilm.api.model.core.connector.v2.ConnectInfo;
 import com.otilm.api.model.core.connector.v2.ConnectInfoV2;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
+import com.otilm.core.dao.entity.ConnectorContentSigningDeclaration;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
+import com.otilm.core.dao.repository.ConnectorContentSigningDeclarationRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.service.writer.KeyTransferCapabilityWriter;
 import com.otilm.core.util.NullUtil;
@@ -38,6 +43,7 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
     private ConnectorApiFactory connectorApiFactory;
     private ConnectorInterfaceRepository connectorInterfaceRepository;
     private KeyTransferCapabilityWriter keyTransferCapabilityWriter;
+    private ConnectorContentSigningDeclarationRepository contentSigningDeclarationRepository;
 
     @Autowired
     public void setConnectorApiFactory(ConnectorApiFactory connectorApiFactory) {
@@ -47,6 +53,12 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
     @Autowired
     public void setKeyTransferCapabilityWriter(KeyTransferCapabilityWriter keyTransferCapabilityWriter) {
         this.keyTransferCapabilityWriter = keyTransferCapabilityWriter;
+    }
+
+    @Autowired
+    public void setContentSigningDeclarationRepository(
+            ConnectorContentSigningDeclarationRepository contentSigningDeclarationRepository) {
+        this.contentSigningDeclarationRepository = contentSigningDeclarationRepository;
     }
 
     @Autowired
@@ -79,12 +91,27 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
         connectInfo.setConnectorUuid(NullUtil.parseUuidOrNull(connectorInfo.getUuid()));
         connectInfo.setConnector(infoResponse.getConnector());
         connectInfo.setInterfaces(infoResponse.getInterfaces());
+        if (servesContentSigning(connectInfo)) {
+            connectInfo.setContentSigningDeclaration(declarationOf(connectorInfo));
+        }
         return connectInfo;
+    }
+
+    /** The connector has already answered its info. A 404 or 500 here therefore marks a faulty connector. */
+    private ContentSigningDeclarationDto declarationOf(ApiClientConnectorInfo connectorInfo) throws ConnectorException {
+        try {
+            return connectorApiFactory
+                    .getContentSigningFormattingApiClient(connectorInfo)
+                    .getDeclaration(connectorInfo);
+        } catch (ConnectorEntityNotFoundException | ConnectorServerException e) {
+            throw new ConnectorException("Unable to read the content-signing declaration: " + e.getMessage(), e,
+                    connectorInfo);
+        }
     }
 
     /**
      * Requires the info, health and metrics interfaces and at least one functional interface. Refuses an interface
-     * entry that has no code.
+     * entry that has no code, and a content-signing formatting connector without a declaration.
      */
     @Override
     public void validateConnection(ConnectInfo connectInfoV2) {
@@ -117,6 +144,11 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
         if (!hasFunctionalInterface) {
             throw new ValidationException(
                     "Connector is missing any functional interface. At least one functional interface must be implemented in addition to mandatory interfaces.");
+        }
+
+        if (servesContentSigning(connectInfo) && connectInfo.getContentSigningDeclaration() == null) {
+            throw new ValidationException(
+                    "A content-signing formatting connector must send its content-signing declaration.");
         }
     }
 
@@ -180,5 +212,25 @@ public class ConnectorV2Adapter implements ConnectorAdapter {
         // A re-registered connector may import or export something else now, whether or not its declared features
         // changed.
         keyTransferCapabilityWriter.forgetForConnector(connector.getUuid());
+        syncContentSigningDeclaration(connector, connectInfoV2);
+    }
+
+    private void syncContentSigningDeclaration(Connector connector, ConnectInfoV2 connectInfo) {
+        if (servesContentSigning(connectInfo)) {
+            ContentSigningDeclarationDto declaration = Objects
+                    .requireNonNull(connectInfo.getContentSigningDeclaration(),
+                            "validateConnection refuses a content-signing formatting connector without a declaration");
+            contentSigningDeclarationRepository
+                    .save(new ConnectorContentSigningDeclaration(connector.getUuid(), declaration));
+        } else {
+            contentSigningDeclarationRepository.deleteById(connector.getUuid());
+        }
+    }
+
+    private static boolean servesContentSigning(ConnectInfoV2 connectInfo) {
+        return connectInfo
+                .getInterfaces()
+                .stream()
+                .anyMatch(i -> i.getCode() == ConnectorInterface.CONTENT_SIGNING_FORMATTING);
     }
 }

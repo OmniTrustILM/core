@@ -130,13 +130,6 @@ public class ConnectorServiceImpl implements ConnectorExternalService, Connector
     }
 
     @Override
-    public Connector getConnectorEntityWithInterfaces(SecuredUUID uuid) throws NotFoundException {
-        return connectorRepository
-                .findWithInterfacesByUuid(uuid.getValue())
-                .orElseThrow(() -> new NotFoundException(Connector.class, uuid));
-    }
-
-    @Override
     @ExternalAuthorization(resource = Resource.CONNECTOR, action = ResourceAction.CREATE)
     @OutsideTransaction
     public ConnectorDto createConnector(ConnectorRequestDto request)

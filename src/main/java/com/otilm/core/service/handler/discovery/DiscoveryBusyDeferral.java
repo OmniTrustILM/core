@@ -15,10 +15,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Defers a checkpointed drain whose connector answered that it is busy, without spending the drain budget: the
- * connector is at its slice limit, or this Core's offer no longer includes checkpointed, which the contract also
- * answers with 503. A connector that stays busy for longer than {@code discovery.slice.max-busy-wait} falls back to the
- * budget, so one that is broken still fails its runs.
+ * Defers a checkpointed drain whose connector answered busy (at its slice limit) without spending the drain budget. A
+ * connector that stays busy for longer than {@code discovery.slice.max-busy-wait} falls back to the budget, so one that
+ * is broken still fails its runs.
  */
 @Component
 public class DiscoveryBusyDeferral {
