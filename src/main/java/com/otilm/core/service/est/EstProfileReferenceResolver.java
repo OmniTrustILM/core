@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
@@ -107,33 +108,25 @@ public class EstProfileReferenceResolver {
     }
 
     private <T> T readInTransaction(Read<T> read) throws NotFoundException {
-        try {
-            return transactionHandler.runInTransaction(() -> {
-                try {
-                    return read.get();
-                } catch (NotFoundException e) {
-                    throw new NotFoundFailure(e);
-                }
-            });
-        } catch (NotFoundFailure failure) {
-            throw failure.notFound;
+        AtomicReference<NotFoundException> notFound = new AtomicReference<>();
+        T result = transactionHandler.runInTransaction(() -> {
+            try {
+                return read.get();
+            } catch (NotFoundException e) {
+                notFound.set(e);
+                return null;
+            }
+        });
+        if (notFound.get() != null) {
+            throw notFound.get();
         }
+        return result;
     }
 
     @FunctionalInterface
     private interface Read<T> {
 
         T get() throws NotFoundException;
-    }
-
-    private static final class NotFoundFailure extends RuntimeException {
-
-        private final transient NotFoundException notFound;
-
-        private NotFoundFailure(NotFoundException notFound) {
-            super(notFound);
-            this.notFound = notFound;
-        }
     }
 
     /**

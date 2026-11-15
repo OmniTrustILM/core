@@ -1168,12 +1168,12 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void destroysTheActiveKey_whenNoCertificateUsesIt() throws Exception {
+    void destroysTheUnusedActiveKey_whenNoCertificateUsesIt() throws Exception {
         // given
         stubV1KeyItemDeletion();
 
         // when
-        cryptographicKeyService.destroyKey(List.of(key.getUuid().toString()));
+        cryptographicKeyInternalService.destroyUnusedKey(key.getUuid());
 
         // then
         assertThat(cryptographicKeyItemRepository.findByUuid(privateKeyItem.getUuid()).orElseThrow().getState())
@@ -1184,13 +1184,14 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @EnumSource(value = CertificateState.class, names = {"FAILED", "REJECTED"})
-    void destroysTheActiveKey_whenItsOnlyCertificateWasNeverIssued(CertificateState neverIssued) throws Exception {
+    void destroysTheUnusedActiveKey_whenItsOnlyCertificateWasNeverIssued(CertificateState neverIssued)
+            throws Exception {
         // given
         stubV1KeyItemDeletion();
         certificateRepository.saveAndFlush(aCertificate().withKey(key).withState(neverIssued).build());
 
         // when
-        cryptographicKeyService.destroyKey(List.of(key.getUuid().toString()));
+        cryptographicKeyInternalService.destroyUnusedKey(key.getUuid());
 
         // then
         assertThat(cryptographicKeyItemRepository.findByUuid(privateKeyItem.getUuid()).orElseThrow().getState())
@@ -1199,14 +1200,13 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @EnumSource(value = CertificateState.class, names = {"ISSUED", "PENDING_ISSUE"})
-    void refusesToDestroyTheActiveKey_whenACertificateUsesIt(CertificateState inUse) {
+    void refusesToDestroyTheUnusedActiveKey_whenACertificateUsesIt(CertificateState inUse) {
         // given
         stubV1KeyItemDeletion();
         certificateRepository.saveAndFlush(aCertificate().withKey(key).withState(inUse).build());
-        List<String> keyUuids = List.of(key.getUuid().toString());
 
         // when
-        ThrowingCallable destroy = () -> cryptographicKeyService.destroyKey(keyUuids);
+        ThrowingCallable destroy = () -> cryptographicKeyInternalService.destroyUnusedKey(key.getUuid());
 
         // then
         assertThatThrownBy(destroy)
@@ -1219,18 +1219,34 @@ class CryptographicKeyServiceITest extends BaseSpringBootTest {
 
     @ParameterizedTest
     @EnumSource(KeyUse.class)
-    void refusesToDestroyTheActiveKey_whenACertificateUsesItOtherwise(KeyUse use) {
+    void refusesToDestroyTheUnusedActiveKey_whenACertificateUsesItOtherwise(KeyUse use) {
         // given
         stubV1KeyItemDeletion();
         seedCertificateUsingTheKey(use);
+
+        // when
+        ThrowingCallable destroy = () -> cryptographicKeyInternalService.destroyUnusedKey(key.getUuid());
+
+        // then
+        assertThatThrownBy(destroy).isInstanceOf(ValidationException.class);
+        mockServer.verify(0, WireMock.deleteRequestedFor(WireMock.anyUrl()));
+    }
+
+    @Test
+    void refusesToDestroyTheActiveKey_whenNoCertificateUsesItThroughThePublicDestroy() {
+        // given
+        stubV1KeyItemDeletion();
         List<String> keyUuids = List.of(key.getUuid().toString());
 
         // when
         ThrowingCallable destroy = () -> cryptographicKeyService.destroyKey(keyUuids);
 
         // then
-        assertThatThrownBy(destroy).isInstanceOf(ValidationException.class);
-        mockServer.verify(0, WireMock.deleteRequestedFor(WireMock.anyUrl()));
+        assertThatThrownBy(destroy)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining(KeyState.ACTIVE.getLabel());
+        assertThat(cryptographicKeyItemRepository.findByUuid(privateKeyItem.getUuid()).orElseThrow().getState())
+                .isEqualTo(KeyState.ACTIVE);
     }
 
     /** The ways besides its own key that a certificate that may still be issued uses a key. */
