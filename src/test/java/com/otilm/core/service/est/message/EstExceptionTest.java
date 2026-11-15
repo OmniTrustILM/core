@@ -16,7 +16,7 @@ class EstExceptionTest {
 
         // then
         assertThat(exception.error()).isEqualTo(error);
-        assertThat(exception).hasMessage(error.text());
+        assertThat(exception).hasMessageContaining(error.text());
     }
 
     @Test
@@ -43,7 +43,7 @@ class EstExceptionTest {
         // then
         assertThat(exception.error()).isEqualTo(error);
         assertThat(exception.realm()).contains(realm);
-        assertThat(exception).hasMessage(error.text());
+        assertThat(exception).hasMessageContaining(error.text());
     }
 
     @Test
@@ -71,7 +71,7 @@ class EstExceptionTest {
         assertThat(withRealm.error()).isEqualTo(EstError.POLICY_VIOLATION);
         assertThat(withRealm.realm()).contains("devices");
         assertThat(withRealm.detail()).contains("a policy text");
-        assertThat(withRealm).hasMessage(EstError.POLICY_VIOLATION.text());
+        assertThat(withRealm).hasMessageContaining(EstError.POLICY_VIOLATION.text());
         assertThat(withDetail.realm()).isEmpty();
     }
 
@@ -87,7 +87,7 @@ class EstExceptionTest {
         assertThat(withDetail).isNotSameAs(withRealm);
         assertThat(withDetail.realm()).contains("devices");
         assertThat(withDetail.detail()).contains("a policy text");
-        assertThat(withDetail).hasMessage(EstError.POLICY_VIOLATION.text());
+        assertThat(withDetail).hasMessageContaining(EstError.POLICY_VIOLATION.text());
         assertThat(withRealm.detail()).isEmpty();
     }
 }

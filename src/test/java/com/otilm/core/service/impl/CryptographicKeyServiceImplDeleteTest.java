@@ -60,8 +60,8 @@ class CryptographicKeyServiceImplDeleteTest {
     private final AuthorizationEnforcer authorization = mock(AuthorizationEnforcer.class);
     private final CryptographicKeyServiceImpl service = new CryptographicKeyServiceImpl();
     private final UUID keyUuid = UUID.randomUUID();
-    private final CryptographicKeyItemBasicModel firstItem = keyItem(keyUuid);
-    private final CryptographicKeyItemBasicModel secondItem = keyItem(keyUuid);
+    private final CryptographicKeyItemBasicModel firstItem = createKeyItem(keyUuid);
+    private final CryptographicKeyItemBasicModel secondItem = createKeyItem(keyUuid);
 
     @BeforeEach
     void wireService() {
@@ -77,7 +77,7 @@ class CryptographicKeyServiceImplDeleteTest {
     @ValueSource(booleans = {true, false})
     void deleteKey_laterRemoteFailure_preservesEarlierItemCleanup(boolean selectedItems) throws Exception {
         // given
-        CryptographicKeyFullModel key = remoteKey();
+        CryptographicKeyFullModel key = createRemoteKey();
         ConnectorException remoteFailure = new ConnectorException("Second item destruction failed");
         doThrow(remoteFailure).when(adapter).destroyKeyItem(key, secondItem.reference());
 
@@ -100,7 +100,7 @@ class CryptographicKeyServiceImplDeleteTest {
     @Test
     void deleteKey_cleansEachItemBeforeDestroyingNextAndDeletesParentLast() throws Exception {
         // given
-        CryptographicKeyFullModel key = remoteKey();
+        CryptographicKeyFullModel key = createRemoteKey();
 
         // when
         service.deleteKey(List.of(key.uuid().toString()));
@@ -120,9 +120,9 @@ class CryptographicKeyServiceImplDeleteTest {
     @Test
     void deletesDestroyedItemsAndKey_whenAdapterFindsThemAlreadyGone() throws Exception {
         // given
-        CryptographicKeyItemBasicModel destroyedPrivateItem = keyItem(keyUuid, KeyState.DESTROYED);
-        CryptographicKeyItemBasicModel destroyedPublicItem = keyItem(keyUuid, KeyState.DESTROYED);
-        CryptographicKeyFullModel key = remoteKey(List.of(destroyedPrivateItem, destroyedPublicItem));
+        CryptographicKeyItemBasicModel destroyedPrivateItem = createKeyItem(keyUuid, KeyState.DESTROYED);
+        CryptographicKeyItemBasicModel destroyedPublicItem = createKeyItem(keyUuid, KeyState.DESTROYED);
+        CryptographicKeyFullModel key = createRemoteKey(List.of(destroyedPrivateItem, destroyedPublicItem));
 
         // when
         service.deleteKey(List.of(key.uuid().toString()));
@@ -160,7 +160,7 @@ class CryptographicKeyServiceImplDeleteTest {
     @ValueSource(booleans = {true, false})
     void deleteKey_deniedTokenPreventsCleanupIncludingEmptyParents(boolean emptyParent) throws Exception {
         // given
-        CryptographicKeyFullModel key = remoteKey();
+        CryptographicKeyFullModel key = createRemoteKey();
         if (emptyParent) {
             key = key(key.tokenInstance(), List.of());
         }
@@ -180,7 +180,7 @@ class CryptographicKeyServiceImplDeleteTest {
     @Test
     void deleteKey_authorizesEmptyParentBeforeRemovingIt() throws Exception {
         // given
-        CryptographicKeyFullModel key = key(remoteKey().tokenInstance(), List.of());
+        CryptographicKeyFullModel key = key(createRemoteKey().tokenInstance(), List.of());
 
         // when
         service.deleteKey(List.of(key.uuid().toString()));
@@ -196,9 +196,9 @@ class CryptographicKeyServiceImplDeleteTest {
     @ValueSource(booleans = {true, false})
     void selectedDeletion_rejectsForeignItemBeforeAnyRemoteOrLocalDeletion(boolean destroy) throws Exception {
         // given
-        CryptographicKeyFullModel key = remoteKey();
+        CryptographicKeyFullModel key = createRemoteKey();
         UUID otherParentUuid = UUID.randomUUID();
-        CryptographicKeyItemBasicModel foreignItem = keyItem(otherParentUuid);
+        CryptographicKeyItemBasicModel foreignItem = createKeyItem(otherParentUuid);
         List<String> selectedUuids = List.of(firstItem.uuid().toString(), foreignItem.uuid().toString());
 
         // when
@@ -216,11 +216,11 @@ class CryptographicKeyServiceImplDeleteTest {
         verifyNoInteractions(adapterFactory, adapter, writer, cacheEvictor);
     }
 
-    private CryptographicKeyFullModel remoteKey() throws Exception {
-        return remoteKey(List.of(firstItem, secondItem));
+    private CryptographicKeyFullModel createRemoteKey() throws Exception {
+        return createRemoteKey(List.of(firstItem, secondItem));
     }
 
-    private CryptographicKeyFullModel remoteKey(List<CryptographicKeyItemBasicModel> items) throws Exception {
+    private CryptographicKeyFullModel createRemoteKey(List<CryptographicKeyItemBasicModel> items) throws Exception {
         TokenInstanceFullModel token = new ImmutableTokenInstanceFullModel(UUID.randomUUID(),
                 UUID.randomUUID().toString(), "token", TokenInstanceStatus.CONNECTED, null, UUID.randomUUID(),
                 "connector", null, null, Set.of());
@@ -239,11 +239,11 @@ class CryptographicKeyServiceImplDeleteTest {
         return key;
     }
 
-    private static CryptographicKeyItemBasicModel keyItem(UUID keyUuid) {
-        return keyItem(keyUuid, KeyState.ACTIVE);
+    private static CryptographicKeyItemBasicModel createKeyItem(UUID keyUuid) {
+        return createKeyItem(keyUuid, KeyState.ACTIVE);
     }
 
-    private static CryptographicKeyItemBasicModel keyItem(UUID keyUuid, KeyState state) {
+    private static CryptographicKeyItemBasicModel createKeyItem(UUID keyUuid, KeyState state) {
         RemoteKeyReference reference = new RemoteKeyReference.UuidReference(UUID.randomUUID());
         return new CryptographicKeyItemBasicModel(UUID.randomUUID(), keyUuid, "item", reference, KeyType.PRIVATE_KEY,
                 KeyAlgorithm.RSA, null, null, 2048, state, true, List.of(), null, null, false);
