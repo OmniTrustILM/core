@@ -344,7 +344,7 @@ class KeyImportSagaTest {
         // then
         assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("A key named imported key already exists.");
+                .hasMessageContaining("A key 'imported key' already exists.");
         verify(keyImportWriter, never()).open(any(), any(), any(), any());
     }
 

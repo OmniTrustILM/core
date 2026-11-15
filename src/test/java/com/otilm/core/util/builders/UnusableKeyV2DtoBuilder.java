@@ -8,12 +8,12 @@ import com.otilm.api.model.connector.cryptography.v2.key.UnusableKeyV2Dto;
 import java.util.List;
 
 /**
- * Builds a key a connector lists as unusable: a 2048-bit RSA private key labelled "legacy" that has no ID unique to it,
- * without metadata. Tests override only what their scenario turns on.
+ * Builds a key a connector lists as unusable: a 2048-bit RSA private key stored as "legacy" that has no ID unique to
+ * it, without metadata. Tests override only what their scenario turns on.
  */
 public final class UnusableKeyV2DtoBuilder {
 
-    private String label = "legacy";
+    private String storageName = "legacy";
     private UnusableKeyReason reason = UnusableKeyReason.UNADDRESSABLE;
     private boolean keyDataRead = true;
     private KeyAlgorithm algorithm = KeyAlgorithm.RSA;
@@ -24,8 +24,8 @@ public final class UnusableKeyV2DtoBuilder {
         return new UnusableKeyV2DtoBuilder();
     }
 
-    public UnusableKeyV2DtoBuilder withLabel(String label) {
-        this.label = label;
+    public UnusableKeyV2DtoBuilder withStorageName(String storageName) {
+        this.storageName = storageName;
         return this;
     }
 
@@ -57,7 +57,7 @@ public final class UnusableKeyV2DtoBuilder {
 
     public UnusableKeyV2Dto build() {
         UnusableKeyV2Dto key = new UnusableKeyV2Dto();
-        key.setLabel(label);
+        key.setStorageName(storageName);
         key.setReason(reason);
         if (keyDataRead) {
             key.setKeyData(descriptor());

@@ -355,9 +355,9 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
     private static ProviderUnusableKey toUnusableKey(UnusableKeyV2Dto listed) {
         KeyDataV2Dto keyData = listed.getKeyData();
         if (keyData == null) {
-            return new ProviderUnusableKey(listed.getLabel(), listed.getReason(), null, null);
+            return new ProviderUnusableKey(listed.getStorageName(), listed.getReason(), null, null);
         }
-        return new ProviderUnusableKey(listed.getLabel(), listed.getReason(), keyData.getAlgorithm(),
+        return new ProviderUnusableKey(listed.getStorageName(), listed.getReason(), keyData.getAlgorithm(),
                 keyData.getLength());
     }
 
@@ -387,7 +387,7 @@ public class KeyProviderV2Adapter implements KeyProviderAdapter {
                 ? null
                 : toKeyItem(NAMED_ON_ONBOARDING, publicKey.getKeyData(), publicKey.getKeyMeta(),
                         spkiMaterial(publicKey));
-        return new ProviderKeyPair(listed.getKeyPairMeta(), listed.getLabel(), privateKeyItem, publicKeyItem);
+        return new ProviderKeyPair(listed.getKeyPairMeta(), listed.getStorageName(), privateKeyItem, publicKeyItem);
     }
 
     @Override

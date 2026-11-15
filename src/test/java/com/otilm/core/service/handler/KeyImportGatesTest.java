@@ -292,7 +292,7 @@ class KeyImportGatesTest {
 
         // then
         assertThat(refused.getMessage())
-                .isEqualTo("Key certKey_SuperAdmin holds the same public key, and you may not update it.");
+                .isEqualTo("Key 'certKey_SuperAdmin' holds the same public key, and you may not update it.");
     }
 
     /** The refusal is the one a key held otherwise gets, so it says nothing of whose the record is. */
@@ -322,7 +322,7 @@ class KeyImportGatesTest {
 
         // then
         assertThat(refused.getMessage())
-                .isEqualTo("Key certKey_SuperAdmin holds the same public key under a token instance, without its "
+                .isEqualTo("Key 'certKey_SuperAdmin' holds the same public key under a token instance, without its "
                         + "private key.");
         verify(authorizationEnforcer, never())
                 .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), any(SecuredUUID.class));

@@ -41,7 +41,6 @@ import org.springframework.security.access.AccessDeniedException;
 import static com.otilm.core.service.handler.KeyRemovalGates.COMPROMISED;
 import static com.otilm.core.service.handler.KeyRemovalGates.NO_PRIVATE_KEY_IN_TOKEN;
 import static com.otilm.core.service.handler.KeyRemovalGates.TOKEN_NOT_LISTABLE;
-import static com.otilm.core.service.impl.CryptographicKeyServiceImpl.NOT_REMOVABLE;
 import static com.otilm.core.util.builders.CryptographicKeyFullModelBuilder.aKeySnapshot;
 import static com.otilm.core.util.builders.CryptographicKeyItemBasicModelBuilder.aKeyItemSnapshot;
 import static com.otilm.core.util.builders.TokenInstanceFullModelBuilder.aTokenSnapshot;
@@ -403,7 +402,8 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
             // when / then
             assertThatThrownBy(() -> service.removeKeyFromInventory(compromisedUuid))
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining(NOT_REMOVABLE.formatted(compromised.name(), COMPROMISED));
+                    .hasMessageContaining(
+                            "Key 'compromised-pair' cannot be removed from the inventory. " + COMPROMISED);
             verifyNoInteractions(writer, cache);
         }
     }

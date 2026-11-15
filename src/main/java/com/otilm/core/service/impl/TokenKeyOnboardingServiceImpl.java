@@ -76,8 +76,8 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
 
     static final String GONE = "The key storage no longer holds this key pair.";
     static final String AMBIGUOUS_PAIR = "The key storage holds more than one key pair under this handle.";
-    static final String HELD = "Key %s already holds this key pair.";
-    static final String NOT_ACTIVE = "Key %s holds this public key without a token instance, but it is not active, so "
+    static final String HELD = "Key '%s' already holds this key pair.";
+    static final String NOT_ACTIVE = "Key '%s' holds this public key without a token instance, but it is not active, so "
             + "the private key cannot join it.";
     static final String PUBLIC_KEY_MISSING = "The key storage holds no public key for this key pair.";
     static final String NO_USABLE_ID = "The key storage holds this key without an ID the platform can address it by.";
@@ -92,7 +92,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     static final String PAGE_BEYOND_LAST_OFFSET = "The page must start at most " + Integer.MAX_VALUE
             + " key pairs into the listing.";
     static final String ONBOARDING_FAILED = "Failed to onboard the key pair.";
-    private static final String UNLABELLED_NAME = "Onboarded key";
+    private static final String FALLBACK_NAME = "Onboarded key";
     private static final int FINGERPRINT_PREFIX_LENGTH = 8;
 
     private final KeyListGates keyListGates;
@@ -188,8 +188,9 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         } catch (AttributeException | NotFoundException | DataIntegrityViolationException e) {
             ProviderKeyPair pair = resolution.keyPair();
             logger
-                    .warn("Selection {}, key pair labelled {} with fingerprint {}, could not be onboarded to {}", index,
-                            pair.label(), fingerprintOf(pair), onboarding.profile().toIdentifierString(), e);
+                    .warn("Selection {}, key pair stored as {} with fingerprint {}, could not be onboarded to {}",
+                            index, pair.storageName(), fingerprintOf(pair), onboarding.profile().toIdentifierString(),
+                            e);
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result = TokenKeyOnboardingResultDto
                     .builder()
                     .keyPairMeta(selection.getKeyPairMeta());
@@ -238,7 +239,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         TokenKeyDto.TokenKeyDtoBuilder entry = TokenKeyDto
                 .builder()
                 .keyPairMeta(pair.keyPairMeta())
-                .label(pair.label())
+                .storageName(pair.storageName())
                 .keyAlgorithm(pair.privateKey().algorithm())
                 .length(pair.privateKey().length())
                 .status(standing.status())
@@ -249,7 +250,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             entry.inventoryKeyUuid(visibleHolder.keyUuid()).inventoryKeyName(visibleHolder.keyName());
         }
         if (standing.status() == TokenKeyStatus.ONBOARDABLE) {
-            entry.suggestedName(inventory.suggestName(pair.label(), standing.fingerprint()));
+            entry.suggestedName(inventory.suggestName(pair.storageName(), standing.fingerprint()));
         }
         return entry.build();
     }
@@ -258,7 +259,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     private static TokenKeyDto describe(ProviderUnusableKey key) {
         TokenKeyDto.TokenKeyDtoBuilder entry = TokenKeyDto
                 .builder()
-                .label(key.label())
+                .storageName(key.storageName())
                 .keyAlgorithm(key.algorithm())
                 .length(key.length());
         return switch (key.reason()) {
@@ -339,24 +340,25 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
         return pair.publicKey() == null ? null : CryptographyUtil.calculateKeyFingerprint(pair.publicKey().material());
     }
 
-    private static boolean isLabelled(String label) {
-        return label != null && !label.isBlank();
+    private static boolean isGiven(String storageName) {
+        return storageName != null && !storageName.isBlank();
     }
 
-    /** The names a key pair is most likely suggested: its label, and the shortest name its fingerprint makes. */
+    /** The names a key pair is most likely suggested: its storage name and its shortest fingerprinted name. */
     private static Stream<String> likelyNamesOf(ProviderKeyPair pair) {
         String fingerprint = fingerprintOf(pair);
         if (fingerprint == null) {
             return Stream.empty();
         }
-        String shortestFingerprinted = withFingerprintPrefix(pair.label(), fingerprint, FINGERPRINT_PREFIX_LENGTH);
-        return isLabelled(pair.label())
-                ? Stream.of(pair.label().strip(), shortestFingerprinted)
+        String shortestFingerprinted = withFingerprintPrefix(pair.storageName(), fingerprint,
+                FINGERPRINT_PREFIX_LENGTH);
+        return isGiven(pair.storageName())
+                ? Stream.of(pair.storageName().strip(), shortestFingerprinted)
                 : Stream.of(shortestFingerprinted);
     }
 
-    private static String withFingerprintPrefix(String label, String fingerprint, int prefixLength) {
-        String base = isLabelled(label) ? label.strip() : UNLABELLED_NAME;
+    private static String withFingerprintPrefix(String storageName, String fingerprint, int prefixLength) {
+        String base = isGiven(storageName) ? storageName.strip() : FALLBACK_NAME;
         return "%s (%s)".formatted(base, fingerprint.substring(0, prefixLength));
     }
 
@@ -394,7 +396,7 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             TokenKeyOnboardingResultDto.TokenKeyOnboardingResultDtoBuilder result)
             throws AttributeException, NotFoundException {
         String name = selection.getName() == null || selection.getName().isBlank()
-                ? onboarding.inventory().suggestedName(pair.label(), standing.fingerprint())
+                ? onboarding.inventory().suggestedName(pair.storageName(), standing.fingerprint())
                 : selection.getName().strip();
         if (cryptographicKeyRepository.existsByName(name)) {
             return skipped(result, CryptographicKeyWriter.NAME_TAKEN.formatted(name));
@@ -494,8 +496,8 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
     /**
      * What the inventory and the unsettled imports hold of the key pairs a token listed or resolved. Each key an
      * onboarding registers is added, so selecting its key pair again finds it held. Its name and each suggested name
-     * count as taken, so a later key pair with the same label is suggested the label with a prefix of its fingerprint,
-     * lengthened until no key has the name.
+     * count as taken. A later key pair with the same storage name is then suggested that name with a prefix of its
+     * fingerprint, lengthened until no key has the name.
      *
      * @param holders the keys holding the pairs' public keys, by fingerprint
      * @param importing the fingerprints of the pairs' public keys that an unsettled import holds
@@ -510,22 +512,22 @@ public class TokenKeyOnboardingServiceImpl implements TokenKeyOnboardingExternal
             nameTaken.put(holder.keyName(), true);
         }
 
-        String suggestName(String label, String fingerprint) {
-            String name = suggestedName(label, fingerprint);
+        String suggestName(String storageName, String fingerprint) {
+            String name = suggestedName(storageName, fingerprint);
             nameTaken.put(name, true);
             return name;
         }
 
-        String suggestedName(String label, String fingerprint) {
-            if (isLabelled(label) && isFree(label.strip())) {
-                return label.strip();
+        String suggestedName(String storageName, String fingerprint) {
+            if (isGiven(storageName) && isFree(storageName.strip())) {
+                return storageName.strip();
             }
             return IntStream
                     .rangeClosed(FINGERPRINT_PREFIX_LENGTH, fingerprint.length())
-                    .mapToObj(prefixLength -> withFingerprintPrefix(label, fingerprint, prefixLength))
+                    .mapToObj(prefixLength -> withFingerprintPrefix(storageName, fingerprint, prefixLength))
                     .filter(this::isFree)
                     .findFirst()
-                    .orElseGet(() -> withFingerprintPrefix(label, fingerprint, fingerprint.length()));
+                    .orElseGet(() -> withFingerprintPrefix(storageName, fingerprint, fingerprint.length()));
         }
 
         private boolean isFree(String name) {

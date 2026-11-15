@@ -1008,7 +1008,7 @@ class KeyProviderV2AdapterTest {
         @Test
         void mapsEachListedPair() throws Exception {
             // given
-            ListedKeyPairV2Dto signer = aListedKeyPair().withLabel("signer").build();
+            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName("signer").build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(signer).withTotalItems(7).build());
 
             // when
@@ -1018,7 +1018,7 @@ class KeyProviderV2AdapterTest {
             assertThat(listed.totalItems()).isEqualTo(7L);
             assertThat(listed.keyPairs()).hasSize(1);
             ProviderKeyPair pair = listed.keyPairs().getFirst();
-            assertThat(pair.label()).isEqualTo("signer");
+            assertThat(pair.storageName()).isEqualTo("signer");
             assertThat(pair.publicKey().material().format()).isEqualTo(KeyFormat.SPKI);
             assertThat(pair.privateKey().reference())
                     .isEqualTo(new RemoteKeyReference.MetadataReference(signer.getPrivateKeyData().getKeyMeta()));
@@ -1079,7 +1079,7 @@ class KeyProviderV2AdapterTest {
         void rejectsAPageEchoingAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
-            ListedKeyPairV2Dto echoing = aListedKeyPair().withLabel(TOKEN_SECRET).withoutPublicKey().build();
+            ListedKeyPairV2Dto echoing = aListedKeyPair().withStorageName(TOKEN_SECRET).withoutPublicKey().build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(echoing).build());
 
             // when / then
@@ -1092,17 +1092,17 @@ class KeyProviderV2AdapterTest {
             // given
             when(client.listKeys(any(), any()))
                     .thenReturn(aKeyListing()
-                            .withUnusableKeys(anUnusableKey().withLabel("legacy").build(),
+                            .withUnusableKeys(anUnusableKey().withStorageName("legacy").build(),
                                     anUnusableKey()
-                                            .withLabel(null)
+                                            .withStorageName(null)
                                             .withReason(UnusableKeyReason.UNSUPPORTED_TYPE)
                                             .build(),
                                     anUnusableKey()
-                                            .withLabel("damaged")
+                                            .withStorageName("damaged")
                                             .withReason(UnusableKeyReason.UNREADABLE)
                                             .build(),
                                     anUnusableKey()
-                                            .withLabel("vanished")
+                                            .withStorageName("vanished")
                                             .withReason(UnusableKeyReason.NOT_FOUND)
                                             .build())
                             .build());
@@ -1124,7 +1124,7 @@ class KeyProviderV2AdapterTest {
         @Test
         void mapsAnUnusableKeyListedWithoutKeyData() throws Exception {
             // given
-            UnusableKeyV2Dto unread = anUnusableKey().withLabel("legacy").withoutKeyData().build();
+            UnusableKeyV2Dto unread = anUnusableKey().withStorageName("legacy").withoutKeyData().build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withUnusableKeys(unread).build());
 
             // when
@@ -1153,12 +1153,13 @@ class KeyProviderV2AdapterTest {
 
         @ParameterizedTest
         @EnumSource(value = Resource.class, names = {"TOKEN", "TOKEN_PROFILE"})
-        void rejectsAnUnusableKeyLabelledWithAnExpandedSecret(Resource secretScope) throws Exception {
+        void rejectsAnUnusableKeyStoredAsAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
             when(client.listKeys(any(), any()))
-                    .thenReturn(
-                            aKeyListing().withUnusableKeys(anUnusableKey().withLabel(TOKEN_SECRET).build()).build());
+                    .thenReturn(aKeyListing()
+                            .withUnusableKeys(anUnusableKey().withStorageName(TOKEN_SECRET).build())
+                            .build());
 
             // when / then
             assertThatThrownBy(() -> adapter.listKeyPairs(profile, 0, 10))
@@ -1213,7 +1214,7 @@ class KeyProviderV2AdapterTest {
         @Test
         void returnsTheAnswersInHandleOrder_whenTheConnectorAnswersOutOfOrder() throws Exception {
             // given
-            ListedKeyPairV2Dto signer = aListedKeyPair().withLabel("signer").build();
+            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName("signer").build();
             ResolveKeysResponseV2Dto reversed = new ResolveKeysResponseV2Dto(List
                     .of(new KeyResolutionV2Dto("1", KeyResolutionOutcome.FOUND, signer),
                             new KeyResolutionV2Dto("0", KeyResolutionOutcome.NOT_FOUND, null)));
@@ -1227,13 +1228,13 @@ class KeyProviderV2AdapterTest {
             assertThat(resolved)
                     .extracting(ProviderKeyPairResolution::outcome)
                     .containsExactly(KeyResolutionOutcome.NOT_FOUND, KeyResolutionOutcome.FOUND);
-            assertThat(resolved.getLast().keyPair().label()).isEqualTo("signer");
+            assertThat(resolved.getLast().keyPair().storageName()).isEqualTo("signer");
         }
 
         @Test
         void mapsAFoundKeyPair() throws Exception {
             // given
-            ListedKeyPairV2Dto signer = aListedKeyPair().withLabel("signer").build();
+            ListedKeyPairV2Dto signer = aListedKeyPair().withStorageName("signer").build();
             when(client.listKeys(any(), any())).thenReturn(aKeyListing().withKeys(signer).build());
             when(client.resolveKeys(any(), any()))
                     .thenReturn(aKeyResolutionResponse().withAnswers(found(signer)).build());
@@ -1309,7 +1310,7 @@ class KeyProviderV2AdapterTest {
         void refusesAnAnswerEchoingAnExpandedSecret(Resource secretScope) throws Exception {
             // given
             stubExpandedSecret(secretScope, TOKEN_SECRET);
-            ListedKeyPairV2Dto echoing = aListedKeyPair().withLabel(TOKEN_SECRET).withoutPublicKey().build();
+            ListedKeyPairV2Dto echoing = aListedKeyPair().withStorageName(TOKEN_SECRET).withoutPublicKey().build();
             var handles = List.of(echoing.getKeyPairMeta());
             when(client.resolveKeys(any(), any()))
                     .thenReturn(aKeyResolutionResponse().withAnswers(found(echoing)).build());
