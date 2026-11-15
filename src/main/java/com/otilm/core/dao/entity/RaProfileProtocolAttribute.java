@@ -13,6 +13,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.proxy.HibernateProxy;
 
 @Getter
@@ -20,6 +21,7 @@ import org.hibernate.proxy.HibernateProxy;
 @ToString
 @RequiredArgsConstructor
 @Entity
+@DynamicUpdate
 @Table(name = "ra_profile_protocol_attribute")
 public class RaProfileProtocolAttribute extends UniquelyIdentified {
 
