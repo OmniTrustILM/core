@@ -37,6 +37,7 @@ import com.otilm.core.util.AttributeDefinitionUtils;
 import com.otilm.core.util.EstCsrFixtures;
 import com.otilm.core.util.SecretLeakProbe;
 import com.otilm.core.util.seeders.SecretSeeder;
+import com.zaxxer.hikari.HikariDataSource;
 import jakarta.servlet.ServletContext;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
@@ -48,6 +49,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import javax.sql.DataSource;
 import org.awaitility.Awaitility;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.ASN1Sequence;
@@ -99,6 +101,9 @@ class EstDiscoveryHttpITest extends AbstractEstHttpITest {
     private static final String CONNECTOR_TEXT = "connector-internal-detail";
     private static final int SLOW_CONNECTOR_MILLIS = 2000;
     private static final int SAMPLES = 5;
+    private static final int POOL_SAMPLES = 10;
+    private static final Duration POOL_SAMPLE_INTERVAL = Duration.ofMillis(50);
+    private static final Duration POOL_SAMPLING_TIMEOUT = Duration.ofSeconds(10);
     private static final String OPEN_TRANSACTIONS = "SELECT count(*) FROM pg_stat_activity "
             + "WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'idle in transaction'";
 
@@ -110,6 +115,9 @@ class EstDiscoveryHttpITest extends AbstractEstHttpITest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Autowired
     private SecretSeeder secretSeeder;
@@ -409,6 +417,26 @@ class EstDiscoveryHttpITest extends AbstractEstHttpITest {
             assertThat(served.get(30, TimeUnit.SECONDS).getStatus()).isEqualTo(200);
         }
 
+        @Test
+        void holdsNoPooledConnection_whenTheConnectorIsAsked() throws Exception {
+            // given
+            seedRouteWhoseAttributeSetComesFromTheConnector(
+                    WireMock.okJson("[]").withFixedDelay(SLOW_CONNECTOR_MILLIS));
+            int idle = countIdleConnections();
+
+            // when
+            CompletableFuture<MockHttpServletResponse> served = getFromEstInTheBackground("csrattrs");
+            List<Integer> inUseWhileAsking = sampleActiveConnectionsWhileTheConnectorIsAsked(
+                    WireMock.postRequestedFor(WireMock.urlPathEqualTo(V3_REQUEST_ATTRIBUTES)));
+
+            // then
+            assertThat(inUseWhileAsking)
+                    .as("connections in use while the connector is asked, against %d when idle", idle)
+                    .filteredOn(inUse -> inUse > idle)
+                    .hasSizeLessThan(POOL_SAMPLES / 2);
+            assertThat(served.get(30, TimeUnit.SECONDS).getStatus()).isEqualTo(200);
+        }
+
         @ParameterizedTest
         @MethodSource({"failingConnectorAnswers", "undecodableConnectorAnswers"})
         void answersServiceUnavailable_whenAttributeSetCannotBeResolved(ResponseDefinitionBuilder connectorAnswer)
@@ -693,6 +721,28 @@ class EstDiscoveryHttpITest extends AbstractEstHttpITest {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** The fewest connections in use among a few samples, so that a background task does not raise it. */
+    private int countIdleConnections() {
+        return sampleActiveConnections().stream().mapToInt(Integer::intValue).min().orElseThrow();
+    }
+
+    private List<Integer> sampleActiveConnectionsWhileTheConnectorIsAsked(RequestPatternBuilder connectorRequest) {
+        Awaitility
+                .await()
+                .atMost(Duration.ofSeconds(10))
+                .until(() -> !connectorServer.findAll(connectorRequest).isEmpty());
+        return sampleActiveConnections();
+    }
+
+    private List<Integer> sampleActiveConnections() {
+        List<Integer> samples = new ArrayList<>();
+        Awaitility.await().atMost(POOL_SAMPLING_TIMEOUT).pollInterval(POOL_SAMPLE_INTERVAL).until(() -> {
+            samples.add(dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean().getActiveConnections());
+            return samples.size() >= POOL_SAMPLES;
+        });
+        return samples;
+    }
 
     private CompletableFuture<MockHttpServletResponse> getFromEstInTheBackground(String operationPath) {
         return CompletableFuture.supplyAsync(() -> {
