@@ -12,12 +12,14 @@ import com.otilm.api.model.core.est.EstAuthenticationPolicy;
 import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.est.EstProfile;
+import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.messaging.jms.listeners.ActionsListener;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.messaging.model.ActionMessage;
@@ -99,6 +101,9 @@ class EstEnrollmentAuditITest extends BaseSpringBootTest {
     @Autowired
     private ApprovalProfileSeeder approvals;
 
+    @Autowired
+    private CertificateRepository certificateRepository;
+
     private final List<AuditLogMessage> auditMessages = new ArrayList<>();
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final Logger platformLogger = (Logger) LoggerFactory.getLogger("com.otilm");
@@ -160,6 +165,21 @@ class EstEnrollmentAuditITest extends BaseSpringBootTest {
         assertThat(theEnrolmentRecord().operationData())
                 .isEqualTo(new EstEnrollmentAudit(estProfile.getName(), EstAuthenticationPolicy.RA_BASIC,
                         theClientIdentity(), EstEnrollmentAudit.ISSUED));
+    }
+
+    @Test
+    void recordsTheIssuedCertificateAsTheResource_whenEnrolmentIsAnswered() throws Exception {
+        // given
+        issueAtOnce();
+
+        // when
+        estController.simpleEnroll(estProfile.getName(), EstCsrFixtures.signedRequestBody());
+
+        // then
+        UUID issuedUuid = certificateRepository.findAll().getFirst().getUuid();
+        assertThat(theEnrolmentRecord().resource().objects())
+                .extracting(ResourceObjectIdentity::uuid)
+                .containsExactly(issuedUuid);
     }
 
     @Test

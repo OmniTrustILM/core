@@ -2,6 +2,7 @@ package com.otilm.core.service.est.enrollment;
 
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.logging.Sensitive;
 import com.otilm.api.model.core.v2.ClientCertificateDataResponseDto;
@@ -12,6 +13,7 @@ import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.est.EstRequestClaim;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.EstRequestedCertificate;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.service.CertificateInternalService;
@@ -231,6 +233,7 @@ public class EstEnrollment {
                 .info("EST enrolment {} for certificate {}, client {}, realm {}", outcome, certificateUuid,
                         client.identity(), route.realm());
         if (RequestContextHolder.getRequestAttributes() != null) {
+            LoggingHelper.putLogResourceInfo(Resource.CERTIFICATE, false, certificateUuid.toString(), null);
             auditOperationDataOverride
                     .set(new EstEnrollmentAudit(route.label(), client.policy(), client.identity(), outcome));
         }

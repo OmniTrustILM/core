@@ -12,6 +12,7 @@ import com.otilm.core.aop.AuditOperationDataOverride;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.repository.ApprovalProfileRelationRepository;
 import com.otilm.core.key.normalization.Pkcs8Envelopes;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.service.est.EstRoute;
 import com.otilm.core.service.est.authentication.EstClient;
@@ -200,9 +201,12 @@ public class EstServerKeyGeneration {
                         trail.mode.getCode(), orDash(trail.certificateUuid), orDash(trail.keyUuid), client.identity(),
                         route.realm());
         if (RequestContextHolder.getRequestAttributes() != null) {
+            if (trail.certificateUuid != null) {
+                LoggingHelper.putLogResourceInfo(Resource.CERTIFICATE, false, trail.certificateUuid.toString(), null);
+            }
             auditOperationDataOverride
                     .set(new EstServerKeyGenerationAudit(route.label(), client.policy(), client.identity(), trail.mode,
-                            outcome));
+                            trail.keyUuid, outcome));
         }
     }
 

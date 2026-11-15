@@ -10,6 +10,7 @@ import com.otilm.api.model.core.logging.enums.AuditLogOutput;
 import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.logging.enums.OperationResult;
 import com.otilm.api.model.core.logging.records.LogRecord;
+import com.otilm.api.model.core.logging.records.ResourceObjectIdentity;
 import com.otilm.api.model.core.settings.logging.AuditLoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.LoggingSettingsDto;
 import com.otilm.api.model.core.settings.logging.ResourceLoggingSettingsDto;
@@ -118,6 +119,24 @@ class EstReenrollmentAuditITest extends AbstractEstReenrollmentITest {
         assertThat(auditRecord.operationData())
                 .isEqualTo(new EstReenrollmentAudit(estProfile.getName(), estProfile.getAuthenticationPolicy(),
                         deriveClientIdentity(source), seededSource.getUuid(), EstEnrollmentAudit.ISSUED));
+    }
+
+    @Test
+    void recordsTheSuccessorAsTheResource_whenCsrCarriesTheSourceKey() throws Exception {
+        // given
+        X509Certificate source = issueDueCertificate(deviceKeys);
+        Certificate seededSource = routes.seedIssuedCertificate(source, raProfile, estProfile);
+        AuthorityV2ConnectorStubs.on(connector).stubRenew(issueFreshCertificate(deviceKeys));
+        presentCertificate(source);
+
+        // when
+        estController.simpleReenroll(estProfile.getName(), signRequest(deviceKeys));
+
+        // then
+        UUID successorUuid = findTheOnlyCertificateBesides(seededSource).getUuid();
+        assertThat(findTheReenrollmentRecord().resource().objects())
+                .extracting(ResourceObjectIdentity::uuid)
+                .containsExactly(successorUuid);
     }
 
     @Test

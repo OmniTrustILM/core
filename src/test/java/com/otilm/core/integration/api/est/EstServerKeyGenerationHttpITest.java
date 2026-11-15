@@ -449,6 +449,25 @@ class EstServerKeyGenerationHttpITest extends AbstractEstHttpITest {
             assertTracedAndAudited("key-recovery");
         }
 
+        @Test
+        void auditsTheCertificateAndTheKey_whenRecoveringKeys() throws Exception {
+            // given
+            seedRoute(startExportingToken());
+
+            // when
+            generateAndIssueAsTheConsumerWould();
+
+            // then
+            String keyUuid = jdbcTemplate
+                    .queryForObject("SELECT CAST(uuid AS text) FROM %s.cryptographic_key".formatted(dbSchema),
+                            String.class);
+            String certificateUuid = jdbcTemplate
+                    .queryForObject("SELECT CAST(uuid AS text) FROM %s.certificate".formatted(dbSchema), String.class);
+            assertThat(auditRecords())
+                    .anyMatch(line -> line.contains("key-recovery") && line.contains(keyUuid)
+                            && line.contains(certificateUuid));
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
 
         /**

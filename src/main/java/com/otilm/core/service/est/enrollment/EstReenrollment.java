@@ -1,5 +1,6 @@
 package com.otilm.core.service.est.enrollment;
 
+import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.est.EstAuthenticationPolicy;
@@ -16,6 +17,7 @@ import com.otilm.core.dao.entity.est.EstRequestClaim;
 import com.otilm.core.dao.repository.CertificateRegistrationAuthorizationRepository;
 import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.EstRequestedCertificate;
+import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.model.auth.CertificateProtocolInfo;
 import com.otilm.core.model.request.Pkcs10CertificateRequest;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -187,6 +189,7 @@ public class EstReenrollment {
                 .info("EST {} {} for certificate {}, new certificate {}, client {}, realm {}", describe(kind), outcome,
                         source.uuid(), successorUuid, identity, route.realm());
         if (RequestContextHolder.getRequestAttributes() != null) {
+            LoggingHelper.putLogResourceInfo(Resource.CERTIFICATE, false, successorUuid.toString(), null);
             auditOperationDataOverride
                     .set(new EstReenrollmentAudit(route.label(), policy, identity, source.uuid(), outcome));
         }

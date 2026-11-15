@@ -454,7 +454,7 @@ class EstServerKeyGenerationTest {
             // then
             verify(auditOperationDataOverride)
                     .set(new EstServerKeyGenerationAudit(LABEL, client.policy(), client.identity(),
-                            EstServerKeyGenerationMode.IN_MEMORY, EstEnrollmentAudit.ISSUED));
+                            EstServerKeyGenerationMode.IN_MEMORY, null, EstEnrollmentAudit.ISSUED));
             assertThat(logged.list)
                     .filteredOn(event -> event.getLevel() == Level.INFO)
                     .extracting(ILoggingEvent::getFormattedMessage)
@@ -478,7 +478,7 @@ class EstServerKeyGenerationTest {
             assertThatThrownBy(generate).isInstanceOf(EstException.class);
             verify(auditOperationDataOverride)
                     .set(new EstServerKeyGenerationAudit(LABEL, client.policy(), client.identity(),
-                            EstServerKeyGenerationMode.IN_MEMORY, EstError.ISSUANCE_FAILED.name()));
+                            EstServerKeyGenerationMode.IN_MEMORY, null, EstError.ISSUANCE_FAILED.name()));
         }
 
         @Test
@@ -762,7 +762,7 @@ class EstServerKeyGenerationTest {
             // then
             verify(auditOperationDataOverride)
                     .set(new EstServerKeyGenerationAudit(LABEL, client.policy(), client.identity(),
-                            EstServerKeyGenerationMode.KEY_RECOVERY, EstEnrollmentAudit.ISSUED));
+                            EstServerKeyGenerationMode.KEY_RECOVERY, tokenKey.keyUuid(), EstEnrollmentAudit.ISSUED));
             assertThat(logged.list)
                     .filteredOn(event -> event.getLevel() == Level.INFO)
                     .extracting(ILoggingEvent::getFormattedMessage)

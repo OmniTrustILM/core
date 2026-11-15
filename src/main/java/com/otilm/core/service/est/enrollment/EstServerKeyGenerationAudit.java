@@ -2,6 +2,7 @@ package com.otilm.core.service.est.enrollment;
 
 import com.otilm.api.model.core.est.EstAuthenticationPolicy;
 import java.io.Serializable;
+import java.util.UUID;
 
 /**
  * What the audit record of a {@code /serverkeygen} that reached an identified client carries as its operation data. It
@@ -12,9 +13,11 @@ import java.io.Serializable;
  * @param policy the policy that identified the client
  * @param identity what the policy recognised the client by
  * @param mode where the key was generated
+ * @param keyUuid the key-recovery key that the request created, {@code null} for a key generated in memory or one that
+ * was never created
  * @param outcome {@link EstEnrollmentAudit#ISSUED} when the client was given its key and certificate, otherwise the
  * name of the {@link com.otilm.core.service.est.message.EstError} that the request was refused with
  */
 public record EstServerKeyGenerationAudit(String label, EstAuthenticationPolicy policy, String identity,
-        EstServerKeyGenerationMode mode, String outcome) implements Serializable {
+        EstServerKeyGenerationMode mode, UUID keyUuid, String outcome) implements Serializable {
 }
