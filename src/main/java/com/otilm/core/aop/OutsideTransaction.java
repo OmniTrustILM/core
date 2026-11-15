@@ -14,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-// NOT_SUPPORTED opens no transaction, so the rollback rule never applies; stating it keeps java:S8989 off every use.
-@Transactional(propagation = Propagation.NOT_SUPPORTED, rollbackFor = Exception.class)
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
 public @interface OutsideTransaction {
 }

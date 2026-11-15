@@ -69,6 +69,8 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
     }
 
     @Override
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
     @OutsideTransaction
     public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile, AttributeSetMergeMode mode)
             throws ConnectorException, NotFoundException {
@@ -76,6 +78,8 @@ public class RaProfileCertificateRequestAttributeServiceImpl implements RaProfil
     }
 
     @Override
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
     @OutsideTransaction
     public List<BaseAttribute> resolveIssueAttributeSet(RaProfile raProfile)
             throws ConnectorException, NotFoundException {

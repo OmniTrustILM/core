@@ -122,6 +122,8 @@ public class EstProfileServiceImpl implements EstProfileExternalService, EstProf
 
     @Override
     @ExternalAuthorization(resource = Resource.EST_PROFILE, action = ResourceAction.CREATE)
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
     @OutsideTransaction
     public EstProfileDetailDto createEstProfile(EstProfileRequestDto request, String origin)
             throws AlreadyExistException, ConnectorException, AttributeException, NotFoundException {
@@ -133,6 +135,8 @@ public class EstProfileServiceImpl implements EstProfileExternalService, EstProf
 
     @Override
     @ExternalAuthorization(resource = Resource.EST_PROFILE, action = ResourceAction.UPDATE)
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
     @OutsideTransaction
     public EstProfileDetailDto updateEstProfile(SecuredUUID uuid, EstProfileEditRequestDto request, String origin)
             throws ConnectorException, AttributeException, NotFoundException {
@@ -196,6 +200,8 @@ public class EstProfileServiceImpl implements EstProfileExternalService, EstProf
      */
     @Override
     @ExternalAuthorization(resource = Resource.EST_PROFILE, action = ResourceAction.UPDATE)
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
     @OutsideTransaction
     public void updateRaProfile(SecuredUUID uuid, UUID raProfileUuid) throws NotFoundException {
         RaProfile raProfile = referenceResolver.resolveRaProfile(raProfileUuid);

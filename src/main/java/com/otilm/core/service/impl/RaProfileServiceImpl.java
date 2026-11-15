@@ -658,6 +658,8 @@ public class RaProfileServiceImpl implements RaProfileExternalService, RaProfile
     @Override
     @ExternalAuthorization(resource = Resource.RA_PROFILE, action = ResourceAction.UPDATE,
             parentResource = Resource.AUTHORITY, parentAction = ResourceAction.DETAIL)
+    // NOT_SUPPORTED opens no transaction, so the rollback rule S8989 asks for never applies.
+    @SuppressWarnings("java:S8989")
     @OutsideTransaction
     public RaProfileEstDetailResponseDto activateEstForRaProfile(SecuredParentUUID authorityUuid, SecuredUUID uuid,
             UUID estProfileUuid, ActivateEstForRaProfileRequestDto request, String origin)
