@@ -64,6 +64,7 @@ public class AuthHelper {
     public static final String ACME_USERNAME = "acme";
     public static final String SCEP_USERNAME = "scep";
     public static final String CMP_USERNAME = "cmp";
+    public static final String EST_USERNAME = "est";
 
     /**
      * System identity the platform assumes to resolve an authority's own infrastructure references (connector,
@@ -103,7 +104,7 @@ public class AuthHelper {
     private UserManagementApiClient userManagementApiClient;
     private PlatformAuthenticationClient authenticationClient;
 
-    private static final Set<String> protocolUsers = Set.of(ACME_USERNAME, SCEP_USERNAME, CMP_USERNAME);
+    private static final Set<String> protocolUsers = Set.of(ACME_USERNAME, SCEP_USERNAME, CMP_USERNAME, EST_USERNAME);
 
     @Autowired
     public void setOpaClient(OpaClient opaClient) {
@@ -243,7 +244,7 @@ public class AuthHelper {
      * <p>
      * Absence has two shapes, neither an error: no authentication makes {@link #getUserIdentification()} throw, while
      * an anonymous caller's principal is a real {@link PlatformUserDetails} whose userUuid is null. Protocol and system
-     * users (acme, scep, cmp, localhost) are ordinary auth-service users and are carried like any other.
+     * users (acme, scep, cmp, est, localhost) are ordinary auth-service users and are carried like any other.
      */
     public static UUID getActingUserUuidOrNull() {
         NameAndUuidDto actingUser = getActingUserOrNull();

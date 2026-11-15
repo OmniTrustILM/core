@@ -45,6 +45,7 @@ import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.eq;
@@ -1508,6 +1509,43 @@ class ProxyClientImplTest {
         assertThat(result.getStatusCode().value()).isEqualTo(200);
     }
 
+    @ParameterizedTest
+    @MethodSource("bodilessNon2xxStatuses")
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_keepsTheStatus_whenTheReplyIsABodilessNon2xxBelow400(int nonSuccessStatus)
+            throws Exception {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        replyWith(ConnectorResponse.builder().statusCode(nonSuccessStatus).build());
+
+        // when
+        ResponseEntity<Void> result = proxyClient
+                .sendRequestForEntity(connector, "/v2/authorityProvider/authorities/a/certificates/issue/cancel",
+                        "POST", null, Void.class);
+
+        // then
+        assertThat(result.getStatusCode().value()).isEqualTo(nonSuccessStatus);
+        assertThat(result.getStatusCode().is2xxSuccessful()).isFalse();
+    }
+
+    @Test
+    @Timeout(value = 5, unit = TimeUnit.SECONDS)
+    void sendRequestForEntity_throwsConnectorCommunicationException_whenTheReplyHasNoValidStatus() {
+        // given
+        ConnectorDto connector = createConnector("proxy-001");
+        int noHttpStatus = 0;
+        replyWith(ConnectorResponse.builder().statusCode(noHttpStatus).build());
+
+        // when
+        ThrowingCallable sendRequestForEntity = () -> proxyClient
+                .sendRequestForEntity(connector, "/v1/test", "POST", null, Void.class);
+
+        // then
+        assertThatThrownBy(sendRequestForEntity)
+                .isInstanceOf(ConnectorCommunicationException.class)
+                .hasMessageContaining("no valid HTTP status");
+    }
+
     // ==================== Helper Methods ====================
 
     private ConnectorDto createConnector(String proxyCode) {
@@ -1618,5 +1656,11 @@ class ProxyClientImplTest {
                     assertThat(clientException.getHttpStatus()).isEqualTo(HttpStatus.FORBIDDEN);
                     assertThat(clientException.getConnector()).isNotNull();
                 });
+    }
+
+    private static Stream<Arguments> bodilessNon2xxStatuses() {
+        return Stream
+                .of(Arguments.of(named("302 found", 302)), Arguments.of(named("307 temporary redirect", 307)),
+                        Arguments.of(named("unrecognised 3xx", 399)), Arguments.of(named("unrecognised 1xx", 199)));
     }
 }
