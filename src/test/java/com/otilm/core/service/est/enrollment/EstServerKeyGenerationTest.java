@@ -970,6 +970,23 @@ class EstServerKeyGenerationTest {
             verify(keyRecovery, never()).destroy(any(), any());
         }
 
+        @Test
+        void throwsTimedOutAndKeepsTheKeyWithoutCancelling_whenTheSynchronousIssueCallIsStillRunning()
+                throws Exception {
+            // given
+            submitSignedRequestAndSettle(CertificateState.PENDING_ISSUE);
+            when(issuanceWait.issueCallRunning(certificateUuid)).thenReturn(true);
+
+            // when
+            ThrowingCallable generate = () -> serverKeyGeneration.generate(route, aClient(), clientCsr, credentials);
+
+            // then
+            assertThatThrownBy(generate).satisfies(thrown -> assertRefusal(thrown, EstError.ISSUANCE_TIMED_OUT));
+            verify(keyRecovery, never()).destroy(any(), any());
+            verifyNoInteractions(clientOperationService);
+            assertTheKeptKeyIsLogged(certificateUuid);
+        }
+
         @ParameterizedTest
         @EnumSource(value = CertificateState.class, names = {"REQUESTED", "PENDING_APPROVAL", "REGISTERED"})
         void throwsTimedOutAndKeepsTheKey_whenTheCertificateWaitsInAStateThatIsNotCancelled(CertificateState state)

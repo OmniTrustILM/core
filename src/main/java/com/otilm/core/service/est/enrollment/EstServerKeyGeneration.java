@@ -407,12 +407,17 @@ public class EstServerKeyGeneration {
     /**
      * Cancels an issue that the authority has accepted, so that the certificate of a key that nobody keeps fails rather
      * than being issued later, and discards its key once the authority will not issue it. A certificate in any other
-     * state, or one whose authority refuses the cancel or does not confirm it, keeps its key.
+     * state, one whose synchronous issue call is still running, which the authority cannot tell from an issue it never
+     * saw, or one whose authority refuses the cancel or does not confirm it, keeps its key.
      */
     private EstException timedOut(EstRoute route, UUID certificateUuid, CertificateState state, UUID keyUuid,
             Runnable discardKey) {
-        if (state == CertificateState.PENDING_ISSUE && cancel(route, certificateUuid, keyUuid)) {
-            discardKey.run();
+        if (state == CertificateState.PENDING_ISSUE) {
+            if (issuanceWait.issueCallRunning(certificateUuid)) {
+                keepKey(certificateUuid, keyUuid, "has an issue call to the authority that is still running");
+            } else if (cancel(route, certificateUuid, keyUuid)) {
+                discardKey.run();
+            }
         }
         return refused(route, certificateUuid, "was not issued in time, waiting in " + state,
                 EstError.ISSUANCE_TIMED_OUT);

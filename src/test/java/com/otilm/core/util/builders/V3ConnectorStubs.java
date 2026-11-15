@@ -132,10 +132,22 @@ public final class V3ConnectorStubs {
      * @param certData base64-encoded certificate DER bytes to include in the response
      */
     public static void stubV3IssueSync(WireMockServer wm, String certData) {
+        stubV3IssueSync(wm, certData, 0);
+    }
+
+    /**
+     * As {@link #stubV3IssueSync(WireMockServer, String)}, answering only after the delay, as a slow authority does.
+     *
+     * @param delayMillis how long the authority takes to answer
+     */
+    public static void stubV3IssueSync(WireMockServer wm, String certData, int delayMillis) {
         wm
                 .stubFor(post(urlEqualTo(ISSUE_PATH))
-                        .willReturn(
-                                aResponse().withStatus(200).withHeader("Content-Type", "application/json").withBody("""
+                        .willReturn(aResponse()
+                                .withStatus(200)
+                                .withFixedDelay(delayMillis)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("""
                                         {"certificateData": "%s", "meta": []}
                                         """.formatted(certData))));
     }

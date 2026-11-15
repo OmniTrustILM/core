@@ -122,6 +122,15 @@ public class EstIssuanceWait {
                 .orElse(false);
     }
 
+    /**
+     * @param certificateUuid a certificate in {@code PENDING_ISSUE}
+     * @return whether the synchronous call of its issue to the authority is still running, so the authority has not
+     * answered yet and may still return the certificate
+     */
+    boolean issueCallRunning(UUID certificateUuid) {
+        return certificateRepository.existsByUuidAndPendingIssueClaimedAtIsNotNull(certificateUuid);
+    }
+
     private Optional<CertificateState> await(UUID certificateUuid, String requestFingerprint, Duration waitTimeout,
             Predicate<EstRequestedCertificate> issuing) {
         long deadline = System.nanoTime() + waitTimeout.toNanos();

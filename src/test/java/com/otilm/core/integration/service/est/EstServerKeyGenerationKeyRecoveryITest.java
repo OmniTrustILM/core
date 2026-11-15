@@ -28,6 +28,7 @@ import com.otilm.core.key.normalization.DerivationBudget;
 import com.otilm.core.key.normalization.Pkcs8Envelopes;
 import com.otilm.core.messaging.jms.listeners.ActionsListener;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
+import com.otilm.core.messaging.model.ActionMessage;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.model.crypto.ExportedKeyMaterial;
 import com.otilm.core.security.authz.SecuredParentUUID;
@@ -57,11 +58,14 @@ import com.otilm.core.util.seeders.EstRouteSeeder;
 import com.otilm.core.util.seeders.SecretSeeder;
 import com.otilm.core.util.seeders.TokenProfileSeeder;
 import java.security.KeyPair;
+import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -73,6 +77,8 @@ import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.filter.annotation.TypeExcludeFilters;
 import org.springframework.context.annotation.Import;
@@ -108,6 +114,8 @@ class EstServerKeyGenerationKeyRecoveryITest extends BaseSpringBootTest {
     private static final String ECDSA_SIGNATURE = "SHA256withECDSA";
     private static final int P256_LENGTH = 256;
     private static final int KEY_PAIR_ITEMS = 2;
+    /** Longer than the key generation timeout, so the issue call is still running when the wait ends. */
+    private static final int SLOW_ISSUE_DELAY_MILLIS = 8_000;
     private static final Duration ANSWER_TIMEOUT = Duration.ofSeconds(30);
     /** A key generation answers a timeout within moments, so a test of it does not wait the default 30 s. */
     private static final int SERVER_KEY_GENERATION_TIMEOUT_SECONDS = 5;
@@ -144,6 +152,9 @@ class EstServerKeyGenerationKeyRecoveryITest extends BaseSpringBootTest {
     private QueuedMessageDelivery delivery;
 
     @Autowired
+    private ActionProducer actionProducer;
+
+    @Autowired
     private CertificateRepository certificateRepository;
 
     @Autowired
@@ -159,6 +170,7 @@ class EstServerKeyGenerationKeyRecoveryITest extends BaseSpringBootTest {
     private ClientOperationExternalService clientOperationService;
 
     private final ExecutorService requestThread = Executors.newSingleThreadExecutor();
+    private final ExecutorService consumerThread = Executors.newSingleThreadExecutor();
 
     private final KeyPair tokenKeyPair = PkiFixtures.keyPair();
     private WireMockServer authService;
@@ -187,6 +199,7 @@ class EstServerKeyGenerationKeyRecoveryITest extends BaseSpringBootTest {
     @AfterEach
     void stopTheRequestThreadAndServers() throws InterruptedException {
         requestThread.shutdownNow();
+        consumerThread.shutdownNow();
         if (!requestThread.awaitTermination(ANSWER_TIMEOUT.toSeconds(), TimeUnit.SECONDS)) {
             throw new IllegalStateException("The key generation request did not stop");
         }
@@ -416,6 +429,38 @@ class EstServerKeyGenerationKeyRecoveryITest extends BaseSpringBootTest {
     }
 
     @Test
+    void keepsTheKeyAndSkipsTheCancel_whenTheSynchronousIssueCallOutlastsTheWait() throws Exception {
+        // given — the authority answers the issue only after the wait of the request has ended
+        seedRecoveringProfile(routes.seedRaProfileOnV3Authority(authority, RA_PROFILE_NAME));
+        V3ConnectorStubs.stubAttributesAndValidate(authority);
+        V3ConnectorStubs
+                .stubV3IssueSync(authority, base64Of(PkiFixtures.rootCa("Slow Issue Root").certificate()),
+                        SLOW_ISSUE_DELAY_MILLIS);
+        authority
+                .stubFor(WireMock
+                        .post(WireMock.urlEqualTo(V3_ISSUE_CANCEL_PATH))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(422)
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody(NOT_TRACKED_PROBLEM)));
+        List<Future<?>> issueCalls = deliverQueuedActionsInTheBackground();
+
+        // when
+        ThrowingCallable generate = this::generate;
+
+        // then
+        assertThatThrownBy(generate).satisfies(thrown -> assertRefusal(thrown, EstError.ISSUANCE_TIMED_OUT));
+        assertThat(theOnlyCertificate().getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+        assertThat(theOnlyCertificate().getPendingIssueClaimedAt()).isNotNull();
+        authority.verify(0, WireMock.postRequestedFor(WireMock.urlEqualTo(V3_ISSUE_CANCEL_PATH)));
+        assertTheKeyIsKeptLinkedToTheCertificate();
+        for (Future<?> issueCall : issueCalls) {
+            issueCall.get(ANSWER_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
     void refusesAsUnavailableAndKeepsTheKey_whenTheAuthorityRedirectsTheCancelOfTheTimedOutIssue() throws Exception {
         // given
         seedRecoveringProfile(seedAsyncV3RaProfile());
@@ -494,6 +539,24 @@ class EstServerKeyGenerationKeyRecoveryITest extends BaseSpringBootTest {
                 SecurityContextHolder.clearContext();
             }
         });
+    }
+
+    /**
+     * Has each queued message delivered on a thread of its own, as the broker consumer does, so that a slow synchronous
+     * issue call runs while the request waits for its certificate.
+     */
+    private List<Future<?>> deliverQueuedActionsInTheBackground() {
+        List<Future<?>> deliveries = new CopyOnWriteArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            ActionMessage message = invocation.getArgument(0);
+            deliveries.add(consumerThread.submit(() -> delivery.deliver(message)));
+            return null;
+        }).when(actionProducer).produceMessage(ArgumentMatchers.any());
+        return deliveries;
+    }
+
+    private static String base64Of(X509Certificate certificate) throws CertificateEncodingException {
+        return Base64.getEncoder().encodeToString(certificate.getEncoded());
     }
 
     private Certificate awaitPendingIssue() {

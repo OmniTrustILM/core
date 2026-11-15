@@ -206,6 +206,9 @@ public interface CertificateRepository extends CertificateBaseRepository<Certifi
             @Param("skipStatuses") List<CertificateValidationStatus> skipStatuses,
             @Param("platformEnabled") boolean platformEnabled, Pageable pageable);
 
+    /** Whether the certificate carries a pending-issue claim: its synchronous connector call is still running. */
+    boolean existsByUuidAndPendingIssueClaimedAtIsNotNull(UUID uuid);
+
     // Pending-issue reaper: stale claims, i.e. synchronous connector calls that never returned. The poll-row condition
     // leaves a pollable 202 whose claim clear failed to the poller.
     @Query("""
