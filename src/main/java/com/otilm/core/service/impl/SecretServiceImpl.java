@@ -956,9 +956,8 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     }
 
     /**
-     * @param withoutTheVaultsWords whether a refusal from the vault loses its words. A request to the vault carries the
-     * vault profile's own credentials, which whoever resolves a reference to the secret may not be allowed to read.
-     * Core's own refusals, about the secret's state, keep theirs.
+     * @param withoutTheVaultsWords whether a refusal from the vault loses its words: the request carries the vault
+     * profile's own credentials, which whoever resolves a reference to the secret may not read
      */
     private SecretContent getSecretContent(UUID uuid, boolean withoutTheVaultsWords)
             throws NotFoundException, ConnectorException, AttributeException {

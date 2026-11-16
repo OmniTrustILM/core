@@ -91,10 +91,10 @@ public class ConnectorRequestAttributesBuilder {
     }
 
     /**
-     * Refuses an attribute that refers to an object of another connector than the one the request goes to, before
-     * anything is loaded; see {@link ReferenceLending#belongsToAnotherConnector}. Reads each reference the way
-     * {@link ResourceInternalService#loadResourceObjectContentData(List)} does, as the kind the attribute declares, so
-     * it checks exactly what that load would send.
+     * Refuses, before anything is loaded, an attribute that refers to an object of another connector; see
+     * {@link ReferenceLending#belongsToAnotherConnector}. References are read as
+     * {@link ResourceInternalService#loadResourceObjectContentData(List)} reads them, as the declared kind, so the
+     * check covers exactly what that load sends.
      */
     public void refuseObjectsOfAnotherConnector(UUID connectorUuid, List<DataAttribute> attributes)
             throws AttributeException {

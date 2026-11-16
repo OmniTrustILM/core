@@ -8,8 +8,8 @@ import org.springframework.http.HttpStatus;
 
 /**
  * A Discovery v2 call Core did not make because it could not resolve the run's references. Its message is Core's own,
- * so the run's failure reason can carry it: it names the reference for Core's own reference refusals, and only says
- * that a referenced object could not be loaded otherwise, as another connector's words may be in that failure.
+ * so it may go into the run's failure reason: it names the reference for Core's own refusals and otherwise says only
+ * that a referenced object could not be loaded.
  */
 public class DiscoveryReferenceException extends ConnectorServerException {
 
