@@ -4,7 +4,10 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ScepException;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
+import com.otilm.api.model.core.logging.enums.Operation;
+import com.otilm.api.model.core.protocol.ProtocolChallengeSource;
 import com.otilm.api.model.core.scep.FailInfo;
+import com.otilm.core.aop.AuditOperationOverride;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.X509CertificateEntity;
@@ -36,10 +39,14 @@ import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,6 +100,11 @@ class ScepServiceImplRenewalAuthenticationTest {
         clientCertificate = selfSignedCertificate(clientKeyPair, SUBJECT_DN);
     }
 
+    @AfterEach
+    void clearRequestContext() {
+        RequestContextHolder.resetRequestAttributes();
+    }
+
     @Test
     void noSignerCertificate_isNotARenewal() throws Exception {
         ScepRequest request = mock(ScepRequest.class);
@@ -125,6 +137,26 @@ class ScepServiceImplRenewalAuthenticationTest {
         ScepException thrown = assertThrows(ScepException.class,
                 () -> service.authenticateRenewal(renewalRequest(SUBJECT_DN, false)));
         assertEquals(FailInfo.BAD_MESSAGE_CHECK, thrown.getFailInfo());
+    }
+
+    @Test
+    void recordsRequestAsTheAuditOperation_whenARenewalOnAManualApprovalProfileIsRejected() throws Exception {
+        // given
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        when(profile.getChallengeSource()).thenReturn(ProtocolChallengeSource.CERTIFICATE_REGISTRATION);
+        when(profile.getRequireManualApproval()).thenReturn(true);
+        when(certificateService.getCertificateEntityByFingerprint(any()))
+                .thenReturn(inventoryCertificate(RA_PROFILE_UUID));
+        ScepRequest renewalWithBadSignature = renewalRequest(SUBJECT_DN, false);
+
+        // when
+        ThrowingCallable authenticate = () -> service.authenticateRenewal(renewalWithBadSignature);
+
+        // then
+        assertThatThrownBy(authenticate).isInstanceOf(ScepException.class);
+        verify(auditOperationOverride).set(Operation.REQUEST);
     }
 
     /**

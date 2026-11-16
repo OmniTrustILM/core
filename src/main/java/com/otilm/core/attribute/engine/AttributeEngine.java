@@ -889,17 +889,13 @@ public class AttributeEngine {
                 .stream()
                 .collect(Collectors.toMap(AttributeDefinition::getName, d -> d));
 
-        // load missing data attributes definitions from DB
-        for (RequestAttribute RequestAttribute : requestAttributes) {
-            if (definitionsMapping.get(RequestAttribute.getName()) == null && RequestAttribute.getUuid() != null) {
-                AttributeDefinition missingDefinition = attributeDefinitionRepository
-                        .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
-                                UUID.fromString(RequestAttribute.getUuid().toString()), RequestAttribute.getName())
-                        .orElse(null);
-                if (missingDefinition != null) {
-                    claimUnknownOperation(missingDefinition, operation);
-                    definitionsMapping.put(RequestAttribute.getName(), missingDefinition);
-                }
+        List<RequestAttribute> matchedRequestAttributes = new ArrayList<>();
+        List<ValidationError> errors = new ArrayList<>();
+        for (RequestAttribute requestAttribute : requestAttributes) {
+            if (resolveDataAttributeDefinition(connectorUuid, operation, definitionsMapping, requestAttribute)) {
+                matchedRequestAttributes.add(requestAttribute);
+            } else {
+                errors.add(dataAttributeMatchError(connectorUuid, requestAttribute));
             }
         }
 
@@ -911,12 +907,68 @@ public class AttributeEngine {
         // JSON extension values first: validateAttributesContent removes each matched definition from the
         // mapping as it goes (it uses the leftovers to find missing required attributes), so running after it
         // would see no definition for any attribute that actually carried content.
-        List<ValidationError> errors = validateVersionsMatch(definitionsMapping, requestAttributes);
-        errors.addAll(validateJsonExtensionValues(definitionsMapping, requestAttributes));
-        errors.addAll(validateAttributesContent(definitionsMapping, requestAttributes));
+        errors.addAll(validateVersionsMatch(definitionsMapping, matchedRequestAttributes));
+        errors.addAll(validateJsonExtensionValues(definitionsMapping, matchedRequestAttributes));
+        errors.addAll(validateAttributesContent(definitionsMapping, matchedRequestAttributes));
         if (!errors.isEmpty()) {
             throw new ValidationException(errors);
         }
+    }
+
+    /**
+     * Whether the request attribute identifies a data attribute definition, which is then in the name-keyed mapping. A
+     * same-named definition it does not identify leaves the mapping, so it is not also reported as missing.
+     */
+    private boolean resolveDataAttributeDefinition(UUID connectorUuid, String operation,
+            Map<String, AttributeDefinition> definitionsMapping, RequestAttribute requestAttribute) {
+        AttributeDefinition mapped = definitionsMapping.get(requestAttribute.getName());
+        if (mapped != null) {
+            boolean identified = mapped.getAttributeUuid().equals(requestAttribute.getUuid());
+            if (!identified) {
+                definitionsMapping.remove(requestAttribute.getName());
+            }
+            return identified;
+        }
+        Optional<AttributeDefinition> found = findDataAttributeDefinition(connectorUuid, requestAttribute);
+        found.ifPresent(definition -> {
+            claimUnknownOperation(definition, operation);
+            definitionsMapping.put(requestAttribute.getName(), definition);
+        });
+        return found.isPresent();
+    }
+
+    /** The definition a data attribute identifies: the one with its uuid, whose name agrees. */
+    private Optional<AttributeDefinition> findDataAttributeDefinition(UUID connectorUuid,
+            RequestAttribute requestAttribute) {
+        if (requestAttribute.getUuid() == null) {
+            return Optional.empty();
+        }
+        return attributeDefinitionRepository
+                .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
+                        requestAttribute.getUuid(), requestAttribute.getName());
+    }
+
+    /** Why a data attribute identifies no definition, naming the attribute. */
+    private ValidationError dataAttributeMatchError(UUID connectorUuid, RequestAttribute requestAttribute) {
+        if (requestAttribute.getUuid() == null) {
+            return ValidationError
+                    .create("Attribute {} has no uuid; provide the uuid of the attribute", requestAttribute.getName());
+        }
+        boolean nameKnown = !attributeDefinitionRepository
+                .findAllByTypeAndConnectorUuidAndName(AttributeType.DATA, connectorUuid, requestAttribute.getName())
+                .isEmpty();
+        if (nameKnown) {
+            return ValidationError
+                    .create("Attribute {} is sent with uuid {}, which is not the uuid of its definition",
+                            requestAttribute.getName(), requestAttribute.getUuid());
+        }
+        return ValidationError
+                .create("Content for attribute {} is provided but definition is not found", requestAttribute.getName());
+    }
+
+    private AttributeDefinition requireDataAttributeDefinition(UUID connectorUuid, RequestAttribute requestAttribute) {
+        return findDataAttributeDefinition(connectorUuid, requestAttribute)
+                .orElseThrow(() -> new ValidationException(dataAttributeMatchError(connectorUuid, requestAttribute)));
     }
 
     /**
@@ -1691,14 +1743,8 @@ public class AttributeEngine {
     public List<DataAttribute> getDataAttributesByContent(UUID connectorUuid, List<RequestAttribute> requestAttributes)
             throws AttributeException {
         List<DataAttribute> dataAttributes = new ArrayList<>();
-        String connectorUuidStr = connectorUuid == null ? null : connectorUuid.toString();
         for (RequestAttribute requestAttribute : requestAttributes) {
-            AttributeDefinition definition = attributeDefinitionRepository
-                    .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, connectorUuid,
-                            requestAttribute.getUuid(), requestAttribute.getName())
-                    .orElseThrow(() -> new AttributeException("Missing data attribute definition",
-                            requestAttribute.getUuid() == null ? null : String.valueOf(requestAttribute.getUuid()),
-                            requestAttribute.getName(), AttributeType.DATA, connectorUuidStr));
+            AttributeDefinition definition = requireDataAttributeDefinition(connectorUuid, requestAttribute);
             validateAttributeContent(definition, requestAttribute.getContent());
             DataAttribute dataAttribute = AttributeVersionHelper
                     .copyDataAttribute((DataAttribute) definition.getDefinition());
@@ -1737,8 +1783,7 @@ public class AttributeEngine {
      * skips the delete {@link #updateObjectDataAttributesContent} runs first, and with no attributes it sends no SQL.
      */
     public List<ResponseAttribute> createObjectDataAttributesContent(ObjectAttributeContentInfo info,
-            List<RequestAttribute> requestAttributes)
-            throws ValidationException, NotFoundException, AttributeException {
+            List<RequestAttribute> requestAttributes) throws ValidationException, AttributeException {
         if (requestAttributes == null || requestAttributes.isEmpty()) {
             return List.of();
         }
@@ -1750,8 +1795,7 @@ public class AttributeEngine {
     }
 
     public List<ResponseAttribute> updateObjectDataAttributesContent(ObjectAttributeContentInfo info,
-            List<RequestAttribute> requestAttributes)
-            throws ValidationException, NotFoundException, AttributeException {
+            List<RequestAttribute> requestAttributes) throws ValidationException, AttributeException {
         logger
                 .debug("Updating the content of data attributes for resource {} with UUID: {} version: {}",
                         info.objectType().getLabel(), info.objectUuid(), info.objectVersion());
@@ -1763,14 +1807,11 @@ public class AttributeEngine {
     }
 
     private void writeObjectDataAttributesContent(ObjectAttributeContentInfo info,
-            List<RequestAttribute> requestAttributes)
-            throws ValidationException, NotFoundException, AttributeException {
+            List<RequestAttribute> requestAttributes) throws ValidationException, AttributeException {
         List<ContentWrite> writes = new ArrayList<>();
         for (RequestAttribute requestAttribute : requestAttributes) {
-            AttributeDefinition attributeDefinition = attributeDefinitionRepository
-                    .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, info.connectorUuid(),
-                            requestAttribute.getUuid(), requestAttribute.getName())
-                    .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
+            AttributeDefinition attributeDefinition = requireDataAttributeDefinition(info.connectorUuid(),
+                    requestAttribute);
             writes.add(new ContentWrite(attributeDefinition, requestAttribute.getContent()));
         }
         for (var write : inDefinitionOrder(writes)) {
@@ -1797,8 +1838,7 @@ public class AttributeEngine {
      * version) may continue to use {@link #updateObjectDataAttributesContent}.
      */
     public List<ResponseAttribute> replaceObjectDataAttributesContent(ObjectAttributeContentInfo info,
-            List<RequestAttribute> requestAttributes)
-            throws ValidationException, NotFoundException, AttributeException {
+            List<RequestAttribute> requestAttributes) throws ValidationException, AttributeException {
         if (info.objectVersion() == null) {
             throw new IllegalArgumentException("replaceObjectDataAttributesContent requires a non-null objectVersion; "
                     + "use updateObjectDataAttributesContent for unversioned objects");
@@ -1828,10 +1868,8 @@ public class AttributeEngine {
 
         List<ContentWrite> writes = new ArrayList<>();
         for (RequestAttribute requestAttribute : requestAttributes) {
-            AttributeDefinition attributeDefinition = attributeDefinitionRepository
-                    .findByTypeAndConnectorUuidAndAttributeUuidAndName(AttributeType.DATA, info.connectorUuid(),
-                            requestAttribute.getUuid(), requestAttribute.getName())
-                    .orElseThrow(() -> new NotFoundException(AttributeDefinition.class, requestAttribute.getName()));
+            AttributeDefinition attributeDefinition = requireDataAttributeDefinition(info.connectorUuid(),
+                    requestAttribute);
             writes.add(new ContentWrite(attributeDefinition, requestAttribute.getContent()));
         }
         for (var write : inDefinitionOrder(writes)) {

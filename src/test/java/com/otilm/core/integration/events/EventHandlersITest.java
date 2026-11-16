@@ -25,7 +25,7 @@ import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.events.data.EventData;
 import com.otilm.api.model.common.events.data.ScheduledJobFinishedEventData;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateEvent;
 import com.otilm.api.model.core.certificate.CertificateEventHistoryDto;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -1555,7 +1555,7 @@ class EventHandlersITest extends BaseSpringBootTest {
                         .handleEvent(CertificateUploadedEventHandler.constructEventMessage(eventMessageData)));
         uploadedCertificate = X509CertificateEntity
                 .from(certificateRepository.findByFingerprint(fingerprint).orElseThrow());
-        CertificateDetailDto certificateDetailDto = certificateService
+        CertificateDetail certificateDetailDto = certificateService
                 .getCertificate(uploadedCertificate.getSecuredUuid());
         Assertions.assertFalse(certificateDetailDto.getCustomAttributes().isEmpty());
 

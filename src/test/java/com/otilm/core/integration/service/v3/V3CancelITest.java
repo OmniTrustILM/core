@@ -1,6 +1,7 @@
 package com.otilm.core.integration.service.v3;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.certificate.CancelPendingCertificateRequestDto;
@@ -23,6 +24,7 @@ import com.otilm.core.dao.repository.RaProfileRepository;
 import com.otilm.core.messaging.jms.producers.ActionProducer;
 import com.otilm.core.security.authz.SecuredParentUUID;
 import com.otilm.core.security.authz.SecuredUUID;
+import com.otilm.core.service.v2.CancelConfirmation;
 import com.otilm.core.service.v2.ClientOperationExternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
@@ -36,6 +38,8 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
@@ -48,6 +52,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
@@ -57,6 +64,9 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Named.named;
 
 /**
  * Integration tests for cancel flows on v3 authorities.
@@ -80,6 +90,7 @@ class V3CancelITest extends BaseSpringBootTest {
     // manual-issue hook both go through the v3 adapter cancel()
     private static final String V3_ISSUE_CANCEL_PATH = "/v3/authorityProvider/certificates/issue/cancel";
     private static final String V3_REVOKE_CANCEL_PATH = "/v3/authorityProvider/certificates/revoke/cancel";
+    private static final String REDIRECT_TARGET = "https://gateway.invalid/login";
 
     // v3 identify path used by manuallyIssueCertificate (via the v3 adapter identify())
     private static final String V3_IDENTIFY_PATH = "/v3/authorityProvider/certificates/identify";
@@ -231,6 +242,52 @@ class V3CancelITest extends BaseSpringBootTest {
                         "Cert must stay PENDING_ISSUE after connector hard 422 refusal");
     }
 
+    @ParameterizedTest
+    @MethodSource("connectorCancelAnswers")
+    void returnsTheConfirmation_whenTheConnectorAnswersTheCancel(ResponseDefinitionBuilder connectorAnswer,
+            CancelConfirmation expectedConfirmation) throws Exception {
+        // given
+        AuthorityFixtures.Fixture fixture = buildV3Fixture();
+        Certificate cert = seedCertificate(fixture, CertificateState.PENDING_ISSUE);
+        wireMockServer.stubFor(post(urlEqualTo(V3_ISSUE_CANCEL_PATH)).willReturn(connectorAnswer));
+
+        // when
+        CancelConfirmation confirmation = clientOperationService
+                .cancelPendingCertificateOperationWithConfirmation(
+                        SecuredParentUUID.fromUUID(fixture.authority().getUuid()), fixture.raProfile().getSecuredUuid(),
+                        cert.getUuid().toString(), new CancelPendingCertificateRequestDto());
+
+        // then
+        assertThat(confirmation).isEqualTo(expectedConfirmation);
+        assertThat(reloadCert(cert.getUuid()).getState()).isEqualTo(CertificateState.FAILED);
+    }
+
+    @Test
+    void throwsValidationAndKeepsTheCertificatePending_whenTheConnectorRefusesTheConfirmedCancel() {
+        // given
+        AuthorityFixtures.Fixture fixture = buildV3Fixture();
+        Certificate cert = seedCertificate(fixture, CertificateState.PENDING_ISSUE);
+        wireMockServer
+                .stubFor(post(urlEqualTo(V3_ISSUE_CANCEL_PATH))
+                        .willReturn(aResponse()
+                                .withStatus(422)
+                                .withHeader("Content-Type", "application/problem+json")
+                                .withBody(problemJson("OPERATION_PAST_POINT_OF_NO_RETURN",
+                                        "Issuance is past the point of no return"))));
+        SecuredParentUUID authorityUuid = SecuredParentUUID.fromUUID(fixture.authority().getUuid());
+        SecuredUUID raProfileUuid = fixture.raProfile().getSecuredUuid();
+        String certUuid = cert.getUuid().toString();
+        CancelPendingCertificateRequestDto request = new CancelPendingCertificateRequestDto();
+
+        // when
+        ThrowingCallable cancel = () -> clientOperationService
+                .cancelPendingCertificateOperationWithConfirmation(authorityUuid, raProfileUuid, certUuid, request);
+
+        // then
+        assertThatThrownBy(cancel).isInstanceOf(ValidationException.class);
+        assertThat(reloadCert(cert.getUuid()).getState()).isEqualTo(CertificateState.PENDING_ISSUE);
+    }
+
     // ── Step 2: Manual-issue cancel-hook scenarios ────────────────────────────
 
     /**
@@ -315,6 +372,36 @@ class V3CancelITest extends BaseSpringBootTest {
      * the api client surface it as ConnectorProblemException with a parsed errorCode (which the v3 adapter maps onto a
      * CancelOutcome).
      */
+    private static Stream<Arguments> connectorCancelAnswers() {
+        return Stream
+                .of(Arguments.of(named("204 cancelled", aResponse().withStatus(204)), CancelConfirmation.CANCELLED),
+                        Arguments
+                                .of(named("422 not tracked",
+                                        aResponse()
+                                                .withStatus(422)
+                                                .withHeader("Content-Type", "application/problem+json")
+                                                .withBody(problemJson("OPERATION_NOT_TRACKED", "No tracked issuance"))),
+                                        CancelConfirmation.NOT_TRACKED),
+                        Arguments
+                                .of(named("503 carrying not tracked",
+                                        aResponse()
+                                                .withStatus(503)
+                                                .withHeader("Content-Type", "application/problem+json")
+                                                .withBody(problemJson("OPERATION_NOT_TRACKED", "Gateway failure"))),
+                                        CancelConfirmation.UNCONFIRMED),
+                        Arguments
+                                .of(named("500 server error", aResponse().withStatus(500)),
+                                        CancelConfirmation.UNCONFIRMED),
+                        Arguments
+                                .of(named("302 redirect",
+                                        aResponse().withStatus(302).withHeader("Location", REDIRECT_TARGET)),
+                                        CancelConfirmation.UNCONFIRMED),
+                        Arguments
+                                .of(named("307 redirect",
+                                        aResponse().withStatus(307).withHeader("Location", REDIRECT_TARGET)),
+                                        CancelConfirmation.UNCONFIRMED));
+    }
+
     private static String problemJson(String errorCode, String detail) {
         return """
                 {"type":"about:blank","title":"Unprocessable Content","status":422,"detail":"%s","errorCode":"%s"}

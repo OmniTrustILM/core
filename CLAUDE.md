@@ -58,7 +58,7 @@ For logic deep in private methods or complex Spring contexts, extract a static t
 The standard pattern when a method must do both local writes and an external call:
 
 ```java
-@Transactional(propagation = Propagation.NOT_SUPPORTED)  // method runs without ambient tx
+@OutsideTransaction  // method runs without ambient tx or the request's EntityManager
 public ... someMethod(...) {
     // 1. Read state, validate, build the request — outside any tx
     // 2. Make the external call — outside any tx
@@ -75,7 +75,13 @@ public ... someMethod(...) {
 }
 ```
 
+`NOT_SUPPORTED` holds no transaction, but it is still a transaction scope: a step 1 read that runs outside a transaction binds an EntityManager that keeps its connection through step 2 until the method returns, with or without open-in-view (see "Open-in-view keeps what a request reads managed"). Where that connection must not wait on the external system, run each read before the call in a transaction of its own, or leave the annotation off an entry point that no caller runs inside a transaction, as the EST services do.
+
 Symmetrically: when the external call comes AFTER the local commit, commit first then call externally.
+
+Under open-in-view, the request's EntityManager keeps the connection of the first transaction that runs on it. A method
+that calls out between short transactions therefore carries `@OutsideTransaction` in place of plain `NOT_SUPPORTED`:
+it runs the method with `NOT_SUPPORTED` and sets that EntityManager aside.
 
 ## State divergence on post-external-commitment failures
 
@@ -130,7 +136,7 @@ Align the live half's window to the aggregate's bucket boundary, not to the exac
 
 ## Transactional boundaries live on services, not repositories
 
-Repositories in `com.otilm.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods use `NOT_SUPPORTED` when needed to avoid holding locks across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
+Repositories in `com.otilm.core.dao.repository.*` must not carry `@Transactional`. Every guarded write uses a bean-pair: an **orchestrator** (no class-level `@Transactional`; HTTP-bearing methods carry `@OutsideTransaction`, so no lock or connection is held across external calls) and a **writer** bean (suffix `Writer`) whose short `@Transactional`(REQUIRED) methods each execute one `@Modifying @Query`. Two beans is mandatory — Spring proxy self-invocation silently skips advice. Writers use REQUIRED so they compose: joining an ambient tx if present, starting one otherwise. `@Modifying @Query` bypasses JPA dirty-checking; set audit columns (`c.updated = CURRENT_TIMESTAMP`) in the SQL.
 
 ## Race conditions on multi-actor endpoints
 
@@ -142,7 +148,7 @@ Don't span the lock across slow external calls (see "Transactions and external c
 
 ## Open-in-view keeps what a request reads managed
 
-`spring.jpa.open-in-view` is on, so an entity read through the request's EntityManager stays managed there until the response is written, and every transaction that runs on that EntityManager flushes the changes made to it, as a whole row unless the entity is `@DynamicUpdate`. A `Propagation.NOT_SUPPORTED` method does not keep them out: the transactions it starts run on the request's EntityManager until it first uses that EntityManager outside a transaction, on EntityManagers of their own from then until it returns, and the request's next transaction runs on the request's EntityManager again. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it can pass whatever the code does.
+Open-in-view is on for every endpoint except EST's: `OpenEntityManagerInViewConfig` registers Spring's interceptor itself, with `spring.jpa.open-in-view` off. An entity read through the request's EntityManager stays managed there until the response is written, and every transaction that runs on that EntityManager flushes the changes made to it, as a whole row unless the entity is `@DynamicUpdate`. A `Propagation.NOT_SUPPORTED` method does not keep them out: the transactions it starts run on the request's EntityManager until it first uses that EntityManager outside a transaction, on EntityManagers of their own from then until it returns, and the request's next transaction runs on the request's EntityManager again. Code that changes an entity the request may hold without meaning to write the row detaches it first, as `ComplianceSubjectHandler.finalizeComplianceCheck` does. A test of this binds an EntityManager to the thread and runs a transaction after the call, or it can pass whatever the code does. Without open-in-view, a `NOT_SUPPORTED` method is still a transaction scope: its first read outside a transaction binds an EntityManager that keeps its connection until the method returns, which is why the EST entry points, which wait for a certificate, carry no transactional annotation.
 
 ## New operator-facing settings go through the Settings UI, not env vars
 

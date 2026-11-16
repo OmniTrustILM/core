@@ -6,7 +6,6 @@ import com.otilm.core.model.signing.CertificatePurposeRequirements;
 import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModelBuilder;
-import com.otilm.core.model.signing.resolved.ResolvedManagedContentSigningProfile;
 import com.otilm.core.model.signing.resolved.ResolvedManagedTimestampingProfile;
 import com.otilm.core.model.signing.resolved.ResolvedSigningProfile;
 import com.otilm.core.model.signing.scheme.StaticKeyManagedSigning;
@@ -18,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
+import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
@@ -39,16 +39,10 @@ class SigningProfileResolverFactoryTest {
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfileModel() {
         ManagedContentSigningWorkflow workflow = new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null,
-                null, null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
+                null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
         return new SigningProfileModel<>(UUID.randomUUID(), "test-profile", null, 1, true, List.of(SigningProtocol.TSP),
                 UUID.randomUUID(), workflow, new StaticKeyManagedSigning(UUID.randomUUID(), List.of()),
                 SigningRecordPolicyModelBuilder.notRecording().build());
-    }
-
-    private static ResolvedManagedContentSigningProfile aResolvedContentSigningProfile() {
-        return new ResolvedManagedContentSigningProfile(UUID.randomUUID(), "docs", null, 1, true, List.of(), List.of(),
-                null, null, null, null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL, null,
-                null);
     }
 
     @Test
@@ -124,7 +118,7 @@ class SigningProfileResolverFactoryTest {
     void returnsAnyMemberOfTheSealedHierarchy() throws Exception {
         // given
         SigningProfileModel<?, ?> profile = aManagedContentSigningProfileModel();
-        ResolvedSigningProfile resolved = aResolvedContentSigningProfile();
+        ResolvedSigningProfile resolved = aResolvedContentSigningProfile().build();
         SigningProfileResolver resolver = mock(SigningProfileResolver.class);
         given(resolver.supports(profile)).willReturn(true);
         given(resolver.resolve(profile)).willReturn(resolved);

@@ -1,10 +1,15 @@
 package com.otilm.core.service.handler.discovery;
 
+import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.core.service.handler.authority.ConnectorOperationErrorCodes;
+import java.time.Duration;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 
 /**
@@ -14,6 +19,7 @@ import org.springframework.http.HttpStatus;
 public final class DiscoveryConnectorErrors {
 
     private static final String UNANSWERED = "the connector did not answer";
+    private static final int UNPROCESSABLE = 422;
 
     private DiscoveryConnectorErrors() {
     }
@@ -52,6 +58,59 @@ public final class DiscoveryConnectorErrors {
     public static boolean isConfigurationRefused(Throwable e) {
         return e instanceof ConnectorProblemException problem && problem.getProblemDetail() != null
                 && problem.getProblemDetail().getErrorCode() == ErrorCode.VALIDATION_FAILED;
+    }
+
+    /**
+     * True when the connector answered 422: it cannot do what was asked, and asking again repeats the answer. Over REST
+     * a 422 arrives as a problem document, as a {@link ValidationException} when its body is plain, or as a client
+     * error when its problem body is empty. Over the AMQP proxy only a problem document carries the 422: the proxy
+     * files a plain 422 as an unknown error, and a plain 400 as a {@link ValidationException}, which reads as a refusal
+     * too.
+     */
+    public static boolean isRefusal(Throwable e) {
+        if (e instanceof ValidationException) {
+            return true;
+        }
+        if (e instanceof ConnectorClientException client) {
+            return hasStatus(client.getHttpStatus(), UNPROCESSABLE);
+        }
+        return answeredWith(e, UNPROCESSABLE);
+    }
+
+    /**
+     * True when the connector answered 503: it is busy, and will answer later. Over REST the answer is a problem
+     * document, or a server error without one, which is also what the AMQP proxy relays.
+     */
+    public static boolean isBusy(Throwable e) {
+        if (e instanceof ConnectorServerException server) {
+            return hasStatus(server.getHttpStatus(), HttpStatus.SERVICE_UNAVAILABLE.value());
+        }
+        return answeredWith(e, HttpStatus.SERVICE_UNAVAILABLE.value());
+    }
+
+    /**
+     * When the connector asked to be called again, where its answer says so: the problem document's
+     * {@code retryAfterSeconds}, which mirrors the {@code Retry-After} header no transport passes on.
+     */
+    public static Optional<Duration> retryAfter(Throwable e) {
+        if (!(e instanceof ConnectorProblemException problem) || problem.getProblemDetail() == null) {
+            return Optional.empty();
+        }
+        Integer seconds = problem.getProblemDetail().getRetryAfterSeconds();
+        return seconds == null || seconds <= 0 ? Optional.empty() : Optional.of(Duration.ofSeconds(seconds));
+    }
+
+    private static boolean answeredWith(Throwable e, int status) {
+        return e instanceof ConnectorProblemException problem && problem.getProblemDetail() != null
+                && problem.getProblemDetail().getStatus() == status;
+    }
+
+    /**
+     * By code, not by constant: 422 has two {@link HttpStatus} constants, and the transports resolve it to whichever
+     * {@code HttpStatus.valueOf} returns.
+     */
+    private static boolean hasStatus(HttpStatus status, int code) {
+        return status != null && status.value() == code;
     }
 
     /**

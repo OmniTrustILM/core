@@ -42,39 +42,25 @@ public class SigningRecordWriter {
 
     // --- Inbound writes (REQUIRED) ---------------------------------------------------------------------
 
-    /**
-     * Persists one signing record. Uses {@code EntityManager.persist()} directly to bypass Spring Data's merge path
-     * (which issues a SELECT per entity for application-assigned UUIDs). The explicit {@code flush()} forces the INSERT
-     * now so a constraint violation surfaces to the caller (and the strategy's metric scope) instead of being deferred
-     * to commit.
-     */
+    /** The rows share one transaction. A constraint violation on any row stages none of them. */
     @Transactional(propagation = Propagation.REQUIRED)
-    public void insert(SigningRecord signingRecord) {
-        entityManager.persist(signingRecord);
-        entityManager.flush();
+    public void insertOutboxBatch(List<SigningRecordOutbox> rows) {
+        persistRaisingViolations(rows);
     }
 
-    /**
-     * Stages one signing record into the outbox. Uses {@code EntityManager.persist()} directly to bypass Spring Data's
-     * merge path (which issues a SELECT per entity for application-assigned UUIDs). The explicit {@code flush()} forces
-     * the INSERT now so a constraint violation surfaces synchronously, and the row is durable the moment the signing
-     * operation commits.
-     */
-    @Transactional(propagation = Propagation.REQUIRED)
-    public void insertOutbox(SigningRecordOutbox row) {
-        entityManager.persist(row);
-        entityManager.flush();
-    }
-
-    /**
-     * Persists a batch of signing records in one transaction. Uses {@code EntityManager.persist()} directly to bypass
-     * Spring Data's merge path (which issues a SELECT per entity for application-assigned UUIDs), allowing Hibernate to
-     * batch the inserts using the configured {@code hibernate.jdbc.batch_size}. Used by the best-effort flush, which
-     * runs on a background thread with no ambient transaction, so {@code REQUIRED} opens one for the batch.
-     */
+    /** Hibernate batches the inserts by the configured {@code hibernate.jdbc.batch_size}. */
     @Transactional(propagation = Propagation.REQUIRED)
     public void insertBatch(List<SigningRecord> records) {
-        records.forEach(entityManager::persist);
+        persistRaisingViolations(records);
+    }
+
+    /**
+     * {@code EntityManager.persist()} skips the merge path's SELECT for an application-assigned UUID. The flush raises
+     * any constraint violation before the call returns.
+     */
+    private void persistRaisingViolations(List<?> entities) {
+        entities.forEach(entityManager::persist);
+        entityManager.flush();
     }
 
     // --- Outbox drain (REQUIRES_NEW) -------------------------------------------------------------------
@@ -86,16 +72,13 @@ public class SigningRecordWriter {
      * per row.
      *
      * <p>
-     * Uses {@code entityManager.persist()} directly to bypass Spring Data's merge path ({@code save()} →
-     * {@code merge()} → SELECT-before-INSERT for application-assigned IDs). In the rare crash-recovery case (a row
-     * already exists in {@code signing_record}) the flush will throw a {@code PersistenceException}; the caller
-     * ({@link com.otilm.core.signing.record.SigningRecordOutboxDrainer}) catches that and falls back to per-row
-     * draining where each row gets individual retry/poison accounting.
+     * In the rare crash-recovery case (a row already exists in {@code signing_record}) the flush will throw a
+     * {@code PersistenceException}; the caller ({@link com.otilm.core.signing.record.SigningRecordOutboxDrainer})
+     * catches that and falls back to per-row draining where each row gets individual retry/poison accounting.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void persistBatchAndDeleteOutbox(List<SigningRecord> records) {
-        records.forEach(entityManager::persist);
-        entityManager.flush();
+        persistRaisingViolations(records);
         outboxRepository.deleteAllByUuidIn(records.stream().map(SigningRecord::getUuid).toList());
     }
 

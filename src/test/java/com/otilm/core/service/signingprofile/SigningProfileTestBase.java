@@ -481,7 +481,7 @@ public abstract class SigningProfileTestBase extends BaseSpringBootTest {
         connectorInterface.setConnectorUuid(connector.getUuid());
         connectorInterface.setInterfaceCode(ConnectorInterface.SIGNATURE_FORMATTING);
         connectorInterface.setVersion("1.0.0");
-        connectorInterface.setFeatures(List.of(FeatureFlag.CONTENT_SIGNING, FeatureFlag.TIMESTAMPING));
+        connectorInterface.setFeatures(List.of(FeatureFlag.TIMESTAMPING));
         connectorInterfaceRepository.save(connectorInterface);
 
         return connector;

@@ -31,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -283,11 +284,7 @@ public class ProxyClientImpl implements ProxyClient {
             throwHttpError(response, connector);
         }
 
-        HttpStatus status = HttpStatus.resolve(statusCode);
-        if (status == null) {
-            // Defensive: an unrecognised 1xx/2xx/3xx — treat as 200 to keep contract simple.
-            status = HttpStatus.OK;
-        }
+        HttpStatusCode status = entityStatus(statusCode, connector);
 
         T body = null;
         if (responseType != Void.class && responseType != void.class && response.getBody() != null) {
@@ -301,6 +298,26 @@ public class ProxyClientImpl implements ProxyClient {
         }
 
         return ResponseEntity.status(status).body(body);
+    }
+
+    /**
+     * The reply's status as a caller of the entity path reads it. An unrecognised 2xx reads as 200; any other code
+     * keeps its value, so a caller that accepts only a 2xx, such as a cancel, never takes an unrecognised 1xx or 3xx
+     * for success. A reply whose status is not an HTTP status code is a communication failure.
+     */
+    private static HttpStatusCode entityStatus(int statusCode, ApiClientConnectorInfo connector) {
+        HttpStatus known = HttpStatus.resolve(statusCode);
+        if (known != null) {
+            return known;
+        }
+        if (statusCode >= 200 && statusCode < 300) {
+            return HttpStatus.OK;
+        }
+        if (statusCode < 100 || statusCode > 999) {
+            throw sneakyThrow(new ConnectorCommunicationException(
+                    "Proxy reply carries no valid HTTP status: " + statusCode, connector));
+        }
+        return HttpStatusCode.valueOf(statusCode);
     }
 
     /**
@@ -432,7 +449,8 @@ public class ProxyClientImpl implements ProxyClient {
                 throw sneakyThrow(clientException);
             }
 
-            case "not_found" -> sneakyThrow(new ConnectorEntityNotFoundException(errorMessage));
+            case "not_found" ->
+                sneakyThrow(aboutConnector(new ConnectorEntityNotFoundException(errorMessage), connector));
 
             // The proxy reports a transport failure only as a category; the cause records which one, so a
             // caller can tell an unreachable connector from one that answered with something unusable.
@@ -441,10 +459,15 @@ public class ProxyClientImpl implements ProxyClient {
             case "connection" -> sneakyThrow(
                     new ConnectorCommunicationException(errorMessage, new ConnectException(errorMessage), connector));
 
-            case "server_error" -> sneakyThrow(new ConnectorServerException(errorMessage,
-                    response.getStatusCode() > 0
-                            ? HttpStatus.valueOf(response.getStatusCode())
-                            : HttpStatus.INTERNAL_SERVER_ERROR));
+            case "server_error" -> {
+                HttpStatus status = response.getStatusCode() > 0
+                        ? HttpStatus.valueOf(response.getStatusCode())
+                        : HttpStatus.INTERNAL_SERVER_ERROR;
+                sneakyThrow(aboutConnector(new ConnectorServerException(errorMessage, status), connector));
+            }
+
+            // The proxy files each 4xx it has no category for, a 422 among them, as unknown; the status says which.
+            case "unknown" -> throwHttpError(response, connector);
 
             default -> sneakyThrow(new ConnectorException(errorMessage, connector));
         }
@@ -468,16 +491,22 @@ public class ProxyClientImpl implements ProxyClient {
         }
 
         if (statusCode == 404) {
-            sneakyThrow(new ConnectorEntityNotFoundException(errorMessage));
+            sneakyThrow(aboutConnector(new ConnectorEntityNotFoundException(errorMessage), connector));
         } else if (statusCode == 422) {
             throw new ValidationException(errorMessage);
         } else if (httpStatus.is4xxClientError()) {
-            sneakyThrow(new ConnectorClientException(errorMessage, httpStatus));
+            sneakyThrow(aboutConnector(new ConnectorClientException(errorMessage, httpStatus), connector));
         } else if (httpStatus.is5xxServerError()) {
-            sneakyThrow(new ConnectorServerException(errorMessage, httpStatus));
+            sneakyThrow(aboutConnector(new ConnectorServerException(errorMessage, httpStatus), connector));
         } else {
             sneakyThrow(new ConnectorException(errorMessage, connector));
         }
+    }
+
+    /** The error handlers name the connector a failure carries. */
+    private static <E extends ConnectorException> E aboutConnector(E failure, ApiClientConnectorInfo connector) {
+        failure.setConnector(connector);
+        return failure;
     }
 
     /**

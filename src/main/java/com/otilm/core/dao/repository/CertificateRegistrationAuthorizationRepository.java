@@ -23,6 +23,9 @@ public interface CertificateRegistrationAuthorizationRepository
     /** Presence check for the fire guards — avoids loading the secret-bearing row just to test existence. */
     boolean existsByCertificateUuid(UUID certificateUuid);
 
+    /** Whether the certificate has an authorization that is in any state but the given one. */
+    boolean existsByCertificateUuidAndStateNot(UUID certificateUuid, RegistrationState state);
+
     /**
      * Projection over the non-secret detail fields, so the certificate-detail read never loads the challenge column.
      */

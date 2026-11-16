@@ -1,16 +1,10 @@
 package com.otilm.core.util;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.IOException;
-import java.net.URI;
-import java.net.URL;
-import java.net.URLConnection;
-import java.security.cert.CRLException;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509CRL;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import org.bouncycastle.asn1.ASN1InputStream;
 import org.bouncycastle.asn1.ASN1OctetString;
@@ -20,26 +14,19 @@ import org.bouncycastle.asn1.x509.DistributionPoint;
 import org.bouncycastle.asn1.x509.DistributionPointName;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
-@Component
-@SuppressWarnings("java:S2696")
-public class CrlUtil {
-    private static int crlReadTimeout; // milliseconds
-    private static int crlConnectTimeout; // milliseconds
-
-    @Value("${validation.crl.read-timeout:1000}")
-    public void setCrlReadTimeout(int timeout) {
-        crlReadTimeout = timeout;
-    }
-
-    @Value("${validation.crl.connect-timeout:1000}")
-    public void setCrlConnectTimeout(int timeout) {
-        crlConnectTimeout = timeout;
-    }
+public final class CrlUtil {
+    private static final Duration CLOCK_SKEW = Duration.ofMinutes(5);
 
     private CrlUtil() {
+    }
+
+    /**
+     * @return whether a CRL with this next update is current, which it stays for the clock skew after it; a CRL without
+     * a next update never is
+     */
+    public static boolean isCurrent(Date nextUpdate) {
+        return nextUpdate != null && !nextUpdate.toInstant().plus(CLOCK_SKEW).isBefore(Instant.now());
     }
 
     /**
@@ -89,30 +76,4 @@ public class CrlUtil {
             return crlDistPoint.getDistributionPoints();
         }
     }
-
-    public static X509CRL getX509Crl(String crlUrl) throws Exception {
-        CertificateFactory cf = CertificateFactory.getInstance("X509");
-
-        // Handle ldap protocol
-        if (crlUrl.startsWith("ldap")) {
-            byte[] crl = LdapUtils.downloadFromLdap(crlUrl);
-            if (crl == null) {
-                throw new Exception("Crl not available in LDAP.");
-            }
-            return (X509CRL) cf.generateCRL(new ByteArrayInputStream(crl));
-        }
-        X509CRL x509Crl;
-        URL url = URI.create(crlUrl).toURL();
-        URLConnection connection = url.openConnection();
-        connection.setConnectTimeout(crlConnectTimeout);
-        connection.setReadTimeout(crlReadTimeout);
-
-        try (DataInputStream inStream = new DataInputStream(connection.getInputStream())) {
-            x509Crl = (X509CRL) cf.generateCRL(inStream);
-        } catch (CRLException e) {
-            throw new CertificateException("File " + e.getMessage() + " not found");
-        }
-        return x509Crl;
-    }
-
 }

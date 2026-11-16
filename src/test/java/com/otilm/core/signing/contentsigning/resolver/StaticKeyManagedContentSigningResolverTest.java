@@ -22,14 +22,17 @@ import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.signing.contentsigning.TimestampSourceResolver;
+import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
 import com.otilm.core.util.builders.RequestAttributeV3Builder;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -40,6 +43,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
 import static com.otilm.core.util.builders.DataAttributeV3Builder.aDataAttribute;
+import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -60,6 +64,8 @@ class StaticKeyManagedContentSigningResolverTest {
     private TimestampSourceResolver timestampSourceResolver;
     @Mock
     private FormattingAttributeDefinitions formattingAttributeDefinitions;
+    @Mock
+    private ContentSigningDeclarations declarations;
 
     @InjectMocks
     private StaticKeyManagedContentSigningResolver resolver;
@@ -79,11 +85,14 @@ class StaticKeyManagedContentSigningResolverTest {
     private static final ApiClientConnectorInfo CONNECTOR_INFO = mock(ApiClientConnectorInfo.class);
 
     @BeforeEach
-    void defineTheFormatAttribute() throws Exception {
-        // lenient: tests that stop before the formatter leave its definitions unread
+    void stubTheFormatAttributeAndFamilyDeclaration() throws Exception {
+        // lenient: tests that stop before the formatter or the declaration leave them unread
         lenient()
                 .when(formattingAttributeDefinitions.forContentSigning(any(), any()))
                 .thenReturn(List.of(A_FORMAT_ATTRIBUTE_DEFINITION));
+        lenient()
+                .when(declarations.family(any(), any()))
+                .thenAnswer(invocation -> Optional.of(aFamilyDeclaration(invocation.getArgument(1)).build()));
     }
 
     @Test
@@ -140,7 +149,7 @@ class StaticKeyManagedContentSigningResolverTest {
         // when
         ResolvedManagedContentSigningProfile resolved = (ResolvedManagedContentSigningProfile) resolver
                 .resolve(aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID,
-                        List.of(A_FORMAT_ATTRIBUTE), SignatureFamily.CADES, SignatureLevel.SIGNED, null, null, purpose,
+                        List.of(A_FORMAT_ATTRIBUTE), SignatureFamily.CADES, SignatureLevel.SIGNED, null, purpose,
                         SignatureParameterPolicy.DENY_ALL)));
 
         // then
@@ -159,6 +168,23 @@ class StaticKeyManagedContentSigningResolverTest {
                 .isInstanceOf(SigningEngineException.class)
                 .satisfies(e -> assertThat(((SigningEngineException) e).failure())
                         .isEqualTo(SigningEngineFailure.MISCONFIGURED));
+    }
+
+    @Test
+    void reportsMisconfiguration_whenTheConnectorNoLongerDeclaresTheFamily() throws Exception {
+        // given
+        givenSchemeResolutionSucceeds();
+        given(connectorService.getConnectorForApiClient(FORMATTING_CONNECTOR_UUID)).willReturn(CONNECTOR_INFO);
+        given(declarations.family(FORMATTING_CONNECTOR_UUID, SignatureFamily.CADES)).willReturn(Optional.empty());
+
+        // when
+        ThrowingCallable resolve = () -> resolver.resolve(aManagedContentSigningProfile());
+
+        // then
+        assertThatThrownBy(resolve).isInstanceOfSatisfying(SigningEngineException.class, e -> {
+            assertThat(e.failure()).isEqualTo(SigningEngineFailure.MISCONFIGURED);
+            assertThat(e.operatorMessage()).contains("cades");
+        });
     }
 
     @Test
@@ -188,11 +214,11 @@ class StaticKeyManagedContentSigningResolverTest {
         }
 
         @Test
-        void resolvesFamilyMaxLevelTimestampSourceAndDocumentSizeCap_forATimestampedProfile() throws Exception {
+        void resolvesFamilyMaxLevelAndTimestampSource_whenProfileIsTimestamped() throws Exception {
             // given
             UUID timestampSourceUuid = UUID.fromString("44444444-4444-4444-4444-444444444444");
             SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamily.PADES,
-                    SignatureLevel.TIMESTAMPED, timestampSourceUuid, 1024L);
+                    SignatureLevel.TIMESTAMPED, timestampSourceUuid);
             given(timestampSourceResolver.profileNameFor(timestampSourceUuid)).willReturn("internal-tsa");
 
             // when
@@ -203,15 +229,13 @@ class StaticKeyManagedContentSigningResolverTest {
             assertThat(resolved.family()).isEqualTo(SignatureFamily.PADES);
             assertThat(resolved.maxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(resolved.timestampSourceProfileName()).isEqualTo("internal-tsa");
-            assertThat(resolved.documentSizeCap()).isEqualTo(1024L);
         }
 
         @Test
-        void leavesTimestampSourceProfileNameNull_forASignedOnlyProfile_withoutConsultingTheResolver()
-                throws Exception {
+        void leavesTimestampSourceUnresolved_whenProfileIsSignedOnly() throws Exception {
             // given
             SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamily.CADES,
-                    SignatureLevel.SIGNED, null, null);
+                    SignatureLevel.SIGNED, null);
 
             // when
             ResolvedManagedContentSigningProfile resolved = (ResolvedManagedContentSigningProfile) resolver
@@ -234,13 +258,13 @@ class StaticKeyManagedContentSigningResolverTest {
     }
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfile() {
-        return aManagedContentSigningProfile(SignatureFamily.CADES, SignatureLevel.SIGNED, null, null);
+        return aManagedContentSigningProfile(SignatureFamily.CADES, SignatureLevel.SIGNED, null);
     }
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfile(SignatureFamily family,
-            SignatureLevel maxLevel, UUID timestampSourceProfileUuid, Long documentSizeCap) {
+            SignatureLevel maxLevel, UUID timestampSourceProfileUuid) {
         return aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID, List.of(A_FORMAT_ATTRIBUTE),
-                family, maxLevel, timestampSourceProfileUuid, documentSizeCap, CertificatePurposeRequirements.NONE,
+                family, maxLevel, timestampSourceProfileUuid, CertificatePurposeRequirements.NONE,
                 SignatureParameterPolicy.DENY_ALL));
     }
 

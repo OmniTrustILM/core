@@ -13,6 +13,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.proxy.HibernateProxy;
 
 @Getter
@@ -20,6 +21,7 @@ import org.hibernate.proxy.HibernateProxy;
 @ToString
 @RequiredArgsConstructor
 @Entity
+@DynamicUpdate
 @Table(name = "ra_profile_protocol_attribute")
 public class RaProfileProtocolAttribute extends UniquelyIdentified {
 
@@ -55,6 +57,12 @@ public class RaProfileProtocolAttribute extends UniquelyIdentified {
 
     @Column(name = "cmp_revoke_certificate_attributes", length = Integer.MAX_VALUE)
     private String cmpRevokeCertificateAttributes;
+
+    /**
+     * EST protocol related attributes
+     */
+    @Column(name = "est_issue_certificate_attributes", length = Integer.MAX_VALUE)
+    private String estIssueCertificateAttributes;
 
     public void setRaProfile(RaProfile raProfile) {
         this.raProfile = raProfile;

@@ -28,8 +28,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class SigningProfileMapperContentSigningTest {
 
-    private static final long DOCUMENT_SIZE_CAP = 5_242_880L;
-
     // ── ToManagedContentSigningModel ──────────────────────────────────────────
 
     @Nested
@@ -52,7 +50,6 @@ class SigningProfileMapperContentSigningTest {
             assertThat(model.workflow().family()).isEqualTo(SignatureFamily.PADES);
             assertThat(model.workflow().maxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(model.workflow().timestampSourceProfileUuid()).isEqualTo(timestampSourceUuid);
-            assertThat(model.workflow().documentSizeCap()).isEqualTo(DOCUMENT_SIZE_CAP);
             assertThat(model.workflow().signatureFormattingConnectorUuid()).isEqualTo(connectorUuid);
             assertThat(model.workflow().certificatePurpose())
                     .isEqualTo(new CertificatePurposeRequirements(true, Set.of(DOCUMENT_SIGNING_OID)));
@@ -126,7 +123,6 @@ class SigningProfileMapperContentSigningTest {
             ContentSigningWorkflowDto workflow = (ContentSigningWorkflowDto) dto.getWorkflow();
             assertThat(workflow.getFamily()).isEqualTo(SignatureFamily.PADES);
             assertThat(workflow.getMaxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
-            assertThat(workflow.getDocumentSizeCap()).isEqualTo(DOCUMENT_SIZE_CAP);
             assertThat(workflow.isRequireNonRepudiation()).isTrue();
             assertThat(workflow.getRequiredExtendedKeyUsageOids()).containsExactly(DOCUMENT_SIGNING_OID);
             assertThat(workflow.getTimestampSource())
@@ -225,7 +221,6 @@ class SigningProfileMapperContentSigningTest {
         version.setSignatureFormattingConnectorUuid(UUID.randomUUID());
         version.setSignatureFamily(SignatureFamily.PADES);
         version.setMaxSignatureLevel(SignatureLevel.TIMESTAMPED);
-        version.setDocumentSizeCap(DOCUMENT_SIZE_CAP);
         version.setRequireNonRepudiation(true);
         version.setRequiredExtendedKeyUsageOids(List.of(DOCUMENT_SIGNING_OID));
         return version;

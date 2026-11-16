@@ -269,6 +269,6 @@ class FormattingAttributeDefinitionsTest {
     }
 
     private ManagedContentSigningWorkflow contentSigningWorkflowAt(SignatureLevel maxLevel) {
-        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, maxLevel, null, null, null, null);
+        return new ManagedContentSigningWorkflow(connectorUuid, List.of(), null, maxLevel, null, null, null);
     }
 }

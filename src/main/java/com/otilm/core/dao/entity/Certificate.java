@@ -3,7 +3,7 @@ package com.otilm.core.dao.entity;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.enums.IPlatformEnum;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateDto;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
@@ -14,6 +14,8 @@ import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.compliance.ComplianceStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
+import com.otilm.core.certificate.type.Validity;
+import com.otilm.core.dao.converter.ReplaceOnlyMutability;
 import com.otilm.core.mapper.certificate.CertificateDetailDtoMapper;
 import com.otilm.core.model.compliance.ComplianceResultDto;
 import com.otilm.core.util.DtoMapper;
@@ -94,17 +96,15 @@ import org.hibernate.type.descriptor.java.Immutability;
 @Entity
 @Table(name = "certificate")
 // A request may hold a copy read before a revocation or another state change committed; writing only what it changed
-// keeps the state the change gave the certificate. The JSON columns are marked immutable for the same reason:
-// Hibernate would otherwise compare them by value and write the copy's old value back. Replace them, never mutate them
-// in place. The exception is pendingRevokeAttributes: a changed value is left out of the UPDATE altogether, so
-// CertificatePendingRevokeWriter writes it.
+// keeps the state the change gave the certificate. complianceResult is marked immutable for the same reason: Hibernate
+// would otherwise compare it by value and write the copy's old value back. Replace it, never mutate it in place.
 @DynamicUpdate
 @Inheritance
 @DiscriminatorColumn(name = "certificate_type")
 public abstract class Certificate extends UniquelyIdentifiedAndAudited
         implements
             ComplianceSubject,
-            DtoMapper<CertificateDetailDto> {
+            DtoMapper<CertificateDetail> {
 
     @Serial
     private static final long serialVersionUID = -3048734620156664554L;
@@ -260,12 +260,12 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
      * {@code PENDING_REVOKE} state.
      *
      * <p>
-     * Written only through {@code CertificatePendingRevokeWriter}: on a managed entity, the UPDATE leaves a changed
-     * value out and this setter stores nothing.
+     * Written only through {@code CertificatePendingRevokeWriter}: the column is not updatable through the entity, so
+     * on a stored certificate this setter stores nothing, and a stale copy saved later cannot write its old value back.
      */
-    @Column(name = "pending_revoke_attributes", columnDefinition = "jsonb")
+    @Column(name = "pending_revoke_attributes", columnDefinition = "jsonb", updatable = false)
     @JdbcTypeCode(SqlTypes.JSON)
-    @Mutability(Immutability.class)
+    @Mutability(ReplaceOnlyMutability.class)
     private List<RequestAttribute> pendingRevokeAttributes;
 
     /**
@@ -292,14 +292,14 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
     private Set<CertificateRelation> predecessorRelations = new HashSet<>();
 
     @Override
-    public CertificateDetailDto mapToDto() {
+    public CertificateDetail mapToDto() {
         return CertificateDetailDtoMapper.toDetailDto(this);
     }
 
     /**
      * Chain-aware variant of {@link #mapToDto()} for use in {@code getCertificateChain}.
      */
-    public CertificateDetailDto mapToChainDto() {
+    public CertificateDetail mapToChainDto() {
         return CertificateDetailDtoMapper.toChainDto(this);
     }
 
@@ -337,6 +337,12 @@ public abstract class Certificate extends UniquelyIdentifiedAndAudited
         if (key != null) {
             this.keyUuid = key.getUuid();
         }
+    }
+
+    /** Stores the start of the validity and its end as {@link Validity#expiry()}. */
+    public void applyValidity(Validity validity) {
+        this.notBefore = Date.from(validity.notBefore());
+        this.notAfter = Date.from(validity.expiry());
     }
 
     public Long getValidity() {

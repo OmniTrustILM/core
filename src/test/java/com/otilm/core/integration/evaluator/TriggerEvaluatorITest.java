@@ -33,7 +33,7 @@ import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.enums.BitMaskEnum;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateKeyUsage;
 import com.otilm.api.model.core.certificate.CertificateRelationType;
 import com.otilm.api.model.core.certificate.CertificateValidationStatus;
@@ -1797,7 +1797,7 @@ class TriggerEvaluatorITest extends BaseSpringBootTest {
                 .createTriggerHistory(trigger.getUuid(), null, certificate.getUuid(), null, null, Resource.CERTIFICATE);
         certificateTriggerEvaluator.performActions(trigger, triggerHistory, certificate, null);
 
-        CertificateDetailDto certificateDetailDto = certificateService.getCertificate(certificate.getSecuredUuid());
+        CertificateDetail certificateDetailDto = certificateService.getCertificate(certificate.getSecuredUuid());
         Assertions.assertNotNull(certificate);
         Assertions.assertEquals(raProfile.getName(), certificateDetailDto.getRaProfile().getName());
     }

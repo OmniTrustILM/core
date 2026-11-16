@@ -216,7 +216,7 @@ public class SigningProfileMapper {
                 new ManagedContentSigningWorkflow(version.getSignatureFormattingConnectorUuid(),
                         cacheSafeList(signatureFormattingConnectorAttributes), version.getSignatureFamily(),
                         version.getMaxSignatureLevel(), version.getTimestampSourceProfileUuid(),
-                        version.getDocumentSizeCap(), toCertificatePurpose(version),
+                        toCertificatePurpose(version),
                         new SignatureParameterPolicy(toParameterGroups(version),
                                 version.getDefaultSignatureParameters())),
                 buildManagedSchemeModel(version, signingOperationAttributes), buildRecordPolicyModel(version));
@@ -271,7 +271,6 @@ public class SigningProfileMapper {
         wf.setSignatureFormattingConnectorAttributes(safeList(signatureFormattingConnectorAttributes));
         wf.setFamily(version.getSignatureFamily());
         wf.setMaxLevel(version.getMaxSignatureLevel());
-        wf.setDocumentSizeCap(version.getDocumentSizeCap());
         wf.setRequireNonRepudiation(version.isRequireNonRepudiation());
         wf.setRequiredExtendedKeyUsageOids(new LinkedHashSet<>(safeList(version.getRequiredExtendedKeyUsageOids())));
         wf.setAllowedRequestParameterGroups(toParameterGroups(version));

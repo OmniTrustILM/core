@@ -59,6 +59,11 @@ public class DiscoveryWork extends UniquelyIdentified {
     @Column(name = "lease_expires_at")
     private OffsetDateTime leaseExpiresAt;
 
+    // When a checkpointed drain began receiving nothing but "busy" answers from its connector; null otherwise. Bounds
+    // how long a busy connector may defer the run without spending its budget.
+    @Column(name = "busy_since")
+    private OffsetDateTime busySince;
+
     // Set by the database on insert, never written by the application — hence a read-only mapping.
     // @Generated makes Hibernate re-read the DB-assigned value after a JPA insert, so the in-memory
     // entity never carries a null created while the row already has one.

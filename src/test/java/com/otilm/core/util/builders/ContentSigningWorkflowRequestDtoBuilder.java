@@ -24,7 +24,6 @@ public class ContentSigningWorkflowRequestDtoBuilder {
     private TimestampSourceRequestDto timestampSource = null;
     private Boolean requireNonRepudiation;
     private Set<String> requiredExtendedKeyUsageOids = new LinkedHashSet<>();
-    private Long documentSizeCap = null;
     private Set<SignatureParameterGroup> allowedRequestParameterGroups = new LinkedHashSet<>();
     private SignatureParametersDto defaultSignatureParameters = null;
 
@@ -58,11 +57,6 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         return this;
     }
 
-    public ContentSigningWorkflowRequestDtoBuilder withDocumentSizeCap(Long documentSizeCap) {
-        this.documentSizeCap = documentSizeCap;
-        return this;
-    }
-
     public ContentSigningWorkflowRequestDtoBuilder withRequireNonRepudiation(boolean requireNonRepudiation) {
         this.requireNonRepudiation = requireNonRepudiation;
         return this;
@@ -92,7 +86,6 @@ public class ContentSigningWorkflowRequestDtoBuilder {
         dto.setFamily(family);
         dto.setMaxLevel(maxLevel);
         dto.setTimestampSource(timestampSource);
-        dto.setDocumentSizeCap(documentSizeCap);
         dto.setRequireNonRepudiation(requireNonRepudiation);
         dto.setRequiredExtendedKeyUsageOids(requiredExtendedKeyUsageOids);
         dto.setAllowedRequestParameterGroups(allowedRequestParameterGroups);

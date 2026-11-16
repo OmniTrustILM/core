@@ -155,6 +155,7 @@ public class CrmfIrCrMessageHandler implements MessageHandler<ClientCertificateD
             ClientCertificateIssueRequestDto dto = new ClientCertificateIssueRequestDto();
             dto.setRequest(Base64.getEncoder().encodeToString(crmf.getEncoded()));
             dto.setFormat(CertificateRequestFormat.CRMF);
+            dto.setAttributes(configuration.getClientOperationAttributes(false));
             dto.setAuthorizationSecret(configuration.getMatchedChallenge());
             RaProfile raProfile = configuration.getRaProfile();
             ClientCertificateDataResponseDto response = clientOperationExternalService

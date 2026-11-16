@@ -205,7 +205,6 @@ public class SigningProfileRequestDtoBuilder {
                                 requestAttributesFromResponse(c.getSignatureFormattingConnectorAttributes()));
                 req.setFamily(c.getFamily());
                 req.setMaxLevel(c.getMaxLevel());
-                req.setDocumentSizeCap(c.getDocumentSizeCap());
                 if (c.isRequireNonRepudiation()) {
                     req.setRequireNonRepudiation(true);
                 }

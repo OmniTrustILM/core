@@ -55,9 +55,25 @@ public final class DiscoveryWorkTick {
         return lease.renew(this);
     }
 
+    /**
+     * Whether the row is still leased to this tick. Joins the caller's transaction, so a caller holding the run's row
+     * lock reads it under that lock.
+     */
+    public boolean stillHoldsItsRow() {
+        return lease.holds(this);
+    }
+
     /** Schedules the row's next tick and frees the row. */
     public void reschedule(int nextAttempt, OffsetDateTime nextDueAt) {
         lease.reschedule(this, nextAttempt, nextDueAt);
+    }
+
+    /**
+     * Schedules the row's next tick for when its busy connector may answer, at the attempt this tick was claimed with,
+     * so the claim's charge is given back, and frees the row. Starts the row's busy clock unless it is running.
+     */
+    public void deferWhileBusy(OffsetDateTime nextDueAt) {
+        lease.deferBusy(this, nextDueAt);
     }
 
     /** Frees the row so the sweep can claim it at once, without charging an attempt or rescheduling it. */

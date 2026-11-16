@@ -11,6 +11,7 @@ import com.otilm.core.dao.repository.ApprovalProfileRelationRepository;
 import com.otilm.core.messaging.jms.configuration.MessagingProperties;
 import com.otilm.core.messaging.jms.producers.NotificationProducer;
 import com.otilm.core.messaging.model.ActionMessage;
+import com.otilm.core.messaging.model.IssueActionData;
 import com.otilm.core.model.auth.ResourceAction;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.ApprovalInternalService;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -83,22 +85,61 @@ class ActionsListenerTest {
     // ==================== No approval needed — direct action ====================
 
     @Test
-    void processMessage_certificateIssue_noApprovalNeeded_callsIssueCertificateAction() throws Exception {
+    void issuesTheCertificateAsItsRequester_whenNoApprovalIsNeeded() throws Exception {
+        // given — no approval profile for the resource
         UUID resourceUuid = UUID.randomUUID();
         UUID userUuid = UUID.randomUUID();
         ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, userUuid, null, null,
                 null);
-
-        // No approval profile configured for this resource → falls through to direct action.
         when(approvalProfileRelationRepository.findByResourceUuidAndResource(any(), any()))
                 .thenReturn(Optional.of(List.of()));
 
+        // when
         listener.processMessage(msg);
 
+        // then
         verify(authHelper).authenticateAsUser(userUuid);
-        verify(clientOperationService).issueCertificateAction(resourceUuid, false);
+        verify(clientOperationService).issueCertificateAction(resourceUuid, null, false);
         verifyNoInteractions(approvalInternalService);
         verifyNoInteractions(notificationProducer);
+    }
+
+    @Test
+    void issuesTheRequestTheIssueWasQueuedFor_whenNoApprovalIsNeeded() throws Exception {
+        // given
+        UUID certificateUuid = UUID.randomUUID();
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, certificateUuid, UUID.randomUUID(),
+                null, null, null);
+        UUID queuedFor = UUID.randomUUID();
+        msg.setData(new IssueActionData(queuedFor));
+        when(approvalProfileRelationRepository.findByResourceUuidAndResource(any(), any()))
+                .thenReturn(Optional.of(List.of()));
+
+        // when
+        listener.processMessage(msg);
+
+        // then
+        verify(clientOperationService).hasNothingToIssue(certificateUuid, queuedFor);
+        verify(clientOperationService).issueCertificateAction(certificateUuid, queuedFor, false);
+    }
+
+    @Test
+    void dropsTheIssue_whenTheCertificateHoldsNothingToIssue() throws Exception {
+        // given — an issue that reached the broker although queuing it failed and its registration completion was
+        // undone
+        UUID registrationUuid = UUID.randomUUID();
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, registrationUuid, UUID.randomUUID(),
+                null, null, null);
+        UUID queuedFor = UUID.randomUUID();
+        msg.setData(new IssueActionData(queuedFor));
+        when(clientOperationService.hasNothingToIssue(registrationUuid, queuedFor)).thenReturn(true);
+
+        // when
+        listener.processMessage(msg);
+
+        // then
+        verify(clientOperationService, never()).issueCertificateAction(any(), any(), anyBoolean());
+        verifyNoInteractions(approvalProfileRelationRepository, approvalInternalService, notificationProducer);
     }
 
     @Test
@@ -136,28 +177,20 @@ class ActionsListenerTest {
     // ==================== Approval profile present — creates approval ====================
 
     @Test
-    void processMessage_certificateAction_approvalProfileExists_createsApprovalAndCallsApprovalCreated()
-            throws Exception {
-        UUID resourceUuid = UUID.randomUUID();
-        UUID userUuid = UUID.randomUUID();
-        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, userUuid, null, null,
-                null);
-
+    void requestsTheApprovalThroughTheClientOperationService_whenACertificateActionNeedsOne() throws Exception {
+        // given
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, UUID.randomUUID(), UUID.randomUUID(),
+                null, null, null);
         stubApprovalProfileRelation();
-        Approval createdApproval = new Approval();
-        createdApproval.setUuid(UUID.randomUUID());
-        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any()))
-                .thenReturn(createdApproval);
 
+        // when
         listener.processMessage(msg);
 
-        verify(approvalInternalService)
-                .createApproval(any(), eq(Resource.CERTIFICATE), eq(ResourceAction.ISSUE), eq(resourceUuid),
-                        eq(userUuid), any());
-        verify(clientOperationService).approvalCreatedAction(resourceUuid);
-        // The "create approval" branch returns early — direct action must NOT run.
+        // then — the action itself waits for the approval
+        verify(clientOperationService).requestApproval(any(), eq(msg));
+        verifyNoInteractions(approvalInternalService);
         verify(authHelper, never()).authenticateAsUser(any());
-        verify(clientOperationService, never()).issueCertificateAction(any(), anyBoolean());
+        verify(clientOperationService, never()).issueCertificateAction(any(), any(), anyBoolean());
     }
 
     @Test
@@ -179,21 +212,23 @@ class ActionsListenerTest {
     }
 
     @Test
-    void processMessage_approvalCreationFails_producesErrorNotificationAndThrowsMessageHandlingException()
-            throws Exception {
+    void rejectsTheMessageWithANotification_whenRequestingTheApprovalFails() throws Exception {
+        // given
         UUID resourceUuid = UUID.randomUUID();
-        UUID userUuid = UUID.randomUUID();
-        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, userUuid, null, null,
-                null);
-
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, resourceUuid, UUID.randomUUID(),
+                null, null, null);
         stubApprovalProfileRelation();
-        when(approvalInternalService.createApproval(any(), any(), any(), any(), any(), any()))
-                .thenThrow(new RuntimeException("approval creation exploded"));
+        doThrow(new RuntimeException("approval creation exploded"))
+                .when(clientOperationService)
+                .requestApproval(any(), any());
 
-        assertThatThrownBy(() -> listener.processMessage(msg))
+        // when
+        ThrowingCallable process = () -> listener.processMessage(msg);
+
+        // then
+        assertThatThrownBy(process)
                 .isInstanceOf(MessageHandlingException.class)
                 .hasMessageContaining("approval creation failed");
-
         verify(notificationProducer)
                 .produceInternalNotificationMessage(eq(Resource.CERTIFICATE), eq(resourceUuid), any(), any(), any());
     }
@@ -242,6 +277,38 @@ class ActionsListenerTest {
         // A rejected REVOKE must not run the issue-rejection path nor the actual revoke.
         verify(clientOperationService, never()).issueCertificateRejectedAction(any());
         verify(clientOperationService, never()).revokeCertificateAction(any(), any(), anyBoolean());
+    }
+
+    @Test
+    void rejectsOnlyTheRequestTheApprovalWasFor_whenAnIssueApprovalIsRejected() throws Exception {
+        // given — the decision replays the approval's stored data, which comes back as a JSON object
+        UUID certificateUuid = UUID.randomUUID();
+        UUID approvalWasFor = UUID.randomUUID();
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, certificateUuid, UUID.randomUUID(),
+                UUID.randomUUID(), ApprovalStatusEnum.REJECTED,
+                Map.of("certificateRequestUuid", approvalWasFor.toString()));
+
+        // when
+        listener.processMessage(msg);
+
+        // then
+        verify(clientOperationService).issueCertificateRejectedAction(certificateUuid, approvalWasFor);
+    }
+
+    @Test
+    void issuesOnlyTheRequestTheApprovalWasFor_whenAnIssueApprovalIsApproved() throws Exception {
+        // given — the decision replays the approval's stored data, which comes back as a JSON object
+        UUID certificateUuid = UUID.randomUUID();
+        UUID approvalWasFor = UUID.randomUUID();
+        ActionMessage msg = newMessage(Resource.CERTIFICATE, ResourceAction.ISSUE, certificateUuid, UUID.randomUUID(),
+                UUID.randomUUID(), ApprovalStatusEnum.APPROVED,
+                Map.of("certificateRequestUuid", approvalWasFor.toString()));
+
+        // when
+        listener.processMessage(msg);
+
+        // then
+        verify(clientOperationService).issueCertificateAction(certificateUuid, approvalWasFor, true);
     }
 
     // ==================== Authentication failure ====================

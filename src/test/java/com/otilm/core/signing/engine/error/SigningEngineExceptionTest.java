@@ -49,4 +49,25 @@ class SigningEngineExceptionTest {
         // then
         assertThat(safe).isEqualTo("Digest algorithm is not allowed");
     }
+
+    @Test
+    void carriesTheItemIdentifier_whenAttributedToAnItem() {
+        // given
+        var failedItem = "doc-2";
+        Throwable cause = new IllegalStateException("boom");
+        SigningEngineException stepFailure = SigningEngineException
+                .stepFailed(SigningEngineFailure.CONNECTOR_FAULT, "computeDtbs", "connector returned no dtbs", cause,
+                        "Internal formatting error");
+
+        // when
+        SigningEngineException itemFailure = stepFailure.withItem(failedItem);
+
+        // then
+        assertThat(itemFailure.itemIdentifier()).isEqualTo(failedItem);
+        assertThat(itemFailure.failure()).isEqualTo(SigningEngineFailure.CONNECTOR_FAULT);
+        assertThat(itemFailure.step()).isEqualTo("computeDtbs");
+        assertThat(itemFailure.operatorMessage()).isEqualTo(stepFailure.operatorMessage());
+        assertThat(itemFailure.clientMessage()).isEqualTo("Internal formatting error");
+        assertThat(itemFailure.getCause()).isSameAs(cause);
+    }
 }

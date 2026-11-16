@@ -2,21 +2,28 @@ package com.otilm.core.signing.record;
 
 import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import com.otilm.core.mapper.signing.SigningRecordInputMapper;
+import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.service.writer.signingrecord.SigningRecordWriter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.IntStream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.function.Executable;
+import org.mockito.ArgumentCaptor;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
+import static com.otilm.core.signing.record.SigningRecordInputSources.recordOne;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -39,6 +46,9 @@ class DeferredDurableSigningRecordStrategyUnitTest {
     private MeterRegistry registry;
     private SigningRecordWriter writer;
     private DeferredDurableSigningRecordStrategy strategy;
+    private final SigningProfileModel<?, ?> recordingProfile = aSigningProfile()
+            .withRecordPolicy(recordingEverything().build())
+            .build();
 
     @BeforeEach
     void setUp() {
@@ -56,7 +66,7 @@ class DeferredDurableSigningRecordStrategyUnitTest {
                 .build();
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(recordingDisabledInput));
+        recordOne(strategy, recordingDisabledInput);
 
         // then
         assertEquals(1, intakeCounter(MODE));
@@ -72,10 +82,10 @@ class DeferredDurableSigningRecordStrategyUnitTest {
                 .build();
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(metadataOnlyInput));
+        recordOne(strategy, metadataOnlyInput);
 
         // then
-        verify(writer).insertOutbox(any(SigningRecordOutbox.class));
+        verify(writer).insertOutboxBatch(any());
         assertEquals(1, intakeCounter(MODE));
         assertEquals(0, intakeSkippedCounter(MODE));
     }
@@ -86,32 +96,72 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         var recordableInput = recordableInput();
 
         // when
-        strategy.recordSigning(SigningRecordInputSources.of(recordableInput));
+        recordOne(strategy, recordableInput);
 
         // then
-        verify(writer).insertOutbox(any(SigningRecordOutbox.class));
+        verify(writer).insertOutboxBatch(any());
         assertEquals(1, intakeCounter(MODE));
         assertEquals(0, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_SAVE_ERROR));
-        assertEquals(1, durationSampleCount(MODE));
+        assertEquals(1, countDurationSamples(MODE));
     }
 
     @Test
-    void record_propagatesAndCountsIntakeFailed_whenStagingFails() {
+    void stagesTheBatchInOneWriteReturningUuidsInSourceOrder_whenRecordingABatch() {
         // given
-        doThrow(new RuntimeException("db down")).when(writer).insertOutbox(any());
+        List<String> sourceNames = List.of("first", "second", "third");
+        List<SigningRecordInputSource> batch = sourceNames.stream().map(this::createNamedSource).toList();
 
         // when
-        Executable signingRecord = () -> strategy.recordSigning(SigningRecordInputSources.of(recordableInput()));
+        List<UUID> references = strategy.recordSigning(recordingProfile, batch);
 
         // then
-        assertThrows(RuntimeException.class, signingRecord);
-        assertEquals(1, intakeFailedCounter(MODE, SigningRecordMetrics.REASON_SAVE_ERROR));
+        List<SigningRecordOutbox> staged = captureStagedBatch();
+        assertThat(staged).extracting(SigningRecordOutbox::getName).containsExactlyElementsOf(sourceNames);
+        assertThat(references).containsExactlyElementsOf(staged.stream().map(SigningRecordOutbox::getUuid).toList());
+        assertThat(intakeCounter(MODE)).isEqualTo(batch.size());
     }
+
+    @Test
+    void failsCountingEveryItem_whenStagingTheBatchFails() {
+        // given
+        List<SigningRecordInputSource> batch = createRecordableBatch(3);
+        var stagingFailure = new RuntimeException("db down");
+        doThrow(stagingFailure).when(writer).insertOutboxBatch(any());
+
+        // when
+        ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
+
+        // then
+        assertThatThrownBy(recordBatch).isSameAs(stagingFailure);
+        assertThat(intakeFailedCounter(MODE, SigningRecordMetrics.REASON_SAVE_ERROR)).isEqualTo(batch.size());
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private SigningRecordInput recordableInput() {
         return aSigningRecordInput()
                 .signingProfile(aSigningProfile().withRecordPolicy(recordingEverything().build()).build())
                 .build();
+    }
+
+    private List<SigningRecordInputSource> createRecordableBatch(int size) {
+        return IntStream
+                .range(0, size)
+                .mapToObj(i -> SigningRecordInputSources
+                        .of(aSigningRecordInput().signingProfile(recordingProfile).build()))
+                .toList();
+    }
+
+    private SigningRecordInputSource createNamedSource(String displayName) {
+        return SigningRecordInputSources
+                .of(aSigningRecordInput().signingProfile(recordingProfile).displayName(displayName).build());
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<SigningRecordOutbox> captureStagedBatch() {
+        ArgumentCaptor<List<SigningRecordOutbox>> stagedBatch = ArgumentCaptor.forClass(List.class);
+        verify(writer).insertOutboxBatch(stagedBatch.capture());
+        return stagedBatch.getValue();
     }
 
     private double intakeCounter(String mode) {
@@ -129,8 +179,8 @@ class DeferredDurableSigningRecordStrategyUnitTest {
         return counter == null ? 0d : counter.count();
     }
 
-    private long durationSampleCount(String mode) {
-        Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).timer();
+    private long countDurationSamples(String mode) {
+        Timer timer = registry.find("signing_record.write.duration").tag("mode", mode).tag("batch", "false").timer();
         return timer == null ? 0L : timer.count();
     }
 }

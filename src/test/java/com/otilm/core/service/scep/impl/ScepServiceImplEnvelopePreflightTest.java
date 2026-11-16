@@ -1,7 +1,10 @@
 package com.otilm.core.service.scep.impl;
 
 import com.otilm.api.exception.ScepException;
+import com.otilm.api.model.core.logging.enums.Operation;
 import com.otilm.api.model.core.scep.FailInfo;
+import com.otilm.core.aop.AuditOperationOverride;
+import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import com.otilm.core.service.scep.message.ScepRequest;
 import com.otilm.core.util.CertificateUtil;
@@ -11,20 +14,31 @@ import java.security.KeyPairGenerator;
 import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.Date;
+import java.util.stream.Stream;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
+import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -50,6 +64,11 @@ class ScepServiceImplEnvelopePreflightTest {
         service = new ScepServiceImpl();
         profile = mock(ScepProfile.class);
         ReflectionTestUtils.setField(service, "scepProfile", profile);
+    }
+
+    @AfterEach
+    void clearRequestContext() {
+        RequestContextHolder.resetRequestAttributes();
     }
 
     @Test
@@ -82,6 +101,38 @@ class ScepServiceImplEnvelopePreflightTest {
         ScepRequest request = requestSignedBy(null);
 
         assertDoesNotThrow(() -> service.verifyResponseEnvelopable(request));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("enrolmentsAndTheirOperations")
+    void recordsTheEnrolmentOperation_whenTheResponseCouldNotBeEnveloped(String enrolment,
+            Boolean requireManualApproval, Certificate matchedRegistration, Operation expectedOperation)
+            throws Exception {
+        // given
+        var auditOperationOverride = mock(AuditOperationOverride.class);
+        service.setAuditOperationOverride(auditOperationOverride);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        when(profile.getRequireManualApproval()).thenReturn(requireManualApproval);
+        when(profile.getChallengePassword()).thenReturn(null);
+        ScepRequest ecRequestWithoutEnvelopePassword = requestSignedBy(CertificateUtil.parseCertificate(EC_CERT_B64));
+
+        // when
+        ReflectionTestUtils
+                .invokeMethod(service, "enrollmentResponse", ecRequestWithoutEnvelopePassword, null,
+                        matchedRegistration);
+
+        // then
+        verify(auditOperationOverride).set(expectedOperation);
+    }
+
+    private static Stream<Arguments> enrolmentsAndTheirOperations() {
+        Certificate registration = aCertificate().build();
+        return Stream
+                .of(arguments("auto-issuing profile", false, null, Operation.ISSUE),
+                        arguments("manual-approval profile", true, null, Operation.REQUEST),
+                        arguments("profile with approval unset", null, null, Operation.REQUEST),
+                        arguments("matched registration on a manual-approval profile", true, registration,
+                                Operation.ISSUE));
     }
 
     private static ScepRequest requestSignedBy(X509Certificate signerCertificate) {

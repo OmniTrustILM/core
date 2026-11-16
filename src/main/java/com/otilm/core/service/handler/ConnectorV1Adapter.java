@@ -40,6 +40,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component(ConnectorVersion.Codes.V1)
 public class ConnectorV1Adapter implements ConnectorAdapter {
@@ -126,14 +127,13 @@ public class ConnectorV1Adapter implements ConnectorAdapter {
         return connectInfo;
     }
 
+    /**
+     * Requires each function group the connector names to exist in Core and every required endpoint of that group to be
+     * offered. Refuses a connector whose function groups and kinds match another registered connector.
+     */
     @Override
-    public ConnectInfoV1 validateConnection(ApiClientConnectorInfo connectorInfo) throws ConnectorException {
-        ConnectInfo connectInfo = checkConnection(connectorInfo);
-        return validateConnection(connectInfo);
-    }
-
-    @Override
-    public ConnectInfoV1 validateConnection(ConnectInfo connectInfoV1) throws ConnectorException {
+    @Transactional(readOnly = true)
+    public void validateConnection(ConnectInfo connectInfoV1) {
         ConnectInfoV1 connectInfo = (ConnectInfoV1) connectInfoV1;
         List<FunctionGroupCode> connectFunctionGroupCodeList = new ArrayList<>();
         Map<FunctionGroupCode, List<String>> connectFunctionGroupKindMap = new EnumMap<>(FunctionGroupCode.class);
@@ -183,8 +183,6 @@ public class ConnectorV1Adapter implements ConnectorAdapter {
         if (!errors.isEmpty()) {
             throw new ValidationException("Connector validation failed.", errors);
         }
-
-        return connectInfo;
     }
 
     @Override

@@ -11,6 +11,7 @@ import com.otilm.api.model.core.certificate.CertificateValidationStatus;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.CrlEntry;
 import com.otilm.core.dao.entity.RaProfile;
@@ -35,9 +36,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.cert.X509CertificateHolder;
-import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
-import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +49,8 @@ public class X509CertificateValidator implements ICertificateValidator {
 
     private CrlService crlService;
 
+    private X509CertificateTypeHandler x509Handler;
+
     private CertificateValidationWriter validationWriter;
 
     @Autowired
@@ -61,6 +61,11 @@ public class X509CertificateValidator implements ICertificateValidator {
     @Autowired
     public void setCrlService(CrlService crlService) {
         this.crlService = crlService;
+    }
+
+    @Autowired
+    public void setX509Handler(X509CertificateTypeHandler x509Handler) {
+        this.x509Handler = x509Handler;
     }
 
     @Autowired
@@ -554,9 +559,9 @@ public class X509CertificateValidator implements ICertificateValidator {
 
     private boolean verifySignature(X509Certificate subjectCertificate, X509Certificate issuerCertificate) {
         try {
-            subjectCertificate.verify(issuerCertificate.getPublicKey());
-            return true;
-        } catch (Exception e) {
+            return x509Handler
+                    .verifySignature(x509Handler.describe(subjectCertificate), x509Handler.describe(issuerCertificate));
+        } catch (CertificateException e) {
             logger.debug("Unable to verify certificate for signature", e);
             return false;
         }
@@ -564,13 +569,10 @@ public class X509CertificateValidator implements ICertificateValidator {
 
     private boolean verifyAltSignature(X509Certificate subjectCertificate, X509Certificate issuerCertificate) {
         try {
-            X509CertificateHolder holder = new JcaX509CertificateHolder(subjectCertificate);
-            return holder
-                    .isAlternativeSignatureValid(new JcaContentVerifierProviderBuilder()
-                            .build(CertificateUtil
-                                    .getAltPublicKey(issuerCertificate
-                                            .getExtensionValue(Extension.subjectAltPublicKeyInfo.getId()))));
-        } catch (Exception e) {
+            return x509Handler
+                    .verifyAlternativeSignature(x509Handler.describe(subjectCertificate),
+                            x509Handler.describe(issuerCertificate));
+        } catch (CertificateException e) {
             logger.debug("Unable to verify certificate for alternative signature", e);
             return false;
         }

@@ -3,6 +3,7 @@ package com.otilm.core.cbom.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
+import com.otilm.api.clients.ApiClientCodecs;
 import com.otilm.api.exception.CbomRepositoryException;
 import com.otilm.api.model.core.cbom.CbomUploadRequestDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
@@ -19,10 +20,14 @@ import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
@@ -30,11 +35,14 @@ import static com.github.tomakehurst.wiremock.client.WireMock.absent;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -47,6 +55,8 @@ class CbomRepositoryClientTest {
 
     @RegisterExtension
     static WireMockExtension wireMock = WireMockExtension.newInstance().options(LoopbackWireMock.options()).build();
+
+    private static final int SHARED_JSON_LIMIT = 1024;
 
     private CbomRepositoryClient client;
     private ObjectMapper objectMapper;
@@ -565,5 +575,58 @@ class CbomRepositoryClientTest {
         assertEquals(400, exception.getProblemDetail().getStatus());
 
         wireMock.verify(getRequestedFor(WireMock.urlMatching("/api/v1/bom/.*")).withoutQueryParam("version"));
+    }
+
+    @Test
+    void leavesTheSharedClientsJsonLimit_whenApplyingItsOwn() {
+        // given
+        WebClient sharedClient = clientBuiltLikeTheConnectorClient(SHARED_JSON_LIMIT);
+        new CbomRepositoryClient(sharedClient, 4 * SHARED_JSON_LIMIT);
+        String largerThanTheSharedLimit = "{\"data\":\"" + "A".repeat(2 * SHARED_JSON_LIMIT) + "\"}";
+        wireMock.stubFor(get(urlEqualTo("/large")).willReturn(okJson(largerThanTheSharedLimit)));
+
+        // when
+        ThrowingCallable readThroughTheSharedClient = () -> sharedClient
+                .get()
+                .uri(baseUrl + "/large")
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block();
+
+        // then
+        assertThatThrownBy(readThroughTheSharedClient).hasRootCauseInstanceOf(DataBufferLimitException.class);
+    }
+
+    @Test
+    void readsADocumentAboveTheSharedClientsLimit_whenItsOwnLimitAllowsIt() throws Exception {
+        // given
+        client = new CbomRepositoryClient(clientBuiltLikeTheConnectorClient(SHARED_JSON_LIMIT), 4 * SHARED_JSON_LIMIT);
+        String urn = "urn:uuid:large-document";
+        BomResponseDto largeDocument = new BomResponseDto();
+        largeDocument.put("serialNumber", urn);
+        largeDocument.put("largeData", "A".repeat(2 * SHARED_JSON_LIMIT));
+        wireMock
+                .stubFor(get(WireMock.urlMatching("/api/v1/bom/.*"))
+                        .willReturn(okJson(objectMapper.writeValueAsString(largeDocument))));
+
+        // when
+        BomResponseDto document = client.read(urn, null);
+
+        // then
+        assertThat(document).containsEntry("serialNumber", urn);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * A client built from finished exchange strategies, like the shared connector client. A mutated copy then shares
+     * its JSON decoder.
+     */
+    private static WebClient clientBuiltLikeTheConnectorClient(int jsonLimit) {
+        ExchangeStrategies strategies = ExchangeStrategies.builder().codecs(codecs -> {
+            codecs.defaultCodecs().maxInMemorySize(jsonLimit);
+            ApiClientCodecs.configureJsonCodecs(codecs);
+        }).build();
+        return WebClient.builder().exchangeStrategies(strategies).build();
     }
 }

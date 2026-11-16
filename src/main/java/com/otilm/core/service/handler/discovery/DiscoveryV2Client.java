@@ -10,6 +10,7 @@ import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
@@ -74,11 +75,12 @@ public class DiscoveryV2Client {
     private final ResourceInternalService resourceService;
     private final AuthHelper authHelper;
     private final OutboundSecretContainment outboundContainment;
+    private final DiscoveryDeliveryModeOffer deliveryModeOffer;
 
     public DiscoveryV2Client(ConnectorApiFactory connectorApiFactory, ConnectorRepository connectorRepository,
             AttributeEngine attributeEngine, CredentialInternalService credentialService,
             ResourceInternalService resourceService, AuthHelper authHelper,
-            OutboundSecretContainment outboundContainment) {
+            OutboundSecretContainment outboundContainment, DiscoveryDeliveryModeOffer deliveryModeOffer) {
         this.connectorApiFactory = connectorApiFactory;
         this.connectorRepository = connectorRepository;
         this.attributeEngine = attributeEngine;
@@ -86,6 +88,7 @@ public class DiscoveryV2Client {
         this.resourceService = resourceService;
         this.authHelper = authHelper;
         this.outboundContainment = outboundContainment;
+        this.deliveryModeOffer = deliveryModeOffer;
     }
 
     /** What this connector can discover, as it reports right now. Never persisted, so it is always asked. */
@@ -204,13 +207,24 @@ public class DiscoveryV2Client {
         ConnectorDto connector = connectorOf(run);
         DiscoveryDrainRequestDto request = new DiscoveryDrainRequestDto();
         Set<String> sentSecrets = populate(request, run, connector);
+        request.setDeliveryModes(drainOffer(run));
         request.setAfterSequence(afterSequence);
         request.setMaxItems(maxItems);
-        // Clamped to the contract's cap: a configured value above it would produce a request the connector
-        // rejects on every single drain.
-        request.setMaxBytes(Math.min(maxBytes, DiscoveryDrainRequestDto.MAX_BYTES_CAP));
+        request.setMaxBytes(Math.min(maxBytes, pageCeiling(run)));
         return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).results(connector, request),
                 sentSecrets, "results");
+    }
+
+    /**
+     * The most item bytes a page may ask for. The contract's cap, since a configured value above it produces a request
+     * the connector rejects on every drain; for a checkpointed run less the room its response keeps for the page's
+     * checkpoint and the rest of the envelope, so a full page still fits the transport.
+     */
+    private static long pageCeiling(Discovery run) {
+        if (run.getDeliveryMode() == DiscoveryDeliveryMode.CHECKPOINTED) {
+            return DiscoveryDrainRequestDto.MAX_BYTES_CAP - DiscoveryDrainRequestDto.CHECKPOINTED_RESPONSE_RESERVE;
+        }
+        return DiscoveryDrainRequestDto.MAX_BYTES_CAP;
     }
 
     /**
@@ -241,7 +255,8 @@ public class DiscoveryV2Client {
      *
      * <p>
      * The resource set goes on every request, not only initiate: a stateless connector rebuilding a resumed run cannot
-     * recover it from {@code resourceAttributes}, which omits any resource declaring no attributes of its own.
+     * recover it from {@code resourceAttributes}, which omits any resource declaring no attributes of its own. So do
+     * the offered delivery modes, which a connector checks before it accepts a run and again before it resumes one.
      *
      * @return the secret values resolved into the request, for {@link #contained} to catch on the way back
      */
@@ -250,6 +265,7 @@ public class DiscoveryV2Client {
         request.setRunId(run.getUuid());
         request.setCheckpoint(run.getCheckpoint());
         request.setResources(resourcesOf(run));
+        request.setDeliveryModes(deliveryModeOffer.offered());
         Map<String, List<DataAttribute>> scopes = resolvedScopes(run, connector);
         request.setAttributes(AttributeDefinitionUtils.getClientAttributes(scopes.getOrDefault(RUN_SCOPE, List.of())));
         Map<Resource, List<RequestAttribute>> byResource = new EnumMap<>(Resource.class);
@@ -265,6 +281,22 @@ public class DiscoveryV2Client {
         outboundContainment.recordExpandedSecretsFromRequest(request.getAttributes(), sentSecrets);
         byResource.values().forEach(sent -> outboundContainment.recordExpandedSecretsFromRequest(sent, sentSecrets));
         return sentSecrets;
+    }
+
+    /**
+     * The configured offer, with checkpointed prepended when it lacks it and the run is already in checkpointed
+     * delivery: such a run can only continue that way, and a connector answers a drain that does not offer it as busy.
+     */
+    private List<DiscoveryDeliveryMode> drainOffer(Discovery run) {
+        List<DiscoveryDeliveryMode> configured = deliveryModeOffer.offered();
+        if (run.getDeliveryMode() != DiscoveryDeliveryMode.CHECKPOINTED
+                || configured.contains(DiscoveryDeliveryMode.CHECKPOINTED)) {
+            return configured;
+        }
+        List<DiscoveryDeliveryMode> withCheckpointed = new ArrayList<>(configured.size() + 1);
+        withCheckpointed.add(DiscoveryDeliveryMode.CHECKPOINTED);
+        withCheckpointed.addAll(configured);
+        return withCheckpointed;
     }
 
     /**

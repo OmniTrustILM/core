@@ -7,12 +7,14 @@ import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
+import com.otilm.core.dao.converter.SignatureFamilyAttributeConverter;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -108,7 +110,7 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     private Connector signatureFormattingConnector;
 
     @Column(name = "signature_family")
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = SignatureFamilyAttributeConverter.class)
     private SignatureFamily signatureFamily;
 
     @Column(name = "max_signature_level")
@@ -117,9 +119,6 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
 
     @Column(name = "timestamp_source_profile_uuid")
     private UUID timestampSourceProfileUuid;
-
-    @Column(name = "document_size_cap")
-    private Long documentSizeCap;
 
     @Column(name = "require_non_repudiation", nullable = false)
     private boolean requireNonRepudiation;

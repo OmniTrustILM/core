@@ -4,7 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.ConnectorVersion;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.enums.CertificateRequestFormat;
 import com.otilm.api.model.core.raprofile.AttributeSetMergeMode;
@@ -159,7 +159,7 @@ class UploadedCsrValidationITest extends BaseSpringBootTest {
         ClientCertificateRequestDto request = uploadRequest(csrMissingCommonName);
 
         // when
-        CertificateDetailDto certificate = clientOperationService.submitCertificateRequest(request, null);
+        CertificateDetail certificate = clientOperationService.submitCertificateRequest(request, null);
 
         // then — issuance proceeds; no validation exception
         assertThat(certificate).isNotNull();

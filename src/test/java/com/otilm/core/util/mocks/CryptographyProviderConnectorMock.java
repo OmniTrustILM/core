@@ -217,6 +217,19 @@ public class CryptographyProviderConnectorMock extends BaseConnectorMock {
         return this;
     }
 
+    /** Answers {@code signData} with a legacy refusal: a 422 listing the connector's own message. */
+    public CryptographyProviderConnectorMock stubSignDataLegacyRefusal(String message) {
+        server
+                .stubFor(WireMock
+                        .post(WireMock.urlPathMatching(SIGN_PATH))
+                        .willReturn(WireMock
+                                .aResponse()
+                                .withStatus(422)
+                                .withHeader("Content-Type", "application/json")
+                                .withBody("[\"" + message + "\"]")));
+        return this;
+    }
+
     public CryptographyProviderConnectorMock verifyNoDataWasSigned() {
         return verifySignRequests(0);
     }

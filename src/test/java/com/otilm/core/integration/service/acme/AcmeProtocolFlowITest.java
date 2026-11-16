@@ -45,6 +45,8 @@ import com.otilm.core.service.v2.ClientOperationInternalService;
 import com.otilm.core.util.BaseSpringBootTest;
 import com.otilm.core.util.LoopbackWireMock;
 import com.otilm.core.util.builders.AuthorityFixtures;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.net.URI;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -68,7 +70,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
@@ -139,6 +143,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     private AcmeAuthorizationRepository acmeAuthorizationRepository;
     @Autowired
     private AcmeChallengeRepository acmeChallengeRepository;
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
 
     // ── Test constants ────────────────────────────────────────────────────────
 
@@ -463,7 +469,8 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
     }
 
     /**
-     * Builds a CSR and sends {@code POST /order/{id}/finalize}.
+     * Builds a CSR and sends {@code POST /order/{id}/finalize}, with an EntityManager bound to the thread throughout,
+     * as open-in-view binds one.
      */
     private void finalizeOrder(String orderId, String accountId) throws Exception {
         KeyPair csrKeyPair = keyPairGenerator.generateKeyPair();
@@ -481,9 +488,18 @@ public class AcmeProtocolFlowITest extends BaseSpringBootTest {
         payload.put("csr", base64Csr);
 
         String jws = createJws(payload, "/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize", accountId);
-        ResponseEntity<com.otilm.api.model.core.acme.Order> response = acmeService
-                .finalizeOrder(ACME_PROFILE_NAME, orderId, jws,
-                        new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize"), false);
+        EntityManager requestEntityManager = entityManagerFactory.createEntityManager();
+        TransactionSynchronizationManager
+                .bindResource(entityManagerFactory, new EntityManagerHolder(requestEntityManager));
+        ResponseEntity<com.otilm.api.model.core.acme.Order> response;
+        try {
+            response = acmeService
+                    .finalizeOrder(ACME_PROFILE_NAME, orderId, jws,
+                            new URI("/acme/" + ACME_PROFILE_NAME + "/order/" + orderId + "/finalize"), false);
+        } finally {
+            TransactionSynchronizationManager.unbindResource(entityManagerFactory);
+            requestEntityManager.close();
+        }
         Assertions.assertEquals(200, response.getStatusCode().value());
     }
 

@@ -5,6 +5,7 @@ import com.otilm.api.model.core.enums.CertificateProtocol;
 import com.otilm.core.dao.entity.acme.AcmeAccount;
 import com.otilm.core.dao.entity.acme.AcmeProfile;
 import com.otilm.core.dao.entity.cmp.CmpProfile;
+import com.otilm.core.dao.entity.est.EstProfile;
 import com.otilm.core.dao.entity.scep.ScepProfile;
 import jakarta.persistence.Column;
 import jakarta.persistence.ConstraintMode;
@@ -17,6 +18,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.io.Serializable;
 import java.util.Objects;
 import java.util.UUID;
@@ -35,7 +37,10 @@ import org.hibernate.proxy.HibernateProxy;
 @Entity
 @Getter
 @Setter
-@Table(name = "certificate_protocol_association")
+// A certificate has at most one protocol association: Certificate.protocolAssociation maps it one-to-one.
+@Table(name = "certificate_protocol_association",
+        uniqueConstraints = @UniqueConstraint(name = "uq_certificate_protocol_association_certificate",
+                columnNames = "certificate_uuid"))
 public class CertificateProtocolAssociation extends UniquelyIdentified implements Serializable {
 
     @OneToOne(fetch = FetchType.LAZY)
@@ -72,6 +77,12 @@ public class CertificateProtocolAssociation extends UniquelyIdentified implement
     @JoinFormula("CASE WHEN protocol = 'CMP' AND EXISTS (SELECT 1 FROM {h-schema}cmp_profile p"
             + " WHERE p.uuid = protocol_profile_uuid) THEN protocol_profile_uuid END")
     private CmpProfile cmpProfile;
+
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinFormula("CASE WHEN protocol = 'EST' AND EXISTS (SELECT 1 FROM {h-schema}est_profile p"
+            + " WHERE p.uuid = protocol_profile_uuid) THEN protocol_profile_uuid END")
+    private EstProfile estProfile;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)

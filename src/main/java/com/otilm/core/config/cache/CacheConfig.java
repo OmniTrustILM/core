@@ -37,6 +37,7 @@ public class CacheConfig {
     public static final String CERTIFICATE_AUTH_CACHE = "certificateAuth";
     public static final String CERTIFICATE_CHAIN_CACHE = "certificateChain";
     public static final String CONNECTOR_API_CLIENT_CACHE = "connectorApiClient";
+    public static final String CONTENT_SIGNING_DECLARATION_CACHE = "contentSigningDeclaration";
     public static final String CRYPTOGRAPHIC_KEY_ITEM_CACHE = "cryptographicKeyItem";
     public static final String FORMATTING_ATTRIBUTE_DEFINITIONS_CACHE = "formattingAttributeDefinitions";
     public static final String OBJECT_AUTHZ_CACHE = "objectAuthz";
@@ -84,6 +85,9 @@ public class CacheConfig {
         caches
                 .add(readThrough(CONNECTOR_API_CLIENT_CACHE,
                         boundedWithStats(connectorCacheProperties.ttlMinutes(), connectorCacheProperties.maxSize())));
+        caches
+                .add(readThrough(CONTENT_SIGNING_DECLARATION_CACHE, boundedWithStats(
+                        signingProfileCacheProperties.ttlMinutes(), signingProfileCacheProperties.maxSize())));
         caches
                 .add(readThrough(CRYPTOGRAPHIC_KEY_ITEM_CACHE,
                         boundedWithStats(cryptographicKeyItemCacheProperties.ttlMinutes(),

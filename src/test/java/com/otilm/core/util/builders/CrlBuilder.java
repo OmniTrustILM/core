@@ -48,6 +48,11 @@ public class CrlBuilder {
         return this;
     }
 
+    public CrlBuilder withNextUpdate(Date nextUpdate) {
+        this.nextUpdate = nextUpdate;
+        return this;
+    }
+
     public Crl build() {
         Crl crl = new Crl();
         crl.setCaCertificateUuid(caCertificateUuid);

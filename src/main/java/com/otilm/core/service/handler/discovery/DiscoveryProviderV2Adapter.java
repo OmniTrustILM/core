@@ -7,6 +7,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.connector.v2.FeatureFlag;
 import com.otilm.api.model.client.discovery.DiscoveryDetailDto;
 import com.otilm.api.model.common.attribute.common.MetadataAttribute;
+import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateResponseDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryStopResponseDto;
 import com.otilm.api.model.core.auth.Resource;
@@ -33,6 +34,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,6 +75,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     private final TransactionHandler transactionHandler;
     private final DiscoveryWorkProperties workProperties;
     private final DiscoveryRunWriter runWriter;
+    private final DiscoveryDeliveryModeOffer deliveryModeOffer;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -82,7 +85,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             ConnectorInterfaceRepository connectorInterfaceRepository, DiscoveryV2Client client,
             DiscoveryWorkWriter workWriter, DiscoveryRunTerminator terminator,
             ConnectorCapabilityService capabilityService, TransactionHandler transactionHandler,
-            DiscoveryWorkProperties workProperties, DiscoveryRunWriter runWriter) {
+            DiscoveryWorkProperties workProperties, DiscoveryRunWriter runWriter,
+            DiscoveryDeliveryModeOffer deliveryModeOffer) {
         this.discoveryRepository = discoveryRepository;
         this.detailCounts = detailCounts;
         this.connectorInterfaceRepository = connectorInterfaceRepository;
@@ -93,6 +97,7 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         this.transactionHandler = transactionHandler;
         this.workProperties = workProperties;
         this.runWriter = runWriter;
+        this.deliveryModeOffer = deliveryModeOffer;
     }
 
     @Override
@@ -202,8 +207,8 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
      *
      * @return whether the run was still live to record against; {@code false} when it ended while the connector was
      * being called, which leaves the caller to drop the now-orphaned connector-side run
-     * @throws IllegalStateException if the handle exceeds the cap — thrown before anything is persisted, so the run
-     * fails rather than being driven with a handle it cannot replay
+     * @throws IllegalStateException if the handle exceeds the cap, or the connector chose a delivery mode Core did not
+     * offer — thrown before anything is persisted, so the run fails rather than being driven in a way it cannot be
      */
     private boolean recordInitiated(UUID discoveryUuid, DiscoveryInitiateResponseDto response,
             ScheduledJobInfo scheduledJobInfo) {
@@ -217,8 +222,12 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             if (DiscoveryRunLifecycle.isTerminal(locked.getStatus())) {
                 return false;
             }
+            DiscoveryDeliveryMode mode = deliveryModeOffer
+                    .accept(response.getDeliveryMode())
+                    .orElseThrow(() -> new RunRefusedException(unofferedMode(response.getDeliveryMode())));
             enforceMetaCap(response.getCheckpoint());
             locked.setCheckpoint(response.getCheckpoint());
+            locked.setDeliveryMode(mode);
             locked.setStoppable(stoppable(locked, response));
             locked.setStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
@@ -282,6 +291,36 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
                 .end(run.getUuid(), DiscoveryStatus.FAILED,
                         "The connector's run handle is too large to replay, so the run cannot be driven further");
         dropAtConnector(run, checkpoint);
+    }
+
+    private static String unofferedMode(DiscoveryDeliveryMode chosen) {
+        return "the connector chose a delivery mode this platform did not offer (%s)".formatted(chosen.getCode());
+    }
+
+    /**
+     * Ends a run its connector resumed in a delivery mode Core did not offer, and tells the connector to drop it: Core
+     * cannot drive it, and leaving it stopped would keep a run the connector is already scanning.
+     */
+    private void endUnofferedMode(Discovery run, DiscoveryInitiateResponseDto response) {
+        logger
+                .error("Discovery {} answered resume in delivery mode {}, which was not offered; ending the run",
+                        run.getUuid(), response.getDeliveryMode().getCode());
+        String reason = unofferedMode(response.getDeliveryMode());
+        terminator
+                .end(run.getUuid(), DiscoveryStatus.FAILED,
+                        Character.toUpperCase(reason.charAt(0)) + reason.substring(1));
+        dropAtConnector(run, response.getCheckpoint() != null ? response.getCheckpoint() : run.getCheckpoint());
+    }
+
+    /**
+     * A checkpointed run keeps the position its last applied page stored: stop and resume answer without one, and one
+     * they carry anyway could be older than a page applied while the call was in flight.
+     *
+     * @return the handle to store from a stop or resume answer, or {@code null} to keep the stored one
+     */
+    private static List<MetadataAttribute> handleToStore(DiscoveryDeliveryMode modeAfterTheCall,
+            List<MetadataAttribute> answered) {
+        return modeAfterTheCall == DiscoveryDeliveryMode.CHECKPOINTED ? null : answered;
     }
 
     /**
@@ -359,9 +398,10 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
         }
         UUID discoveryUuid = discovery.getUuid();
         DiscoveryStopResponseDto response = call(discoveryUuid, "stop", () -> client.stop(discovery));
+        List<MetadataAttribute> returnedHandle = handleToStore(discovery.getDeliveryMode(), response.getCheckpoint());
         // The connector has already stopped: the run is disposed of rather than rolled back over it.
-        if (exceedsMetaCap(response.getCheckpoint())) {
-            endUndriveable(discovery, "stop", response.getCheckpoint());
+        if (exceedsMetaCap(returnedHandle)) {
+            endUndriveable(discovery, "stop", returnedHandle);
             return;
         }
         transactionHandler.runInNewTransaction(() -> {
@@ -369,10 +409,13 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             // The status checked before the connector call was a snapshot; the call can take tens of seconds, and a
             // tick worker or the reaper may have ended the run since. Writing STOPPED over that would resurrect it.
             requireStatus(locked, "stopped", DiscoveryStatus.IN_PROGRESS);
-            // Omitted keeps the handle from the response that last carried one; only a present list replaces it.
-            if (response.getCheckpoint() != null) {
-                locked.setCheckpoint(response.getCheckpoint());
+            // A null handle keeps the stored one: the connector omitted it, or the run is checkpointed.
+            List<MetadataAttribute> handle = handleToStore(locked.getDeliveryMode(), returnedHandle);
+            if (handle != null) {
+                locked.setCheckpoint(handle);
             }
+            // Nothing a tick built before the stop may land after it.
+            locked.setCheckpointRevision(locked.getCheckpointRevision() + 1);
             locked.setStatus(DiscoveryStatus.STOPPED);
             // Both, always together: connector_status is the connector's view of the run, and the connector has
             // just acknowledged the stop. Left behind it keeps reporting IN_PROGRESS for a run nobody is scanning.
@@ -416,28 +459,58 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
             }
             throw e;
         }
-        // As in stop, and the direction that cannot repair itself: nothing but an explicit resume restarts a
-        // stopped run, so the divergence would stand until the reaper cancelled it days later.
-        if (exceedsMetaCap(response.getCheckpoint())) {
-            endUndriveable(discovery, "resume", response.getCheckpoint());
+        Optional<DiscoveryDeliveryMode> mode = deliveryModeOffer.accept(response.getDeliveryMode());
+        if (mode.isEmpty()) {
+            endUnofferedMode(discovery, response);
             return;
         }
+        List<MetadataAttribute> returnedHandle = handleToStore(mode.get(), response.getCheckpoint());
+        // As in stop, and the direction that cannot repair itself: nothing but an explicit resume restarts a
+        // stopped run, so the divergence would stand until the reaper cancelled it days later.
+        if (exceedsMetaCap(returnedHandle)) {
+            endUndriveable(discovery, "resume", returnedHandle);
+            return;
+        }
+        try {
+            recordResume(discoveryUuid, response, mode.get(), returnedHandle);
+        } catch (ValidationException e) {
+            // Another resume or a cancel moved the run during the call; the connector's run is now theirs.
+            throw e;
+        } catch (RuntimeException e) {
+            // A buffered connector is scanning into a buffer that nothing drains while Core keeps the run stopped, so
+            // it is cancelled there; the next status poll then finds the run gone and ends it.
+            if (mode.get() == DiscoveryDeliveryMode.BUFFERED) {
+                dropAtConnector(discovery, returnedHandle != null ? returnedHandle : discovery.getCheckpoint());
+            }
+            throw e;
+        }
+    }
+
+    private void recordResume(UUID discoveryUuid, DiscoveryInitiateResponseDto response, DiscoveryDeliveryMode mode,
+            List<MetadataAttribute> returnedHandle) {
         transactionHandler.runInNewTransaction(() -> {
             Discovery locked = lock(discoveryUuid);
             // Same reason as stop: the legality check ran against a snapshot taken before the connector call.
             requireStatus(locked, "resumed", DiscoveryStatus.STOPPED);
-            // As in stop: an omitted checkpoint keeps the stored handle.
-            if (response.getCheckpoint() != null) {
-                locked.setCheckpoint(response.getCheckpoint());
+            // As in stop: a null handle keeps the stored one.
+            if (returnedHandle != null) {
+                locked.setCheckpoint(returnedHandle);
             }
+            // As in stop, and it also fences a resume that changes the mode: nothing built for the old one lands.
+            locked.setCheckpointRevision(locked.getCheckpointRevision() + 1);
+            locked.setDeliveryMode(mode);
             locked.setStoppable(stoppable(locked, response));
             locked.setStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setConnectorStatus(DiscoveryStatus.IN_PROGRESS);
             locked.setStoppedAt(null);
-            return discoveryRepository.save(locked);
+            Discovery resumed = discoveryRepository.save(locked);
+            // In the same commit as the status: the stop deleted the drain row, and a run resumed without it would stay
+            // in progress for good, since a checkpointed connector scans only when it is drained.
+            OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+            workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, now);
+            workWriter.expedite(discoveryUuid, DiscoveryWorkType.DRAIN, now);
+            return resumed;
         });
-        workWriter.expedite(discoveryUuid, DiscoveryWorkType.STATUS, OffsetDateTime.now(ZoneOffset.UTC));
-        workWriter.expedite(discoveryUuid, DiscoveryWorkType.DRAIN, OffsetDateTime.now(ZoneOffset.UTC));
     }
 
     @Override

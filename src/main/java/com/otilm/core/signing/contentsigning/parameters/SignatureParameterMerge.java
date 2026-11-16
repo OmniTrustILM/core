@@ -1,6 +1,7 @@
 package com.otilm.core.signing.contentsigning.parameters;
 
 import com.otilm.api.model.common.signature.parameters.SignatureParameterContainer;
+import com.otilm.api.model.common.signature.parameters.SignatureParameterPaths;
 import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.common.signature.parameters.pades.PadesVisibleSignatureDto;
@@ -120,7 +121,7 @@ public final class SignatureParameterMerge {
      */
     private static boolean replacesWholesale(PadesVisibleSignaturePlacementDto defaults,
             PadesVisibleSignaturePlacementDto requested) {
-        if (defaults == null || RequestParameterGroups.suppliesNothing(requested)) {
+        if (defaults == null || suppliesNothing(requested)) {
             return false;
         }
         return !refines(PlacementMode.of(requested), PlacementMode.of(defaults));
@@ -156,7 +157,15 @@ public final class SignatureParameterMerge {
     }
 
     private static <C extends SignatureParameterContainer> C orNullWhenEmpty(C container) {
-        return RequestParameterGroups.suppliesNothing(container) ? null : container;
+        return suppliesNothing(container) ? null : container;
+    }
+
+    /**
+     * Shares the permission check's presence rule, so a part of the request that needed no permission cannot override
+     * the profile.
+     */
+    private static boolean suppliesNothing(SignatureParameterContainer container) {
+        return SignatureParameterPaths.presentByGroup(container).isEmpty();
     }
 
     /** The placement addressing modes. {@code NONE} covers the page the other two modes share. */

@@ -1,6 +1,8 @@
 package com.otilm.core.service.impl;
 
 import com.otilm.api.model.core.oid.OidCategory;
+import com.otilm.core.certificate.type.CertificateTypeHandlerRegistry;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.X509CertificateEntity;
 import com.otilm.core.dao.repository.CertificateContentRepository;
@@ -13,6 +15,7 @@ import com.otilm.core.service.writer.DiscoveryCertificateContentWriter;
 import com.otilm.core.util.CertificateUtil;
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -79,6 +82,7 @@ class CertificateServiceImplDiscoveredImportTest {
         service.setCertificateContentRepository(certificateContentRepository);
         service.setDiscoveryCertificateContentWriter(contentWriter);
         service.setAuditorAware(() -> Optional.of("discovery-operator"));
+        service.setTypeHandlerRegistry(new CertificateTypeHandlerRegistry(List.of(new X509CertificateTypeHandler())));
 
         x509Certificate = CertificateGeneratorHelper.generateCACertificate(null, "CN=discovered");
 

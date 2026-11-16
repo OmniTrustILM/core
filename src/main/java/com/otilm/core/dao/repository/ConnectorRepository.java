@@ -4,10 +4,12 @@ import com.otilm.api.model.client.connector.v2.ConnectorVersion;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.FunctionGroup;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -22,6 +24,10 @@ public interface ConnectorRepository extends SecurityFilterRepository<Connector,
 
     @EntityGraph(attributePaths = {"interfaces"})
     Optional<Connector> findWithInterfacesByUuid(UUID uuid);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT c FROM Connector c WHERE c.uuid = :uuid")
+    Optional<Connector> findWithLockByUuid(@Param("uuid") UUID uuid);
 
     Optional<Connector> findByName(String name);
 

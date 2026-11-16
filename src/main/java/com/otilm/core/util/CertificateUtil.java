@@ -22,6 +22,7 @@ import com.otilm.api.model.core.oid.SystemOid;
 import com.otilm.api.model.core.settings.CertificateValidationSettingsDto;
 import com.otilm.api.model.core.settings.PlatformSettingsDto;
 import com.otilm.api.model.core.settings.SettingsSection;
+import com.otilm.core.certificate.type.X509CertificateTypeHandler;
 import com.otilm.core.container.KeystoreDetection;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.DiscoveryCertificate;
@@ -266,8 +267,8 @@ public class CertificateUtil {
                                 : name.getName());
                 ((ArrayList<String>) sans.get(sanTypeName)).add(value);
             } catch (Exception e) {
-                logger.warn("Unable to get the SAN {} of the certificate request", sanTypeName);
-                logger.warn(e.getMessage());
+                logger.debug("Unable to get the SAN {} of the certificate request", sanTypeName);
+                logger.debug(e.getMessage());
             }
         }
 
@@ -422,8 +423,7 @@ public class CertificateUtil {
         modal.setValidationStatus(CertificateValidationStatus.NOT_CHECKED);
 
         modal.setSerialNumber(certificate.getSerialNumber().toString(16));
-        modal.setNotAfter(certificate.getNotAfter());
-        modal.setNotBefore(certificate.getNotBefore());
+        modal.applyValidity(X509CertificateTypeHandler.validityOf(certificate));
         if (certificate.getPublicKey() == null) {
             throw new ValidationException(ValidationError.create("Invalid Certificate. Public Key is missing"));
         }

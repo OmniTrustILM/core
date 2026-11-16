@@ -12,7 +12,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.core.authority.CertificateRevocationReason;
 import com.otilm.api.model.core.certificate.CertificateChainDownloadResponseDto;
 import com.otilm.api.model.core.certificate.CertificateChainResponseDto;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateFormat;
 import com.otilm.api.model.core.certificate.CertificateFormatEncoding;
 import com.otilm.api.model.core.certificate.CertificateState;
@@ -98,8 +98,10 @@ import org.apache.commons.lang3.StringUtils;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import org.bouncycastle.asn1.DERIA5String;
+import org.bouncycastle.asn1.DEROctetString;
 import org.bouncycastle.asn1.DERPrintableString;
 import org.bouncycastle.asn1.DERSequence;
+import org.bouncycastle.asn1.ocsp.OCSPObjectIdentifiers;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
@@ -476,7 +478,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         CertificateChainResponseDto certificateChainCompleteResponseDto = certificateService
                 .getCertificateChain(chainCompleteCertificate.getSecuredUuid(), false);
         Assertions.assertTrue(certificateChainCompleteResponseDto.isCompleteChain());
-        List<CertificateDetailDto> certificates = certificateChainCompleteResponseDto.getCertificates();
+        List<CertificateDetail> certificates = certificateChainCompleteResponseDto.getCertificates();
         Assertions
                 .assertEquals(chainCompleteCertificate.getIssuerDn(),
                         certificates.get(certificates.size() - 1).getSubjectDn());
@@ -513,6 +515,22 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         Assertions.assertTrue(certificateChainResponseDto.isCompleteChain());
         Assertions.assertEquals(1, getNumberOfCertificatesInPkcs7(certificateChainResponseDto.getContent()));
 
+    }
+
+    @Test
+    void returnsNoCertificates_whenDownloadingTheChainWithoutTheEndCertificateOfASelfSignedCertificate()
+            throws Exception {
+        // given
+        X509Certificate root = CertificateGeneratorHelper
+                .generateCACertificate(freshRsaKeyPair(), "CN=Self-Signed-Root");
+        SecuredUUID uuid = createTrustedCertEntity(root).getSecuredUuid();
+
+        // when
+        CertificateChainDownloadResponseDto download = certificateService
+                .downloadCertificateChain(uuid, CertificateFormat.RAW, false, CertificateFormatEncoding.PEM);
+
+        // then
+        assertThat(getNumberOfCertificatesInPem(download.getContent())).isZero();
     }
 
     @Test
@@ -1400,11 +1418,9 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         X509Certificate sameIssuerWithoutDeltaCrl = createSelfSignedCertificateWithCrl(issuerKeyPair, commonName,
                 List.of(baseCrlUrl), null, BigInteger.valueOf(3));
         createTrustedCertEntity(cert);
-        Instant dueWithinClockSkew = Instant.now().minus(Duration.ofMinutes(1));
         stubCrlPoint(basePath,
                 anX509Crl(cert.getSubjectX500Principal(), issuerKeyPair.getPrivate())
                         .withCrlNumber(BigInteger.TWO)
-                        .withNextUpdate(dueWithinClockSkew)
                         .withRevocation(BigInteger.valueOf(0x99), CRLReason.keyCompromise)
                         .build()
                         .getEncoded());
@@ -1423,6 +1439,7 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         ThrowingCallable storeThenRefreshInOneRequest = () -> runInOneRequest(() -> {
             crlService.getCurrentCrl(cert, cert);
             replaceStub(basePath, predatesDeltaCrl.getEncoded());
+            markStoredCrlDue(cert);
             crlService.getCurrentCrl(sameIssuerWithoutDeltaCrl, cert);
         });
 
@@ -3044,7 +3061,70 @@ public class CertificateValidationITest extends BaseSpringBootTest {
             assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
         }
 
+        @Test
+        void reportsValid_whenAnswerReturnsRequestNonceAsOctetString() throws Exception {
+            // given
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withNonce(encodeAsOctetString(readRequestNonce(request)))
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
+        @Test
+        void reportsFailed_whenAnswerReturnsAnotherNonceAsOctetString() throws Exception {
+            // given
+            byte[] nonceOfAnotherRequest = "another request".getBytes(StandardCharsets.US_ASCII);
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withNonce(encodeAsOctetString(nonceOfAnotherRequest))
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.FAILED);
+        }
+
+        @Test
+        void reportsValid_whenAnswerReturnsNoNonce() throws Exception {
+            // given
+            byte[] noNonce = null;
+            ocspResponder
+                    .answerWith(request -> anOcspResponse(request, chain.getCaCertificateKeyPair())
+                            .withNonce(noNonce)
+                            .build());
+
+            // when
+            CertificateValidationStatus status = checkOcspStatus();
+
+            // then
+            assertThat(status).isEqualTo(CertificateValidationStatus.VALID);
+        }
+
         // ── Helpers ───────────────────────────────────────────────────────────
+
+        private static byte[] readRequestNonce(OCSPReq request) {
+            return request.getExtension(OCSPObjectIdentifiers.id_pkix_ocsp_nonce).getExtnValue().getOctets();
+        }
+
+        /**
+         * Encodes the nonce as the DER OCTET STRING that RFC 6960 defines, the form a responder that takes the raw
+         * value as the nonce returns.
+         */
+        private static byte[] encodeAsOctetString(byte[] nonce) {
+            try {
+                return new DEROctetString(nonce).getEncoded();
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
 
         private CertificateValidationStatus checkOcspStatus() throws NotFoundException {
             return checkOcsp().getStatus();
@@ -3183,10 +3263,13 @@ public class CertificateValidationITest extends BaseSpringBootTest {
                 .ifPresent(s -> mockServer.removeStubMapping(s));
     }
 
-    /** Moves the stored CRL's next update a minute into the past, so the next check downloads the CRL again. */
+    /**
+     * Moves the stored CRL's next update ten minutes into the past, beyond the clock skew a stored CRL is still used
+     * for, so the next check downloads the CRL again.
+     */
     private void markStoredCrlDue(X509Certificate selfSignedIssuer) {
         Crl storedCrl = findStoredCrl(selfSignedIssuer).orElseThrow();
-        storedCrl.setNextUpdate(Date.from(Instant.now().minus(Duration.ofMinutes(1))));
+        storedCrl.setNextUpdate(Date.from(Instant.now().minus(Duration.ofMinutes(10))));
         crlRepository.save(storedCrl);
     }
 
@@ -3200,10 +3283,13 @@ public class CertificateValidationITest extends BaseSpringBootTest {
         crlRepository.save(storedCrl);
     }
 
-    /** Moves the stored delta CRL's next update a minute into the past, so the next check downloads it again. */
+    /**
+     * Moves the stored delta CRL's next update ten minutes into the past, beyond the clock skew a stored delta CRL is
+     * still used for, so the next check downloads it again.
+     */
     private void markStoredDeltaCrlDue(X509Certificate selfSignedIssuer) {
         Crl storedCrl = findStoredCrl(selfSignedIssuer).orElseThrow();
-        storedCrl.setNextUpdateDelta(Date.from(Instant.now().minus(Duration.ofMinutes(1))));
+        storedCrl.setNextUpdateDelta(Date.from(Instant.now().minus(Duration.ofMinutes(10))));
         crlRepository.save(storedCrl);
     }
 

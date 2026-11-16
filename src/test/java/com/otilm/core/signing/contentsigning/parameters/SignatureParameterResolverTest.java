@@ -440,13 +440,13 @@ class SignatureParameterResolverTest {
         // then
         assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("PADES")
-                .hasMessageContaining("XADES");
+                .hasMessageContaining("pades")
+                .hasMessageContaining("xades");
     }
 
     /** Violations are collected, so a mismatched family does not hide the groups the request also could not touch. */
     @Test
-    void reportsFamilyMismatchAlongsideDeniedGroups() {
+    void reportsFamilyMismatchAlongsideDeniedGroups_whenAWrongFamilyRequestTouchesADeniedGroup() {
         // given — a request touching a group the profile denies, on the wrong family
         PadesSignatureParametersDto requested = aPadesParameters().withSignerName("Jane Doe").build();
 
@@ -457,7 +457,7 @@ class SignatureParameterResolverTest {
         assertThatThrownBy(effectiveParameters)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("signer_identity")
-                .hasMessageContaining("XADES");
+                .hasMessageContaining("xades");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

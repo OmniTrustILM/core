@@ -30,14 +30,14 @@ class SigningWorkflowModelsTest {
     }
 
     @Test
-    void managedContentSigningWorkflow_reportsContentSigningType_andExposesFields() {
+    void reportsContentSigningTypeWithItsConnector_whenWorkflowIsManaged() {
         // given
         UUID connectorUuid = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         List<RequestAttribute> attrs = List.of();
 
         // when
         ManagedContentSigningWorkflow wf = new ManagedContentSigningWorkflow(connectorUuid, attrs, null, null, null,
-                null, CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
+                CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL);
 
         // then
         assertThat(wf.getWorkflowType()).isEqualTo(SigningWorkflowType.CONTENT_SIGNING);

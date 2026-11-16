@@ -18,7 +18,8 @@ import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.common.properties.CustomAttributeProperties;
 import com.otilm.api.model.common.attribute.v3.CustomAttributeV3;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
+import com.otilm.api.model.core.certificate.X509CertificateDetail;
 import com.otilm.api.model.core.connector.ConnectorStatus;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.discovery.DiscoveryCertificateDto;
@@ -383,7 +384,7 @@ class SchedulerServiceITest extends BaseSpringBootTest {
         boolean matchedHybrid = false;
         for (DiscoveryCertificateDto discoveryCertificate : discoveredCertificates.getCertificates()) {
             if (discoveryCertificate.getCommonName().endsWith(".cz")) {
-                CertificateDetailDto certificateDetailDto = certificateService
+                CertificateDetail certificateDetailDto = certificateService
                         .getCertificate(SecuredUUID.fromString(discoveryCertificate.getInventoryUuid()));
 
                 matched = true;
@@ -397,7 +398,7 @@ class SchedulerServiceITest extends BaseSpringBootTest {
             }
             if (discoveryCertificate.getCommonName().contains("Hybrid")) {
                 matchedHybrid = true;
-                CertificateDetailDto certificateDetailDto = certificateService
+                X509CertificateDetail certificateDetailDto = (X509CertificateDetail) certificateService
                         .getCertificate(SecuredUUID.fromString(discoveryCertificate.getInventoryUuid()));
                 Assertions.assertNotNull(certificateDetailDto.getAltKey());
             }

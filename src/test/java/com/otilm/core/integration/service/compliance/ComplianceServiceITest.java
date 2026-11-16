@@ -12,7 +12,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.connector.cryptography.enums.TokenInstanceStatus;
 import com.otilm.api.model.connector.secrets.SecretType;
 import com.otilm.api.model.core.auth.Resource;
-import com.otilm.api.model.core.certificate.CertificateDetailDto;
+import com.otilm.api.model.core.certificate.CertificateDetail;
 import com.otilm.api.model.core.certificate.CertificateState;
 import com.otilm.api.model.core.certificate.CertificateType;
 import com.otilm.api.model.core.compliance.ComplianceRuleStatus;
@@ -286,7 +286,7 @@ class ComplianceServiceITest extends BaseComplianceTest {
         Assertions
                 .assertEquals(ComplianceStatus.NOK, complianceCheckResult.getStatus(),
                         "Compliance result status should be Not Compliant");
-        CertificateDetailDto certificate2Dto = certificateService
+        CertificateDetail certificate2Dto = certificateService
                 .getCertificate(SecuredUUID.fromUUID(certificate2.getUuid()));
         // Expect 4 failed rules: 1 internal, 1 v1 provide0r rule, 2 v2 provider rules (one group with two rules)
         Assertions

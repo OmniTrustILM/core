@@ -5,27 +5,40 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.core.dao.entity.signing.SigningProfile;
+import com.otilm.core.dao.entity.signing.SigningProfileVersion;
+import com.otilm.core.dao.entity.signing.SigningRecord;
 import com.otilm.core.dao.entity.signing.SigningRecordOutbox;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
+import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordOutboxRepository;
 import com.otilm.core.dao.repository.signing.SigningRecordRepository;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.signing.record.DeferredDurableSigningRecordStrategy;
+import com.otilm.core.signing.record.SigningRecordInputSource;
 import com.otilm.core.signing.record.SigningRecordInputSources;
 import com.otilm.core.signing.record.SigningRecordOutboxDrainer;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.postgresql.util.PSQLException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.notRecording;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingDisabled;
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.signing.record.SigningRecordInputBuilder.aSigningRecordInput;
+import static com.otilm.core.signing.record.SigningRecordInputSources.recordOne;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -51,6 +64,12 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
     private SigningRecordOutboxRepository outboxRepo;
     @Autowired
     private SigningRecordRepository recordRepo;
+    @Autowired
+    private SigningProfileVersionRepository versionRepo;
+    @Autowired
+    private SigningRecordOutboxDrainer drainer;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Test
     void record_recordingEverything_stagesRowInOutboxOnly_andRoundTripsEveryField() throws JsonProcessingException {
@@ -63,17 +82,16 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy
-                .recordSigning(SigningRecordInputSources
-                        .of(aSigningRecordInput()
-                                .signingProfile(recordingProfile)
-                                .displayName("round-trip-record")
-                                .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
-                                .requestMetadataJson("{ \"alg\": \"ES256\" }")
-                                .signature("the-signature".getBytes(UTF_8))
-                                .signedDocument("the-signed-document".getBytes(UTF_8))
-                                .dtbs("the-data-to-be-signed".getBytes(UTF_8))
-                                .build()));
+        recordOne(strategy,
+                aSigningRecordInput()
+                        .signingProfile(recordingProfile)
+                        .displayName("round-trip-record")
+                        .signingTime(Instant.parse("2026-03-04T05:06:07Z"))
+                        .requestMetadataJson("{ \"alg\": \"ES256\" }")
+                        .signature("the-signature".getBytes(UTF_8))
+                        .signedDocument("the-signed-document".getBytes(UTF_8))
+                        .dtbs("the-data-to-be-signed".getBytes(UTF_8))
+                        .build());
 
         // then the row is staged into the outbox, never directly into signing_record
         assertEquals(0, recordRepo.count());
@@ -97,9 +115,7 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy
-                .recordSigning(SigningRecordInputSources
-                        .of(aSigningRecordInput().signingProfile(recordingDisabledProfile).build()));
+        recordOne(strategy, aSigningRecordInput().signingProfile(recordingDisabledProfile).build());
 
         // then
         assertEquals(0, outboxRepo.count());
@@ -114,12 +130,8 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
                 .build();
 
         // when
-        strategy
-                .recordSigning(SigningRecordInputSources
-                        .of(aSigningRecordInput()
-                                .signingProfile(metadataOnlyProfile)
-                                .displayName("metadata-only-record")
-                                .build()));
+        recordOne(strategy,
+                aSigningRecordInput().signingProfile(metadataOnlyProfile).displayName("metadata-only-record").build());
 
         // then the row is staged with intrinsic metadata only; the optional content columns stay null
         assertEquals(0, recordRepo.count());
@@ -145,18 +157,89 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
                 .build();
 
         // when
-        Executable signingRecord = () -> strategy
-                .recordSigning(SigningRecordInputSources
-                        .of(aSigningRecordInput()
-                                .signingProfile(recordingProfile)
-                                .signingTime(missingSigningTime)
-                                .build()));
+        Executable signingRecord = () -> recordOne(strategy,
+                aSigningRecordInput().signingProfile(recordingProfile).signingTime(missingSigningTime).build());
 
         // then the violation surfaces to the caller and the outbox stays empty
         assertThrows(Exception.class, signingRecord);
         assertEquals(0, outboxRepo.count());
         assertEquals(0, recordRepo.count());
     }
+
+    @Test
+    void stagesEveryRecordUnderItsReference_whenRecordingABatch() {
+        // given
+        SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("staged-batch-profile");
+        List<SigningRecordInputSource> batch = List
+                .of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile),
+                        createRecordableSource(recordingProfile));
+
+        // when
+        List<UUID> references = strategy.recordSigning(recordingProfile, batch);
+
+        // then
+        assertThat(outboxRepo.findAll())
+                .extracting(SigningRecordOutbox::getUuid)
+                .containsExactlyInAnyOrderElementsOf(references);
+        assertThat(recordRepo.count()).isZero();
+    }
+
+    @Test
+    void stagesNothing_whenOneRecordOfTheBatchViolatesAConstraint() {
+        // given
+        SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("staged-violation-profile");
+        List<SigningRecordInputSource> batch = List
+                .of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile),
+                        createSourceWithoutSigningTime(recordingProfile));
+
+        // when
+        ThrowingCallable recordBatch = () -> strategy.recordSigning(recordingProfile, batch);
+
+        // then
+        assertThatThrownBy(recordBatch)
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasRootCauseInstanceOf(PSQLException.class);
+        assertThat(outboxRepo.count()).isZero();
+    }
+
+    @Test
+    void raisesTheViolationBeforeTheCallerCommits_whenRecordingABatchInsideTheCallersTransaction() {
+        // given
+        SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("staged-caller-tx-profile");
+        List<SigningRecordInputSource> batch = List
+                .of(createRecordableSource(recordingProfile), createSourceWithoutSigningTime(recordingProfile));
+
+        // when
+        ThrowingCallable recordBatchInCallersTransaction = () -> new TransactionTemplate(transactionManager)
+                .executeWithoutResult(callersTransaction -> {
+                    callersTransaction.setRollbackOnly();
+                    strategy.recordSigning(recordingProfile, batch);
+                });
+
+        // then
+        assertThatThrownBy(recordBatchInCallersTransaction)
+                .isInstanceOf(ConstraintViolationException.class)
+                .hasRootCauseInstanceOf(PSQLException.class);
+    }
+
+    @Test
+    void keepsTheReference_whenTheDrainMovesTheStagedRecord() {
+        // given
+        SigningProfileModel<?, ?> recordingProfile = persistRecordingProfile("drained-batch-profile");
+        List<UUID> references = strategy
+                .recordSigning(recordingProfile,
+                        List.of(createRecordableSource(recordingProfile), createRecordableSource(recordingProfile)));
+
+        // when
+        drainer.drainOnce();
+
+        // then
+        assertThat(recordRepo.findAll())
+                .extracting(SigningRecord::getUuid)
+                .containsExactlyInAnyOrderElementsOf(references);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private SigningRecordOutbox singleStagedRow() {
         List<SigningRecordOutbox> staged = outboxRepo.findAll();
@@ -176,6 +259,30 @@ class DeferredDurableSigningRecordStrategyITest extends BaseSpringBootTest {
         profile.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
         profile.setLatestVersion(1);
         return profileRepo.saveAndFlush(profile);
+    }
+
+    private SigningProfileModel<?, ?> persistRecordingProfile(String name) {
+        SigningProfile persistedProfile = insertSigningProfile(name);
+        SigningProfileVersion version = new SigningProfileVersion();
+        version.setSigningProfile(persistedProfile);
+        version.setVersion(1);
+        version.setSigningScheme(SigningScheme.DELEGATED);
+        version.setWorkflowType(SigningWorkflowType.RAW_SIGNING);
+        versionRepo.saveAndFlush(version);
+        return aSigningProfile()
+                .withUuid(persistedProfile.getUuid())
+                .withRecordPolicy(recordingEverything().build())
+                .build();
+    }
+
+    private static SigningRecordInputSource createRecordableSource(SigningProfileModel<?, ?> signingProfile) {
+        return SigningRecordInputSources.of(aSigningRecordInput().signingProfile(signingProfile).build());
+    }
+
+    private static SigningRecordInputSource createSourceWithoutSigningTime(SigningProfileModel<?, ?> signingProfile) {
+        Instant missingSigningTime = null;
+        return SigningRecordInputSources
+                .of(aSigningRecordInput().signingProfile(signingProfile).signingTime(missingSigningTime).build());
     }
 
     private void assertSameJson(String expected, String actual) throws JsonProcessingException {
