@@ -19,6 +19,7 @@ import com.otilm.core.signing.engine.batch.BatchRecordStager;
 import com.otilm.core.signing.engine.certificate.SigningCertificateValidator;
 import com.otilm.core.signing.engine.certificate.SigningCertificateValidatorFactory;
 import com.otilm.core.signing.engine.certificate.ValidationResult;
+import com.otilm.core.signing.engine.error.ItemSigningException;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.signer.Signer;
@@ -283,6 +284,26 @@ class ManagedRawSigningEngineTest {
 
         // then
         assertThatThrownBy(sign).isSameAs(providerRefusal);
+        verifyNoInteractions(recordStager);
+    }
+
+    @Test
+    void sign_throwsNamingTheItem_whenTheProviderFailsOneDigest() throws Exception {
+        // given
+        var failedIndex = 1;
+        var providerFailure = new ItemSigningException(SigningEngineFailure.SIGNER_FAULT, failedIndex,
+                "no signature for item " + failedIndex, "Internal signing error");
+        when(signer.signAll(anyList(), eq(SignatureInputMode.PREHASHED_DIGEST))).thenThrow(providerFailure);
+        var request = digestRequest(IDENTIFIERS);
+
+        // when
+        ThrowingCallable sign = () -> engine.sign(request, model, profile, SigningProtocol.ILM_NATIVE);
+
+        // then
+        assertThatThrownBy(sign).isInstanceOfSatisfying(SigningEngineException.class, thrown -> {
+            assertThat(thrown.itemIdentifier()).isEqualTo(IDENTIFIERS.get(failedIndex));
+            assertThat(thrown.failure()).isEqualTo(providerFailure.failure());
+        }).hasMessage(providerFailure.clientMessage());
         verifyNoInteractions(recordStager);
     }
 

@@ -12,6 +12,7 @@ import com.otilm.core.signing.engine.batch.BatchAdmission;
 import com.otilm.core.signing.engine.batch.BatchRecordStager;
 import com.otilm.core.signing.engine.certificate.SigningCertificateValidatorFactory;
 import com.otilm.core.signing.engine.certificate.ValidationResult;
+import com.otilm.core.signing.engine.error.ItemSigningException;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.signer.PrehashedSigning;
@@ -85,8 +86,7 @@ public class ManagedRawSigningEngine {
         requireDigestAlgorithm(request.digestAlgorithm(), digestAlgorithm);
         requireDigestLengths(items, digestAlgorithm);
 
-        List<byte[]> signatures = signer
-                .signAll(items.stream().map(RawSigningItem::digest).toList(), SignatureInputMode.PREHASHED_DIGEST);
+        List<byte[]> signatures = signAllDigests(signer, items);
         List<SigningRecordInputSource> sources = recordFactory
                 .sources(model, items, signatures, signatureAlgorithm, digestAlgorithm, protocol);
         List<UUID> recordUuids = recordStager.stage(model, sources);
@@ -188,6 +188,17 @@ public class ManagedRawSigningEngine {
                         "Each digest must be %d bytes for %s".formatted(digestSize, digestAlgorithm.getCode()))
                         .withItem(item.identifier());
             }
+        }
+    }
+
+    /** A provider failure of one digest reaches the caller and the log naming its item. */
+    private static List<byte[]> signAllDigests(Signer signer, List<RawSigningItem> items)
+            throws SigningEngineException {
+        try {
+            return signer
+                    .signAll(items.stream().map(RawSigningItem::digest).toList(), SignatureInputMode.PREHASHED_DIGEST);
+        } catch (ItemSigningException e) {
+            throw e.withItem(items.get(e.itemIndex()).identifier());
         }
     }
 
