@@ -132,7 +132,6 @@ public class ContentSigningFormattingAttributes {
         }
     }
 
-    /** Checks that no request attribute is grouped under a name that also names a request attribute. */
     private static void requireNoGroupNamedAsARequestAttribute(List<DataAttribute> declaredRequestDataAttributes) {
         Set<String> requestNames = declaredRequestDataAttributes
                 .stream()
