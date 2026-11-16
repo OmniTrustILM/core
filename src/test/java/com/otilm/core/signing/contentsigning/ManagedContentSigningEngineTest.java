@@ -182,7 +182,7 @@ class ManagedContentSigningEngineTest {
         }
 
         @Test
-        void sendsEmptyRequestAttributes_onComputeDtbs() throws Exception {
+        void sendsEmptyRequestAttributes_whenComputingTheDtbs() throws Exception {
             // given
             ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
             stubComputeDtbs(digestOf(DOCUMENT));

@@ -211,6 +211,9 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return this;
     }
 
+    /**
+     * Lists no attributes on every operation, as profile save, formatting discovery and profile resolution fetch them.
+     */
     public ContentSigningFormattingMock stubPerOperationFormattingAttributes() {
         try {
             String body = profileListing(List.of());
@@ -227,10 +230,14 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return this;
     }
 
+    /** Lists one optional profile attribute on every operation. */
     public ContentSigningFormattingMock stubPerOperationFormattingAttributeDefinition(UUID attrUuid, String attrName) {
         return stubPerOperationFormattingAttributeDefinition(attrUuid, attrName, false);
     }
 
+    /**
+     * Lists one profile attribute on every operation, which the per-operation aggregation merges into one definition.
+     */
     public ContentSigningFormattingMock stubPerOperationFormattingAttributeDefinition(UUID attrUuid, String attrName,
             boolean required) {
         try {

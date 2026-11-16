@@ -84,7 +84,7 @@ class SigningProfileMapperContentSigningTest {
         }
 
         @Test
-        void carriesTheStoredAllowList() {
+        void carriesTheStoredAllowList_whenTheVersionStoresNames() {
             // given
             var allowedNames = List.of("signature-context", "reason");
             SigningProfileVersion version = aContentSigningVersion();
@@ -180,7 +180,7 @@ class SigningProfileMapperContentSigningTest {
         }
 
         @Test
-        void carriesTheStoredAllowListInItsOrder() {
+        void carriesTheAllowListInItsStoredOrder_whenTheVersionStoresNames() {
             // given
             var allowedNames = List.of("signature-context", "reason");
             SigningProfileVersion version = aContentSigningVersion();

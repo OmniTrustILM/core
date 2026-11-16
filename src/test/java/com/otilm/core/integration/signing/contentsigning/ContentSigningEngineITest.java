@@ -566,13 +566,14 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         @Test
-        void sendsTheProfileValueOfARequestAttribute_onComputeDtbs() throws Exception {
+        void sendsTheProfileValueOfARequestAttribute_whenComputingTheDtbs() throws Exception {
             // given
+            var operatorsLocation = "the operator's location";
             contentSigningFormattingMock
                     .stubComputeDtbsRequestAttributeDefinition(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME);
             SigningProfileDto contentProfile = createEnabledSigningProfile(
                     aContentSigningProfile("request-attribute-profile-value", SignatureFamilyFixtures.PADES,
-                            SignatureLevel.SIGNED, null, List.of(locationAttribute("the operator's location")))
+                            SignatureLevel.SIGNED, null, List.of(locationAttribute(operatorsLocation)))
                             .withStaticKeyManagedSigning(signingCertificate.getUuid()));
             byte[] document = "a document signed at the operator's location".getBytes(StandardCharsets.UTF_8);
 
@@ -587,7 +588,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                     .singleElement()
                     .satisfies(attributes -> {
                         assertThat(attributes.findValuesAsText("name")).containsExactly(LOCATION_ATTRIBUTE_NAME);
-                        assertThat(attributes.findValuesAsText("data")).containsExactly("the operator's location");
+                        assertThat(attributes.findValuesAsText("data")).containsExactly(operatorsLocation);
                     });
         }
 

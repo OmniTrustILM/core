@@ -192,7 +192,7 @@ class FormattingAttributeDefinitionsTest {
                             stored.capture());
             assertThat(stored.getValue())
                     .extracting(BaseAttribute::getName)
-                    .containsExactly("data_formattingPolicy", "data_formattingLocation");
+                    .containsExactly(profileAttribute.getName(), requestAttribute.getName());
         }
     }
 
