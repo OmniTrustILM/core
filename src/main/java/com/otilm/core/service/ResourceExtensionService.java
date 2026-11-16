@@ -76,8 +76,8 @@ public interface ResourceExtensionService {
     }
 
     /**
-     * The connector the object belongs to, when Core may lend that connector the object's own references. Empty for a
-     * kind that lends nothing, so the references inside it stay references. Checks no permission.
+     * The connector the object belongs to: Core lends it the object's own references and sends the object to no other
+     * connector. Empty for an object of no connector. Checks no permission.
      */
     default Optional<UUID> findOwningConnector(UUID objectUuid) {
         return Optional.empty();

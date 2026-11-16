@@ -32,11 +32,9 @@ public class OwnConnectorReferenceLending {
         this.resourceService = resourceService;
     }
 
-    /** The lending for a request to the connector. */
+    /** The lending for a request to the connector, which also refuses an object of another connector. */
     public ReferenceLending forConnector(UUID connectorUuid) {
-        return (kind, uuid) -> resourceService.findOwningConnector(kind, uuid).filter(connectorUuid::equals).isPresent()
-                ? this::loadAsSystem
-                : null;
+        return ReferenceLending.forConnector(connectorUuid, resourceService::findOwningConnector, this::loadAsSystem);
     }
 
     private ResourceObjectContentData loadAsSystem(AttributeResource kind, UUID uuid)

@@ -1116,6 +1116,16 @@ public class LocationServiceImpl implements LocationExternalService, LocationInt
         return locationRepository.findResourceObject(objectUuid, Location_.name);
     }
 
+    /** A location belongs to the connector of its entity, which its operations go to. */
+    @Override
+    public Optional<UUID> findOwningConnector(UUID objectUuid) {
+        return locationRepository
+                .findByUuid(objectUuid)
+                .map(Location::getEntityInstanceReferenceUuid)
+                .flatMap(entityUuid -> entityInstanceReferenceRepository.findByUuid(entityUuid))
+                .map(EntityInstanceReference::getConnectorUuid);
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.LOCATION, action = ResourceAction.DETAIL)
     public NameAndUuidDto getResourceObjectExternal(SecuredUUID objectUuid) throws NotFoundException {

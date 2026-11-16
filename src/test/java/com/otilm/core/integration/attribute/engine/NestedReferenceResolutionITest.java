@@ -36,6 +36,7 @@ import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.secret.SecretState;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeReferenceExpander;
+import com.otilm.core.attribute.engine.ForeignReferenceException;
 import com.otilm.core.attribute.engine.ReferenceAccessDeniedException;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.dao.entity.AuthorityInstanceReference;
@@ -201,18 +202,23 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
-        void leavesTheAuthoritysCredentialsAsReferences_whenTheAuthorityBelongsToAnotherConnector() throws Exception {
+        void refusesNamingTheAuthority_whenItBelongsToAnotherConnector() throws Exception {
             // given
-            RequestAttribute foreignAuthorityReference = authorityReference(anAuthorityOfAnotherConnector());
+            AuthorityInstanceReference foreignAuthority = anAuthorityOfAnotherConnector();
+            List<RequestAttribute> attributes = List.of(authorityReference(foreignAuthority));
+            Set<String> expandedSecrets = new HashSet<>();
 
             // when
-            expander
-                    .expandForCaller(List.of(foreignAuthorityReference), new HashSet<>(),
+            ThrowingCallable expand = () -> expander
+                    .expandForCaller(attributes, expandedSecrets,
                             referenceLending.forConnector(discoveryConnector.getUuid()));
 
             // then
-            assertTheCredentialsAreReferences(
-                    (ResourceSimpleContentData) firstData(foreignAuthorityReference.getContent()));
+            assertThatThrownBy(expand)
+                    .isInstanceOf(ForeignReferenceException.class)
+                    .hasMessageContaining("refers to Authority '%s', which belongs to another connector"
+                            .formatted(foreignAuthority.getName()));
+            assertThat(expandedSecrets).isEmpty();
         }
 
         @Test
@@ -259,38 +265,60 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
-        void leavesTheAuthoritysCredentialsAsReferences_whenTheAuthorityBelongsToAnotherConnector() throws Exception {
+        void refusesNamingTheAuthority_whenItBelongsToAnotherConnector() throws Exception {
             // given
             attributeEngine
                     .updateDataAttributeDefinitions(discoveryConnector.getUuid(), null, List.of(authorityDefinition()));
-            RequestAttribute foreignAuthorityReference = authorityReference(anAuthorityOfAnotherConnector());
+            AuthorityInstanceReference foreignAuthority = anAuthorityOfAnotherConnector();
+            List<RequestAttribute> attributes = List.of(authorityReference(foreignAuthority));
 
             // when
-            List<RequestAttribute> sent = operationAttributeResolver
-                    .resolveWithNestedReferencesAsSystem(discoveryConnector.getUuid(),
-                            List.of(foreignAuthorityReference));
+            ThrowingCallable resolve = () -> operationAttributeResolver
+                    .resolveWithNestedReferencesAsSystem(discoveryConnector.getUuid(), attributes);
 
             // then
-            assertTheCredentialsAreReferences((ResourceSimpleContentData) firstData(sent.getFirst().getContent()));
+            assertThatThrownBy(resolve)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("refers to Authority '%s', which belongs to another connector"
+                            .formatted(foreignAuthority.getName()));
         }
 
         @Test
-        void leavesTheCredentialsOfAnotherConnectorsAuthorityAsReferences_whenALentAuthorityRefersToIt()
-                throws Exception {
+        void refusesAnOperationNamingTheAuthority_whenItBelongsToAnotherConnector() throws Exception {
             // given
             attributeEngine
                     .updateDataAttributeDefinitions(discoveryConnector.getUuid(), null, List.of(authorityDefinition()));
-            AuthorityInstanceReference referring = seedAnAuthorityReferringTo(discoveryConnector,
-                    anAuthorityOfAnotherConnector());
+            AuthorityInstanceReference foreignAuthority = anAuthorityOfAnotherConnector();
+            List<RequestAttribute> attributes = List.of(authorityReference(foreignAuthority));
 
             // when
-            List<RequestAttribute> sent = operationAttributeResolver
-                    .resolveWithNestedReferencesAsSystem(discoveryConnector.getUuid(),
-                            List.of(authorityReference(referring)));
+            ThrowingCallable resolve = () -> operationAttributeResolver
+                    .resolveForConnectorRequestAsSystem(discoveryConnector.getUuid(), attributes);
 
             // then
-            ResourceSimpleContentData lent = (ResourceSimpleContentData) firstData(sent.getFirst().getContent());
-            assertTheCredentialsAreReferences((ResourceSimpleContentData) contentOf(lent, "issuer"));
+            assertThatThrownBy(resolve)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("which belongs to another connector");
+        }
+
+        @Test
+        void refusesNamingTheIssuer_whenALentAuthorityRefersToAnAuthorityOfAnotherConnector() throws Exception {
+            // given
+            attributeEngine
+                    .updateDataAttributeDefinitions(discoveryConnector.getUuid(), null, List.of(authorityDefinition()));
+            AuthorityInstanceReference foreignAuthority = anAuthorityOfAnotherConnector();
+            AuthorityInstanceReference referring = seedAnAuthorityReferringTo(discoveryConnector, foreignAuthority);
+            List<RequestAttribute> attributes = List.of(authorityReference(referring));
+
+            // when
+            ThrowingCallable resolve = () -> operationAttributeResolver
+                    .resolveWithNestedReferencesAsSystem(discoveryConnector.getUuid(), attributes);
+
+            // then
+            assertThatThrownBy(resolve)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("Attribute 'Issuer' of Authority '%s' refers to Authority '%s'"
+                            .formatted(referring.getName(), foreignAuthority.getName()));
         }
 
         @Test
@@ -402,6 +430,25 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
+        void refusesTheRunNamingTheAuthority_whenItBelongsToAnotherConnector() throws Exception {
+            // given
+            stubTheDiscoveryConnectorsSchema();
+            AuthorityInstanceReference foreignAuthority = anAuthorityOfAnotherConnector();
+            DiscoveryDto request = aRequestReferringToTheAuthority();
+            request.setAttributes(List.of(authorityReference(foreignAuthority)));
+
+            // when
+            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("refers to Authority '%s', which belongs to another connector"
+                            .formatted(foreignAuthority.getName()));
+            assertThat(discoveryRepository.findByName(request.getName())).isEmpty();
+        }
+
+        @Test
         void refusesAReference_whenItNamesAnotherKindThanItsAttributeTakes() throws Exception {
             // given
             stubTheDiscoveryConnectorsSchema();
@@ -503,6 +550,27 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
             assertThat(lastCallbackRequestBody())
                     .contains("\"password\":\"%s\"".formatted(CLIENT_SECRET))
                     .contains(TRUST_ANCHOR);
+        }
+
+        @Test
+        void refusesTheCertificateAuthorityPickerWithoutCallingTheConnector_whenTheAuthorityBelongsToAnotherConnector()
+                throws Exception {
+            // given
+            stubTheDiscoveryConnectorsSchema();
+            discoveryService.getDiscoveryAttributes(SecuredUUID.fromUUID(discoveryConnector.getUuid()));
+            AuthorityInstanceReference foreignAuthority = anAuthorityOfAnotherConnector();
+            RequestAttributeCallback caPicker = callbackFor("certificateAuthorities",
+                    authorityReference(foreignAuthority));
+
+            // when
+            ThrowingCallable pick = () -> callbackService.callback(discoveryConnector.getUuid(), caPicker);
+
+            // then
+            assertThatThrownBy(pick)
+                    .isInstanceOf(ValidationException.class)
+                    .hasMessageContaining("refers to Authority '%s', which belongs to another connector"
+                            .formatted(foreignAuthority.getName()));
+            WireMock.verify(0, WireMock.postRequestedFor(WireMock.urlPathEqualTo(CALLBACK_PATH)));
         }
 
         @Test

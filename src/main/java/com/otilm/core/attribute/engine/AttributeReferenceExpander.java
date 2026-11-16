@@ -114,16 +114,24 @@ public class AttributeReferenceExpander {
 
     /** The lending, with every secret its loaders materialize recorded for the outbound containment check. */
     private ReferenceLending recorded(ReferenceLending lending, Set<String> expandedSecrets) {
-        return (kind, uuid) -> {
-            ReferenceLoader lent = lending.insideOf(kind, uuid);
-            if (lent == null) {
-                return null;
+        return new ReferenceLending() {
+            @Override
+            public ReferenceLoader insideOf(AttributeResource kind, UUID uuid) {
+                ReferenceLoader lent = lending.insideOf(kind, uuid);
+                if (lent == null) {
+                    return null;
+                }
+                return (nestedKind, nestedUuid) -> {
+                    ResourceObjectContentData content = lent.load(nestedKind, nestedUuid);
+                    outboundContainment.recordExpandedSecrets(content, expandedSecrets);
+                    return content;
+                };
             }
-            return (nestedKind, nestedUuid) -> {
-                ResourceObjectContentData content = lent.load(nestedKind, nestedUuid);
-                outboundContainment.recordExpandedSecrets(content, expandedSecrets);
-                return content;
-            };
+
+            @Override
+            public boolean belongsToAnotherConnector(AttributeResource kind, UUID uuid) {
+                return lending.belongsToAnotherConnector(kind, uuid);
+            }
         };
     }
 }

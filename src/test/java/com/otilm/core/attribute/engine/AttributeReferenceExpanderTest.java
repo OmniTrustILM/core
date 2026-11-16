@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -264,6 +265,33 @@ class AttributeReferenceExpanderTest {
                 .isInstanceOfSatisfying(ResourceSecretContentData.class,
                         secret -> assertThat(secret.getContent()).isNull());
         verify(registry, never()).loaderFor(AttributeResource.SECRET);
+    }
+
+    @Test
+    void refusesWithoutLoading_whenTheLendingSaysTheObjectBelongsToAnotherConnector() {
+        // given
+        UUID authorityUuid = UUID.randomUUID();
+        CallerAuthorizedReferenceLoader authorityLoader = mock(CallerAuthorizedReferenceLoader.class);
+        registerLoader(AttributeResource.AUTHORITY, authorityLoader);
+        List<RequestAttribute> attributes = List.of(resourceRef(AttributeResource.AUTHORITY, authorityUuid));
+        ReferenceLending ofAnotherConnector = new ReferenceLending() {
+            @Override
+            public ReferenceLoader insideOf(AttributeResource kind, UUID uuid) {
+                return null;
+            }
+
+            @Override
+            public boolean belongsToAnotherConnector(AttributeResource kind, UUID uuid) {
+                return true;
+            }
+        };
+
+        // when
+        ThrowingCallable expand = () -> expander.expandForCaller(attributes, expandedSecrets, ofAnotherConnector);
+
+        // then
+        assertThatThrownBy(expand).isInstanceOf(ForeignReferenceException.class);
+        verifyNoInteractions(authorityLoader);
     }
 
     // ── Checking without expanding ────────────────────────────────────────────

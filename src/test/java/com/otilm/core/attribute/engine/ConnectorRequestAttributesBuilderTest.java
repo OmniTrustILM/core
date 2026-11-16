@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
@@ -118,7 +120,7 @@ class ConnectorRequestAttributesBuilderTest {
     }
 
     @Test
-    void leavesTheSecretOfAReferencedAuthorityAlone_whenTheAuthorityBelongsToAnotherConnector() throws Exception {
+    void refusesBeforeLoading_whenADiscoveryRefersToAnAuthorityOfAnotherConnector() throws Exception {
         // given
         UUID connectorUuid = UUID.randomUUID();
         UUID authorityUuid = UUID.randomUUID();
@@ -130,10 +132,35 @@ class ConnectorRequestAttributesBuilderTest {
                 .thenReturn(Optional.of(anotherConnector));
 
         // when
-        builder.dereferenceWithNestedReferencesForConnectorRequest(connectorUuid, stored);
+        ThrowingCallable dereference = () -> builder
+                .dereferenceWithNestedReferencesForConnectorRequest(connectorUuid, stored);
 
         // then
+        assertThatThrownBy(dereference)
+                .isInstanceOf(ForeignReferenceException.class)
+                .hasMessageContaining(
+                        "Attribute 'authority' refers to Authority 'otpki', which belongs to another " + "connector");
+        verify(resourceService, never()).loadResourceObjectContentData(any());
         verify(resourceService, never()).loadReferencedObjectContent(any(), any());
+    }
+
+    @Test
+    void refusesBeforeLoading_whenAnOperationRefersToAnAuthorityOfAnotherConnector() throws Exception {
+        // given
+        UUID connectorUuid = UUID.randomUUID();
+        UUID authorityUuid = UUID.randomUUID();
+        List<RequestAttribute> stored = List.of();
+        when(attributeEngine.getDataAttributesByContent(connectorUuid, stored))
+                .thenReturn(List.of(loadedAuthorityHolding(authorityUuid, UUID.randomUUID())));
+        when(resourceService.findOwningConnector(AttributeResource.AUTHORITY, authorityUuid))
+                .thenReturn(Optional.of(UUID.randomUUID()));
+
+        // when
+        ThrowingCallable dereference = () -> builder.dereferenceForConnectorRequest(connectorUuid, stored);
+
+        // then
+        assertThatThrownBy(dereference).isInstanceOf(ForeignReferenceException.class);
+        verify(resourceService, never()).loadResourceObjectContentData(any());
     }
 
     @Test

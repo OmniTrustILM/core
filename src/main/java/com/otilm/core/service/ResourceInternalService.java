@@ -69,8 +69,8 @@ public interface ResourceInternalService {
             throws NotFoundException, AttributeException, ConnectorException;
 
     /**
-     * The connector a referenced object belongs to, when Core may lend that connector the object's own references.
-     * Checks no permission.
+     * The connector a referenced object belongs to, empty for an object of no connector; see
+     * {@link ResourceExtensionService#findOwningConnector}. Checks no permission.
      */
     Optional<UUID> findOwningConnector(AttributeResource resource, UUID uuid);
 }

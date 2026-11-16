@@ -37,7 +37,8 @@ import org.springframework.security.access.AccessDeniedException;
  *
  * <p>
  * A refusal names the reference it stopped at: a missing object as a {@link DanglingReferenceException}, a denied one
- * as a {@link ReferenceAccessDeniedException}.
+ * as a {@link ReferenceAccessDeniedException}, one of another connector as a {@link ForeignReferenceException}, before
+ * it is loaded.
  */
 final class ReferenceTraversal {
 
@@ -114,6 +115,9 @@ final class ReferenceTraversal {
         }
         if (depth > MAX_DEPTH) {
             throw ReferenceExpansionException.depthExceeded(describe(target, holder), MAX_DEPTH);
+        }
+        if (lending.belongsToAnotherConnector(target.getResource(), uuid)) {
+            throw new ForeignReferenceException(describeHolder(holder), describe(target));
         }
         ResourceObjectContentData loaded = load(loader, target, uuid, holder);
         if (loaded == null) {

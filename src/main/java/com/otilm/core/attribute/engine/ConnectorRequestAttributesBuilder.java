@@ -7,10 +7,13 @@ import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -87,11 +90,53 @@ public class ConnectorRequestAttributesBuilder {
         return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
     }
 
-    /** Lends the references inside an object only when the object belongs to the connector. */
+    /**
+     * Refuses an attribute that refers to an object of another connector than the one the request goes to, before
+     * anything is loaded; see {@link ReferenceLending#belongsToAnotherConnector}.
+     */
+    public void refuseObjectsOfAnotherConnector(UUID connectorUuid, List<DataAttribute> attributes)
+            throws AttributeException {
+        ReferenceLending lending = lentTo(connectorUuid);
+        for (DataAttribute attribute : attributes) {
+            List<?> content = attribute.getContent();
+            if (attribute.getContentType() != AttributeContentType.RESOURCE || content == null) {
+                continue;
+            }
+            for (Object item : content) {
+                if (item instanceof ResourceObjectContent reference && identifiesAnObject(reference.getData())) {
+                    refuseIfOfAnotherConnector(lending, attribute, reference.getData());
+                }
+            }
+        }
+    }
+
+    private static void refuseIfOfAnotherConnector(ReferenceLending lending, DataAttribute attribute,
+            ResourceObjectContentData target) throws AttributeException {
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(target.getUuid());
+        } catch (IllegalArgumentException e) {
+            throw new AttributeException("Malformed RESOURCE reference UUID: " + target.getUuid());
+        }
+        if (lending.belongsToAnotherConnector(target.getResource(), uuid)) {
+            String label = attribute.getProperties() == null || attribute.getProperties().getLabel() == null
+                    ? attribute.getName()
+                    : attribute.getProperties().getLabel();
+            throw new ForeignReferenceException("Attribute '%s'".formatted(label),
+                    "%s '%s'"
+                            .formatted(target.getResource().getLabel(),
+                                    Objects.requireNonNullElse(target.getName(), target.getUuid())));
+        }
+    }
+
+    private static boolean identifiesAnObject(ResourceObjectContentData data) {
+        return data != null && data.getResource() != null && data.getUuid() != null;
+    }
+
     private ReferenceLending lentTo(UUID connectorUuid) {
-        return (kind, uuid) -> resourceService.findOwningConnector(kind, uuid).filter(connectorUuid::equals).isPresent()
-                ? resourceService::loadReferencedObjectContent
-                : null;
+        return ReferenceLending
+                .forConnector(connectorUuid, resourceService::findOwningConnector,
+                        resourceService::loadReferencedObjectContent);
     }
 
     private List<RequestAttribute> resolveContent(UUID connectorUuid, List<RequestAttribute> requestAttributes)
@@ -107,6 +152,7 @@ public class ConnectorRequestAttributesBuilder {
             throws AttributeException, NotFoundException, ConnectorException {
         List<DataAttribute> dataAttributes = attributeEngine
                 .getDataAttributesByContent(connectorUuid, requestAttributes);
+        refuseObjectsOfAnotherConnector(connectorUuid, dataAttributes);
         if (referencesACredential(dataAttributes)) {
             credentialService.loadFullCredentialData(dataAttributes);
         }

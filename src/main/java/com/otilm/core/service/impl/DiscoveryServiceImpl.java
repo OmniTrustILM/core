@@ -41,6 +41,7 @@ import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.AttributeReferenceExpander;
+import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
@@ -136,6 +137,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private CredentialInternalService credentialService;
     private ResourceInternalService resourceService;
     private AttributeReferenceExpander attributeReferenceExpander;
+    private ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder;
     private AttributeColumnProjector attributeColumnProjector;
 
     private ListingSortResolver listingSortResolver;
@@ -239,6 +241,12 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setAttributeReferenceExpander(AttributeReferenceExpander attributeReferenceExpander) {
         this.attributeReferenceExpander = attributeReferenceExpander;
+    }
+
+    @Autowired
+    public void setConnectorRequestAttributesBuilder(
+            ConnectorRequestAttributesBuilder connectorRequestAttributesBuilder) {
+        this.connectorRequestAttributesBuilder = connectorRequestAttributesBuilder;
     }
 
     @Autowired
@@ -467,6 +475,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             }
         }
         requireReferencesOfTheDeclaredKind(referenced);
+        connectorRequestAttributesBuilder.refuseObjectsOfAnotherConnector(connector.getUuid(), referenced);
         requireTheCallerMaySeeWhatLendsToTheConnector(referenced, connector);
         // The credential loader authorizes CREDENTIAL:DETAIL at method entry, so a run naming no credential is kept
         // away from it rather than charged for a walk-past. The resource loader gates per object, inside, and needs no

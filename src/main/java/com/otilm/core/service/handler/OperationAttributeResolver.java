@@ -38,11 +38,12 @@ import org.springframework.stereotype.Component;
  * v2 run's creation does.
  * <p>
  * <b>Failures:</b> an unresolvable stored reference surfaces as {@link ConnectorException}, the one checked type the
- * elevated body may declare. A disabled or invalid-state secret or vault profile, a reference whose object is gone, or
- * references nested deeper than the cap surface as a {@link ValidationException} instead: it names the object the
- * operator has to fix and maps to 422, which wrapping would turn into a 500 carrying no message. A caller that cannot
- * recover from an unchecked exception has to wrap it itself; {@code AuthorityProviderV3Adapter.pollStatus} does,
- * because the poll listener recovers only from {@link ConnectorException}.
+ * elevated body may declare. A disabled or invalid-state secret or vault profile, a reference whose object is gone or
+ * belongs to another connector, or references nested deeper than the cap surface as a {@link ValidationException}
+ * instead: it names the object the operator has to fix and maps to 422, which wrapping would turn into a 500 carrying
+ * no message. A caller that cannot recover from an unchecked exception has to wrap it itself;
+ * {@code AuthorityProviderV3Adapter.pollStatus} does, because the poll listener recovers only from
+ * {@link ConnectorException}.
  */
 @Component
 public class OperationAttributeResolver {

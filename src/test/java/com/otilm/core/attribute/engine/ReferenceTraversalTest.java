@@ -222,6 +222,44 @@ class ReferenceTraversalTest {
         }
 
         @Test
+        void refusesNamingTheObjectBeforeLoadingIt_whenTheRequestNamesAnObjectOfAnotherConnector() {
+            // given
+            loader.object(AttributeResource.AUTHORITY, AUTHORITY, () -> object(AttributeResource.AUTHORITY, "adcs"));
+            List<ResourceObjectContent> request = references(reference(AttributeResource.AUTHORITY, AUTHORITY));
+
+            // when
+            ThrowingCallable resolve = () -> refusingObjectsOf(AUTHORITY).resolve("authority", request);
+
+            // then
+            assertThatThrownBy(resolve)
+                    .isInstanceOf(ForeignReferenceException.class)
+                    .hasMessageStartingWith("Attribute 'authority' refers to Authority 'authority-ref', which belongs "
+                            + "to another connector");
+            assertThat(loader.totalLoads()).isZero();
+        }
+
+        @Test
+        void refusesNamingTheHolder_whenALentObjectRefersToAnObjectOfAnotherConnector() {
+            // given
+            loader
+                    .object(AttributeResource.AUTHORITY, AUTHORITY, () -> object(AttributeResource.AUTHORITY, "otpki",
+                            attribute("issuer", reference(AttributeResource.AUTHORITY, SECOND_AUTHORITY, "adcs"))));
+            loader
+                    .object(AttributeResource.AUTHORITY, SECOND_AUTHORITY,
+                            () -> object(AttributeResource.AUTHORITY, "adcs"));
+            List<ResourceObjectContent> request = references(reference(AttributeResource.AUTHORITY, AUTHORITY));
+
+            // when
+            ThrowingCallable resolve = () -> refusingObjectsOf(SECOND_AUTHORITY).resolve("authority", request);
+
+            // then
+            assertThatThrownBy(resolve)
+                    .isInstanceOf(ForeignReferenceException.class)
+                    .hasMessageStartingWith("Attribute 'issuer' of Authority 'otpki' refers to Authority 'adcs'");
+            assertThat(loader.loads(AttributeResource.AUTHORITY, SECOND_AUTHORITY)).isZero();
+        }
+
+        @Test
         void checksAnObjectTheRequestNames_whenLendingReachedItFirst() throws Exception {
             // given
             loader
@@ -438,6 +476,21 @@ class ReferenceTraversalTest {
     /** A traversal whose every object lends what it nests, through the same fake loader. */
     private ReferenceTraversal lendingEverything() {
         return new ReferenceTraversal(loader, (kind, uuid) -> loader);
+    }
+
+    /** A traversal whose objects all lend through the fake loader, except the one of another connector. */
+    private ReferenceTraversal refusingObjectsOf(UUID foreignObject) {
+        return new ReferenceTraversal(loader, new ReferenceLending() {
+            @Override
+            public ReferenceLoader insideOf(AttributeResource kind, UUID uuid) {
+                return loader;
+            }
+
+            @Override
+            public boolean belongsToAnotherConnector(AttributeResource kind, UUID uuid) {
+                return foreignObject.equals(uuid);
+            }
+        });
     }
 
     /** A traversal in which only authorities lend what they nest, through the given loader. */
