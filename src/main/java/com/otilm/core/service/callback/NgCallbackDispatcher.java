@@ -99,9 +99,11 @@ public class NgCallbackDispatcher {
         AttributeCallbackResponseDto response;
         try {
             response = callWithOneRefresh(connector, context, callback, envelope);
-        } catch (ConnectorProblemException e) {
+        } catch (ConnectorException e) {
             // The refusal reaches the form's user, who may not read the secrets Core expanded into the request.
-            throw outboundContainment.withoutSecrets(e, expandedSecrets, "callback");
+            throw outboundContainment.withoutWords(e, expandedSecrets, "callback");
+        } catch (ValidationException e) {
+            throw outboundContainment.withoutWords(e, expandedSecrets, "callback");
         }
 
         // The MQ/proxy transport can hand back a null body on an empty 2xx (the REST client's requireBody guards
@@ -139,12 +141,10 @@ public class NgCallbackDispatcher {
             if (!isDefinitionNotFound(e)) {
                 throw e;
             }
-            // Single-shot refresh-and-retry: the connector did not recognise the definition, so re-fetch it from
-            // the connector registry and rebuild the envelope from the refreshed definition before dispatching
-            // once more. The recoverable case is a stale local uuid/name (the refresh corrects what we send);
-            // resending the identical envelope would be pointless, so we do not. resolveForced (not resolve) is
-            // mandatory here: the local row is still present, so resolve() would short-circuit on it and re-send
-            // the rejected envelope unchanged — resolveForced always re-fetches the registry definition.
+            // The recoverable case is a stale local uuid/name (the refresh corrects what we send); resending the
+            // identical envelope would be pointless, so we do not. resolveForced (not resolve) is mandatory here: the
+            // local row is still present, so resolve() would short-circuit on it and re-send the rejected envelope
+            // unchanged — resolveForced always re-fetches the registry definition.
             BaseAttribute refreshed = definitionResolver
                     .resolveForced(connector,
                             context.definition().getUuid() == null

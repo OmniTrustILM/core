@@ -2,7 +2,6 @@ package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
-import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -103,12 +102,8 @@ public class DiscoveryV2Client {
         ConnectorDto connector = connectorOf(run);
         DiscoveryInitiateRequestDto request = new DiscoveryInitiateRequestDto();
         Set<String> sentSecrets = populate(request, run, connector);
-        try {
-            return connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request);
-        } catch (ConnectorProblemException e) {
-            // A refusal of the initiate reaches the API caller, who may not read the secrets the request carried.
-            throw outboundContainment.withoutSecrets(e, sentSecrets, "run");
-        }
+        return withoutWordsWhenRefused(
+                () -> connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request), sentSecrets);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -116,9 +111,10 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        Set<String> sentSecrets = populate(request, run, connector);
-        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).status(connector, request), sentSecrets,
-                "status");
+        Set<String> sentSecrets = populateForTick(request, run, connector);
+        DiscoveryStatusResponseDto status = withoutWordsWhenRefused(
+                () -> connectorApiFactory.getDiscoveryApiClientV2(connector).status(connector, request), sentSecrets);
+        return contained(status, sentSecrets, "status");
     }
 
     /**
@@ -151,11 +147,8 @@ public class DiscoveryV2Client {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
         Set<String> sentSecrets = populate(request, run, connector);
-        try {
-            return connectorApiFactory.getDiscoveryApiClientV2(connector).stop(connector, request);
-        } catch (ConnectorProblemException e) {
-            throw outboundContainment.withoutSecrets(e, sentSecrets, "run");
-        }
+        return withoutWordsWhenRefused(
+                () -> connectorApiFactory.getDiscoveryApiClientV2(connector).stop(connector, request), sentSecrets);
     }
 
     /** Restarts a stopped run from its checkpoint. Answers the same shape as initiate: a handle and stoppability. */
@@ -165,11 +158,8 @@ public class DiscoveryV2Client {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
         Set<String> sentSecrets = populate(request, run, connector);
-        try {
-            return connectorApiFactory.getDiscoveryApiClientV2(connector).resume(connector, request);
-        } catch (ConnectorProblemException e) {
-            throw outboundContainment.withoutSecrets(e, sentSecrets, "run");
-        }
+        return withoutWordsWhenRefused(
+                () -> connectorApiFactory.getDiscoveryApiClientV2(connector).resume(connector, request), sentSecrets);
     }
 
     /**
@@ -184,24 +174,22 @@ public class DiscoveryV2Client {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
         Set<String> sentSecrets = populate(request, run, connector);
-        try {
-            return connectorApiFactory.getDiscoveryApiClientV2(connector).cancel(connector, request);
-        } catch (ConnectorProblemException e) {
-            throw outboundContainment.withoutSecrets(e, sentSecrets, "run");
-        }
+        return withoutWordsWhenRefused(
+                () -> connectorApiFactory.getDiscoveryApiClientV2(connector).cancel(connector, request), sentSecrets);
     }
 
     private DiscoveryResultsResponseDto drain(Discovery run, long afterSequence, int maxItems, long maxBytes)
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryDrainRequestDto request = new DiscoveryDrainRequestDto();
-        Set<String> sentSecrets = populate(request, run, connector);
+        Set<String> sentSecrets = populateForTick(request, run, connector);
         request.setDeliveryModes(drainOffer(run));
         request.setAfterSequence(afterSequence);
         request.setMaxItems(maxItems);
         request.setMaxBytes(Math.min(maxBytes, pageCeiling(run)));
-        return contained(connectorApiFactory.getDiscoveryApiClientV2(connector).results(connector, request),
-                sentSecrets, "results");
+        DiscoveryResultsResponseDto page = withoutWordsWhenRefused(
+                () -> connectorApiFactory.getDiscoveryApiClientV2(connector).results(connector, request), sentSecrets);
+        return contained(page, sentSecrets, "results");
     }
 
     /**
@@ -214,6 +202,25 @@ public class DiscoveryV2Client {
             return DiscoveryDrainRequestDto.MAX_BYTES_CAP - DiscoveryDrainRequestDto.CHECKPOINTED_RESPONSE_RESERVE;
         }
         return DiscoveryDrainRequestDto.MAX_BYTES_CAP;
+    }
+
+    /**
+     * Runs a connector call whose refusal reaches the API caller or the log: without the connector's words when the
+     * request carried a secret, which the caller may not be allowed to read.
+     */
+    private <T> T withoutWordsWhenRefused(ConnectorCall<T> call, Set<String> sentSecrets) throws ConnectorException {
+        try {
+            return call.execute();
+        } catch (ConnectorException e) {
+            throw outboundContainment.withoutWords(e, sentSecrets, "run");
+        } catch (ValidationException e) {
+            throw outboundContainment.withoutWords(e, sentSecrets, "run");
+        }
+    }
+
+    @FunctionalInterface
+    private interface ConnectorCall<T> {
+        T execute() throws ConnectorException;
     }
 
     /**
@@ -236,6 +243,20 @@ public class DiscoveryV2Client {
                     e);
         }
         return response;
+    }
+
+    /**
+     * As {@link #populate}, for a call a tick worker makes. A reference the resolver refuses surfaces as the connector
+     * call it prevents: a tick worker reads a validation refusal as the connector's and would end a checkpointed run at
+     * once, where a failed call spends the run's retries.
+     */
+    private Set<String> populateForTick(DiscoveryV2ScopedRequestDto request, Discovery run, ConnectorDto connector)
+            throws ConnectorException {
+        try {
+            return populate(request, run, connector);
+        } catch (ValidationException e) {
+            throw new ConnectorException("Unable to resolve the discovery run's references: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -333,17 +354,13 @@ public class DiscoveryV2Client {
 
     /**
      * The run's attributes as the connector receives them. A reference the resolver refuses, such as one to an object
-     * that is gone, surfaces as the connector call it prevents: a tick worker reads a validation refusal as the
-     * connector's, and would end a checkpointed run at once, naming the connector.
+     * that is gone, is a {@link ValidationException} naming it, which reaches the user who stops, resumes or cancels
+     * the run.
      */
     private List<RequestAttribute> resolveAsSystem(ConnectorDto connector, List<RequestAttribute> attributes)
             throws ConnectorException {
-        try {
-            return operationAttributeResolver
-                    .resolveWithNestedReferencesAsSystem(UUID.fromString(connector.getUuid()), attributes);
-        } catch (ValidationException e) {
-            throw new ConnectorException("Unable to resolve the discovery run's references: " + e.getMessage(), e);
-        }
+        return operationAttributeResolver
+                .resolveWithNestedReferencesAsSystem(UUID.fromString(connector.getUuid()), attributes);
     }
 
     /**

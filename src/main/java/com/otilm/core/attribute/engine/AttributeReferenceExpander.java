@@ -4,9 +4,11 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.core.security.authz.SecuredUUID;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -87,6 +89,19 @@ public class AttributeReferenceExpander {
             traversal.resolve(attribute.getName(), attribute.getContent());
         }
         return attributes;
+    }
+
+    /**
+     * Checks that the ambient calling user may see the object a reference names, through the same per-object guarded
+     * loader {@link #expandForCaller(List, Set)} resolves it with, and discards what it loads; the reference itself is
+     * left as it is. A kind sent as a bare reference needs no check. A refusal names the object, and a missing object
+     * names the attribute.
+     */
+    public void requireCallerMayLoad(String attributeName, ResourceObjectContent reference)
+            throws NotFoundException, AttributeException, ConnectorException {
+        ResourceObjectContent probe = new ResourceObjectContent(reference.getReference(), reference.getData());
+        new ReferenceTraversal((kind, uuid) -> loadForCaller(kind, uuid, new HashSet<>()), ReferenceLending.NOTHING)
+                .resolve(attributeName, List.of(probe));
     }
 
     private ResourceObjectContentData loadForCaller(AttributeResource kind, UUID uuid, Set<String> expandedSecrets)

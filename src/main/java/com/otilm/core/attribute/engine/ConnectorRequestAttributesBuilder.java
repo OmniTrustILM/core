@@ -72,10 +72,8 @@ public class ConnectorRequestAttributesBuilder {
 
     /**
      * As {@link #dereferenceForConnectorRequest}, and also resolves the references inside each referenced object that
-     * belongs to the connector the request is for, such as the OAuth client secret and TLS trust certificates of the
-     * authority a discovery refers to. Those are what the same connector receives for every operation of the object, so
-     * lending them creates no new holder. The references inside an object of another connector stay references. The
-     * depth cap and loop guard are those of {@link ReferenceTraversal}.
+     * belongs to the connector the request is for, such as the OAuth client secret of the authority a discovery refers
+     * to; {@link ReferenceLending} says why. The depth cap and loop guard are those of {@link ReferenceTraversal}.
      * {@link #prepareRequestAttributesForConnectorRequest}, which runs as the caller, never resolves nested references.
      */
     public List<RequestAttribute> dereferenceWithNestedReferencesForConnectorRequest(UUID connectorUuid,

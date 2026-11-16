@@ -27,14 +27,16 @@ import org.springframework.stereotype.Component;
  * rest of the operation runs as the caller.
  * <p>
  * <b>Placement:</b> this lives outside {@code com.otilm.core.attribute.engine} because the reference expander's
- * ArchUnit fence forbids that package from touching {@link AuthHelper}; the callback path stays per-object
- * caller-authorized and only this operation path elevates.
+ * ArchUnit fence forbids that package from touching {@link AuthHelper}. The callback path authorizes the caller on
+ * every object a request names; besides this class only {@link OwnConnectorReferenceLending} elevates, for what those
+ * objects lend.
  * <p>
  * <b>Nesting:</b> {@link #resolveForConnectorRequestAsSystem} resolves the stored attributes' own references, one level
  * deep. {@link #resolveWithNestedReferencesAsSystem} also resolves the references inside the objects they name, such as
- * the OAuth client secret of an authority a discovery refers to, down to the depth cap of the traversal the callback
- * path shares. It is only for attributes whose creation checked the creator's rights on every object they reach, which
- * a Discovery v2 run's creation does.
+ * the OAuth client secret of an authority a discovery refers to, when the object belongs to the request's connector
+ * ({@link com.otilm.core.attribute.engine.ReferenceLending} says why), down to the depth cap of the traversal the
+ * callback path shares. It is only for attributes whose creation checked the creator's rights on every object they name
+ * that lends, which a Discovery v2 run's creation does.
  * <p>
  * <b>Failures:</b> an unresolvable stored reference surfaces as {@link ConnectorException}, the one checked type the
  * elevated body may declare. A disabled or invalid-state secret or vault profile, a reference whose object is gone, or
@@ -64,8 +66,8 @@ public class OperationAttributeResolver {
     }
 
     /**
-     * The stored attributes with their references resolved, and the references inside the objects those name. Only for
-     * attributes whose creation checked the creator's rights on every object they reach.
+     * The stored attributes with their references resolved, and the references inside the objects those name. See the
+     * class Javadoc for which attributes may use it.
      */
     public List<RequestAttribute> resolveWithNestedReferencesAsSystem(UUID connectorUuid, List<RequestAttribute> stored)
             throws ConnectorException {

@@ -196,6 +196,71 @@ class ReferenceTraversalTest {
             assertThat(lentLoader.loads(AttributeResource.SECRET, SECRET)).isEqualTo(1);
             assertThat(loader.loads(AttributeResource.SECRET, SECRET)).isZero();
         }
+
+        @Test
+        void keepsTheReferencesInsideANestedObjectBare_whenTheLendingDeclinesThatObject() throws Exception {
+            // given
+            loader.object(AttributeResource.SECRET, SECRET, () -> secretContent("other-connectors-secret"));
+            loader
+                    .object(AttributeResource.AUTHORITY, SECOND_AUTHORITY, () -> object(AttributeResource.AUTHORITY,
+                            "of another connector", attribute("OAuth client", secret(SECRET))));
+            loader
+                    .object(AttributeResource.AUTHORITY, AUTHORITY, () -> object(AttributeResource.AUTHORITY, "otpki",
+                            attribute("issuer", reference(AttributeResource.AUTHORITY, SECOND_AUTHORITY))));
+            ReferenceLending lendingOnlyTheFirstAuthority = (kind, uuid) -> AUTHORITY.equals(uuid) ? loader : null;
+            List<ResourceObjectContent> request = references(reference(AttributeResource.AUTHORITY, AUTHORITY));
+
+            // when
+            new ReferenceTraversal(loader, lendingOnlyTheFirstAuthority).resolve("authority", request);
+
+            // then
+            ResourceObjectContentData otherAuthority = nestedData(request.getFirst().getData(), 0);
+            assertThat(nestedData(otherAuthority, 0))
+                    .isInstanceOfSatisfying(ResourceSecretContentData.class,
+                            secret -> assertThat(secret.getContent()).isNull());
+            assertThat(loader.loads(AttributeResource.SECRET, SECRET)).isZero();
+        }
+
+        @Test
+        void checksAnObjectTheRequestNames_whenLendingReachedItFirst() throws Exception {
+            // given
+            loader
+                    .object(AttributeResource.AUTHORITY, AUTHORITY, () -> object(AttributeResource.AUTHORITY, "otpki",
+                            attribute("OAuth client", secret(SECRET))));
+            loader.object(AttributeResource.SECRET, SECRET, () -> secretContent("client-secret"));
+            FakeLoader lentLoader = new FakeLoader();
+            lentLoader.object(AttributeResource.SECRET, SECRET, () -> secretContent("client-secret"));
+            List<ResourceObjectContent> request = references(reference(AttributeResource.AUTHORITY, AUTHORITY),
+                    secret(SECRET));
+
+            // when
+            lendingTheAuthorityThrough(lentLoader).resolve("objects", request);
+
+            // then
+            assertThat(loader.loads(AttributeResource.SECRET, SECRET)).isEqualTo(1);
+            assertThat(request.get(1).getData()).isSameAs(nestedData(request.getFirst().getData(), 0));
+        }
+
+        @Test
+        void refusesAnObjectTheRequestNames_whenOnlyLendingReachedItAndTheCallerMayNotLoadIt() {
+            // given
+            loader
+                    .object(AttributeResource.AUTHORITY, AUTHORITY, () -> object(AttributeResource.AUTHORITY, "otpki",
+                            attribute("OAuth client", secret(SECRET))));
+            loader.denied(AttributeResource.SECRET, SECRET);
+            FakeLoader lentLoader = new FakeLoader();
+            lentLoader.object(AttributeResource.SECRET, SECRET, () -> secretContent("client-secret"));
+            List<ResourceObjectContent> request = references(reference(AttributeResource.AUTHORITY, AUTHORITY),
+                    secret(SECRET));
+
+            // when
+            ThrowingCallable resolve = () -> lendingTheAuthorityThrough(lentLoader).resolve("objects", request);
+
+            // then
+            assertThatThrownBy(resolve)
+                    .isInstanceOfSatisfying(ReferenceAccessDeniedException.class,
+                            denied -> assertThat(denied.getReference()).isEqualTo("Secret 'oauth-client'"));
+        }
     }
 
     // ── Loops ─────────────────────────────────────────────────────────────────
@@ -249,19 +314,21 @@ class ReferenceTraversalTest {
         @Test
         void resolvesAChain_whenItEndsAtTheCap() throws Exception {
             // given
-            List<ResourceObjectContent> request = references(chainOf(ReferenceTraversal.MAX_DEPTH + 1));
+            int longestResolvedChain = ReferenceTraversal.MAX_DEPTH + 1;
+            List<ResourceObjectContent> request = references(chainOf(longestResolvedChain));
 
             // when
             lendingEverything().resolve("chain", request);
 
             // then
-            assertThat(loader.totalLoads()).isEqualTo(ReferenceTraversal.MAX_DEPTH + 1);
+            assertThat(loader.totalLoads()).isEqualTo(longestResolvedChain);
         }
 
         @Test
         void refusesTheWholeRequestNamingTheReference_whenAChainGoesPastTheCap() {
             // given
-            List<ResourceObjectContent> request = references(chainOf(ReferenceTraversal.MAX_DEPTH + 2));
+            int oneLinkPastTheCap = ReferenceTraversal.MAX_DEPTH + 2;
+            List<ResourceObjectContent> request = references(chainOf(oneLinkPastTheCap));
 
             // when
             ThrowingCallable resolve = () -> lendingEverything().resolve("chain", request);
@@ -271,7 +338,7 @@ class ReferenceTraversalTest {
                     .isInstanceOf(ReferenceExpansionException.class)
                     .hasMessageContaining("Credential 'link-%d'".formatted(ReferenceTraversal.MAX_DEPTH + 1))
                     .hasMessageContaining("of Credential 'link-%d'".formatted(ReferenceTraversal.MAX_DEPTH))
-                    .hasMessageContaining(String.valueOf(ReferenceTraversal.MAX_DEPTH));
+                    .hasMessageContaining("more than %d levels deep".formatted(ReferenceTraversal.MAX_DEPTH));
         }
     }
 
@@ -373,6 +440,11 @@ class ReferenceTraversalTest {
         return new ReferenceTraversal(loader, (kind, uuid) -> loader);
     }
 
+    /** A traversal in which only authorities lend what they nest, through the given loader. */
+    private ReferenceTraversal lendingTheAuthorityThrough(ReferenceLoader lentLoader) {
+        return new ReferenceTraversal(loader, (kind, uuid) -> kind == AttributeResource.AUTHORITY ? lentLoader : null);
+    }
+
     /**
      * A chain of credentials, each referencing the next, registered with the loader. Returns the reference to the
      * first, which the request carries.
@@ -391,7 +463,7 @@ class ReferenceTraversalTest {
                     : new ResponseAttribute[0];
             loader
                     .object(AttributeResource.CREDENTIAL, links.get(i),
-                            () -> object(AttributeResource.CREDENTIAL, name, next.length == 0 ? next : copyOf(next)));
+                            () -> object(AttributeResource.CREDENTIAL, name, copyOf(next)));
         }
         return reference(AttributeResource.CREDENTIAL, links.getFirst(), "link-0");
     }

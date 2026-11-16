@@ -3,7 +3,13 @@ package com.otilm.core.attribute.engine;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.otilm.api.exception.ConnectorClientException;
+import com.otilm.api.exception.ConnectorCommunicationException;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
@@ -321,50 +327,57 @@ public class OutboundSecretContainment {
     }
 
     /**
-     * A connector's refusal as it may reach the caller: as answered, unless its words carry one of the secrets the
-     * request was sent with; then with its verdict kept and its words replaced. The caller may not be allowed to read
-     * those secrets, while the connector's words are otherwise the caller's best account of what to correct.
+     * A connector's refusal of a request that carried secrets, as it may reach a user or the log: of the same type,
+     * with the connector's verdict kept (its status, error code and retry hint, which callers classify the refusal by)
+     * and its words replaced. The words may echo one of those secrets back, in any encoding, and the user may not be
+     * allowed to read them. A refusal of a request that carried none is returned as it is, and so is a transport
+     * failure, whose words are not the connector's.
      *
      * @param refused what the connector refused, such as {@code "run"}, for the replacement words
      */
-    public ConnectorProblemException withoutSecrets(ConnectorProblemException refusal, Set<String> sentSecrets,
-            String refused) {
-        if (!mentionsAnyOf(refusal.getProblemDetail(), sentSecrets)) {
+    public ConnectorException withoutWords(ConnectorException refusal, Set<String> sentSecrets, String refused) {
+        if (sentSecrets == null || sentSecrets.isEmpty() || refusal instanceof ConnectorCommunicationException) {
             return refusal;
         }
-        ProblemDetailExtended answered = refusal.getProblemDetail();
-        ErrorCode code = answered.getErrorCode();
-        if (code != null) {
-            return new ConnectorProblemException(ProblemDetailExtended
-                    .fromErrorCode(code, "The connector refused the %s (%s).".formatted(refused, code.name()), null,
-                            null));
-        }
-        ProblemDetailExtended withoutWords = new ProblemDetailExtended();
-        withoutWords.setStatus(answered.getStatus());
-        withoutWords.setDetail("The connector refused the %s.".formatted(refused));
-        return new ConnectorProblemException(withoutWords);
+        String words = "The connector refused the %s.".formatted(refused);
+        ConnectorException withoutWords = switch (refusal) {
+            case ConnectorProblemException problem -> withoutWords(problem, refused);
+            case ConnectorClientException client -> new ConnectorClientException(words, client.getHttpStatus());
+            case ConnectorServerException server -> new ConnectorServerException(words, server.getHttpStatus());
+            case ConnectorEntityNotFoundException ignored -> new ConnectorEntityNotFoundException(words);
+            default -> new ConnectorException(words);
+        };
+        withoutWords.setConnector(refusal.getConnector());
+        return withoutWords;
     }
 
     /**
-     * Whether any text in the payload contains one of the secrets, anywhere in it. Stricter than the value-echo check
-     * of {@link #assertNoExpandedSecretOutbound(Object, Set)}, which matches whole values: free text such as a
-     * connector's refusal can carry a secret inside a sentence. A payload that cannot be serialized counts as carrying
-     * one.
+     * As {@link #withoutWords(ConnectorException, Set, String)}, for a refusal a transport reports as a validation
+     * failure: a plain 422 over REST, or a validation error from the proxy.
      */
-    public boolean mentionsAnyOf(Object payload, Set<String> secrets) {
-        if (payload == null || secrets == null || secrets.isEmpty()) {
-            return false;
+    public ValidationException withoutWords(ValidationException refusal, Set<String> sentSecrets, String refused) {
+        if (sentSecrets == null || sentSecrets.isEmpty()) {
+            return refusal;
         }
-        JsonNode tree;
-        try {
-            tree = objectMapper.valueToTree(payload);
-        } catch (RuntimeException e) {
-            logger
-                    .warn("Connector text could not be serialized to check it for secrets; treating it as carrying one",
-                            e);
-            return true;
+        return new ValidationException("The connector refused the %s.".formatted(refused));
+    }
+
+    private static ConnectorProblemException withoutWords(ConnectorProblemException refusal, String refused) {
+        ProblemDetailExtended answered = refusal.getProblemDetail();
+        ProblemDetailExtended kept = new ProblemDetailExtended();
+        ErrorCode code = answered == null ? null : answered.getErrorCode();
+        if (answered != null) {
+            kept.setStatus(answered.getStatus());
+            kept.setErrorCode(code);
+            kept.setRetryable(answered.isRetryable());
+            kept.setRetryAfterSeconds(answered.getRetryAfterSeconds());
+            kept.setTimestamp(answered.getTimestamp());
         }
-        return containsAnyScalar(tree, text -> secrets.stream().anyMatch(text::contains));
+        kept
+                .setDetail(code == null
+                        ? "The connector refused the %s.".formatted(refused)
+                        : "The connector refused the %s (%s).".formatted(refused, code.name()));
+        return new ConnectorProblemException(kept);
     }
 
     /**

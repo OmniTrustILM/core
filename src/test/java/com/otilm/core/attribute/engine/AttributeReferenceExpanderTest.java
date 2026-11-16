@@ -18,12 +18,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.springframework.security.access.AccessDeniedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -262,6 +264,41 @@ class AttributeReferenceExpanderTest {
                 .isInstanceOfSatisfying(ResourceSecretContentData.class,
                         secret -> assertThat(secret.getContent()).isNull());
         verify(registry, never()).loaderFor(AttributeResource.SECRET);
+    }
+
+    // ── Checking without expanding ────────────────────────────────────────────
+
+    @Test
+    void leavesTheReferenceAsItIs_whenTheCallerMayLoadTheObject() throws Exception {
+        // given
+        UUID authorityUuid = UUID.randomUUID();
+        registerLoader(AttributeResource.AUTHORITY, uuid -> authorityHolding(authorityUuid, UUID.randomUUID()));
+        ResourceObjectContent reference = firstElement(resourceRef(AttributeResource.AUTHORITY, authorityUuid));
+        ResourceObjectContentData original = reference.getData();
+
+        // when
+        expander.requireCallerMayLoad("Authority", reference);
+
+        // then
+        assertThat(reference.getData()).isSameAs(original);
+    }
+
+    @Test
+    void refusesNamingTheObject_whenTheCallerMayNotLoadIt() {
+        // given
+        UUID authorityUuid = UUID.randomUUID();
+        registerLoader(AttributeResource.AUTHORITY, uuid -> {
+            throw new AccessDeniedException("denied");
+        });
+        ResourceObjectContent reference = firstElement(resourceRef(AttributeResource.AUTHORITY, authorityUuid));
+
+        // when
+        ThrowingCallable check = () -> expander.requireCallerMayLoad("Authority", reference);
+
+        // then
+        assertThatThrownBy(check)
+                .isInstanceOfSatisfying(ReferenceAccessDeniedException.class,
+                        denied -> assertThat(denied.getReference()).startsWith("Authority '"));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -1,6 +1,14 @@
 package com.otilm.core.attribute.engine;
 
+import com.otilm.api.clients.ApiClientConnectorInfo;
+import com.otilm.api.exception.ConnectorClientException;
+import com.otilm.api.exception.ConnectorCommunicationException;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
+import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
+import com.otilm.api.exception.ValidationError;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV2;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
@@ -32,6 +40,7 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.secrets.content.ApiKeySecretContent;
 import com.otilm.api.model.core.auth.AttributeResource;
+import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import java.io.Serializable;
 import java.net.URI;
@@ -42,6 +51,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -481,64 +491,119 @@ class OutboundSecretContainmentTest {
     }
 
     @Test
-    void findsASecret_whenFreeTextCarriesItInsideASentence() {
-        // given
-        String sentSecret = "s3cr3t-token";
-        Map<String, String> refusal = Map.of("detail", "token " + sentSecret + " is not valid");
-
-        // when
-        boolean mentioned = containment.mentionsAnyOf(refusal, Set.of(sentSecret));
-
-        // then
-        assertThat(mentioned).isTrue();
-    }
-
-    @Test
-    void findsNoSecret_whenFreeTextCarriesNoneOfThem() {
-        // given
-        Map<String, String> refusal = Map.of("detail", "authority \"otpki-staging\" does not belong to this connector");
-
-        // when
-        boolean mentioned = containment.mentionsAnyOf(refusal, Set.of("s3cr3t-token"));
-
-        // then
-        assertThat(mentioned).isFalse();
-    }
-
-    @Test
-    void keepsTheConnectorsRefusal_whenItsWordsCarryNoneOfTheSecrets() {
+    void returnsTheRefusalAsItIs_whenTheRequestCarriedNoSecret() {
         // given
         ConnectorProblemException refusal = refusal("authority \"otpki-staging\" does not belong to this connector");
 
         // when
-        ConnectorProblemException passedOn = containmentWithTimeSupport()
-                .withoutSecrets(refusal, Set.of("s3cr3t-token"), "run");
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of(), "run");
 
         // then
         assertThat(passedOn).isSameAs(refusal);
     }
 
     @Test
-    void keepsTheVerdictButNotTheWords_whenTheRefusalCarriesASecret() {
+    void keepsTheVerdictButNotTheWords_whenTheRequestCarriedASecret() {
         // given
-        String sentSecret = "s3cr3t-token";
-        ConnectorProblemException refusal = refusal("token " + sentSecret + " is not valid");
+        String base64EchoOfTheSecret = "Authorization: Basic Y2xpZW50OnMzY3IzdC10b2tlbg==";
+        ConnectorProblemException refusal = refusal(base64EchoOfTheSecret);
+        refusal.getProblemDetail().setRetryAfterSeconds(45);
 
         // when
-        ConnectorProblemException passedOn = containmentWithTimeSupport()
-                .withoutSecrets(refusal, Set.of(sentSecret), "callback");
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "callback");
 
         // then
-        assertThat(passedOn.getMessage()).isEqualTo("The connector refused the callback (VALIDATION_FAILED).");
-        assertThat(passedOn.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+        assertThat(passedOn).isInstanceOfSatisfying(ConnectorProblemException.class, problem -> {
+            assertThat(problem.getMessage()).isEqualTo("The connector refused the callback (VALIDATION_FAILED).");
+            assertThat(problem.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+            assertThat(problem.getProblemDetail().getStatus()).isEqualTo(refusal.getProblemDetail().getStatus());
+            assertThat(problem.getProblemDetail().getRetryAfterSeconds()).isEqualTo(45);
+        });
+    }
+
+    @Test
+    void keepsTheTypeStatusAndConnectorButNotTheWords_whenAPlainClientErrorRefusedARequestCarryingASecret() {
+        // given
+        ConnectorClientException refusal = new ConnectorClientException("token s3cr3t-token is not valid",
+                HttpStatus.UNPROCESSABLE_CONTENT);
+        ApiClientConnectorInfo connector = aConnector();
+        refusal.setConnector(connector);
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn).isInstanceOfSatisfying(ConnectorClientException.class, client -> {
+            assertThat(client.getMessage()).isEqualTo("The connector refused the run.");
+            assertThat(client.getHttpStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+            assertThat(client.getConnector()).isSameAs(connector);
+        });
+    }
+
+    @Test
+    void keepsTheTypeAndStatusButNotTheWords_whenAPlainServerErrorRefusedARequestCarryingASecret() {
+        // given
+        ConnectorServerException refusal = new ConnectorServerException("upstream said s3cr3t-token",
+                HttpStatus.SERVICE_UNAVAILABLE);
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn).isInstanceOfSatisfying(ConnectorServerException.class, server -> {
+            assertThat(server.getMessage()).isEqualTo("The connector refused the run.");
+            assertThat(server.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        });
+    }
+
+    @Test
+    void keepsTheTypeButNotTheWords_whenAPlainNotFoundRefusedARequestCarryingASecret() {
+        // given
+        ConnectorEntityNotFoundException refusal = new ConnectorEntityNotFoundException("no run for s3cr3t-token");
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn)
+                .isInstanceOf(ConnectorEntityNotFoundException.class)
+                .hasMessage("The connector refused the run.");
+    }
+
+    @Test
+    void dropsTheWords_whenAValidationRefusalAnswersARequestCarryingASecret() {
+        // given
+        ValidationException refusal = new ValidationException("token s3cr3t-token is not valid");
+
+        // when
+        ValidationException passedOn = containment.withoutWords(refusal, Set.of("s3cr3t-token"), "callback");
+
+        // then
+        assertThat(passedOn.getErrors())
+                .extracting(ValidationError::getErrorDescription)
+                .containsExactly("The connector refused the callback.");
+    }
+
+    @Test
+    void returnsATransportFailureAsItIs_whenTheRequestCarriedASecret() {
+        // given
+        ConnectorCommunicationException unreachable = new ConnectorCommunicationException("connection refused",
+                aConnector());
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(unreachable, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn).isSameAs(unreachable);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /** The wire mapper handles the problem detail's timestamp; a bare one cannot, and fails the check closed. */
-    private static OutboundSecretContainment containmentWithTimeSupport() {
-        return new OutboundSecretContainment(
-                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules());
+    private static ApiClientConnectorInfo aConnector() {
+        ConnectorDto connector = new ConnectorDto();
+        connector.setUuid(UUID.randomUUID().toString());
+        connector.setName("otpki");
+        return connector;
     }
 
     private static ConnectorProblemException refusal(String detail) {

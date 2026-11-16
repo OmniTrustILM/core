@@ -76,7 +76,7 @@ public class AttributeReferenceExpanderFenceArchTest {
             .dependOnClassesThat()
             .areAssignableTo(ResourceInternalService.class)
             .because("ResourceInternalService.loadReferencedObjectContent checks no permission on the object, and a "
-                    + "method reference passed as a ReferenceTraversal.Loader reaches it as surely as a call; only "
+                    + "method reference passed as a ReferenceLoader reaches it as surely as a call; only "
                     + "system-mode resolution in ConnectorRequestAttributesBuilder may hold that service");
 
     @ArchTest

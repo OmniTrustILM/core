@@ -369,7 +369,8 @@ public class CallbackServiceImpl implements CallbackExternalService {
      * Assemble the NG dispatch context and hand off to the {@link NgCallbackDispatcher} collaborator bean, which
      * performs the connector POST outside any transaction. {@code currentAttributes} are the values supplied with the
      * callback (the dependsOn-named attributes), expanded per the calling user via the same
-     * {@link AttributeReferenceExpander} used for the scope chain.
+     * {@link AttributeReferenceExpander} used for the scope chain; unlike the scope chain, the references inside an
+     * object of this callback's connector are lent through {@link OwnConnectorReferenceLending}.
      */
     private Object dispatchNg(ConnectorDetailDto connector, BaseAttribute attribute,
             AttributeCallback attributeCallback, RequestAttributeCallback callback, Resource scopeResource,

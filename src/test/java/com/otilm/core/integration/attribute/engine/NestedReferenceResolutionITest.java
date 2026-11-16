@@ -275,6 +275,25 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
+        void leavesTheCredentialsOfAnotherConnectorsAuthorityAsReferences_whenALentAuthorityRefersToIt()
+                throws Exception {
+            // given
+            attributeEngine
+                    .updateDataAttributeDefinitions(discoveryConnector.getUuid(), null, List.of(authorityDefinition()));
+            AuthorityInstanceReference referring = seedAnAuthorityReferringTo(discoveryConnector,
+                    anAuthorityOfAnotherConnector());
+
+            // when
+            List<RequestAttribute> sent = operationAttributeResolver
+                    .resolveWithNestedReferencesAsSystem(discoveryConnector.getUuid(),
+                            List.of(authorityReference(referring)));
+
+            // then
+            ResourceSimpleContentData lent = (ResourceSimpleContentData) firstData(sent.getFirst().getContent());
+            assertTheCredentialsAreReferences((ResourceSimpleContentData) contentOf(lent, "issuer"));
+        }
+
+        @Test
         void leavesTheAuthoritysSecretAReference_whenResolvingOneLevelForAnOperation() throws Exception {
             // given
             attributeEngine
@@ -362,6 +381,24 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
 
             // then
             assertThat(discoveryRepository.findByName(request.getName())).isPresent();
+        }
+
+        @Test
+        void refusesTheRunNamingTheAuthority_whenTheCreatorMayNotSeeIt() throws Exception {
+            // given
+            stubTheDiscoveryConnectorsSchema();
+            denyTheCaller(Resource.AUTHORITY, ResourceAction.DETAIL);
+            DiscoveryDto request = aRequestReferringToTheAuthority();
+
+            // when
+            ThrowingCallable create = () -> discoveryService.createDiscovery(request, true);
+
+            // then
+            assertThatThrownBy(create)
+                    .isInstanceOfSatisfying(ReferenceAccessDeniedException.class,
+                            refused -> assertThat(refused.getReference())
+                                    .isEqualTo("Authority '%s'".formatted(authority.getName())));
+            assertThat(discoveryRepository.findByName(request.getName())).isEmpty();
         }
 
         @Test
@@ -725,6 +762,35 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
                 .withCertificateContentId(content.getId())
                 .build();
         return certificateRepository.save(certificate);
+    }
+
+    /** An authority of the connector whose one attribute, its issuer, refers to another authority. */
+    private AuthorityInstanceReference seedAnAuthorityReferringTo(Connector owner, AuthorityInstanceReference issuer)
+            throws Exception {
+        AuthorityInstanceReference reference = new AuthorityInstanceReference();
+        reference.setName("otpki-subordinate");
+        reference.setKind("OTPKI");
+        reference.setConnector(owner);
+        reference.setConnectorUuid(owner.getUuid());
+        reference = authorityInstanceReferenceRepository.save(reference);
+
+        DataAttributeV3 issuerDefinition = referenceDefinition(UUID.randomUUID().toString(), "issuer", "Issuer",
+                AttributeResource.AUTHORITY);
+        attributeEngine.updateDataAttributeDefinitions(owner.getUuid(), null, List.of(issuerDefinition));
+        List<BaseAttributeContentV3<?>> issuerContent = new ArrayList<>();
+        issuerContent
+                .add(new ResourceObjectContent(issuer.getName(), new ResourceSimpleContentData(
+                        AttributeResource.AUTHORITY, issuer.getUuid().toString(), issuer.getName(), null)));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo
+                                .builder(Resource.AUTHORITY, reference.getUuid())
+                                .connector(owner.getUuid())
+                                .build(),
+                        List
+                                .of(new RequestAttributeV3(UUID.fromString(issuerDefinition.getUuid()), "issuer",
+                                        AttributeContentType.RESOURCE, issuerContent)));
+        return reference;
     }
 
     /** The same OTPKI-like authority as the one under test, held by a connector the discovery does not run on. */

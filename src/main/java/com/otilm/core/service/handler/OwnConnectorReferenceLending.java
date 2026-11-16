@@ -15,10 +15,8 @@ import org.springframework.stereotype.Component;
  * Lends a connector the references inside the objects that belong to it, resolved under the
  * {@code attribute-content-resolver} system identity, for a form callback the caller makes.
  * <p>
- * The caller is still checked on every object the request refers to. What such an object refers to in turn, such as an
- * authority's OAuth client secret, was attached to the object when it was created, for its own connector; that
- * connector receives it for every operation of the object anyway, so resolving it for the same connector creates no new
- * holder and asks nothing more of the caller. The references inside an object of another connector stay references.
+ * The caller is still checked on every object the request refers to; {@link ReferenceLending} says why what those
+ * objects refer to asks nothing more of the caller.
  * <p>
  * This lives outside {@code com.otilm.core.attribute.engine} because that package must not elevate; the expander
  * receives the lending from here.

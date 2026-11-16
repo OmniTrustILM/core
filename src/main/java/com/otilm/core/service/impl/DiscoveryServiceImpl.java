@@ -24,6 +24,7 @@ import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
+import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoverySupportedResourceDto;
 import com.otilm.api.model.core.auth.AttributeResource;
@@ -39,6 +40,7 @@ import com.otilm.api.model.core.search.SearchFieldDataDto;
 import com.otilm.core.attribute.engine.AttributeColumnProjector;
 import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
+import com.otilm.core.attribute.engine.AttributeReferenceExpander;
 import com.otilm.core.attribute.engine.ListingSortResolver;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
@@ -133,6 +135,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     private AttributeEngine attributeEngine;
     private CredentialInternalService credentialService;
     private ResourceInternalService resourceService;
+    private AttributeReferenceExpander attributeReferenceExpander;
     private AttributeColumnProjector attributeColumnProjector;
 
     private ListingSortResolver listingSortResolver;
@@ -231,6 +234,11 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     @Autowired
     public void setResourceService(ResourceInternalService resourceService) {
         this.resourceService = resourceService;
+    }
+
+    @Autowired
+    public void setAttributeReferenceExpander(AttributeReferenceExpander attributeReferenceExpander) {
+        this.attributeReferenceExpander = attributeReferenceExpander;
     }
 
     @Autowired
@@ -460,6 +468,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             }
         }
         requireReferencesOfTheDeclaredKind(referenced);
+        requireTheCallerMaySeeWhatLendsToTheConnector(referenced, connector);
         // The credential loader authorizes CREDENTIAL:DETAIL at method entry, so a run naming no credential is kept
         // away from it rather than charged for a walk-past. The resource loader gates per object, inside, and needs no
         // such guard. As in ConnectorRequestAttributesBuilder.
@@ -490,6 +499,33 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                 if (reference.getData().getResource() != declared) {
                     throw new ValidationException("Attribute '%s' takes a reference to %s, not to %s."
                             .formatted(label, declared.getLabel(), reference.getData().getResource().getLabel()));
+                }
+            }
+        }
+    }
+
+    /**
+     * Checks the caller's right to see every object the run refers to that lends the run's connector its own
+     * references, as the form's callbacks do. The run sends what such an object refers to resolved, such as an
+     * authority's OAuth client secret, so filing the object is using it. What it refers to asks nothing more of the
+     * caller.
+     */
+    private void requireTheCallerMaySeeWhatLendsToTheConnector(List<DataAttribute> referenced, Connector connector)
+            throws NotFoundException, AttributeException, ConnectorException {
+        for (DataAttribute attribute : referenced) {
+            List<?> content = attribute.getContent();
+            if (attribute.getContentType() != AttributeContentType.RESOURCE || content == null) {
+                continue;
+            }
+            for (Object item : content) {
+                ResourceObjectContent reference = (ResourceObjectContent) item;
+                ResourceObjectContentData target = reference.getData();
+                boolean lendsToTheConnector = resourceService
+                        .findOwningConnector(target.getResource(), UUID.fromString(target.getUuid()))
+                        .filter(connector.getUuid()::equals)
+                        .isPresent();
+                if (lendsToTheConnector) {
+                    attributeReferenceExpander.requireCallerMayLoad(attribute.getProperties().getLabel(), reference);
                 }
             }
         }

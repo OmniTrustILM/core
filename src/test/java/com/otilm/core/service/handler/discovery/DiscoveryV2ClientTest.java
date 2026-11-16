@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler.discovery;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
@@ -54,6 +55,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -294,6 +296,7 @@ class DiscoveryV2ClientTest {
 
     @Test
     void aDefinitionTwoScopesShare_isResolvedOnceRatherThanPerScope() throws Exception {
+        // given
         run.setResources(List.of(Resource.CERTIFICATE));
         // The same credential declared at run level and again on the resource: two definitions, one referent.
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
@@ -303,8 +306,10 @@ class DiscoveryV2ClientTest {
         resolvingEachTo(new StringAttributeContentV3("s3cret"));
         when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
 
+        // when
         client.status(run);
 
+        // then
         // For a SECRET reference a lookup is a connector round trip, so resolving once per scope would pay for
         // the same secret as many times as the run targets resources.
         ArgumentCaptor<List<RequestAttribute>> resolved = ArgumentCaptor.captor();
@@ -319,6 +324,7 @@ class DiscoveryV2ClientTest {
 
     @Test
     void resolvedContent_reachesEveryScopeThatDeclaredTheDefinition() throws Exception {
+        // given
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
                 .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
@@ -327,8 +333,10 @@ class DiscoveryV2ClientTest {
         resolvingEachTo(new StringAttributeContentV3("s3cret"));
         when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
 
+        // when
         client.status(run);
 
+        // then
         // Deduping must not cost the skipped scope its content: the connector needs the resolved value in both.
         DiscoveryRunRequestDto sent = capturedStatus();
         assertThat(firstData(sent.getAttributes().getFirst().getContent())).isEqualTo("s3cret");
@@ -370,7 +378,7 @@ class DiscoveryV2ClientTest {
     }
 
     @Test
-    void reportsAConnectorFailure_whenTheResolverRefusesAReference() throws Exception {
+    void reportsAConnectorFailure_whenTheResolverRefusesAReferenceOnAStatusTick() throws Exception {
         // given
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
@@ -392,14 +400,35 @@ class DiscoveryV2ClientTest {
     }
 
     @Test
+    void refusesTheStopNamingTheReference_whenTheResolverRefusesIt() throws Exception {
+        // given
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("authority", "reference-only", AttributeContentType.RESOURCE)));
+        ValidationException disabledSecret = new ValidationException("Secret 'oauth' is not enabled.");
+        when(operationAttributeResolver.resolveWithNestedReferencesAsSystem(any(), anyList()))
+                .thenThrow(disabledSecret);
+
+        // when
+        ThrowingCallable stop = () -> client.stop(run);
+
+        // then
+        assertThatThrownBy(stop).isSameAs(disabledSecret);
+        verifyNoInteractions(apiClient);
+    }
+
+    @Test
     void skipsTheResolver_whenNothingIsReferenced() throws Exception {
+        // given
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), any(), any(), any()))
                 .thenReturn(List.of(definition("host", "10.0.0.0/24", AttributeContentType.STRING)));
         when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
 
+        // when
         client.status(run);
 
+        // then
         // Nothing to resolve, and this path runs on every tick for the whole life of the run — so it must not spend
         // the resolver's auth-service round trip proving that.
         verifyNoInteractions(operationAttributeResolver);
@@ -417,6 +446,7 @@ class DiscoveryV2ClientTest {
      */
     @Test
     void aResponseEchoingASecretResolvedForTheRun_isRefusedAsAConnectorFailure() throws Exception {
+        // given
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
                 .thenReturn(List.of(definition("vaultToken", "reference-only", AttributeContentType.RESOURCE)));
@@ -426,9 +456,11 @@ class DiscoveryV2ClientTest {
         echo.setMeta(DiscoveryCheckpointFixture.checkpoint("lastToken", "s3cr3t-token"));
         when(apiClient.status(any(), any())).thenReturn(echo);
 
-        assertThatThrownBy(() -> client.status(run))
-                .isInstanceOf(ConnectorException.class)
-                .hasMessageNotContaining("s3cr3t-token");
+        // when
+        ThrowingCallable status = () -> client.status(run);
+
+        // then
+        assertThatThrownBy(status).isInstanceOf(ConnectorException.class).hasMessageNotContaining("s3cr3t-token");
     }
 
     @Test
@@ -444,38 +476,57 @@ class DiscoveryV2ClientTest {
     }
 
     /**
-     * A refusal of the initiate reaches the API caller, who may not read the secrets the request carried, so words that
-     * carry one go and the verdict stays: still a 422 refusal of the configuration.
+     * A refusal of the initiate reaches the API caller, who may not read the secrets the request carried, so the words
+     * go and the verdict stays: still a 422 refusal of the configuration.
      */
     @Test
-    void dropsTheConnectorsWordsButNotItsVerdict_whenAnInitiateRefusalCarriesASecretItWasSent() throws Exception {
-        givenARunResolvingASecret();
-        when(apiClient.initiate(any(), any())).thenThrow(validationRefusal("token s3cr3t-token is not valid"));
-
-        assertThatThrownBy(() -> client.initiate(run))
-                .isInstanceOfSatisfying(ConnectorProblemException.class, refused -> {
-                    assertThat(refused.getMessage()).doesNotContain("s3cr3t-token");
-                    assertThat(refused.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
-                    assertThat(refused.getProblemDetail().getStatus()).isEqualTo(422);
-                });
-    }
-
-    @Test
-    void keepsTheConnectorsWords_whenAnInitiateRefusalCarriesNoneOfTheSecretsItWasSent() throws Exception {
+    void dropsTheConnectorsWordsButNotItsVerdict_whenAnInitiateRefusalAnswersARunCarryingASecret() throws Exception {
         // given
         givenARunResolvingASecret();
-        String foreignAuthority = "authority \"otpki-staging\" does not belong to this connector";
-        when(apiClient.initiate(any(), any())).thenThrow(validationRefusal(foreignAuthority));
+        when(apiClient.initiate(any(), any())).thenThrow(validationRefusal("token s3cr3t-token is not valid"));
 
         // when
         ThrowingCallable initiate = () -> client.initiate(run);
 
         // then
-        assertThatThrownBy(initiate).isInstanceOf(ConnectorProblemException.class).hasMessage(foreignAuthority);
+        assertThatThrownBy(initiate).isInstanceOfSatisfying(ConnectorProblemException.class, refused -> {
+            assertThat(refused.getMessage()).isEqualTo("The connector refused the run (VALIDATION_FAILED).");
+            assertThat(refused.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+            assertThat(refused.getProblemDetail().getStatus()).isEqualTo(422);
+        });
     }
 
     @Test
-    void dropsTheConnectorsWords_whenAStopRefusalCarriesASecretItWasSent() throws Exception {
+    void dropsTheConnectorsWords_whenAnInitiateRefusalCarryingNoSecretAnswersARunCarryingOne() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        String wordsWithoutTheSecret = "authority \"otpki-staging\" does not belong to this connector";
+        when(apiClient.initiate(any(), any())).thenThrow(validationRefusal(wordsWithoutTheSecret));
+
+        // when
+        ThrowingCallable initiate = () -> client.initiate(run);
+
+        // then
+        assertThatThrownBy(initiate)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessage("The connector refused the run (VALIDATION_FAILED).");
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenAPlainValidationRefusalAnswersARunCarryingASecret() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        when(apiClient.initiate(any(), any())).thenThrow(new ValidationException("token s3cr3t-token is not valid"));
+
+        // when
+        ThrowingCallable initiate = () -> client.initiate(run);
+
+        // then
+        assertThatThrownBy(initiate).isInstanceOf(ValidationException.class).hasMessageNotContaining("s3cr3t-token");
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenAStopRefusalAnswersARunCarryingASecret() throws Exception {
         // given
         givenARunResolvingASecret();
         when(apiClient.stop(any(), any())).thenThrow(validationRefusal("token s3cr3t-token cannot be used"));
@@ -487,6 +538,75 @@ class DiscoveryV2ClientTest {
         assertThatThrownBy(stop)
                 .isInstanceOf(ConnectorProblemException.class)
                 .hasMessage("The connector refused the run (VALIDATION_FAILED).");
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenAPlainClientErrorRefusesAStopOfARunCarryingASecret() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        when(apiClient.stop(any(), any()))
+                .thenThrow(new ConnectorClientException("token s3cr3t-token cannot be used", HttpStatus.BAD_REQUEST));
+
+        // when
+        ThrowingCallable stop = () -> client.stop(run);
+
+        // then
+        assertThatThrownBy(stop).isInstanceOfSatisfying(ConnectorClientException.class, refused -> {
+            assertThat(refused.getMessage()).isEqualTo("The connector refused the run.");
+            assertThat(refused.getHttpStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        });
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenAResumeRefusalAnswersARunCarryingASecret() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        when(apiClient.resume(any(), any())).thenThrow(validationRefusal("token s3cr3t-token cannot be used"));
+
+        // when
+        ThrowingCallable resume = () -> client.resume(run);
+
+        // then
+        assertThatThrownBy(resume)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessage("The connector refused the run (VALIDATION_FAILED).");
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenACancelRefusalAnswersARunCarryingASecret() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        when(apiClient.cancel(any(), any())).thenThrow(validationRefusal("token s3cr3t-token cannot be used"));
+
+        // when
+        ThrowingCallable cancel = () -> client.cancel(run);
+
+        // then
+        assertThatThrownBy(cancel)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessage("The connector refused the run (VALIDATION_FAILED).");
+    }
+
+    /** A status refusal goes to the tick worker's log, and the worker backs off by the hint it keeps. */
+    @Test
+    void keepsTheRetryHintButNotTheWords_whenAStatusRefusalAnswersARunCarryingASecret() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        int retryAfterSeconds = 45;
+        ProblemDetailExtended busy = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.SERVICE_UNAVAILABLE, "token s3cr3t-token is rate limited", null, null);
+        busy.setRetryAfterSeconds(retryAfterSeconds);
+        when(apiClient.status(any(), any())).thenThrow(new ConnectorProblemException(busy));
+
+        // when
+        ThrowingCallable status = () -> client.status(run);
+
+        // then
+        assertThatThrownBy(status).isInstanceOfSatisfying(ConnectorProblemException.class, refused -> {
+            assertThat(refused.getMessage()).doesNotContain("s3cr3t-token");
+            assertThat(refused.getProblemDetail().getRetryAfterSeconds()).isEqualTo(retryAfterSeconds);
+            assertThat(refused.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
+        });
     }
 
     /** Nothing secret went out, so the connector's words are the caller's best account of what to correct. */

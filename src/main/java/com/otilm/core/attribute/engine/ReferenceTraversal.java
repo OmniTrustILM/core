@@ -24,16 +24,18 @@ import org.springframework.security.access.AccessDeniedException;
  * the same objects the same way. They differ in the loaders, which carry the authorization.
  *
  * <p>
- * A RESOURCE reference is replaced in place by the content the request's loader returns. The references inside that
- * content are resolved only when the {@link ReferenceLending} lends them, with the loader it gives for that object, and
- * so on down to {@link #MAX_DEPTH} levels below the request: what an object lends goes with it, whatever it refers to
- * in turn. A reference deeper than that fails the whole resolution: sending it unresolved would hand the connector a
- * reference it cannot use.
+ * A RESOURCE reference is replaced in place by the content the request's loader returns. The references inside any
+ * loaded object are resolved only when the {@link ReferenceLending} lends that object's references, with the loader it
+ * gives for it. The lending is asked again for every object below, so an object it does not lend for keeps its
+ * references bare however deep it sits. Resolution goes down to {@link #MAX_DEPTH} levels below the request; a
+ * reference deeper than that fails the whole resolution: sending it unresolved would hand the connector a reference it
+ * cannot use.
  *
  * <p>
  * Each object is loaded at most once per resolution. A later reference to an object resolved earlier gets the same
- * content. A reference to an object whose own references are still being resolved closes a loop and stays a bare
- * reference, since that object's content already sits higher up on the same path.
+ * content, except that an object the request names itself is always checked through the request's loader, even when
+ * lending reached it first. A reference to an object whose own references are still being resolved closes a loop and
+ * stays a bare reference, since that object's content already sits higher up on the same path.
  *
  * <p>
  * A refusal names the reference it stopped at: a missing object as a {@link DanglingReferenceException}, a denied one
@@ -52,6 +54,7 @@ final class ReferenceTraversal {
     private final ReferenceLending lending;
     private final Map<String, ResourceObjectContentData> resolved = new HashMap<>();
     private final Set<String> inProgress = new HashSet<>();
+    private final Set<String> checkedForRequest = new HashSet<>();
 
     /**
      * @param requestLoader loads the objects the request refers to itself
@@ -87,7 +90,7 @@ final class ReferenceTraversal {
             if (known != null) {
                 reference.setData(known);
             } else {
-                resolveLent(key, loaded);
+                resolveLent(key, loaded, 0);
             }
         }
     }
@@ -105,6 +108,9 @@ final class ReferenceTraversal {
         }
         ResourceObjectContentData known = resolved.get(key);
         if (known != null) {
+            if (depth == 0 && checkedForRequest.add(key)) {
+                load(loader, target, uuid, holder);
+            }
             reference.setData(known);
             return;
         }
@@ -115,6 +121,9 @@ final class ReferenceTraversal {
         if (loaded == null) {
             return;
         }
+        if (depth == 0) {
+            checkedForRequest.add(key);
+        }
         if (loaded.getUuid() == null) {
             loaded.setUuid(uuid.toString());
         }
@@ -122,21 +131,17 @@ final class ReferenceTraversal {
             loaded.setName(target.getName());
         }
         reference.setData(loaded);
-        if (depth == 0) {
-            resolveLent(key, loaded);
-        } else {
-            resolveNested(key, loaded, depth, loader);
-        }
+        resolveLent(key, loaded, depth);
     }
 
-    /** Resolves what an object the request refers to nests, when it lends that, with the loader it lends it through. */
-    private void resolveLent(String key, ResourceObjectContentData lender)
+    /** Resolves what a loaded object nests, when it lends that, with the loader it lends it through. */
+    private void resolveLent(String key, ResourceObjectContentData lender, int depth)
             throws NotFoundException, AttributeException, ConnectorException {
         ReferenceLoader lent = lending.insideOf(lender.getResource(), uuidOf(lender));
         if (lent == null) {
             resolved.put(key, lender);
         } else {
-            resolveNested(key, lender, 0, lent);
+            resolveNested(key, lender, depth, lent);
         }
     }
 

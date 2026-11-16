@@ -109,17 +109,53 @@ class NgCallbackDispatcherTest {
     }
 
     @Test
-    void keepsTheConnectorsWords_whenItsRefusalCarriesNoSecret() throws Exception {
+    void dropsTheConnectorsWords_whenItsRefusalCarriesNoSecretButTheCallbackCarriedOne() throws Exception {
         // given
-        String unknownAuthority = "authority \"otpki-staging\" does not belong to this connector";
+        String wordsWithoutTheSecret = "authority otpki-staging does not belong to this connector";
         ProblemDetailExtended refusal = ProblemDetailExtended
-                .fromErrorCode(ErrorCode.VALIDATION_FAILED, unknownAuthority, null, null);
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, wordsWithoutTheSecret, null, null);
         Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(refusal));
         Set<String> expandedSecrets = new HashSet<>(Set.of("super-secret-token-123"));
 
         // when
         ThrowingCallable dispatch = () -> dispatcher
                 .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessage("The connector refused the callback (VALIDATION_FAILED).");
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenAPlainValidationRefusalAnswersACallbackCarryingASecret() throws Exception {
+        // given
+        Mockito
+                .when(client.callback(any(), any()))
+                .thenThrow(new ValidationException("client super-secret-token-123 was rejected"));
+        Set<String> expandedSecrets = new HashSet<>(Set.of("super-secret-token-123"));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageNotContaining("super-secret-token-123");
+    }
+
+    @Test
+    void keepsTheConnectorsWords_whenTheCallbackCarriedNoSecret() throws Exception {
+        // given
+        String unknownAuthority = "authority otpki-staging does not belong to this connector";
+        ProblemDetailExtended refusal = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, unknownAuthority, null, null);
+        Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(refusal));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), new HashSet<>());
 
         // then
         assertThatThrownBy(dispatch).isInstanceOf(ConnectorProblemException.class).hasMessage(unknownAuthority);
