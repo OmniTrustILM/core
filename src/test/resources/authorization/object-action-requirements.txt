@@ -548,7 +548,7 @@ secrets:update | SecretServiceImpl.addVaultProfileToSecret(UUID, UUID, List) | c
 secrets:update | SecretServiceImpl.removeVaultProfileFromSecret(UUID, UUID, boolean) | checks [ConnectorExternalService.getConnector connectors:detail, enforcer.enforce] | reads [Resource.SECRET, Resource.VAULT_PROFILE, ResourceAction.MEMBERS]
 secrets:update | SecretServiceImpl.updateSecret(UUID, SecretUpdateRequestDto) | checks [enforcer.enforce] | reads [Resource.SECRET, Resource.VAULT_PROFILE, ResourceAction.MEMBERS, ResourceAction.UPDATE]
 secrets:update | SecretServiceImpl.updateSecretObjects(UUID, SecretUpdateObjectsDto) | checks [enforcer.enforce] | reads [Resource.SECRET, Resource.VAULT_PROFILE, ResourceAction.MEMBERS, ResourceAction.UPDATE_SOURCE_VAULT_PROFILE]
-signingProfiles:ANY | SigningProfileServiceImpl.listContentSigningFormattingConnectorAttributes(UUID, SignatureFamily, SignatureLevel, SecuredUUID) | checks [] | reads []
+signingProfiles:ANY | SigningProfileServiceImpl.listContentSigningFormattingConnectorAttributes(UUID, String, SignatureLevel, SecuredUUID) | checks [] | reads []
 signingProfiles:ANY | SigningProfileServiceImpl.listSignatureFormattingConnectorAttributes(UUID, SecuredUUID) | checks [] | reads []
 signingProfiles:ANY | SigningProfileServiceImpl.listSignatureFormattingConnectorDeclarations(UUID, SecuredUUID) | checks [] | reads []
 signingProfiles:create | SigningProfileServiceImpl.createSigningProfile(SigningProfileRequestDto) | checks [CertificateInternalService.getCertificateChain certificates:detail, CertificateInternalService.getCertificateEntity certificates:detail, RaProfileInternalService.getRaProfileEntity raProfiles:detail] | reads [Resource.SIGNING_PROFILE]

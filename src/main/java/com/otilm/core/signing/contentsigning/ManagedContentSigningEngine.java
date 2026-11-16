@@ -385,9 +385,9 @@ public class ManagedContentSigningEngine {
         ResolvedManagedContentSigningProfile profile = run.profile();
         ComputeDtbsRequestDto dtbsRequest = new ComputeDtbsRequestDto();
         dtbsRequest.setFamily(profile.family());
-        dtbsRequest.setSignatureParameters(run.request().signatureParameters());
         dtbsRequest.setDocument(run.request().transferOf(item));
         dtbsRequest.setFormattingAttributes(profile.signatureFormattingConnectorAttributes());
+        dtbsRequest.setRequestAttributes(List.of());
         dtbsRequest.setSignerCertificateChain(run.signerChain());
         dtbsRequest.setSigningTime(run.signingTime().atOffset(ZoneOffset.UTC));
         dtbsRequest.setSignatureAlgorithm(run.signatureAlgorithm());

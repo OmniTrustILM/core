@@ -1,6 +1,5 @@
 package com.otilm.core.signing.contentsigning.declaration;
 
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.ContentSigningDeclarationDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.core.config.cache.CacheConfig;
@@ -39,7 +38,7 @@ public class ContentSigningDeclarations {
         return declaration(connectorUuid).map(ContentSigningDeclarationDto::getFamilies).orElse(List.of());
     }
 
-    public Optional<SignatureFamilyDeclarationDto> family(UUID connectorUuid, SignatureFamily family) {
+    public Optional<SignatureFamilyDeclarationDto> family(UUID connectorUuid, String family) {
         return families(connectorUuid).stream().filter(declared -> family.equals(declared.getCode())).findFirst();
     }
 

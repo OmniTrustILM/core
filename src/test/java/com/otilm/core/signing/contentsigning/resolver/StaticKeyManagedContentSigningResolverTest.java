@@ -5,11 +5,9 @@ import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
-import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningCertificateBuilder;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.SigningRecordPolicyModelBuilder;
@@ -23,10 +21,12 @@ import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.signing.contentsigning.TimestampSourceResolver;
 import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
+import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.ManagedSchemeResolver;
 import com.otilm.core.signing.formatting.FormattingAttributeDefinitions;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import com.otilm.core.util.builders.RequestAttributeV3Builder;
 import java.util.List;
 import java.util.Optional;
@@ -89,7 +89,7 @@ class StaticKeyManagedContentSigningResolverTest {
         // lenient: tests that stop before the formatter or the declaration leave them unread
         lenient()
                 .when(formattingAttributeDefinitions.forContentSigning(any(), any()))
-                .thenReturn(List.of(A_FORMAT_ATTRIBUTE_DEFINITION));
+                .thenReturn(new ContentSigningFormattingDefinitions(List.of(A_FORMAT_ATTRIBUTE_DEFINITION), List.of()));
         lenient()
                 .when(declarations.family(any(), any()))
                 .thenAnswer(invocation -> Optional.of(aFamilyDeclaration(invocation.getArgument(1)).build()));
@@ -148,9 +148,9 @@ class StaticKeyManagedContentSigningResolverTest {
 
         // when
         ResolvedManagedContentSigningProfile resolved = (ResolvedManagedContentSigningProfile) resolver
-                .resolve(aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID,
-                        List.of(A_FORMAT_ATTRIBUTE), SignatureFamily.CADES, SignatureLevel.SIGNED, null, purpose,
-                        SignatureParameterPolicy.DENY_ALL)));
+                .resolve(aProfile(
+                        new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID, List.of(A_FORMAT_ATTRIBUTE),
+                                SignatureFamilyFixtures.CADES, SignatureLevel.SIGNED, null, purpose, Set.of())));
 
         // then
         assertThat(resolved.certificatePurpose()).isEqualTo(purpose);
@@ -175,7 +175,8 @@ class StaticKeyManagedContentSigningResolverTest {
         // given
         givenSchemeResolutionSucceeds();
         given(connectorService.getConnectorForApiClient(FORMATTING_CONNECTOR_UUID)).willReturn(CONNECTOR_INFO);
-        given(declarations.family(FORMATTING_CONNECTOR_UUID, SignatureFamily.CADES)).willReturn(Optional.empty());
+        given(declarations.family(FORMATTING_CONNECTOR_UUID, SignatureFamilyFixtures.CADES))
+                .willReturn(Optional.empty());
 
         // when
         ThrowingCallable resolve = () -> resolver.resolve(aManagedContentSigningProfile());
@@ -217,7 +218,7 @@ class StaticKeyManagedContentSigningResolverTest {
         void resolvesFamilyMaxLevelAndTimestampSource_whenProfileIsTimestamped() throws Exception {
             // given
             UUID timestampSourceUuid = UUID.fromString("44444444-4444-4444-4444-444444444444");
-            SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamily.PADES,
+            SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamilyFixtures.PADES,
                     SignatureLevel.TIMESTAMPED, timestampSourceUuid);
             given(timestampSourceResolver.profileNameFor(timestampSourceUuid)).willReturn("internal-tsa");
 
@@ -226,7 +227,7 @@ class StaticKeyManagedContentSigningResolverTest {
                     .resolve(model);
 
             // then
-            assertThat(resolved.family()).isEqualTo(SignatureFamily.PADES);
+            assertThat(resolved.family()).isEqualTo(SignatureFamilyFixtures.PADES);
             assertThat(resolved.maxLevel()).isEqualTo(SignatureLevel.TIMESTAMPED);
             assertThat(resolved.timestampSourceProfileName()).isEqualTo("internal-tsa");
         }
@@ -234,7 +235,7 @@ class StaticKeyManagedContentSigningResolverTest {
         @Test
         void leavesTimestampSourceUnresolved_whenProfileIsSignedOnly() throws Exception {
             // given
-            SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamily.CADES,
+            SigningProfileModel<?, ?> model = aManagedContentSigningProfile(SignatureFamilyFixtures.CADES,
                     SignatureLevel.SIGNED, null);
 
             // when
@@ -258,14 +259,13 @@ class StaticKeyManagedContentSigningResolverTest {
     }
 
     private static SigningProfileModel<?, ?> aManagedContentSigningProfile() {
-        return aManagedContentSigningProfile(SignatureFamily.CADES, SignatureLevel.SIGNED, null);
+        return aManagedContentSigningProfile(SignatureFamilyFixtures.CADES, SignatureLevel.SIGNED, null);
     }
 
-    private static SigningProfileModel<?, ?> aManagedContentSigningProfile(SignatureFamily family,
-            SignatureLevel maxLevel, UUID timestampSourceProfileUuid) {
+    private static SigningProfileModel<?, ?> aManagedContentSigningProfile(String family, SignatureLevel maxLevel,
+            UUID timestampSourceProfileUuid) {
         return aProfile(new ManagedContentSigningWorkflow(FORMATTING_CONNECTOR_UUID, List.of(A_FORMAT_ATTRIBUTE),
-                family, maxLevel, timestampSourceProfileUuid, CertificatePurposeRequirements.NONE,
-                SignatureParameterPolicy.DENY_ALL));
+                family, maxLevel, timestampSourceProfileUuid, CertificatePurposeRequirements.NONE, Set.of()));
     }
 
     private static SigningProfileModel<?, ?> aManagedTimestampingProfile() {

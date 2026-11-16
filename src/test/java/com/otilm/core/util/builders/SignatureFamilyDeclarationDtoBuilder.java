@@ -2,11 +2,11 @@ package com.otilm.core.util.builders;
 
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.ContentSigningDeclarationDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureLevelDeclarationDto;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
@@ -22,15 +22,15 @@ import java.util.Set;
  */
 public final class SignatureFamilyDeclarationDtoBuilder {
 
-    private static final Map<SignatureFamily, String> ADES_LABELS = Map
-            .of(SignatureFamily.PADES, "PAdES", SignatureFamily.XADES, "XAdES", SignatureFamily.CADES, "CAdES",
-                    SignatureFamily.JADES, "JAdES");
+    private static final Map<String, String> ADES_LABELS = Map
+            .of(SignatureFamilyFixtures.PADES, "PAdES", SignatureFamilyFixtures.XADES, "XAdES",
+                    SignatureFamilyFixtures.CADES, "CAdES", SignatureFamilyFixtures.JADES, "JAdES");
 
     private static final Map<SignatureLevel, String> BASELINE_SUFFIXES = Map
             .of(SignatureLevel.SIGNED, "B", SignatureLevel.TIMESTAMPED, "T", SignatureLevel.LONG_TERM, "LT",
                     SignatureLevel.ARCHIVAL, "LTA");
 
-    private SignatureFamily code = SignatureFamily.PADES;
+    private String code = SignatureFamilyFixtures.PADES;
     private SignatureLevel highestLevel = SignatureLevel.ARCHIVAL;
     private Set<DocumentTransferMode> transferModes;
     private Set<SignatureAlgorithm> signatureAlgorithms;
@@ -40,11 +40,11 @@ public final class SignatureFamilyDeclarationDtoBuilder {
         return new SignatureFamilyDeclarationDtoBuilder();
     }
 
-    public static SignatureFamilyDeclarationDtoBuilder aFamilyDeclaration(SignatureFamily code) {
+    public static SignatureFamilyDeclarationDtoBuilder aFamilyDeclaration(String code) {
         return new SignatureFamilyDeclarationDtoBuilder().withCode(code);
     }
 
-    public SignatureFamilyDeclarationDtoBuilder withCode(SignatureFamily code) {
+    public SignatureFamilyDeclarationDtoBuilder withCode(String code) {
         this.code = code;
         return this;
     }
@@ -70,7 +70,7 @@ public final class SignatureFamilyDeclarationDtoBuilder {
     }
 
     public SignatureFamilyDeclarationDto build() {
-        String label = ADES_LABELS.getOrDefault(code, code.code());
+        String label = ADES_LABELS.getOrDefault(code, code);
         List<SignatureLevelDeclarationDto> levels = Arrays
                 .stream(SignatureLevel.values())
                 .filter(level -> level.isWithin(highestLevel))
@@ -93,7 +93,7 @@ public final class SignatureFamilyDeclarationDtoBuilder {
     }
 
     private Set<DocumentTransferMode> defaultTransferModes() {
-        return SignatureFamily.PADES.equals(code)
+        return SignatureFamilyFixtures.PADES.equals(code)
                 ? EnumSet.of(DocumentTransferMode.INLINE)
                 : EnumSet.of(DocumentTransferMode.INLINE, DocumentTransferMode.DIGEST_ONLY);
     }

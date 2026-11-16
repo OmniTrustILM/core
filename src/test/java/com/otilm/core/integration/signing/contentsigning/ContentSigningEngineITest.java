@@ -16,10 +16,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.SignatureParameterGroup;
-import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ContentSigningFormattingOperation;
 import com.otilm.api.model.core.connector.v2.ConnectorDetailDto;
 import com.otilm.api.model.core.cryptography.token.TokenInstanceDetailDto;
@@ -57,11 +54,11 @@ import com.otilm.core.signing.contentsigning.ContentSigningRequest;
 import com.otilm.core.signing.contentsigning.ManagedContentSigningEngine;
 import com.otilm.core.signing.contentsigning.SignedContent;
 import com.otilm.core.signing.contentsigning.SignedItem;
-import com.otilm.core.signing.contentsigning.parameters.SignatureParameterResolver;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import com.otilm.core.signing.engine.resolver.SigningProfileResolverFactory;
 import com.otilm.core.util.BaseSpringBootTest;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import com.otilm.core.util.builders.SigningProfileRequestDtoBuilder;
 import com.otilm.core.util.mocks.ConnectorMockFactory;
 import com.otilm.core.util.mocks.ContentSigningFormattingMock;
@@ -95,8 +92,6 @@ import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV1Connect
 import static com.otilm.core.util.builders.ConnectorRequestDtoBuilder.aV2ConnectorRequest;
 import static com.otilm.core.util.builders.ContentSigningWorkflowRequestDtoBuilder.aContentSigningWorkflow;
 import static com.otilm.core.util.builders.KeyPairRequestDtoBuilder.aKeyPairRequest;
-import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
-import static com.otilm.core.util.builders.PadesVisibleSignatureDtoBuilder.aVisibleSignature;
 import static com.otilm.core.util.builders.SearchRequestDtoBuilder.aSearchRequest;
 import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileRequestDtoBuilder.aSigningProfileRequest;
@@ -116,9 +111,6 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
     @Autowired
     private ManagedContentSigningEngine engine;
-
-    @Autowired
-    private SignatureParameterResolver parameterResolver;
 
     @Autowired
     private SigningProfileExternalService signingProfileService;
@@ -263,12 +255,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     class SignatureLevels {
 
         @ParameterizedTest
-        @ValueSource(strings = {
-                SignatureFamily.Codes.PADES,
-                SignatureFamily.Codes.XADES,
-                SignatureFamily.Codes.CADES,
-                SignatureFamily.Codes.JADES})
-        void signsToTimestampedLevel_whenTheCeilingIsTimestamped(SignatureFamily family) throws Exception {
+        @ValueSource(strings = {"pades", "xades", "cades", "jades"})
+        void signsToTimestampedLevel_whenTheCeilingIsTimestamped(String family) throws Exception {
             // given: a profile of this family whose ceiling is TIMESTAMPED, pointing at an ILM-managed TSA profile
             SigningProfileDto tsaProfile = createTimestampingProfile("timestamped-run-tsa");
             SigningProfileDto contentProfile = createContentSigningProfile(profileName("timestamped-run", family),
@@ -301,12 +289,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {
-                SignatureFamily.Codes.PADES,
-                SignatureFamily.Codes.XADES,
-                SignatureFamily.Codes.CADES,
-                SignatureFamily.Codes.JADES})
-        void signsToSignedLevel_whenTheCeilingIsSigned(SignatureFamily family) throws Exception {
+        @ValueSource(strings = {"pades", "xades", "cades", "jades"})
+        void signsToSignedLevel_whenTheCeilingIsSigned(String family) throws Exception {
             // given: a profile of this family whose ceiling is SIGNED, which names no timestamp source
             SigningProfileDto contentProfile = createContentSigningProfile(profileName("signed-run", family), family,
                     SignatureLevel.SIGNED, null);
@@ -329,8 +313,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         @Test
         void refusesTheRun_whenTheLevelIsAboveTheProfileCeiling() throws Exception {
             // given: a profile whose ceiling is SIGNED
-            SigningProfileDto contentProfile = createContentSigningProfile("ceiling-pades", SignatureFamily.PADES,
-                    SignatureLevel.SIGNED, null);
+            SigningProfileDto contentProfile = createContentSigningProfile("ceiling-pades",
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             byte[] document = "a document asked to be timestamped".getBytes(StandardCharsets.UTF_8);
 
             // when
@@ -367,7 +351,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                         .withStaticKeyManagedSigning(signingCertificate.getUuid())
                         .withContentSigning(aContentSigningWorkflow()
                                 .withSignatureFormattingConnector(UUID.fromString(baselineOnlyConnector.getUuid()))
-                                .withFamily(SignatureFamily.PADES)
+                                .withFamily(SignatureFamilyFixtures.PADES)
                                 .withMaxLevel(SignatureLevel.TIMESTAMPED)
                                 .withInternalTimestampSource(UUID.fromString(tsaProfile.getUuid()))
                                 .build())
@@ -396,8 +380,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         @Test
         void tellsTheConnectorTheResolvedSignersAlgorithm_onBothHalvesOfThePair() throws Exception {
             // given
-            SigningProfileDto contentProfile = createContentSigningProfile("algorithm-pades", SignatureFamily.PADES,
-                    SignatureLevel.SIGNED, null);
+            SigningProfileDto contentProfile = createContentSigningProfile("algorithm-pades",
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             byte[] document = "a document signed with a resolved algorithm".getBytes(StandardCharsets.UTF_8);
 
             // when
@@ -452,8 +436,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         @Test
         void refusesToSign_whenTheConnectorEchoesADigestOfAnotherDocument() throws Exception {
             // given: the connector commits to content other than the document that was authorized
-            SigningProfileDto contentProfile = createContentSigningProfile("foreign-echo-pades", SignatureFamily.PADES,
-                    SignatureLevel.SIGNED, null);
+            SigningProfileDto contentProfile = createContentSigningProfile("foreign-echo-pades",
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             contentSigningFormattingMock.stubComputeDtbsEchoingForeignDigest();
             byte[] document = "the authorized document".getBytes(StandardCharsets.UTF_8);
 
@@ -483,7 +467,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void reportsMalformedInput_whenTheFormatterRefusesTheDocumentAsMalformed() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("malformed-document-pades",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             contentSigningFormattingMock.stubComputeDtbsRefusal(ErrorCode.DOCUMENT_MALFORMED);
 
             // when
@@ -501,7 +485,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void reportsMisconfigured_whenTheSignerAnswersALegacy422() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("legacy-refusal-pades",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             cryptographyProviderMock.stubSignDataLegacyRefusal("Signature attribute is not supported");
 
             // when
@@ -517,7 +501,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void reportsInvalidInput_whenTheFormattedDocumentExceedsTheReadLimit() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("oversized-document-pades",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             contentSigningFormattingMock.stubComputeDtbsExceeding(connectorApiClientProperties.maxInMemorySize());
 
             // when
@@ -539,103 +523,6 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
     }
 
-    // ── SignatureParameters ───────────────────────────────────────────────────
-
-    @Nested
-    class SignatureParameters {
-
-        /** The whole parameter edge over a real context: the persisted allow-list and defaults reach the connector. */
-        @Test
-        void sendsTheRequestParameters_mergedOverThePersistedDefaults() throws Exception {
-            // given: a profile allowing the signature context, whose saved defaults name the location
-            var defaultLocation = "Prague";
-            var requestedReason = "Contract approval";
-            var defaults = aPadesParameters().withLocation(defaultLocation).build();
-            SigningProfileDto contentProfile = createPadesProfileWithParameters("parameters-pades", defaults,
-                    SignatureParameterGroup.SIGNATURE_CONTEXT);
-            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
-            var requested = aPadesParameters().withReason(requestedReason).build();
-            byte[] document = "a document signed with parameters".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            SignatureParametersDto effective = parameterResolver.effectiveParameters(requested, resolved);
-            engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document, effective), modelOf(contentProfile), resolved,
-                            SigningProtocol.CSC_API);
-
-            // then: the request won its own field and the profile supplied the one it left out
-            assertThat(contentSigningFormattingMock
-                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .singleElement()
-                    .satisfies(parameters -> {
-                        assertThat(parameters.path("reason").asText()).isEqualTo(requestedReason);
-                        assertThat(parameters.path("location").asText()).isEqualTo(defaultLocation);
-                        assertThat(parameters.path("family").asText()).isEqualTo(SignatureFamily.Codes.PADES);
-                    });
-        }
-
-        @Test
-        void refusesTheRun_whenTheSavedProfileDoesNotAllowTheRequestParameter() throws Exception {
-            // given: a profile allowing nothing at all
-            SigningProfileDto contentProfile = createPadesProfileWithParameters("no-parameters-pades", null);
-            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
-            var requested = aPadesParameters().withSignerName("Jane Doe").build();
-            byte[] document = "a document nobody may name a signer for".getBytes(StandardCharsets.UTF_8);
-
-            // when: resolve and then sign, as the protocol entry points do
-            ThrowingCallable resolveAndSign = () -> engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document,
-                            parameterResolver.effectiveParameters(requested, resolved)), modelOf(contentProfile),
-                            resolved, SigningProtocol.CSC_API);
-
-            // then: it stops at the refusal, and the run the resolver guards never happened
-            assertThatThrownBy(resolveAndSign)
-                    .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining("signer_identity")
-                    .hasMessageContaining("signerName");
-            assertThat(contentSigningFormattingMock
-                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS)).isEmpty();
-            cryptographyProviderMock.verifyNoDataWasSigned();
-            assertThat(recordsFor(contentProfile.getName())).isEmpty();
-        }
-
-        /**
-         * An absent container is the only "no stamp" signal the connector reads, so an emptied one would still ask for
-         * a stamp. The dispatched JSON carries absence as an explicit {@code null}, which every deserializer reads as
-         * no container.
-         */
-        @Test
-        void sendsNoVisibleSignatureContainer_whenTheEffectiveSignatureIsNotDrawn() throws Exception {
-            // given: a profile whose saved default carries a stamp it explicitly does not draw
-            var defaultLocation = "Prague";
-            var defaults = aPadesParameters()
-                    .withLocation(defaultLocation)
-                    .withVisibleSignature(aVisibleSignature().withVisible(false).withText("Signed by Operator"))
-                    .build();
-            SigningProfileDto contentProfile = createPadesProfileWithParameters("invisible-pades", defaults);
-            ResolvedManagedContentSigningProfile resolved = resolvedContentSigningProfile(contentProfile);
-            byte[] document = "a document signed without a stamp".getBytes(StandardCharsets.UTF_8);
-
-            // when
-            SignatureParametersDto effective = parameterResolver.effectiveParameters(null, resolved);
-            engine
-                    .sign(signingRequest(SignatureLevel.SIGNED, document, effective), modelOf(contentProfile), resolved,
-                            SigningProtocol.CSC_API);
-
-            // then: the container is gone, not emptied, and the rest of the effective object still travelled
-            assertThat(contentSigningFormattingMock
-                    .signatureParametersReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS))
-                    .singleElement()
-                    .satisfies(parameters -> {
-                        assertThat(parameters.hasNonNull("visibleSignature"))
-                                .as("the connector was sent a visible-signature container: %s",
-                                        parameters.path("visibleSignature"))
-                                .isFalse();
-                        assertThat(parameters.path("location").asText()).isEqualTo(defaultLocation);
-                    });
-        }
-    }
-
     // ── FormattingAttributes ──────────────────────────────────────────────────
 
     @Nested
@@ -648,7 +535,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void rejectsAsMisconfigured_whenTheFormatterRequiresAnAttributeTheProfileLacks() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("lacks-required-attribute",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             contentSigningFormattingMock
                     .stubPerOperationFormattingAttributeDefinition(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME,
                             true);
@@ -666,8 +553,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             contentSigningFormattingMock
                     .stubPerOperationFormattingAttributeDefinition(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME);
             SigningProfileDto contentProfile = createEnabledSigningProfile(
-                    aContentSigningProfile("carries-undefined-attribute", SignatureFamily.PADES, SignatureLevel.SIGNED,
-                            null, List.of(locationAttribute("a location the formatter dropped")))
+                    aContentSigningProfile("carries-undefined-attribute", SignatureFamilyFixtures.PADES,
+                            SignatureLevel.SIGNED, null, List.of(locationAttribute("a location the formatter dropped")))
                             .withStaticKeyManagedSigning(signingCertificate.getUuid()));
             contentSigningFormattingMock.stubPerOperationFormattingAttributes();
 
@@ -679,10 +566,36 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         @Test
+        void sendsTheProfileValueOfARequestAttribute_onComputeDtbs() throws Exception {
+            // given
+            contentSigningFormattingMock
+                    .stubComputeDtbsRequestAttributeDefinition(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME);
+            SigningProfileDto contentProfile = createEnabledSigningProfile(
+                    aContentSigningProfile("request-attribute-profile-value", SignatureFamilyFixtures.PADES,
+                            SignatureLevel.SIGNED, null, List.of(locationAttribute("the operator's location")))
+                            .withStaticKeyManagedSigning(signingCertificate.getUuid()));
+            byte[] document = "a document signed at the operator's location".getBytes(StandardCharsets.UTF_8);
+
+            // when
+            engine
+                    .sign(signingRequest(SignatureLevel.SIGNED, document), modelOf(contentProfile),
+                            resolvedContentSigningProfile(contentProfile), SigningProtocol.CSC_API);
+
+            // then
+            assertThat(contentSigningFormattingMock
+                    .formattingAttributesReceivedBy(ContentSigningFormattingOperation.COMPUTE_DTBS))
+                    .singleElement()
+                    .satisfies(attributes -> {
+                        assertThat(attributes.findValuesAsText("name")).containsExactly(LOCATION_ATTRIBUTE_NAME);
+                        assertThat(attributes.findValuesAsText("data")).containsExactly("the operator's location");
+                    });
+        }
+
+        @Test
         void asksTheFormatterForEachReachableOperationOnce_whenTheProfileIsResolvedTwice() throws Exception {
             // given — a SIGNED profile reaches the two baseline operations
             SigningProfileDto contentProfile = createContentSigningProfile("asks-once-per-operation",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             int baselineOperations = 2;
             int listingsBeforeResolving = contentSigningFormattingMock.attributeDefinitionListings();
 
@@ -699,7 +612,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void asksTheFormatterAgain_whenTheConnectorIsReconnected() throws Exception {
             // given — the first resolution has cached the formatter's definitions
             SigningProfileDto contentProfile = createContentSigningProfile("asks-after-reconnect",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             int baselineOperations = 2;
             resolvedContentSigningProfile(contentProfile);
             connectorService.reconnect(SecuredUUID.fromString(contentSigningFormattingConnector.getUuid()));
@@ -717,7 +630,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void resolvesTheProfile_whenItIsUpdatedWithAnAttributeTheFormatterStartedPublishing() throws Exception {
             // given — a resolution has cached the formatter's definitions from before it published the attribute
             SigningProfileDto contentProfile = createContentSigningProfile("updated-with-new-attribute",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             resolvedContentSigningProfile(contentProfile);
             contentSigningFormattingMock
                     .stubPerOperationFormattingAttributeDefinition(LOCATION_ATTRIBUTE_UUID, LOCATION_ATTRIBUTE_NAME);
@@ -738,7 +651,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
                 List<RequestAttribute> formattingAttributes) throws Exception {
             signingProfileService
                     .updateSigningProfile(SecuredUUID.fromString(contentProfile.getUuid()),
-                            aContentSigningProfile(contentProfile.getName(), SignatureFamily.PADES,
+                            aContentSigningProfile(contentProfile.getName(), SignatureFamilyFixtures.PADES,
                                     SignatureLevel.SIGNED, null, formattingAttributes)
                                     .withStaticKeyManagedSigning(signingCertificate.getUuid())
                                     .withRecordPolicy(recordingEverything())
@@ -788,7 +701,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         @Test
         void signsEveryDocumentWithOneSignRequest() throws Exception {
             // given
-            SigningProfileDto contentProfile = createContentSigningProfile("batch-pades", SignatureFamily.PADES,
+            SigningProfileDto contentProfile = createContentSigningProfile("batch-pades", SignatureFamilyFixtures.PADES,
                     SignatureLevel.SIGNED, null);
             ContentSigningRequest batch = batchOf(SignatureLevel.SIGNED, "first", "second", "third");
 
@@ -806,7 +719,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void returnsEachDocumentsRecordReference() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("recorded-batch-pades",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             ContentSigningRequest batch = batchOf(SignatureLevel.SIGNED, "first", "second", "third");
 
             // when
@@ -825,7 +738,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void namesTheDocument_whenItsBindingFails() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("foreign-echo-batch-pades",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             var foreignEchoed = "second";
             contentSigningFormattingMock.stubComputeDtbsEchoingForeignDigestFor(documentNamed(foreignEchoed));
             ContentSigningRequest batch = batchOf(SignatureLevel.SIGNED, "first", foreignEchoed, "third");
@@ -847,8 +760,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         @Test
         void refusesTheBatch_whenItCarriesMoreDocumentsThanTheCap() throws Exception {
             // given
-            SigningProfileDto contentProfile = createContentSigningProfile("capped-batch-pades", SignatureFamily.PADES,
-                    SignatureLevel.SIGNED, null);
+            SigningProfileDto contentProfile = createContentSigningProfile("capped-batch-pades",
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             var cap = 2;
             settingService.updatePlatformSettings(signingCapUpdate(cap));
             ContentSigningRequest batch = batchOf(SignatureLevel.SIGNED, "first", "second", "third");
@@ -887,7 +800,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void keepsTheSigningRecord_whenTheCallersTransactionRollsBack() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("caller-rollback-signed-pades",
-                    SignatureFamily.PADES, SignatureLevel.SIGNED, null);
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             ContentSigningRequest request = signingRequest(SignatureLevel.SIGNED,
                     "a document to sign".getBytes(StandardCharsets.UTF_8));
             SigningProfileModel<?, ?> signingProfile = modelOf(contentProfile);
@@ -908,7 +821,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             // given
             SigningProfileDto tsaProfile = createTimestampingProfile("caller-rollback-tsa");
             SigningProfileDto contentProfile = createContentSigningProfile("caller-rollback-augmented-pades",
-                    SignatureFamily.PADES, SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
+                    SignatureFamilyFixtures.PADES, SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
             var augmentation = new AugmentationRequest(SignatureLevel.TIMESTAMPED,
                     "a document signed elsewhere".getBytes(StandardCharsets.UTF_8), null);
             SigningProfileModel<?, ?> signingProfile = modelOf(contentProfile);
@@ -941,7 +854,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
     @Nested
     class ConnectorDeclaration {
 
-        private static final SignatureFamily CONNECTOR_ONLY_FAMILY = new SignatureFamily("mrtd");
+        private static final String CONNECTOR_ONLY_FAMILY = "mrtd";
 
         @Test
         void signsAFamilyThePlatformDoesNotKnow_whenTheConnectorDeclaresIt() throws Exception {
@@ -970,11 +883,11 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         @Test
         void refusesTheRun_whenAReconnectNarrowedTheFamilysAlgorithms() throws Exception {
             // given — the profile was saved while PAdES accepted every algorithm
-            SigningProfileDto contentProfile = createContentSigningProfile("narrowed-algorithms", SignatureFamily.PADES,
-                    SignatureLevel.SIGNED, null);
+            SigningProfileDto contentProfile = createContentSigningProfile("narrowed-algorithms",
+                    SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
             var onlyAcceptedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
             contentSigningFormattingMock
-                    .stubDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                    .stubDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
                             .withHighestLevel(SignatureLevel.SIGNED)
                             .withSignatureAlgorithms(Set.of(onlyAcceptedAlgorithm))
                             .buildDeclaration());
@@ -997,8 +910,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         void refusesTheRun_whenAReconnectLoweredTheFamilysLevels() throws Exception {
             // given — the profile was saved while PAdES reached TIMESTAMPED
             SigningProfileDto tsaProfile = createTimestampingProfile("lowered-levels-tsa");
-            SigningProfileDto contentProfile = createContentSigningProfile("lowered-levels", SignatureFamily.PADES,
-                    SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
+            SigningProfileDto contentProfile = createContentSigningProfile("lowered-levels",
+                    SignatureFamilyFixtures.PADES, SignatureLevel.TIMESTAMPED, UUID.fromString(tsaProfile.getUuid()));
             contentSigningFormattingMock.stubAdesFamiliesUpTo(SignatureLevel.SIGNED);
             reconnectContentSigningFormatting();
             byte[] document = "a document".getBytes(StandardCharsets.UTF_8);
@@ -1034,20 +947,9 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
     private static ContentSigningRequest signingRequest(SignatureLevel targetLevel, byte[] document,
             DigestAlgorithm authorizedDigest) throws Exception {
-        return signingRequest(targetLevel, document, authorizedDigest, null);
-    }
-
-    private static ContentSigningRequest signingRequest(SignatureLevel targetLevel, byte[] document,
-            SignatureParametersDto signatureParameters) throws Exception {
-        return signingRequest(targetLevel, document, DigestAlgorithm.SHA_256, signatureParameters);
-    }
-
-    private static ContentSigningRequest signingRequest(SignatureLevel targetLevel, byte[] document,
-            DigestAlgorithm authorizedDigest, SignatureParametersDto signatureParameters) throws Exception {
         ContentSigningItem item = new ContentSigningItem("document-1", document,
                 MessageDigest.getInstance(authorizedDigest.getCode()).digest(document));
-        return new ContentSigningRequest(targetLevel, DocumentTransferMode.INLINE, authorizedDigest, List.of(item),
-                signatureParameters);
+        return new ContentSigningRequest(targetLevel, DocumentTransferMode.INLINE, authorizedDigest, List.of(item));
     }
 
     private static ContentSigningRequest batchOf(SignatureLevel targetLevel, String... identifiers) throws Exception {
@@ -1057,8 +959,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
             byte[] authorizedDigest = MessageDigest.getInstance("SHA-256").digest(document);
             items.add(new ContentSigningItem(identifier, document, authorizedDigest));
         }
-        return new ContentSigningRequest(targetLevel, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items,
-                null);
+        return new ContentSigningRequest(targetLevel, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items);
     }
 
     private static byte[] documentNamed(String identifier) {
@@ -1094,7 +995,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         return profile;
     }
 
-    private SigningProfileDto createContentSigningProfile(String name, SignatureFamily family, SignatureLevel maxLevel,
+    private SigningProfileDto createContentSigningProfile(String name, String family, SignatureLevel maxLevel,
             UUID timestampSourceProfileUuid) throws Exception {
         return createEnabledSigningProfile(aContentSigningProfile(name, family, maxLevel, timestampSourceProfileUuid)
                 .withStaticKeyManagedSigning(signingCertificate.getUuid()));
@@ -1106,19 +1007,19 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         // signature, which is validated against the key algorithm and rejected for a post-quantum key.
         return createEnabledSigningProfile(
                 aContentSigningProfile("pqc-signed-run-" + signatureAlgorithm.getCode().toLowerCase(),
-                        SignatureFamily.PADES, SignatureLevel.SIGNED, null)
+                        SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null)
                         .withStaticKeyManagedSigning(postQuantumSigningCertificateFor(postQuantumKey).getUuid(),
                                 List.of()));
     }
 
     /** The content-signing half of a profile request; the caller adds the signing scheme its key needs. */
-    private SigningProfileRequestDtoBuilder aContentSigningProfile(String name, SignatureFamily family,
-            SignatureLevel maxLevel, UUID timestampSourceProfileUuid) {
+    private SigningProfileRequestDtoBuilder aContentSigningProfile(String name, String family, SignatureLevel maxLevel,
+            UUID timestampSourceProfileUuid) {
         return aContentSigningProfile(name, family, maxLevel, timestampSourceProfileUuid, List.of());
     }
 
-    private SigningProfileRequestDtoBuilder aContentSigningProfile(String name, SignatureFamily family,
-            SignatureLevel maxLevel, UUID timestampSourceProfileUuid, List<RequestAttribute> formattingAttributes) {
+    private SigningProfileRequestDtoBuilder aContentSigningProfile(String name, String family, SignatureLevel maxLevel,
+            UUID timestampSourceProfileUuid, List<RequestAttribute> formattingAttributes) {
         var workflow = aContentSigningWorkflow()
                 .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
                 .withFamily(family)
@@ -1154,22 +1055,8 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         return trustedCa.issueSigningCertificate(postQuantumKeyPair, "CN=Test Signing " + signatureAlgorithm.getCode());
     }
 
-    private SigningProfileDto createPadesProfileWithParameters(String name, SignatureParametersDto defaults,
-            SignatureParameterGroup... allowedGroups) throws Exception {
-        return createEnabledSigningProfile(aSigningProfileRequest()
-                .withName(name)
-                .withStaticKeyManagedSigning(signingCertificate.getUuid())
-                .withContentSigning(aContentSigningWorkflow()
-                        .withSignatureFormattingConnector(UUID.fromString(contentSigningFormattingConnector.getUuid()))
-                        .withFamily(SignatureFamily.PADES)
-                        .withMaxLevel(SignatureLevel.SIGNED)
-                        .withAllowedRequestParameterGroups(allowedGroups)
-                        .withDefaultSignatureParameters(defaults)
-                        .build()));
-    }
-
-    private static String profileName(String prefix, SignatureFamily family) {
-        return prefix + "-" + family.code();
+    private static String profileName(String prefix, String family) {
+        return prefix + "-" + family;
     }
 
     private static SigningRecordPolicyRequestDto recordingEverything() {

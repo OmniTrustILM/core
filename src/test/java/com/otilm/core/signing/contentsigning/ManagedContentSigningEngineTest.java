@@ -10,10 +10,7 @@ import com.otilm.api.model.common.enums.cryptography.KeyAlgorithm;
 import com.otilm.api.model.common.enums.cryptography.KeyType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
-import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsRequestDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.ComputeDtbsResponseDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.DigestOnlyDocumentTransferDto;
@@ -50,6 +47,7 @@ import com.otilm.core.signing.record.SigningRecordStrategy;
 import com.otilm.core.signing.record.SigningRecordStrategyFactory;
 import com.otilm.core.signing.tsa.messages.IssuedTimestamp;
 import com.otilm.core.signing.tsa.messages.TimestampImprint;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import com.otilm.core.util.clocksource.TestClockSource;
 import java.math.BigInteger;
 import java.security.MessageDigest;
@@ -75,7 +73,6 @@ import org.slf4j.LoggerFactory;
 
 import static com.otilm.core.model.signing.SigningRecordPolicyModelBuilder.recordingEverything;
 import static com.otilm.core.util.CertificateTestData.DOCUMENT_SIGNING_OID;
-import static com.otilm.core.util.builders.PadesSignatureParametersDtoBuilder.aPadesParameters;
 import static com.otilm.core.util.builders.ResolvedManagedContentSigningProfileBuilder.aResolvedContentSigningProfile;
 import static com.otilm.core.util.builders.SignatureFamilyDeclarationDtoBuilder.aFamilyDeclaration;
 import static com.otilm.core.util.builders.SigningProfileModelBuilder.aSigningProfile;
@@ -182,6 +179,23 @@ class ManagedContentSigningEngineTest {
             assertThat(captured.getValue().getFormattingAttributes())
                     .isEqualTo(profile.signatureFormattingConnectorAttributes());
             assertThat(captured.getValue().getSignerCertificateChain()).isNotEmpty();
+        }
+
+        @Test
+        void sendsEmptyRequestAttributes_onComputeDtbs() throws Exception {
+            // given
+            ResolvedManagedContentSigningProfile profile = aSignedOnlyProfile();
+            stubComputeDtbs(digestOf(DOCUMENT));
+            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
+            stubEmbedSignatureValue("signed document".getBytes());
+
+            // when
+            engine.sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), profile, SigningProtocol.CSC_API);
+
+            // then
+            ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
+            verify(formattingClient).computeDtbs(any(), captured.capture());
+            assertThat(captured.getValue().getRequestAttributes()).isNotNull().isEmpty();
         }
 
         @Test
@@ -439,7 +453,7 @@ class ManagedContentSigningEngineTest {
         @Test
         void sendsTheOriginalContentAlongsideADetachedSignature() throws Exception {
             // given: a detached signature does not envelop what it signs, so the imprint needs the content beside it
-            ResolvedManagedContentSigningProfile profile = aTimestampingProfileOf(SignatureFamily.CADES);
+            ResolvedManagedContentSigningProfile profile = aTimestampingProfileOf(SignatureFamilyFixtures.CADES);
             DigestOnlyDocumentTransferDto digestOnly = new DigestOnlyDocumentTransferDto(digestOf(DOCUMENT),
                     DigestAlgorithm.SHA_256);
             stubComputeDtbs(digestOf(DOCUMENT));
@@ -451,7 +465,7 @@ class ManagedContentSigningEngineTest {
 
             // when
             engine
-                    .sign(requestFor(SignatureLevel.TIMESTAMPED, DocumentTransferMode.DIGEST_ONLY, null),
+                    .sign(requestFor(SignatureLevel.TIMESTAMPED, DocumentTransferMode.DIGEST_ONLY),
                             aSigningProfile().build(), profile, SigningProtocol.CSC_API);
 
             // then
@@ -558,51 +572,13 @@ class ManagedContentSigningEngineTest {
     class FamilyBinding {
 
         @Test
-        void carriesTheEffectiveParametersOnTheComputeDtbsRequest() throws Exception {
-            // given: a run carrying an effective PAdES parameters object
-            PadesSignatureParametersDto effective = aPadesParameters().withReason("Contract approval").build();
-            stubComputeDtbs(digestOf(DOCUMENT));
-            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
-            stubEmbedSignatureValue("signed document".getBytes());
-
-            // when
-            engine
-                    .sign(requestFor(SignatureLevel.SIGNED, DocumentTransferMode.INLINE, effective),
-                            aSigningProfile().build(), aSignedOnlyProfile(), SigningProtocol.CSC_API);
-
-            // then: the connector received them on the PAdES request, unchanged
-            ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
-            verify(formattingClient).computeDtbs(any(), captured.capture());
-            assertThat(captured.getValue().getFamily()).isEqualTo(SignatureFamily.PADES);
-            assertThat(captured.getValue().getSignatureParameters()).isSameAs(effective);
-        }
-
-        @Test
-        void leavesTheFieldUnset_whenTheRunCarriesNoParameters() throws Exception {
-            // given
-            stubComputeDtbs(digestOf(DOCUMENT));
-            when(acquisitions.signDtbs(any(), any())).thenReturn(List.of("signature".getBytes()));
-            stubEmbedSignatureValue("signed document".getBytes());
-
-            // when
-            engine
-                    .sign(request(SignatureLevel.SIGNED), aSigningProfile().build(), aSignedOnlyProfile(),
-                            SigningProtocol.CSC_API);
-
-            // then
-            ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
-            verify(formattingClient).computeDtbs(any(), captured.capture());
-            assertThat(captured.getValue().getSignatureParameters()).isNull();
-        }
-
-        @Test
         void refusesADigestOnlyDocumentBeforeResolvingTheSigner_whenTheFamilyIsPades() {
             // given
             DocumentTransferMode refusedByPades = DocumentTransferMode.DIGEST_ONLY;
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(requestFor(SignatureLevel.SIGNED, refusedByPades, null), aSigningProfile().build(),
+                    .sign(requestFor(SignatureLevel.SIGNED, refusedByPades), aSigningProfile().build(),
                             aSignedOnlyProfile(), SigningProtocol.CSC_API);
 
             // then
@@ -638,14 +614,14 @@ class ManagedContentSigningEngineTest {
 
             // when
             engine
-                    .sign(requestFor(SignatureLevel.SIGNED, DocumentTransferMode.DIGEST_ONLY, null),
-                            aSigningProfile().build(), aSignedOnlyProfileOf(SignatureFamily.CADES),
+                    .sign(requestFor(SignatureLevel.SIGNED, DocumentTransferMode.DIGEST_ONLY),
+                            aSigningProfile().build(), aSignedOnlyProfileOf(SignatureFamilyFixtures.CADES),
                             SigningProtocol.CSC_API);
 
             // then
             ArgumentCaptor<ComputeDtbsRequestDto> captured = ArgumentCaptor.forClass(ComputeDtbsRequestDto.class);
             verify(formattingClient).computeDtbs(any(), captured.capture());
-            assertThat(captured.getValue().getFamily()).isEqualTo(SignatureFamily.CADES);
+            assertThat(captured.getValue().getFamily()).isEqualTo(SignatureFamilyFixtures.CADES);
             assertThat(captured.getValue().getDocument()).isEqualTo(digestOnly);
         }
 
@@ -654,7 +630,7 @@ class ManagedContentSigningEngineTest {
             // given
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(SignatureLevel.SIGNED)
-                    .withFamilyDeclaration(aFamilyDeclaration(new SignatureFamily("mrtd"))
+                    .withFamilyDeclaration(aFamilyDeclaration("mrtd")
                             .withTransferModes(Set.of(DocumentTransferMode.DIGEST_ONLY))
                             .build())
                     .build();
@@ -852,8 +828,9 @@ class ManagedContentSigningEngineTest {
             var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(withdrawnCeiling)
-                    .withFamilyDeclaration(
-                            aFamilyDeclaration(SignatureFamily.PADES).withHighestLevel(SignatureLevel.SIGNED).build())
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
+                            .withHighestLevel(SignatureLevel.SIGNED)
+                            .build())
                     .build();
 
             // when
@@ -874,8 +851,9 @@ class ManagedContentSigningEngineTest {
             var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(withdrawnCeiling)
-                    .withFamilyDeclaration(
-                            aFamilyDeclaration(SignatureFamily.PADES).withHighestLevel(SignatureLevel.SIGNED).build())
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
+                            .withHighestLevel(SignatureLevel.SIGNED)
+                            .build())
                     .build();
 
             // when
@@ -896,8 +874,9 @@ class ManagedContentSigningEngineTest {
             var withdrawnCeiling = SignatureLevel.TIMESTAMPED;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(withdrawnCeiling)
-                    .withFamilyDeclaration(
-                            aFamilyDeclaration(SignatureFamily.PADES).withHighestLevel(SignatureLevel.SIGNED).build())
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
+                            .withHighestLevel(SignatureLevel.SIGNED)
+                            .build())
                     .build();
 
             // when
@@ -919,7 +898,7 @@ class ManagedContentSigningEngineTest {
             var onlyAcceptedAlgorithm = SignatureAlgorithm.SHA512_WITH_RSA;
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(SignatureLevel.SIGNED)
-                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
                             .withSignatureAlgorithms(Set.of(onlyAcceptedAlgorithm))
                             .build())
                     .build();
@@ -942,7 +921,7 @@ class ManagedContentSigningEngineTest {
             // given
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
                     .withMaxLevel(SignatureLevel.SIGNED)
-                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
                             .withSignatureAlgorithms(Set.of(SIGNATURE_ALGORITHM))
                             .build())
                     .build();
@@ -1592,8 +1571,7 @@ class ManagedContentSigningEngineTest {
                     DigestAlgorithm.SHA_256,
                     List
                             .of(inlineItemNamed("first"),
-                                    new ContentSigningItem(truncated, documentNamed(truncated), truncatedDigest)),
-                    null);
+                                    new ContentSigningItem(truncated, documentNamed(truncated), truncatedDigest)));
 
             // when
             ThrowingCallable sign = () -> engine
@@ -1616,12 +1594,11 @@ class ManagedContentSigningEngineTest {
                     DigestAlgorithm.SHA_256,
                     List
                             .of(digestOnlyItemNamed("first"),
-                                    new ContentSigningItem(sentWhole, wholeDocument, digestOf(wholeDocument))),
-                    null);
+                                    new ContentSigningItem(sentWhole, wholeDocument, digestOf(wholeDocument))));
 
             // when
             ThrowingCallable sign = () -> engine
-                    .sign(request, aSigningProfile().build(), aSignedOnlyProfileOf(SignatureFamily.CADES),
+                    .sign(request, aSigningProfile().build(), aSignedOnlyProfileOf(SignatureFamilyFixtures.CADES),
                             SigningProtocol.CSC_API);
 
             // then
@@ -1828,18 +1805,18 @@ class ManagedContentSigningEngineTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static ResolvedManagedContentSigningProfile aSignedOnlyProfile() {
-        return aSignedOnlyProfileOf(SignatureFamily.PADES);
+        return aSignedOnlyProfileOf(SignatureFamilyFixtures.PADES);
     }
 
-    private static ResolvedManagedContentSigningProfile aSignedOnlyProfileOf(SignatureFamily family) {
+    private static ResolvedManagedContentSigningProfile aSignedOnlyProfileOf(String family) {
         return aResolvedContentSigningProfile().withMaxLevel(SignatureLevel.SIGNED).withFamily(family).build();
     }
 
     private static ResolvedManagedContentSigningProfile aTimestampingProfile() {
-        return aTimestampingProfileOf(SignatureFamily.PADES);
+        return aTimestampingProfileOf(SignatureFamilyFixtures.PADES);
     }
 
-    private static ResolvedManagedContentSigningProfile aTimestampingProfileOf(SignatureFamily family) {
+    private static ResolvedManagedContentSigningProfile aTimestampingProfileOf(String family) {
         return aResolvedContentSigningProfile()
                 .withMaxLevel(SignatureLevel.TIMESTAMPED)
                 .withTimestampSourceProfileName("internal-tsa")
@@ -1878,16 +1855,14 @@ class ManagedContentSigningEngineTest {
     }
 
     private static ContentSigningRequest request(SignatureLevel target) {
-        return requestFor(target, DocumentTransferMode.INLINE, null);
+        return requestFor(target, DocumentTransferMode.INLINE);
     }
 
     /** The document travels inline, or as its SHA-256 digest. */
-    private static ContentSigningRequest requestFor(SignatureLevel target, DocumentTransferMode transferMode,
-            SignatureParametersDto signatureParameters) {
+    private static ContentSigningRequest requestFor(SignatureLevel target, DocumentTransferMode transferMode) {
         byte[] content = transferMode == DocumentTransferMode.INLINE ? DOCUMENT : digestOf(DOCUMENT);
         ContentSigningItem item = new ContentSigningItem(DOCUMENT_IDENTIFIER, content, digestOf(DOCUMENT));
-        return new ContentSigningRequest(target, transferMode, DigestAlgorithm.SHA_256, List.of(item),
-                signatureParameters);
+        return new ContentSigningRequest(target, transferMode, DigestAlgorithm.SHA_256, List.of(item));
     }
 
     private static ContentSigningRequest batchOf(SignatureLevel target, String... identifiers) {
@@ -1896,7 +1871,7 @@ class ManagedContentSigningEngineTest {
                 .map(identifier -> new ContentSigningItem(identifier, documentNamed(identifier),
                         digestOf(documentNamed(identifier))))
                 .toList();
-        return new ContentSigningRequest(target, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items, null);
+        return new ContentSigningRequest(target, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256, items);
     }
 
     private static ContentSigningItem inlineItemNamed(String identifier) {
