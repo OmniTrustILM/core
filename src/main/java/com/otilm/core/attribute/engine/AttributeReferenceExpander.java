@@ -25,10 +25,9 @@ import org.springframework.stereotype.Component;
  * whole expansion, so no partial request escapes, and multi-select selecting one unauthorized element among authorized
  * ones fails the entire call.
  * <p>
- * The references inside those objects are resolved only when the {@link ReferenceLending} given to
- * {@link #expandForCaller(List, Set, ReferenceLending)} lends them, with the loader it gives; it is supplied from
- * outside this package because lending resolves as the system. {@link ReferenceTraversal} holds the depth cap and the
- * loop guard. Every secret either loader materializes is recorded for the outbound containment check on the response.
+ * The references inside those objects are resolved only when the {@link ReferenceLending} passed to
+ * {@link #expandForCaller(List, Set, ReferenceLending)} lends them; it comes from outside this package because lending
+ * resolves as the system. Every secret either loader materializes is recorded for the outbound containment check.
  * <p>
  * The aspect reads the ambient Spring {@code SecurityContext}; there is no API to pass a context in, so there is
  * deliberately no {@code SecurityContext} parameter, and this class performs <strong>no</strong>
@@ -92,10 +91,8 @@ public class AttributeReferenceExpander {
     }
 
     /**
-     * Checks that the ambient calling user may see the object a reference names, through the same per-object guarded
-     * loader {@link #expandForCaller(List, Set)} resolves it with, and discards what it loads; the reference itself is
-     * left as it is. A kind sent as a bare reference needs no check. A refusal names the object, and a missing object
-     * names the attribute.
+     * Checks, through the guarded loader {@link #expandForCaller(List, Set)} uses, that the calling user may see the
+     * object a reference names. The reference is left as it is; a kind sent bare needs no check.
      */
     public void requireCallerMayLoad(String attributeName, ResourceObjectContent reference)
             throws NotFoundException, AttributeException, ConnectorException {
@@ -110,7 +107,6 @@ public class AttributeReferenceExpander {
         if (loader == null) {
             return null;
         }
-        // An AccessDeniedException from the guarded loader propagates (fail-closed), so no partial expansion escapes.
         ResourceObjectContentData content = loader.loadAuthorized(SecuredUUID.fromUUID(uuid));
         outboundContainment.recordExpandedSecrets(content, expandedSecrets);
         return content;

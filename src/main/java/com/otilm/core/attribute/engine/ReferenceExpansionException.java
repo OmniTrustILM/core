@@ -5,10 +5,9 @@ import com.otilm.api.exception.ValidationException;
 /**
  * Raised when references nest deeper than reference resolution follows them.
  * <p>
- * Overflow is a loud failure by design: sending the rest unresolved would let a bare object UUID reach the connector in
- * place of the object's content. The chains connectors use are shallow (a discovery's authority and the authority's
- * secret are two levels), so exceeding the cap means the attribute graph is modelled wrongly. The operator fixes that
- * on the objects, so it answers as a validation refusal naming the reference.
+ * Fails loudly: sending the rest unresolved would hand the connector a bare UUID in place of content. Real chains are
+ * two levels (a discovery's authority, its secret), so a deeper one is a modelling error the operator fixes on the
+ * objects, and it answers as a validation refusal naming the reference.
  */
 public class ReferenceExpansionException extends ValidationException {
 

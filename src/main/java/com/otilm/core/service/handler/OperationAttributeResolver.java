@@ -31,12 +31,11 @@ import org.springframework.stereotype.Component;
  * every object a request names; besides this class only {@link OwnConnectorReferenceLending} elevates, for what those
  * objects lend.
  * <p>
- * <b>Nesting:</b> {@link #resolveForConnectorRequestAsSystem} resolves the stored attributes' own references, one level
- * deep. {@link #resolveWithNestedReferencesAsSystem} also resolves the references inside the objects they name, such as
- * the OAuth client secret of an authority a discovery refers to, when the object belongs to the request's connector
- * ({@link com.otilm.core.attribute.engine.ReferenceLending} says why), down to the depth cap of the traversal the
- * callback path shares. It is only for attributes whose creation checked the creator's rights on every object they name
- * that lends, which a Discovery v2 run's creation does.
+ * <b>Nesting:</b> {@link #resolveForConnectorRequestAsSystem} resolves one level.
+ * {@link #resolveWithNestedReferencesAsSystem} also resolves the references inside each named object that belongs to
+ * the request's connector (see {@link com.otilm.core.attribute.engine.ReferenceLending}), down to the traversal's depth
+ * cap. It is only for attributes whose creation checked the creator on every lending object they name, as a Discovery
+ * v2 run's creation does.
  * <p>
  * <b>Failures:</b> an unresolvable stored reference surfaces as {@link ConnectorException}, the one checked type the
  * elevated body may declare. A disabled or invalid-state secret or vault profile, a reference whose object is gone, or

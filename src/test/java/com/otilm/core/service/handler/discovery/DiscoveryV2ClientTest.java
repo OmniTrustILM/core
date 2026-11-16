@@ -429,8 +429,7 @@ class DiscoveryV2ClientTest {
         client.status(run);
 
         // then
-        // Nothing to resolve, and this path runs on every tick for the whole life of the run — so it must not spend
-        // the resolver's auth-service round trip proving that.
+        // Runs on every tick for the run's whole life, so it must not pay the resolver's auth-service round trip.
         verifyNoInteractions(operationAttributeResolver);
         assertThat(capturedStatus().getAttributes())
                 .as("the definition still reaches the connector, just unresolved")
@@ -475,10 +474,7 @@ class DiscoveryV2ClientTest {
         assertThat(client.initiate(run).getCheckpoint()).isEqualTo(echo.getCheckpoint());
     }
 
-    /**
-     * A refusal of the initiate reaches the API caller, who may not read the secrets the request carried, so the words
-     * go and the verdict stays: still a 422 refusal of the configuration.
-     */
+    /** The refusal reaches the API caller, who may not read the run's secrets. */
     @Test
     void dropsTheConnectorsWordsButNotItsVerdict_whenAnInitiateRefusalAnswersARunCarryingASecret() throws Exception {
         // given

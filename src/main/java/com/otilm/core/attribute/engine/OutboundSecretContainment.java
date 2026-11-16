@@ -71,10 +71,9 @@ public class OutboundSecretContainment {
     private static final int MAX_WALK_DEPTH = 12;
 
     /**
-     * How deep the recording walk follows a request Core resolved. Each level a reference nests below the request adds
-     * five wrappers between the request and the secret (the object's attribute list, the attribute, its content list,
-     * the reference and its data), so a secret nested at {@link ReferenceTraversal#MAX_DEPTH} sits further down than a
-     * response is allowed to nest.
+     * How deep the recording walk follows a resolved request. Each nesting level adds five wrappers (attribute list,
+     * attribute, content list, reference, data), so a secret at {@link ReferenceTraversal#MAX_DEPTH} sits deeper than a
+     * response may nest.
      */
     private static final int MAX_RECORD_DEPTH = MAX_WALK_DEPTH + 5 * ReferenceTraversal.MAX_DEPTH;
 
@@ -327,11 +326,9 @@ public class OutboundSecretContainment {
     }
 
     /**
-     * A connector's refusal of a request that carried secrets, as it may reach a user or the log: of the same type,
-     * with the connector's verdict kept (its status, error code and retry hint, which callers classify the refusal by)
-     * and its words replaced. The words may echo one of those secrets back, in any encoding, and the user may not be
-     * allowed to read them. A refusal of a request that carried none is returned as it is, and so is a transport
-     * failure, whose words are not the connector's.
+     * A connector's refusal of a request that carried secrets, with its verdict kept (type, status, error code and
+     * retry hint, which callers classify it by) and its words replaced, since they may echo a secret in any encoding.
+     * Returned as it is when the request carried none, or for a transport failure, whose words are not the connector's.
      *
      * @param refused what the connector refused, such as {@code "run"}, for the replacement words
      */

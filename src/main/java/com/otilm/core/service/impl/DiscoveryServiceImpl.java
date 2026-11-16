@@ -370,10 +370,9 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     /**
-     * Stores the definitions a discovery form is about to show, so that the form's callbacks find them: the callback
-     * endpoint answers only for definitions Core has stored for the connector. Stored under the operation creating a
-     * run stores them under, so that listing and creating agree on what each serves, and in a transaction of its own
-     * that starts after the connector answered.
+     * Stores the definitions a discovery form is about to show; the callback endpoint answers only for stored ones.
+     * Stored under the operation run creation uses, so both agree, in a transaction of its own after the connector
+     * answered.
      */
     private void storeListedDefinitions(UUID connectorUuid, String operation, List<BaseAttribute> attributes) {
         try {
@@ -505,10 +504,8 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     }
 
     /**
-     * Checks the caller's right to see every object the run refers to that lends the run's connector its own
-     * references, as the form's callbacks do. The run sends what such an object refers to resolved, such as an
-     * authority's OAuth client secret, so filing the object is using it. What it refers to asks nothing more of the
-     * caller.
+     * Checks the caller's right to see each referenced object that lends the run's connector its references, as the
+     * form's callbacks do: the run sends what such an object refers to resolved, so filing it is using it.
      */
     private void requireTheCallerMaySeeWhatLendsToTheConnector(List<DataAttribute> referenced, Connector connector)
             throws NotFoundException, AttributeException, ConnectorException {

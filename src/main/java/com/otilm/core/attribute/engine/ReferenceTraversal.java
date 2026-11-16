@@ -24,12 +24,10 @@ import org.springframework.security.access.AccessDeniedException;
  * the same objects the same way. They differ in the loaders, which carry the authorization.
  *
  * <p>
- * A RESOURCE reference is replaced in place by the content the request's loader returns. The references inside any
- * loaded object are resolved only when the {@link ReferenceLending} lends that object's references, with the loader it
- * gives for it. The lending is asked again for every object below, so an object it does not lend for keeps its
- * references bare however deep it sits. Resolution goes down to {@link #MAX_DEPTH} levels below the request; a
- * reference deeper than that fails the whole resolution: sending it unresolved would hand the connector a reference it
- * cannot use.
+ * A RESOURCE reference is replaced in place by the content the request's loader returns. The {@link ReferenceLending}
+ * is asked for every loaded object whether its references are resolved, and with which loader; an object it declines
+ * keeps them bare at any depth. A reference more than {@link #MAX_DEPTH} levels below the request fails the whole
+ * resolution rather than reach the connector unresolved.
  *
  * <p>
  * Each object is loaded at most once per resolution. A later reference to an object resolved earlier gets the same

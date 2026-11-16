@@ -246,9 +246,8 @@ public class DiscoveryV2Client {
     }
 
     /**
-     * As {@link #populate}, for a call a tick worker makes. A reference the resolver refuses surfaces as the connector
-     * call it prevents: a tick worker reads a validation refusal as the connector's and would end a checkpointed run at
-     * once, where a failed call spends the run's retries.
+     * As {@link #populate}, for the status and results ticks: a resolver refusal surfaces as a failed connector call,
+     * which spends the run's retries, not as a validation refusal, which would end a checkpointed run at once.
      */
     private Set<String> populateForTick(DiscoveryV2ScopedRequestDto request, Discovery run, ConnectorDto connector)
             throws ConnectorException {
@@ -315,9 +314,7 @@ public class DiscoveryV2Client {
     private Map<String, List<RequestAttribute>> resolvedScopes(Discovery run, ConnectorDto connector)
             throws ConnectorException {
         Map<String, List<DataAttribute>> definitions = definitionScopes(run, connector);
-        // Resolved across all scopes at once, and only once per distinct definition: a credential the run and a
-        // resource both declare is one lookup, not two, and for a SECRET reference a lookup is a connector round
-        // trip.
+        // Resolved once per distinct definition across all scopes: a SECRET lookup is a connector round trip.
         Map<String, DataAttribute> distinct = new LinkedHashMap<>();
         Map<DataAttribute, String> keys = new IdentityHashMap<>();
         for (List<DataAttribute> scope : definitions.values()) {
