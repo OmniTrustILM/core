@@ -222,6 +222,33 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
+        void refusesWithoutTheVaultsWords_whenTheVaultRefusesTheLentSecret() {
+            // given
+            String vaultWords = "vault login hvs.root-token was rejected";
+            WireMock
+                    .stubFor(WireMock
+                            .post(WireMock.urlPathMatching("/v1/secretProvider/secrets/content"))
+                            .willReturn(WireMock
+                                    .aResponse()
+                                    .withStatus(500)
+                                    .withHeader("Content-Type", "application/json")
+                                    .withBody("\"" + vaultWords + "\"")));
+            denyTheCaller(Resource.SECRET, ResourceAction.GET_SECRET_CONTENT);
+            List<RequestAttribute> attributes = List.of(authorityReference());
+            Set<String> expandedSecrets = new HashSet<>();
+
+            // when
+            ThrowingCallable expand = () -> expander
+                    .expandForCaller(attributes, expandedSecrets,
+                            referenceLending.forConnector(discoveryConnector.getUuid()));
+
+            // then
+            assertThatThrownBy(expand)
+                    .hasMessageContaining("refused the request for secret '%s'".formatted(oauthClient.getName()))
+                    .hasMessageNotContaining("hvs.root-token");
+        }
+
+        @Test
         void failsClosedNamingTheAuthority_whenTheCallerMayNotSeeIt() {
             // given
             denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL);
@@ -359,7 +386,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
-        void sendsTheRotatedSecret_onTheCallAfterTheSecretChanged() throws Exception {
+        void sendsTheRotatedSecret_whenTheSecretChangedSinceTheLastCall() throws Exception {
             // given
             Discovery run = aCreatedRunReferringToTheAuthority();
             discoveryV2Client.status(run);
@@ -683,15 +710,6 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         callback.setDependsOn(List.of("authority"));
         definition.setAttributeCallback(callback);
         return definition;
-    }
-
-    private static void assertTheCredentialsAreReferences(ResourceSimpleContentData authority) {
-        assertThat(contentOf(authority, "oauthClient"))
-                .isInstanceOfSatisfying(ResourceSecretContentData.class,
-                        secret -> assertThat(secret.getContent()).isNull());
-        assertThat(contentOf(authority, "tlsTrust"))
-                .isInstanceOfSatisfying(ResourceCertificateContentData.class,
-                        certificate -> assertThat(certificate.getContent()).isNull());
     }
 
     private static void assertTheCredentialsAreResolved(ResourceSimpleContentData authority, String password) {

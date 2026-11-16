@@ -68,6 +68,9 @@ public class OutboundSecretContainment {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboundSecretContainment.class);
 
+    /** A refusal with the connector's words replaced, filled with what the connector refused. */
+    private static final String REFUSED = "The connector refused the %s.";
+
     private static final int MAX_WALK_DEPTH = 12;
 
     /**
@@ -328,20 +331,27 @@ public class OutboundSecretContainment {
     /**
      * A connector's refusal of a request that carried secrets, with its verdict kept (type, status, error code and
      * retry hint, which callers classify it by) and its words replaced, since they may echo a secret in any encoding.
-     * Returned as it is when the request carried none, or for a transport failure, whose words are not the connector's.
+     * Returned as it is when the request carried none.
      *
      * @param refused what the connector refused, such as {@code "run"}, for the replacement words
      */
     public ConnectorException withoutWords(ConnectorException refusal, Set<String> sentSecrets, String refused) {
-        if (sentSecrets == null || sentSecrets.isEmpty() || refusal instanceof ConnectorCommunicationException) {
+        if (sentSecrets == null || sentSecrets.isEmpty()) {
             return refusal;
         }
-        String words = "The connector refused the %s.".formatted(refused);
+        return withoutWords(refusal, refused);
+    }
+
+    /** As {@link #withoutWords(ConnectorException, Set, String)}, for a request known to carry a secret. */
+    public ConnectorException withoutWords(ConnectorException refusal, String refused) {
+        String words = REFUSED.formatted(refused);
         ConnectorException withoutWords = switch (refusal) {
             case ConnectorProblemException problem -> withoutWords(problem, refused);
             case ConnectorClientException client -> new ConnectorClientException(words, client.getHttpStatus());
             case ConnectorServerException server -> new ConnectorServerException(words, server.getHttpStatus());
             case ConnectorEntityNotFoundException ignored -> new ConnectorEntityNotFoundException(words);
+            case ConnectorCommunicationException ignored -> new ConnectorCommunicationException(
+                    "Core could not read the connector's answer to the %s.".formatted(refused), refusal.getConnector());
             default -> new ConnectorException(words);
         };
         withoutWords.setConnector(refusal.getConnector());
@@ -356,7 +366,12 @@ public class OutboundSecretContainment {
         if (sentSecrets == null || sentSecrets.isEmpty()) {
             return refusal;
         }
-        return new ValidationException("The connector refused the %s.".formatted(refused));
+        return withoutWords(refusal, refused);
+    }
+
+    /** As {@link #withoutWords(ValidationException, Set, String)}, for a request known to carry a secret. */
+    public ValidationException withoutWords(ValidationException refusal, String refused) {
+        return new ValidationException(REFUSED.formatted(refused));
     }
 
     private static ConnectorProblemException withoutWords(ConnectorProblemException refusal, String refused) {
@@ -372,7 +387,7 @@ public class OutboundSecretContainment {
         }
         kept
                 .setDetail(code == null
-                        ? "The connector refused the %s.".formatted(refused)
+                        ? REFUSED.formatted(refused)
                         : "The connector refused the %s (%s).".formatted(refused, code.name()));
         return new ConnectorProblemException(kept);
     }

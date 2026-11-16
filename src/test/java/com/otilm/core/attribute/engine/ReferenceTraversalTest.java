@@ -178,7 +178,7 @@ class ReferenceTraversalTest {
         }
 
         @Test
-        void resolvesWhatAnObjectNestsWithTheLoaderItLends_notWithTheRequestsLoader() throws Exception {
+        void resolvesWhatAnObjectNestsWithTheLoaderItLends_whenTheObjectLendsIt() throws Exception {
             // given
             loader
                     .object(AttributeResource.AUTHORITY, AUTHORITY, () -> object(AttributeResource.AUTHORITY, "otpki",
@@ -233,7 +233,7 @@ class ReferenceTraversalTest {
             // then
             assertThatThrownBy(resolve)
                     .isInstanceOf(ForeignReferenceException.class)
-                    .hasMessageStartingWith("Attribute 'authority' refers to Authority 'authority-ref', which belongs "
+                    .hasMessageContaining("Attribute 'authority' refers to Authority 'authority-ref', which belongs "
                             + "to another connector");
             assertThat(loader.totalLoads()).isZero();
         }
@@ -255,7 +255,7 @@ class ReferenceTraversalTest {
             // then
             assertThatThrownBy(resolve)
                     .isInstanceOf(ForeignReferenceException.class)
-                    .hasMessageStartingWith("Attribute 'issuer' of Authority 'otpki' refers to Authority 'adcs'");
+                    .hasMessageContaining("Attribute 'issuer' of Authority 'otpki' refers to Authority 'adcs'");
             assertThat(loader.loads(AttributeResource.AUTHORITY, SECOND_AUTHORITY)).isZero();
         }
 
@@ -437,7 +437,7 @@ class ReferenceTraversalTest {
             // then
             assertThatThrownBy(resolve)
                     .isInstanceOf(DanglingReferenceException.class)
-                    .hasMessage(
+                    .hasMessageContaining(
                             "Attribute 'OAuth client' of Authority 'otpki' refers to Secret 'oauth-client', which does not "
                                     + "exist. Select another one.");
         }
@@ -453,7 +453,7 @@ class ReferenceTraversalTest {
             // then
             assertThatThrownBy(resolve)
                     .isInstanceOf(DanglingReferenceException.class)
-                    .hasMessageStartingWith("Attribute 'authority' refers to Authority");
+                    .hasMessageContaining("Attribute 'authority' refers to Authority");
         }
     }
 

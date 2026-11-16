@@ -514,7 +514,9 @@ class OutboundSecretContainmentTest {
 
         // then
         assertThat(passedOn).isInstanceOfSatisfying(ConnectorProblemException.class, problem -> {
-            assertThat(problem.getMessage()).isEqualTo("The connector refused the callback (VALIDATION_FAILED).");
+            assertThat(problem)
+                    .hasMessageContaining("The connector refused the callback (VALIDATION_FAILED).")
+                    .hasMessageNotContaining(base64EchoOfTheSecret);
             assertThat(problem.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
             assertThat(problem.getProblemDetail().getStatus()).isEqualTo(refusal.getProblemDetail().getStatus());
             assertThat(problem.getProblemDetail().getRetryAfterSeconds()).isEqualTo(45);
@@ -534,7 +536,9 @@ class OutboundSecretContainmentTest {
 
         // then
         assertThat(passedOn).isInstanceOfSatisfying(ConnectorClientException.class, client -> {
-            assertThat(client.getMessage()).isEqualTo("The connector refused the run.");
+            assertThat(client)
+                    .hasMessageContaining("The connector refused the run.")
+                    .hasMessageNotContaining("s3cr3t-token");
             assertThat(client.getHttpStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
             assertThat(client.getConnector()).isSameAs(connector);
         });
@@ -551,7 +555,9 @@ class OutboundSecretContainmentTest {
 
         // then
         assertThat(passedOn).isInstanceOfSatisfying(ConnectorServerException.class, server -> {
-            assertThat(server.getMessage()).isEqualTo("The connector refused the run.");
+            assertThat(server)
+                    .hasMessageContaining("The connector refused the run.")
+                    .hasMessageNotContaining("s3cr3t-token");
             assertThat(server.getHttpStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         });
     }
@@ -567,7 +573,8 @@ class OutboundSecretContainmentTest {
         // then
         assertThat(passedOn)
                 .isInstanceOf(ConnectorEntityNotFoundException.class)
-                .hasMessage("The connector refused the run.");
+                .hasMessageContaining("The connector refused the run.")
+                .hasMessageNotContaining("s3cr3t-token");
     }
 
     @Test
@@ -585,16 +592,21 @@ class OutboundSecretContainmentTest {
     }
 
     @Test
-    void returnsATransportFailureAsItIs_whenTheRequestCarriedASecret() {
+    void keepsTheTypeAndConnectorButNotTheWords_whenACommunicationFailureAnswersARequestCarryingASecret() {
         // given
-        ConnectorCommunicationException unreachable = new ConnectorCommunicationException("connection refused",
-                aConnector());
+        ApiClientConnectorInfo connector = aConnector();
+        ConnectorCommunicationException headerEcho = new ConnectorCommunicationException(
+                "Received response with unexpected content type 'text/html; token=s3cr3t-token'.", connector);
 
         // when
-        ConnectorException passedOn = containment.withoutWords(unreachable, Set.of("s3cr3t-token"), "run");
+        ConnectorException passedOn = containment.withoutWords(headerEcho, Set.of("s3cr3t-token"), "run");
 
         // then
-        assertThat(passedOn).isSameAs(unreachable);
+        assertThat(passedOn)
+                .isInstanceOf(ConnectorCommunicationException.class)
+                .hasMessageContaining("Core could not read the connector's answer to the run.")
+                .hasMessageNotContaining("s3cr3t-token");
+        assertThat(passedOn.getConnector()).isSameAs(connector);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

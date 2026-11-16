@@ -80,7 +80,7 @@ public class AttributeReferenceExpander {
     public List<RequestAttribute> expandForCaller(List<RequestAttribute> attributes, Set<String> expandedSecrets,
             ReferenceLending lending) throws NotFoundException, AttributeException, ConnectorException {
         if (attributes == null) {
-            return null;
+            return List.of();
         }
         ReferenceTraversal traversal = new ReferenceTraversal(
                 (kind, uuid) -> loadForCaller(kind, uuid, expandedSecrets), recorded(lending, expandedSecrets));

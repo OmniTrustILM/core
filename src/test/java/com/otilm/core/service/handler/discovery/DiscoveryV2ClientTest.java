@@ -295,7 +295,7 @@ class DiscoveryV2ClientTest {
     }
 
     @Test
-    void aDefinitionTwoScopesShare_isResolvedOnceRatherThanPerScope() throws Exception {
+    void resolvesADefinitionOnce_whenTwoScopesShareIt() throws Exception {
         // given
         run.setResources(List.of(Resource.CERTIFICATE));
         // The same credential declared at run level and again on the resource: two definitions, one referent.
@@ -323,7 +323,7 @@ class DiscoveryV2ClientTest {
     }
 
     @Test
-    void resolvedContent_reachesEveryScopeThatDeclaredTheDefinition() throws Exception {
+    void sendsTheResolvedContentToEveryScope_whenTheyShareADefinition() throws Exception {
         // given
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
@@ -444,7 +444,7 @@ class DiscoveryV2ClientTest {
      * tick spends budget on it like any other bad answer, and nothing of the response is read first.
      */
     @Test
-    void aResponseEchoingASecretResolvedForTheRun_isRefusedAsAConnectorFailure() throws Exception {
+    void refusesTheResponseAsAConnectorFailure_whenItEchoesASecretResolvedForTheRun() throws Exception {
         // given
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
@@ -486,7 +486,9 @@ class DiscoveryV2ClientTest {
 
         // then
         assertThatThrownBy(initiate).isInstanceOfSatisfying(ConnectorProblemException.class, refused -> {
-            assertThat(refused.getMessage()).isEqualTo("The connector refused the run (VALIDATION_FAILED).");
+            assertThat(refused)
+                    .hasMessageContaining("The connector refused the run (VALIDATION_FAILED).")
+                    .hasMessageNotContaining("s3cr3t-token");
             assertThat(refused.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
             assertThat(refused.getProblemDetail().getStatus()).isEqualTo(422);
         });
@@ -505,7 +507,8 @@ class DiscoveryV2ClientTest {
         // then
         assertThatThrownBy(initiate)
                 .isInstanceOf(ConnectorProblemException.class)
-                .hasMessage("The connector refused the run (VALIDATION_FAILED).");
+                .hasMessageContaining("The connector refused the run (VALIDATION_FAILED).")
+                .hasMessageNotContaining(wordsWithoutTheSecret);
     }
 
     @Test
@@ -533,7 +536,8 @@ class DiscoveryV2ClientTest {
         // then
         assertThatThrownBy(stop)
                 .isInstanceOf(ConnectorProblemException.class)
-                .hasMessage("The connector refused the run (VALIDATION_FAILED).");
+                .hasMessageContaining("The connector refused the run (VALIDATION_FAILED).")
+                .hasMessageNotContaining("s3cr3t-token");
     }
 
     @Test
@@ -548,7 +552,9 @@ class DiscoveryV2ClientTest {
 
         // then
         assertThatThrownBy(stop).isInstanceOfSatisfying(ConnectorClientException.class, refused -> {
-            assertThat(refused.getMessage()).isEqualTo("The connector refused the run.");
+            assertThat(refused)
+                    .hasMessageContaining("The connector refused the run.")
+                    .hasMessageNotContaining("s3cr3t-token");
             assertThat(refused.getHttpStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
         });
     }
@@ -565,7 +571,8 @@ class DiscoveryV2ClientTest {
         // then
         assertThatThrownBy(resume)
                 .isInstanceOf(ConnectorProblemException.class)
-                .hasMessage("The connector refused the run (VALIDATION_FAILED).");
+                .hasMessageContaining("The connector refused the run (VALIDATION_FAILED).")
+                .hasMessageNotContaining("s3cr3t-token");
     }
 
     @Test
@@ -580,7 +587,8 @@ class DiscoveryV2ClientTest {
         // then
         assertThatThrownBy(cancel)
                 .isInstanceOf(ConnectorProblemException.class)
-                .hasMessage("The connector refused the run (VALIDATION_FAILED).");
+                .hasMessageContaining("The connector refused the run (VALIDATION_FAILED).")
+                .hasMessageNotContaining("s3cr3t-token");
     }
 
     /** A status refusal goes to the tick worker's log, and the worker backs off by the hint it keeps. */

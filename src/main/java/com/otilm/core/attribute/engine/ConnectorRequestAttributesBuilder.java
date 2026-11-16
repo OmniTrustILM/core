@@ -4,11 +4,11 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.common.NameAndUuidDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
-import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.core.service.CredentialInternalService;
 import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -92,45 +92,50 @@ public class ConnectorRequestAttributesBuilder {
 
     /**
      * Refuses an attribute that refers to an object of another connector than the one the request goes to, before
-     * anything is loaded; see {@link ReferenceLending#belongsToAnotherConnector}.
+     * anything is loaded; see {@link ReferenceLending#belongsToAnotherConnector}. Reads each reference the way
+     * {@link ResourceInternalService#loadResourceObjectContentData(List)} does, as the kind the attribute declares, so
+     * it checks exactly what that load would send.
      */
     public void refuseObjectsOfAnotherConnector(UUID connectorUuid, List<DataAttribute> attributes)
             throws AttributeException {
         ReferenceLending lending = lentTo(connectorUuid);
+        List<RequestAttribute> asSent = null;
         for (DataAttribute attribute : attributes) {
             List<?> content = attribute.getContent();
-            if (attribute.getContentType() != AttributeContentType.RESOURCE || content == null) {
+            AttributeResource declared = attribute.getProperties() == null
+                    ? null
+                    : attribute.getProperties().getResource();
+            if (attribute.getContentType() != AttributeContentType.RESOURCE || content == null || content.isEmpty()
+                    || declared == null) {
                 continue;
             }
-            for (Object item : content) {
-                if (item instanceof ResourceObjectContent reference && identifiesAnObject(reference.getData())) {
-                    refuseIfOfAnotherConnector(lending, attribute, reference.getData());
+            if (asSent == null) {
+                asSent = AttributeDefinitionUtils.getClientAttributes(attributes);
+            }
+            for (NameAndUuidDto reference : AttributeDefinitionUtils
+                    .getNameAndUuidDataList(attribute.getName(), asSent)) {
+                if (reference != null && reference.getUuid() != null) {
+                    refuseIfOfAnotherConnector(lending, attribute, declared, reference);
                 }
             }
         }
     }
 
     private static void refuseIfOfAnotherConnector(ReferenceLending lending, DataAttribute attribute,
-            ResourceObjectContentData target) throws AttributeException {
+            AttributeResource declared, NameAndUuidDto reference) throws AttributeException {
         UUID uuid;
         try {
-            uuid = UUID.fromString(target.getUuid());
+            uuid = UUID.fromString(reference.getUuid());
         } catch (IllegalArgumentException e) {
-            throw new AttributeException("Malformed RESOURCE reference UUID: " + target.getUuid());
+            throw new AttributeException("Malformed RESOURCE reference UUID: " + reference.getUuid());
         }
-        if (lending.belongsToAnotherConnector(target.getResource(), uuid)) {
-            String label = attribute.getProperties() == null || attribute.getProperties().getLabel() == null
-                    ? attribute.getName()
-                    : attribute.getProperties().getLabel();
+        if (lending.belongsToAnotherConnector(declared, uuid)) {
+            String label = Objects.requireNonNullElse(attribute.getProperties().getLabel(), attribute.getName());
             throw new ForeignReferenceException("Attribute '%s'".formatted(label),
                     "%s '%s'"
-                            .formatted(target.getResource().getLabel(),
-                                    Objects.requireNonNullElse(target.getName(), target.getUuid())));
+                            .formatted(declared.getLabel(),
+                                    Objects.requireNonNullElse(reference.getName(), reference.getUuid())));
         }
-    }
-
-    private static boolean identifiesAnObject(ResourceObjectContentData data) {
-        return data != null && data.getResource() != null && data.getUuid() != null;
     }
 
     private ReferenceLending lentTo(UUID connectorUuid) {

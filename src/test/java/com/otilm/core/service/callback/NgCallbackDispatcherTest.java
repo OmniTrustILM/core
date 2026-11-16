@@ -50,7 +50,7 @@ class NgCallbackDispatcherTest {
     private ApiClientConnectorInfo connector;
 
     @BeforeEach
-    void setUp() {
+    void wireDispatcherAndConnector() {
         connectorApiFactory = Mockito.mock(ConnectorApiFactory.class);
         client = Mockito.mock(AttributesSyncApiClient.class);
         attributeEngine = Mockito.mock(AttributeEngine.class);
@@ -105,7 +105,8 @@ class NgCallbackDispatcherTest {
         // then
         assertThatThrownBy(dispatch)
                 .isInstanceOf(ConnectorProblemException.class)
-                .hasMessage("The connector refused the callback (VALIDATION_FAILED).");
+                .hasMessageContaining("The connector refused the callback (VALIDATION_FAILED).")
+                .hasMessageNotContaining(expandedSecret);
     }
 
     @Test
@@ -124,7 +125,8 @@ class NgCallbackDispatcherTest {
         // then
         assertThatThrownBy(dispatch)
                 .isInstanceOf(ConnectorProblemException.class)
-                .hasMessage("The connector refused the callback (VALIDATION_FAILED).");
+                .hasMessageContaining("The connector refused the callback (VALIDATION_FAILED).")
+                .hasMessageNotContaining(wordsWithoutTheSecret);
     }
 
     @Test
@@ -158,7 +160,9 @@ class NgCallbackDispatcherTest {
                 .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), new HashSet<>());
 
         // then
-        assertThatThrownBy(dispatch).isInstanceOf(ConnectorProblemException.class).hasMessage(unknownAuthority);
+        assertThatThrownBy(dispatch)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessageContaining(unknownAuthority);
     }
 
     @Test

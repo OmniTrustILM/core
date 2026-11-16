@@ -108,6 +108,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DiscoveryServiceITest extends BaseSpringBootTest {
@@ -589,7 +590,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void attributesAreRelayedForAResourceThisConnectorDiscovers() throws Exception {
+    void relaysTheAttributes_whenTheConnectorDiscoversTheResource() throws Exception {
+        // given
         giveConnectorAV2DiscoveryInterface();
         stubSupportedResources("""
                 [{"resource":"certificates"},{"resource":"keys"}]""");
@@ -601,11 +603,12 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                                   "type":"data","version":3,"contentType":"string",
                                   "properties":{"label":"Key store","visible":true,"required":false}}]""")));
 
+        // when
         List<BaseAttribute> attributes = discoveryService
                 .getDiscoveryResourceAttributes(SecuredUUID.fromUUID(connector.getUuid()), Resource.CRYPTOGRAPHIC_KEY);
 
-        Assertions.assertEquals(1, attributes.size());
-        Assertions.assertEquals("keyStore", attributes.getFirst().getName());
+        // then
+        assertThat(attributes).singleElement().extracting(BaseAttribute::getName).isEqualTo("keyStore");
     }
 
     /** The listing stores what it relays, so the form's callbacks find it. */

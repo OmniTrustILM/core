@@ -48,6 +48,7 @@ import com.otilm.core.attribute.engine.AttributeEngine;
 import com.otilm.core.attribute.engine.AttributeEngine.CustomAttributeContentFilter;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
 import com.otilm.core.attribute.engine.ListingSortResolver;
+import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContentInfo;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.comparator.SearchFieldDataComparator;
@@ -168,6 +169,13 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     private AttributeColumnProjector attributeColumnProjector;
 
     private ListingSortResolver listingSortResolver;
+
+    private OutboundSecretContainment outboundContainment;
+
+    @Autowired
+    public void setOutboundContainment(OutboundSecretContainment outboundContainment) {
+        this.outboundContainment = outboundContainment;
+    }
 
     @Autowired
     public void setActionProducer(ActionProducer actionProducer) {
@@ -944,6 +952,16 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
     @Override
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.GET_SECRET_CONTENT)
     public SecretContent getSecretContent(UUID uuid) throws NotFoundException, ConnectorException, AttributeException {
+        return getSecretContent(uuid, false);
+    }
+
+    /**
+     * @param withoutTheVaultsWords whether a refusal from the vault loses its words. A request to the vault carries the
+     * vault profile's own credentials, which whoever resolves a reference to the secret may not be allowed to read.
+     * Core's own refusals, about the secret's state, keep theirs.
+     */
+    private SecretContent getSecretContent(UUID uuid, boolean withoutTheVaultsWords)
+            throws NotFoundException, ConnectorException, AttributeException {
         Secret secret = getSecretEntity(uuid);
         if (invalidSecretState(secret)) {
             throw new ValidationException("Secret %s is in state %s and cannot be retrieved"
@@ -968,9 +986,16 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                         .build());
         ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, secret.getSourceVaultProfile(),
                 secret, secretAttributes, secretRequestDto);
-        SecretContentResponseDto secretContent = connectorApiFactory
-                .getSecretApiClient(connectorDetailDto)
-                .getSecretContent(connectorDetailDto, secretRequestDto, latestVersion.getVaultVersion());
+        SecretContentResponseDto secretContent;
+        try {
+            secretContent = connectorApiFactory
+                    .getSecretApiClient(connectorDetailDto)
+                    .getSecretContent(connectorDetailDto, secretRequestDto, latestVersion.getVaultVersion());
+        } catch (ConnectorException e) {
+            throw withoutTheVaultsWords ? outboundContainment.withoutWords(e, requestFor(secret)) : e;
+        } catch (ValidationException e) {
+            throw withoutTheVaultsWords ? outboundContainment.withoutWords(e, requestFor(secret)) : e;
+        }
         String secretContentFingerprint = null;
         try {
             secretContentFingerprint = SecretsUtil.calculateSecretContentFingerprint(secretContent.getContent());
@@ -1224,12 +1249,16 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         }
     }
 
+    private static String requestFor(Secret secret) {
+        return "request for secret '%s'".formatted(secret.getName());
+    }
+
     @Override
     @ExternalAuthorization(resource = Resource.SECRET, action = ResourceAction.GET_SECRET_CONTENT)
     public ResourceObjectContentData getResourceObjectContent(UUID uuid)
             throws NotFoundException, ConnectorException, AttributeException {
         ResourceSecretContentData resourceSecretContentData = new ResourceSecretContentData();
-        SecretContent contentDto = getSecretContent(uuid);
+        SecretContent contentDto = getSecretContent(uuid, true);
         resourceSecretContentData.setContent(contentDto);
         return resourceSecretContentData;
     }

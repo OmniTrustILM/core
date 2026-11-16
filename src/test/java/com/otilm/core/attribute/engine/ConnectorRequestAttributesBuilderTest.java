@@ -6,6 +6,7 @@ import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.AttributeVersion;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.common.properties.DataAttributeProperties;
 import com.otilm.api.model.common.attribute.v2.DataAttributeV2;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
@@ -145,6 +146,27 @@ class ConnectorRequestAttributesBuilderTest {
     }
 
     @Test
+    void refusesBeforeLoading_whenTheValueIsLabelledAsAnotherKindThanTheAttributeDeclares() throws Exception {
+        // given
+        UUID connectorUuid = UUID.randomUUID();
+        UUID authorityUuid = UUID.randomUUID();
+        List<RequestAttribute> stored = List.of();
+        DataAttribute authorityLabelledAsCertificate = loadedObjectHolding(AttributeResource.CERTIFICATE, authorityUuid,
+                UUID.randomUUID());
+        when(attributeEngine.getDataAttributesByContent(connectorUuid, stored))
+                .thenReturn(List.of(authorityLabelledAsCertificate));
+        when(resourceService.findOwningConnector(AttributeResource.AUTHORITY, authorityUuid))
+                .thenReturn(Optional.of(UUID.randomUUID()));
+
+        // when
+        ThrowingCallable dereference = () -> builder.dereferenceForConnectorRequest(connectorUuid, stored);
+
+        // then
+        assertThatThrownBy(dereference).isInstanceOf(ForeignReferenceException.class);
+        verify(resourceService, never()).loadResourceObjectContentData(any());
+    }
+
+    @Test
     void refusesBeforeLoading_whenAnOperationRefersToAnAuthorityOfAnotherConnector() throws Exception {
         // given
         UUID connectorUuid = UUID.randomUUID();
@@ -203,12 +225,18 @@ class ConnectorRequestAttributesBuilderTest {
 
     /** A request's authority reference as the depth-0 loader leaves it: loaded, its OAuth client still bare. */
     private static DataAttribute loadedAuthorityHolding(UUID authorityUuid, UUID secretUuid) {
+        return loadedObjectHolding(AttributeResource.AUTHORITY, authorityUuid, secretUuid);
+    }
+
+    /** As {@link #loadedAuthorityHolding}, with the value labelled as the given kind. */
+    private static DataAttribute loadedObjectHolding(AttributeResource labelledKind, UUID authorityUuid,
+            UUID secretUuid) {
         List<BaseAttributeContentV3<?>> oauthClient = new ArrayList<>();
         oauthClient
                 .add(new ResourceObjectContent("oauth-client",
                         new ResourceSecretContentData(secretUuid.toString(), "oauth-client", null)));
-        ResourceSimpleContentData authority = new ResourceSimpleContentData(AttributeResource.AUTHORITY,
-                authorityUuid.toString(), "otpki",
+        ResourceSimpleContentData authority = new ResourceSimpleContentData(labelledKind, authorityUuid.toString(),
+                "otpki",
                 new ArrayList<>(List
                         .of(new ResponseAttributeV3(oauthClient, UUID.randomUUID(), "oauthClient", "OAuth client",
                                 AttributeType.DATA, AttributeContentType.RESOURCE, AttributeVersion.V3))));
@@ -219,6 +247,9 @@ class ConnectorRequestAttributesBuilderTest {
         attribute.setName("authority");
         attribute.setType(AttributeType.DATA);
         attribute.setContentType(AttributeContentType.RESOURCE);
+        DataAttributeProperties properties = new DataAttributeProperties();
+        properties.setResource(AttributeResource.AUTHORITY);
+        attribute.setProperties(properties);
         attribute.setContent(content);
         return attribute;
     }
