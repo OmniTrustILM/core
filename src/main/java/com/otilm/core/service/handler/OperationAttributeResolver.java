@@ -7,6 +7,7 @@ import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.core.attribute.engine.ConnectorRequestAttributesBuilder;
+import com.otilm.core.attribute.engine.MissingReferenceException;
 import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.util.AuthHelper;
 import java.util.List;
@@ -97,7 +98,7 @@ public class OperationAttributeResolver {
             try {
                 return dereference.apply(connectorUuid, stored);
             } catch (DanglingReferenceException e) {
-                throw new ValidationException(e.getMessage());
+                throw new MissingReferenceException(e.getMessage());
             } catch (AttributeException | NotFoundException e) {
                 // ValidationException is deliberately not caught here — see the class Javadoc's Failures paragraph.
                 throw new ConnectorException(

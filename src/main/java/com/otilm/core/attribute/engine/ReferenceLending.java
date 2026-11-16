@@ -6,11 +6,17 @@ import java.util.UUID;
 import java.util.function.BiFunction;
 
 /**
- * What the connector a request goes to may receive of the objects the request reaches. Core lends an object's own
- * references only to the connector the object belongs to: the authority a discovery names gives that discovery's
- * connector its OAuth client secret and TLS trust, which the same connector already receives for every operation of the
- * authority, so lending them creates no new holder and asks no right of the caller. An object of another connector is
- * refused: its content is that connector's connection. Both are asked for every object, at every level.
+ * What the connector a request goes to may receive of the objects the request reaches. Both questions are asked for
+ * every object, at every level.
+ * <p>
+ * <b>Lending:</b> Core resolves an object's own references only for the connector the object belongs to. The authority
+ * a discovery names gives that discovery's connector its OAuth client secret and TLS trust.
+ * <p>
+ * <b>Authorization:</b> what an object lends asks no right of the caller. Its connector already receives it for every
+ * operation of the object, so lending creates no new holder.
+ * <p>
+ * <b>Foreign ownership:</b> an object of another connector is refused, since its content is that connector's
+ * connection. An object of no connector, such as a credential, secret or certificate, may go to any.
  */
 @FunctionalInterface
 public interface ReferenceLending {

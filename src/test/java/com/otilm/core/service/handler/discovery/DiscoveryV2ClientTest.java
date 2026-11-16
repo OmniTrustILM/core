@@ -35,6 +35,7 @@ import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.api.model.core.discovery.DiscoveryStatus;
 import com.otilm.core.attribute.engine.AttributeEngine;
+import com.otilm.core.attribute.engine.MissingReferenceException;
 import com.otilm.core.attribute.engine.OutboundSecretContainment;
 import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
@@ -380,12 +381,12 @@ class DiscoveryV2ClientTest {
     }
 
     @Test
-    void reportsAConnectorFailure_whenTheResolverRefusesAReferenceOnAStatusTick() throws Exception {
+    void reportsAReferenceRefusalNamingTheReference_whenTheResolverRefusesItOnAStatusTick() throws Exception {
         // given
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
                 .thenReturn(List.of(definition("authority", "reference-only", AttributeContentType.RESOURCE)));
-        ValidationException goneSecret = new ValidationException(
+        MissingReferenceException goneSecret = new MissingReferenceException(
                 "Attribute 'OAuth client' of Authority 'otpki' refers to Secret 'oauth', which does not exist.");
         when(operationAttributeResolver.resolveWithNestedReferencesAsSystem(any(), anyList())).thenThrow(goneSecret);
 
@@ -394,11 +395,30 @@ class DiscoveryV2ClientTest {
 
         // then
         assertThatThrownBy(status)
-                .isInstanceOf(ConnectorException.class)
-                .isNotInstanceOf(ValidationException.class)
+                .isInstanceOf(DiscoveryReferenceException.class)
                 .hasMessageContaining(goneSecret.getMessage())
                 .hasCause(goneSecret);
         verifyNoInteractions(apiClient);
+    }
+
+    @Test
+    void namesNoReference_whenTheRefusalIsNotOneOfCoresOwn() throws Exception {
+        // given
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("authority", "reference-only", AttributeContentType.RESOURCE)));
+        ValidationException someoneElsesWords = new ValidationException("vault token hvs.root-token is invalid");
+        when(operationAttributeResolver.resolveWithNestedReferencesAsSystem(any(), anyList()))
+                .thenThrow(someoneElsesWords);
+
+        // when
+        ThrowingCallable status = () -> client.status(run);
+
+        // then
+        assertThatThrownBy(status)
+                .isInstanceOf(DiscoveryReferenceException.class)
+                .hasMessageContaining("a referenced object could not be loaded")
+                .hasMessageNotContaining("hvs.root-token");
     }
 
     @Test
@@ -668,7 +688,8 @@ class DiscoveryV2ClientTest {
         assertThatThrownBy(resume)
                 .isInstanceOfSatisfying(ConnectorServerException.class,
                         failure -> assertThat(failure.getHttpStatus()).isEqualTo(HttpStatus.BAD_GATEWAY))
-                .hasMessageContaining("secret 'oauth'")
+                .isInstanceOf(DiscoveryReferenceException.class)
+                .hasMessageContaining("could not be loaded from its connector")
                 .hasCause(vaultLostTheSecret);
         verifyNoInteractions(apiClient);
     }

@@ -35,6 +35,9 @@ public final class DiscoveryConnectorErrors {
      * wrote.
      */
     public static String describe(Throwable e) {
+        if (e instanceof DiscoveryReferenceException refused) {
+            return refused.getMessage();
+        }
         if (!(e instanceof ConnectorProblemException problem) || problem.getProblemDetail() == null) {
             return UNANSWERED;
         }
@@ -49,6 +52,11 @@ public final class DiscoveryConnectorErrors {
             case INTERNAL_SERVER_ERROR -> "the connector reported an internal error";
             case null, default -> UNANSWERED;
         };
+    }
+
+    /** True when Core did not call the connector because it could not resolve the run's references. */
+    public static boolean isReferenceRefusal(Throwable e) {
+        return e instanceof DiscoveryReferenceException;
     }
 
     /**

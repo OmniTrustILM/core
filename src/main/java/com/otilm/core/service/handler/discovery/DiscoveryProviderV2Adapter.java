@@ -359,6 +359,9 @@ public class DiscoveryProviderV2Adapter implements DiscoveryProviderAdapter {
     // Package-private so the test can assert the rule directly: through start(), every failure a stub can provoke
     // arrives as a ConnectorException.
     static String startFailureReason(Exception e) {
+        if (DiscoveryConnectorErrors.isReferenceRefusal(e)) {
+            return "Discovery could not be started: " + DiscoveryConnectorErrors.describe(e);
+        }
         // Not safeMessage for a ConnectorException: it is a PlatformException, so its connector-written prose would
         // pass the gate.
         String reason = e instanceof ConnectorException || e instanceof ValidationException

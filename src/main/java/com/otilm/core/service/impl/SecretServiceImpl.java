@@ -989,12 +989,9 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         try {
             ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, secret.getSourceVaultProfile(),
                     secret, secretAttributes, secretRequestDto);
-            secretContent = connectorApiFactory
-                    .getSecretApiClient(connectorDetailDto)
-                    .getSecretContent(connectorDetailDto, secretRequestDto, latestVersion.getVaultVersion());
+            secretContent = fetchSecretContent(connectorDetailDto, secretRequestDto, latestVersion, secret,
+                    withoutTheVaultsWords);
         } catch (ConnectorException e) {
-            throw withoutTheVaultsWords ? outboundContainment.withoutWords(e, requestFor(secret)) : e;
-        } catch (ValidationException e) {
             throw withoutTheVaultsWords ? outboundContainment.withoutWords(e, requestFor(secret)) : e;
         }
         String secretContentFingerprint = null;
@@ -1247,6 +1244,22 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
             default -> logger
                     .error("Action listener does not support action {} for resource {}",
                             actionMessage.getResourceAction().getCode(), actionMessage.getResource().getLabel());
+        }
+    }
+
+    /**
+     * The vault's answer to the content request. A validation refusal loses its words only here, where it can only be
+     * the vault's: the preparation before it raises Core's own, which keep theirs.
+     */
+    private SecretContentResponseDto fetchSecretContent(ConnectorDetailDto connector,
+            com.otilm.api.model.connector.secrets.SecretRequestDto request, SecretVersion version, Secret secret,
+            boolean withoutTheVaultsWords) throws ConnectorException {
+        try {
+            return connectorApiFactory
+                    .getSecretApiClient(connector)
+                    .getSecretContent(connector, request, version.getVaultVersion());
+        } catch (ValidationException e) {
+            throw withoutTheVaultsWords ? outboundContainment.validationRefusalWithoutWords(requestFor(secret)) : e;
         }
     }
 

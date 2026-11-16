@@ -96,15 +96,8 @@ public class NgCallbackDispatcher {
         UUID connectorUuid = UUID.fromString(connector.getUuid());
         AttributeCallbackRequestDto envelope = buildEnvelope(context, callback);
 
-        AttributeCallbackResponseDto response;
-        try {
-            response = callWithOneRefresh(connector, context, callback, envelope);
-        } catch (ConnectorException e) {
-            // The refusal reaches the form's user, who may not read the secrets Core expanded into the request.
-            throw outboundContainment.withoutWords(e, expandedSecrets, "callback");
-        } catch (ValidationException e) {
-            throw outboundContainment.withoutWords(e, expandedSecrets, "callback");
-        }
+        AttributeCallbackResponseDto response = callWithOneRefresh(connector, context, callback, envelope,
+                expandedSecrets);
 
         // The MQ/proxy transport can hand back a null body on an empty 2xx (the REST client's requireBody guards
         // against this, the MQ one does not). Surface it as a clean error rather than NPE at the caller's
@@ -134,9 +127,10 @@ public class NgCallbackDispatcher {
      * Dispatches the callback, and once more with the definition re-fetched when the connector does not recognise it.
      */
     private AttributeCallbackResponseDto callWithOneRefresh(ApiClientConnectorInfo connector, NgDispatchContext context,
-            RequestAttributeCallback callback, AttributeCallbackRequestDto envelope) throws ConnectorException {
+            RequestAttributeCallback callback, AttributeCallbackRequestDto envelope, Set<String> expandedSecrets)
+            throws ConnectorException {
         try {
-            return connectorApiFactory.getAttributesApiClientV2(connector).callback(connector, envelope);
+            return send(connector, envelope, expandedSecrets);
         } catch (ConnectorProblemException e) {
             if (!isDefinitionNotFound(e)) {
                 throw e;
@@ -155,7 +149,22 @@ public class NgCallbackDispatcher {
                     new NgDispatchContext(refreshed, context.connectorInterface(), context.interfaceVersion(),
                             context.contextAttributes(), context.currentAttributes()),
                     callback);
-            return connectorApiFactory.getAttributesApiClientV2(connector).callback(connector, refreshedEnvelope);
+            return send(connector, refreshedEnvelope, expandedSecrets);
+        }
+    }
+
+    /**
+     * Sends the envelope. A refusal reaches the form's user, who may not read the secrets Core expanded into the
+     * request, so it loses the connector's words; Core's own refusals around it keep theirs.
+     */
+    private AttributeCallbackResponseDto send(ApiClientConnectorInfo connector, AttributeCallbackRequestDto envelope,
+            Set<String> expandedSecrets) throws ConnectorException {
+        try {
+            return connectorApiFactory.getAttributesApiClientV2(connector).callback(connector, envelope);
+        } catch (ConnectorException e) {
+            throw outboundContainment.withoutWords(e, expandedSecrets, "callback");
+        } catch (ValidationException e) {
+            throw outboundContainment.withoutWords(e, expandedSecrets, "callback");
         }
     }
 

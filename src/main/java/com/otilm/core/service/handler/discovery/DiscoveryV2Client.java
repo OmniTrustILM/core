@@ -2,7 +2,6 @@ package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
-import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -40,7 +39,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -103,7 +101,7 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryInitiateRequestDto request = new DiscoveryInitiateRequestDto();
-        Set<String> sentSecrets = populate(request, run, connector);
+        Set<String> sentSecrets = populateForRunReason(request, run, connector);
         return withoutWordsWhenRefused(
                 () -> connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request), sentSecrets);
     }
@@ -113,7 +111,7 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        Set<String> sentSecrets = populateForTick(request, run, connector);
+        Set<String> sentSecrets = populateForRunReason(request, run, connector);
         DiscoveryStatusResponseDto status = withoutWordsWhenRefused(
                 () -> connectorApiFactory.getDiscoveryApiClientV2(connector).status(connector, request), sentSecrets);
         return contained(status, sentSecrets, "status");
@@ -184,7 +182,7 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryDrainRequestDto request = new DiscoveryDrainRequestDto();
-        Set<String> sentSecrets = populateForTick(request, run, connector);
+        Set<String> sentSecrets = populateForRunReason(request, run, connector);
         request.setDeliveryModes(drainOffer(run));
         request.setAfterSequence(afterSequence);
         request.setMaxItems(maxItems);
@@ -248,15 +246,16 @@ public class DiscoveryV2Client {
     }
 
     /**
-     * As {@link #populate}, for the status and results ticks: a resolver refusal surfaces as a failed connector call,
-     * which spends the run's retries, not as a validation refusal, which would end a checkpointed run at once.
+     * As {@link #populate}, for the calls whose failure becomes the run's reason: start, status and results. A resolver
+     * refusal surfaces as a {@link DiscoveryReferenceException}, which spends a checkpointed run's retries rather than
+     * ending it at once, and which the run's reason names.
      */
-    private Set<String> populateForTick(DiscoveryV2ScopedRequestDto request, Discovery run, ConnectorDto connector)
+    private Set<String> populateForRunReason(DiscoveryV2ScopedRequestDto request, Discovery run, ConnectorDto connector)
             throws ConnectorException {
         try {
             return populate(request, run, connector);
         } catch (ValidationException e) {
-            throw new ConnectorException("Unable to resolve the discovery run's references: " + e.getMessage(), e);
+            throw DiscoveryReferenceException.refused(e);
         }
     }
 
@@ -363,8 +362,7 @@ public class DiscoveryV2Client {
             return operationAttributeResolver
                     .resolveWithNestedReferencesAsSystem(UUID.fromString(connector.getUuid()), attributes);
         } catch (ConnectorException e) {
-            throw new ConnectorServerException("Unable to resolve the discovery run's references: " + e.getMessage(), e,
-                    HttpStatus.BAD_GATEWAY);
+            throw DiscoveryReferenceException.failed(e);
         }
     }
 

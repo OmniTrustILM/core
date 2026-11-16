@@ -44,6 +44,8 @@ import com.otilm.core.dao.entity.CertificateContent;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.ConnectorInterfaceEntity;
 import com.otilm.core.dao.entity.Discovery;
+import com.otilm.core.dao.entity.EntityInstanceReference;
+import com.otilm.core.dao.entity.Location;
 import com.otilm.core.dao.entity.Secret;
 import com.otilm.core.dao.entity.SecretVersion;
 import com.otilm.core.dao.entity.VaultInstance;
@@ -55,6 +57,8 @@ import com.otilm.core.dao.repository.CertificateRepository;
 import com.otilm.core.dao.repository.ConnectorInterfaceRepository;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.DiscoveryRepository;
+import com.otilm.core.dao.repository.EntityInstanceReferenceRepository;
+import com.otilm.core.dao.repository.LocationRepository;
 import com.otilm.core.dao.repository.SecretRepository;
 import com.otilm.core.dao.repository.SecretVersionRepository;
 import com.otilm.core.dao.repository.VaultInstanceRepository;
@@ -150,6 +154,10 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
     private AuthorityInstanceReferenceRepository authorityInstanceReferenceRepository;
     @Autowired
     private DiscoveryRepository discoveryRepository;
+    @Autowired
+    private EntityInstanceReferenceRepository entityInstanceReferenceRepository;
+    @Autowired
+    private LocationRepository locationRepository;
 
     private WireMockServer connectors;
     private Connector discoveryConnector;
@@ -275,6 +283,67 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
+        void refusesNamingTheEntity_whenItBelongsToAnotherConnector() throws Exception {
+            // given
+            EntityInstanceReference foreignEntity = seedAnEntity(anotherConnector(), "keystore-elsewhere");
+            List<RequestAttribute> attributes = List
+                    .of(objectReference(AttributeResource.ENTITY, foreignEntity.getUuid(), foreignEntity.getName()));
+
+            // when
+            ThrowingCallable expand = () -> expander
+                    .expandForCaller(attributes, new HashSet<>(),
+                            referenceLending.forConnector(discoveryConnector.getUuid()));
+
+            // then
+            assertThatThrownBy(expand)
+                    .isInstanceOf(ForeignReferenceException.class)
+                    .hasMessageContaining(
+                            "refers to Entity Instance 'keystore-elsewhere', which belongs to another connector");
+        }
+
+        @Test
+        void refusesNamingTheLocation_whenItsEntityBelongsToAnotherConnector() throws Exception {
+            // given
+            Location foreignLocation = seedALocation(seedAnEntity(anotherConnector(), "keystore-elsewhere"),
+                    "store-elsewhere");
+            List<RequestAttribute> attributes = List
+                    .of(objectReference(AttributeResource.LOCATION, foreignLocation.getUuid(),
+                            foreignLocation.getName()));
+
+            // when
+            ThrowingCallable expand = () -> expander
+                    .expandForCaller(attributes, new HashSet<>(),
+                            referenceLending.forConnector(discoveryConnector.getUuid()));
+
+            // then
+            assertThatThrownBy(expand)
+                    .isInstanceOf(ForeignReferenceException.class)
+                    .hasMessageContaining("refers to Location 'store-elsewhere', which belongs to another connector");
+        }
+
+        @Test
+        void lendsTheLocationsSecret_whenItsEntityBelongsToTheCallbacksConnector() throws Exception {
+            // given
+            denyTheCaller(Resource.SECRET, ResourceAction.GET_SECRET_CONTENT);
+            Location ownLocation = seedALocation(seedAnEntity(discoveryConnector, "keystore-here"), "store-here");
+            storeTheOAuthClientOn(Resource.LOCATION, ownLocation.getUuid(), discoveryConnector);
+            RequestAttribute locationReference = objectReference(AttributeResource.LOCATION, ownLocation.getUuid(),
+                    ownLocation.getName());
+
+            // when
+            expander
+                    .expandForCaller(List.of(locationReference), new HashSet<>(),
+                            referenceLending.forConnector(discoveryConnector.getUuid()));
+
+            // then
+            ResourceSimpleContentData sent = (ResourceSimpleContentData) firstData(locationReference.getContent());
+            assertThat(contentOf(sent, "oauthClient"))
+                    .isInstanceOfSatisfying(ResourceSecretContentData.class,
+                            secret -> assertThat(((BasicAuthSecretContent) secret.getContent()).getPassword())
+                                    .isEqualTo(CLIENT_SECRET));
+        }
+
+        @Test
         void failsClosedNamingTheAuthority_whenTheCallerMayNotSeeIt() {
             // given
             denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL);
@@ -372,6 +441,23 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("Attribute 'Issuer' of Authority '%s' refers to Authority '%s'"
                             .formatted(referring.getName(), foreignAuthority.getName()));
+        }
+
+        @Test
+        void sendsTheSecretsStoredName_whenItsReferenceWasStoredWithoutOne() throws Exception {
+            // given
+            attributeEngine
+                    .updateDataAttributeDefinitions(discoveryConnector.getUuid(), null, List.of(authorityDefinition()));
+            AuthorityInstanceReference unnamedReferences = seedAnAuthorityWithAnUnnamedSecretReference();
+
+            // when
+            List<RequestAttribute> sent = operationAttributeResolver
+                    .resolveWithNestedReferencesAsSystem(discoveryConnector.getUuid(),
+                            List.of(authorityReference(unnamedReferences)));
+
+            // then
+            ResourceSimpleContentData authority = (ResourceSimpleContentData) firstData(sent.getFirst().getContent());
+            assertThat(contentOf(authority, "oauthClient").getName()).isEqualTo(oauthClient.getName());
         }
 
         @Test
@@ -903,6 +989,83 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
                                 .of(new RequestAttributeV3(UUID.fromString(issuerDefinition.getUuid()), "issuer",
                                         AttributeContentType.RESOURCE, issuerContent)));
         return reference;
+    }
+
+    private Connector anotherConnector() {
+        Connector otherConnector = new Connector();
+        otherConnector.setName("nested-entity-connector-" + UUID.randomUUID());
+        otherConnector.setUrl("http://other-connector.invalid");
+        otherConnector.setVersion(ConnectorVersion.V2);
+        otherConnector.setStatus(ConnectorStatus.CONNECTED);
+        return connectorRepository.save(otherConnector);
+    }
+
+    private EntityInstanceReference seedAnEntity(Connector owner, String name) {
+        EntityInstanceReference entity = new EntityInstanceReference();
+        entity.setName(name);
+        entity.setKind("keystore");
+        entity.setConnector(owner);
+        entity.setConnectorUuid(owner.getUuid());
+        return entityInstanceReferenceRepository.save(entity);
+    }
+
+    private Location seedALocation(EntityInstanceReference entity, String name) {
+        Location location = new Location();
+        location.setName(name);
+        location.setEntityInstanceReference(entity);
+        return locationRepository.save(location);
+    }
+
+    /** Stores, on the object, an OAuth client attribute that refers to the secret under test. */
+    private void storeTheOAuthClientOn(Resource resource, UUID objectUuid, Connector owner) throws Exception {
+        DataAttributeV3 oauthClientDefinition = referenceDefinition(UUID.randomUUID().toString(), "oauthClient",
+                "OAuth client", AttributeResource.SECRET);
+        attributeEngine.updateDataAttributeDefinitions(owner.getUuid(), null, List.of(oauthClientDefinition));
+        List<BaseAttributeContentV3<?>> oauthClientContent = new ArrayList<>();
+        oauthClientContent
+                .add(new ResourceObjectContent(oauthClient.getName(),
+                        new ResourceSecretContentData(oauthClient.getUuid().toString(), oauthClient.getName(), null)));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo.builder(resource, objectUuid).connector(owner.getUuid()).build(),
+                        List
+                                .of(new RequestAttributeV3(UUID.fromString(oauthClientDefinition.getUuid()),
+                                        "oauthClient", AttributeContentType.RESOURCE, oauthClientContent)));
+    }
+
+    /** An authority of the discovery's connector whose OAuth client reference was stored without a name. */
+    private AuthorityInstanceReference seedAnAuthorityWithAnUnnamedSecretReference() throws Exception {
+        AuthorityInstanceReference reference = new AuthorityInstanceReference();
+        reference.setName("otpki-unnamed-references");
+        reference.setKind("OTPKI");
+        reference.setConnector(discoveryConnector);
+        reference.setConnectorUuid(discoveryConnector.getUuid());
+        reference = authorityInstanceReferenceRepository.save(reference);
+
+        DataAttributeV3 oauthClientDefinition = referenceDefinition(UUID.randomUUID().toString(), "oauthClient",
+                "OAuth client", AttributeResource.SECRET);
+        attributeEngine
+                .updateDataAttributeDefinitions(discoveryConnector.getUuid(), null, List.of(oauthClientDefinition));
+        List<BaseAttributeContentV3<?>> unnamed = new ArrayList<>();
+        unnamed
+                .add(new ResourceObjectContent(null,
+                        new ResourceSecretContentData(oauthClient.getUuid().toString(), null, null)));
+        attributeEngine
+                .updateObjectDataAttributesContent(
+                        ObjectAttributeContentInfo
+                                .builder(Resource.AUTHORITY, reference.getUuid())
+                                .connector(discoveryConnector.getUuid())
+                                .build(),
+                        List
+                                .of(new RequestAttributeV3(UUID.fromString(oauthClientDefinition.getUuid()),
+                                        "oauthClient", AttributeContentType.RESOURCE, unnamed)));
+        return reference;
+    }
+
+    private static RequestAttribute objectReference(AttributeResource kind, UUID uuid, String name) {
+        List<BaseAttributeContentV3<?>> content = new ArrayList<>();
+        content.add(new ResourceObjectContent(name, new ResourceSimpleContentData(kind, uuid.toString(), name, null)));
+        return new RequestAttributeV3(UUID.randomUUID(), kind.getCode(), AttributeContentType.RESOURCE, content);
     }
 
     /** The same OTPKI-like authority as the one under test, held by a connector the discovery does not run on. */

@@ -413,7 +413,15 @@ public class ResourceServiceImpl implements ResourceExternalService, ResourceInt
     @Override
     public ResourceObjectContentData loadReferencedObjectContent(AttributeResource resource, UUID uuid)
             throws NotFoundException, AttributeException, ConnectorException {
-        return getResourceObjectContentData(resource, uuid, null);
+        return getResourceObjectContentData(resource, uuid, storedNameOf(resource, uuid));
+    }
+
+    /**
+     * The object's own name, which a reference stored without one cannot supply and the connector's schema requires.
+     */
+    private String storedNameOf(AttributeResource resource, UUID uuid) throws NotFoundException {
+        ResourceExtensionService extensionService = resourceExtensionServices.get(resource.getCode());
+        return extensionService == null ? null : extensionService.getResourceObjectInternal(uuid).getName();
     }
 
     @Override

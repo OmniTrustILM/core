@@ -178,6 +178,24 @@ class NgCallbackDispatcherTest {
     }
 
     @Test
+    void keepsCoresWords_whenTheDefinitionRefreshFailsForACallbackCarryingASecret() throws Exception {
+        // given
+        ProblemDetailExtended problem = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.ATTRIBUTE_DEFINITION_NOT_FOUND, "unknown to connector", null, null);
+        Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(problem));
+        ValidationException coresRefusal = new ValidationException("Attribute definition 'ca' could not be resolved");
+        Mockito.when(definitionResolver.resolveForced(any(), any(), any(), any())).thenThrow(coresRefusal);
+        Set<String> expandedSecrets = new HashSet<>(Set.of("super-secret-token-123"));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch).isSameAs(coresRefusal);
+    }
+
+    @Test
     void definitionNotFoundRetry_rebuildsEnvelopeFromRefreshedDefinition() throws Exception {
         ProblemDetailExtended problem = ProblemDetailExtended
                 .fromErrorCode(ErrorCode.ATTRIBUTE_DEFINITION_NOT_FOUND, "unknown to connector", null, null);

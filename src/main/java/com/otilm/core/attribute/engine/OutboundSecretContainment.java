@@ -366,11 +366,14 @@ public class OutboundSecretContainment {
         if (sentSecrets == null || sentSecrets.isEmpty()) {
             return refusal;
         }
-        return withoutWords(refusal, refused);
+        return validationRefusalWithoutWords(refused);
     }
 
-    /** As {@link #withoutWords(ValidationException, Set, String)}, for a request known to carry a secret. */
-    public ValidationException withoutWords(ValidationException refusal, String refused) {
+    /**
+     * The replacement for a validation refusal of a request known to carry a secret; see
+     * {@link #withoutWords(ValidationException, Set, String)}.
+     */
+    public ValidationException validationRefusalWithoutWords(String refused) {
         return new ValidationException(REFUSED.formatted(refused));
     }
 
