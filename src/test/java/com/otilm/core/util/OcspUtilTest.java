@@ -10,7 +10,9 @@ import java.util.List;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.bouncycastle.asn1.BERSequence;
+import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x509.AccessDescription;
+import org.bouncycastle.asn1.x509.AuthorityInformationAccess;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Named;
@@ -30,6 +32,79 @@ class OcspUtilTest {
     static void generateChain() throws Exception {
         chain = CertificateGeneratorHelper
                 .generateCertificateWithIssuer(KeyAlgorithm.RSA, "CN=Ocsp-Util-Ca", "CN=Ocsp-Util-EndEntity", null);
+    }
+
+    @Test
+    void returnsCaIssuerUrisInOrder_whenAiaAlsoContainsOcspAndDirectoryNames() throws Exception {
+        // given
+        String ldapUrl = "ldap:///CN=Issuer?cACertificate;binary";
+        String httpUrl = "http://issuer.example/ca.p7c";
+        AuthorityInformationAccess aia = new AuthorityInformationAccess(new AccessDescription[]{
+                new AccessDescription(AccessDescription.id_ad_ocsp,
+                        new GeneralName(GeneralName.uniformResourceIdentifier, "http://ocsp.example/")),
+                new AccessDescription(AccessDescription.id_ad_caIssuers,
+                        new GeneralName(GeneralName.uniformResourceIdentifier, ldapUrl)),
+                new AccessDescription(AccessDescription.id_ad_caIssuers, new GeneralName(new X500Name("CN=Issuer"))),
+                new AccessDescription(AccessDescription.id_ad_caIssuers,
+                        new GeneralName(GeneralName.uniformResourceIdentifier, httpUrl))});
+        X509Certificate certificate = CertificateGeneratorHelper
+                .generateEndEntityCertificateWithAuthorityInfoAccess(chain.getCaCertificateKeyPair(),
+                        chain.getCaCertificate(), chain.getEndEntityCertificateKeyPair(), "CN=AIA-Leaf",
+                        aia.getEncoded());
+
+        // when
+        List<String> issuerUrls = OcspUtil.getCaIssuerUrlsFromAia(certificate);
+
+        // then
+        assertThat(issuerUrls).containsExactly(ldapUrl, httpUrl);
+    }
+
+    @Test
+    void returnsNoCaIssuerUrls_whenTheExtensionIsAbsent() throws Exception {
+        // given — the root CA certificate has no AIA extension
+
+        // when
+        List<String> issuerUrls = OcspUtil.getCaIssuerUrlsFromAia(chain.getCaCertificate());
+
+        // then
+        assertThat(issuerUrls).isEmpty();
+    }
+
+    @ParameterizedTest
+    @MethodSource("malformedAuthorityInfoAccess")
+    void throwsIoException_whenCaIssuerExtensionValueIsMalformed(byte[] malformedAuthorityInfoAccess) throws Exception {
+        // given
+        X509Certificate certificate = CertificateGeneratorHelper
+                .generateEndEntityCertificateWithAuthorityInfoAccess(chain.getCaCertificateKeyPair(),
+                        chain.getCaCertificate(), chain.getEndEntityCertificateKeyPair(), "CN=AIA-Leaf",
+                        malformedAuthorityInfoAccess);
+
+        // when
+        ThrowingCallable readIssuerUrls = () -> OcspUtil.getCaIssuerUrlsFromAia(certificate);
+
+        // then
+        assertThatThrownBy(readIssuerUrls)
+                .isInstanceOfSatisfying(IOException.class, exception -> assertThat(exception.getCause()).isNotNull())
+                .hasMessageContaining("The authorityInfoAccess extension is malformed");
+    }
+
+    @Test
+    void returnsCaIssuerUrl_whenExtensionValueIsBerEncoded() throws Exception {
+        // given
+        var issuerUrl = "http://issuer.example/ca.p7c";
+        var issuerAccess = new AccessDescription(AccessDescription.id_ad_caIssuers,
+                new GeneralName(GeneralName.uniformResourceIdentifier, issuerUrl));
+        byte[] indefiniteLengthAuthorityInfoAccess = new BERSequence(issuerAccess).getEncoded();
+        X509Certificate certificate = CertificateGeneratorHelper
+                .generateEndEntityCertificateWithAuthorityInfoAccess(chain.getCaCertificateKeyPair(),
+                        chain.getCaCertificate(), chain.getEndEntityCertificateKeyPair(), "CN=AIA-Leaf",
+                        indefiniteLengthAuthorityInfoAccess);
+
+        // when
+        List<String> issuerUrls = OcspUtil.getCaIssuerUrlsFromAia(certificate);
+
+        // then
+        assertThat(issuerUrls).containsExactly(issuerUrl);
     }
 
     @ParameterizedTest

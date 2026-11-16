@@ -1,5 +1,8 @@
 package com.otilm.core.util;
 
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Hashtable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -7,6 +10,7 @@ import javax.naming.Context;
 import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
+import javax.naming.directory.Attribute;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.SearchControls;
 import javax.naming.directory.SearchResult;
@@ -64,41 +68,10 @@ public class LdapUtils {
      */
     public static byte[] downloadFromLdap(String ldapUrl, int connectTimeoutMillis, int readTimeoutMillis)
             throws NamingException {
-        // Compile the regex pattern
-        Pattern pattern = Pattern.compile(LDAP_URL_REGEX);
-
-        // Create a matcher to find matches of the LDAP URI
-        Matcher matcher = pattern.matcher(ldapUrl);
-
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException("Invalid LDAP URL: " + ldapUrl);
-        }
-
-        // when no host is provided, we cannot connect to the LDAP server
-        if (matcher.group(5) == null || matcher.group(5).isEmpty()) {
-            throw new IllegalArgumentException("No host provided in LDAP URL: " + ldapUrl);
-        }
-
-        String baseDn = matcher.group(9) != null ? matcher.group(9) : "";
-        String attributes = matcher.group(11) != null ? matcher.group(11) : "";
-        String filter = matcher.group(13) != null ? matcher.group(13) : "(objectclass=*)";
-
-        String attributeName = ""; // default to empty
-        String[] attributesParts = attributes.split(";");
-        if (attributesParts.length > 0) {
-            attributeName = attributesParts[0];
-        }
-
-        String scope = "sub"; // default to sub
-        // extract scope and filter from attributes
-        String[] parts = attributes.split("\\?");
-        if (parts.length > 1) {
-            scope = parts[1];
-        }
-
+        LdapRequest request = parseRequest(ldapUrl);
         Hashtable<String, String> env = new Hashtable<>();
         env.put(Context.INITIAL_CONTEXT_FACTORY, "com.sun.jndi.ldap.LdapCtxFactory");
-        env.put(Context.PROVIDER_URL, ldapUrl);
+        env.put(Context.PROVIDER_URL, request.serverUrl());
         if (connectTimeoutMillis > 0) {
             env.put("com.sun.jndi.ldap.connect.timeout", Integer.toString(connectTimeoutMillis));
         }
@@ -106,35 +79,23 @@ public class LdapUtils {
             env.put("com.sun.jndi.ldap.read.timeout", Integer.toString(readTimeoutMillis));
         }
 
-        // Set security properties for LDAPS
-        if (ldapUrl.startsWith("ldaps://")) {
+        if (request.serverUrl().regionMatches(true, 0, "ldaps://", 0, 8)) {
             env.put(Context.SECURITY_PROTOCOL, "ssl");
         }
 
-        String[] attrIDs = {attributeName};
         SearchControls ctls = new SearchControls();
-        ctls.setReturningAttributes(attrIDs);
-
-        // Set the search scope based on the extracted scope
-        if ("base".equalsIgnoreCase(scope)) {
-            ctls.setSearchScope(SearchControls.OBJECT_SCOPE);
-        } else if ("one".equalsIgnoreCase(scope)) {
-            ctls.setSearchScope(SearchControls.ONELEVEL_SCOPE);
-        } else if ("sub".equalsIgnoreCase(scope)) {
-            ctls.setSearchScope(SearchControls.SUBTREE_SCOPE);
-        } else {
-            throw new IllegalArgumentException("Invalid LDAP URL search scope: " + ldapUrl);
-        }
+        ctls.setReturningAttributes(new String[]{request.attributeName()});
+        ctls.setSearchScope(request.scope());
 
         LdapContext ctx = new InitialLdapContext(env, null);
         try {
-            NamingEnumeration<SearchResult> answer = ctx.search(baseDn, filter, ctls);
+            NamingEnumeration<SearchResult> answer = ctx.search(request.baseDn(), request.filter(), ctls);
             try {
                 if (!answer.hasMore()) {
                     throw new NameNotFoundException("No data found for attribute in LDAP URL: " + ldapUrl);
                 }
                 Attributes attrs = answer.next().getAttributes();
-                return (byte[]) attrs.get(attributeName).get();
+                return binaryValue(attrs, request.attributeName());
             } finally {
                 // while an enumeration is open, closing the context only marks the connection for closing
                 answer.close();
@@ -142,6 +103,60 @@ public class LdapUtils {
         } finally {
             ctx.close();
         }
+    }
+
+    private static LdapRequest parseRequest(String ldapUrl) {
+        URI uri = URI.create(ldapUrl);
+        if (!("ldap".equalsIgnoreCase(uri.getScheme()) || "ldaps".equalsIgnoreCase(uri.getScheme()))
+                || uri.getRawFragment() != null) {
+            throw new IllegalArgumentException("Invalid LDAP URL: " + ldapUrl);
+        }
+        if (uri.getHost() == null || uri.getHost().isEmpty()) {
+            throw new IllegalArgumentException("No host provided in LDAP URL: " + ldapUrl);
+        }
+        String[] query = uri.getRawQuery() == null ? new String[0] : uri.getRawQuery().split("\\?", -1);
+        String attributeName = queryComponent(query, 0, "");
+        if (attributeName.isBlank()) {
+            throw new IllegalArgumentException("Missing attribute in LDAP URL: " + ldapUrl);
+        }
+        String scopeName = queryComponent(query, 1, "base");
+        int scope;
+        if ("base".equalsIgnoreCase(scopeName)) {
+            scope = SearchControls.OBJECT_SCOPE;
+        } else if ("one".equalsIgnoreCase(scopeName)) {
+            scope = SearchControls.ONELEVEL_SCOPE;
+        } else if ("sub".equalsIgnoreCase(scopeName)) {
+            scope = SearchControls.SUBTREE_SCOPE;
+        } else {
+            throw new IllegalArgumentException("Invalid LDAP URL search scope: " + ldapUrl);
+        }
+        String path = uri.getPath();
+        String baseDn = path == null || path.isEmpty() ? "" : path.substring(1);
+        String serverUrl = uri.getScheme() + "://" + uri.getRawAuthority();
+        return new LdapRequest(serverUrl, baseDn, attributeName, scope, queryComponent(query, 2, "(objectclass=*)"));
+    }
+
+    private static String queryComponent(String[] query, int index, String defaultValue) {
+        if (index >= query.length || query[index].isEmpty()) {
+            return defaultValue;
+        }
+        // LDAP URLs use URI encoding, where a literal plus is not a form-encoded space.
+        return URLDecoder.decode(query[index].replace("+", "%2B"), StandardCharsets.UTF_8);
+    }
+
+    private static byte[] binaryValue(Attributes attributes, String attributeName) throws NamingException {
+        Attribute attribute = attributes == null ? null : attributes.get(attributeName);
+        if (attribute == null || attribute.size() == 0) {
+            throw new NameNotFoundException("No data found for LDAP attribute " + attributeName);
+        }
+        Object value = attribute.get();
+        if (!(value instanceof byte[] bytes) || bytes.length == 0) {
+            throw new NamingException("No binary data found for LDAP attribute " + attributeName);
+        }
+        return bytes;
+    }
+
+    private record LdapRequest(String serverUrl, String baseDn, String attributeName, int scope, String filter) {
     }
 
 }

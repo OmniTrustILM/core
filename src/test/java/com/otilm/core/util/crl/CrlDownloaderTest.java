@@ -2,7 +2,9 @@ package com.otilm.core.util.crl;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
+import com.otilm.core.util.LdapFixtures.SearchResults;
 import com.otilm.core.util.LoopbackWireMock;
+import com.otilm.core.util.PkiFixtures;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,23 +16,36 @@ import java.net.Socket;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Random;
+import javax.naming.directory.BasicAttributes;
+import javax.naming.directory.SearchControls;
+import javax.naming.ldap.InitialLdapContext;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedConstruction;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.util.unit.DataSize;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.otilm.core.util.LdapFixtures.searchResults;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class CrlDownloaderTest {
 
     private static final DataSize SIZE_LIMIT = DataSize.ofKilobytes(64);
@@ -64,6 +79,25 @@ class CrlDownloaderTest {
 
         // then
         assertThat(downloaded).isEqualTo(crlWithinLimit);
+    }
+
+    @Test
+    void returnsCrlBytes_whenLdapDistributionPointServesBinaryAttribute() throws Exception {
+        // given
+        byte[] crlBytes = PkiFixtures.crl(PkiFixtures.rootCa("LDAP CRL CA"));
+        SearchResults results = searchResults(new BasicAttributes("certificateRevocationList;binary", crlBytes, true));
+        String ldapUrl = "ldap://ldap.example.com/CN=LDAP%20CRL%20CA?certificateRevocationList;binary?base";
+        try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
+                (context, construction) -> when(context.search(anyString(), anyString(), any(SearchControls.class)))
+                        .thenReturn(results))) {
+            // when
+            byte[] downloaded = downloader(DOWNLOAD_TIMEOUT).download(ldapUrl);
+
+            // then
+            assertThat(downloaded).isEqualTo(crlBytes);
+            assertThat(results.isClosed()).isTrue();
+            verify(contexts.constructed().getFirst()).close();
+        }
     }
 
     @Test

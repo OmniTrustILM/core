@@ -93,25 +93,23 @@ public class OcspUtil {
 
     }
 
-    public static String getChainFromAia(X509Certificate certificate) throws IOException {
+    public static List<String> getCaIssuerUrlsFromAia(X509Certificate certificate) throws IOException {
+        List<String> issuerUrls = new ArrayList<>();
         byte[] octetBytes = certificate.getExtensionValue(Extension.authorityInfoAccess.getId());
         if (octetBytes == null) {
-            return null;
+            return issuerUrls;
         }
 
-        AuthorityInformationAccess aia = AuthorityInformationAccess
-                .getInstance(JcaX509ExtensionUtils.parseExtensionValue(octetBytes));
-        AccessDescription[] descriptions = aia.getAccessDescriptions();
+        AccessDescription[] descriptions = readAccessDescriptions(octetBytes);
         for (AccessDescription ad : descriptions) {
             if (ad.getAccessMethod().equals(X509ObjectIdentifiers.id_ad_caIssuers)) {
                 GeneralName location = ad.getAccessLocation();
                 if (location.getTagNo() == GeneralName.uniformResourceIdentifier) {
-                    logger.debug("Chain for the certificate is {}", location.getName());
-                    return location.getName().toString();
+                    issuerUrls.add(location.getName().toString());
                 }
             }
         }
-        return null;
+        return issuerUrls;
     }
 
     /**
@@ -127,12 +125,7 @@ public class OcspUtil {
             return ocspUrls;
         }
 
-        AccessDescription[] accessDescriptions;
-        try {
-            accessDescriptions = readAccessDescriptions(octetBytes);
-        } catch (IOException | RuntimeException e) {
-            throw new IOException("The authorityInfoAccess extension is malformed", e);
-        }
+        AccessDescription[] accessDescriptions = readAccessDescriptions(octetBytes);
         for (AccessDescription accessDescription : accessDescriptions) {
             boolean correctAccessMethod = accessDescription
                     .getAccessMethod()
@@ -154,12 +147,16 @@ public class OcspUtil {
     }
 
     private static AccessDescription[] readAccessDescriptions(byte[] extensionValue) throws IOException {
-        AuthorityInformationAccess authorityInformationAccess = AuthorityInformationAccess
-                .getInstance(JcaX509ExtensionUtils.parseExtensionValue(extensionValue));
-        if (authorityInformationAccess == null) {
-            throw new IOException("its value is empty");
+        try {
+            AuthorityInformationAccess authorityInformationAccess = AuthorityInformationAccess
+                    .getInstance(JcaX509ExtensionUtils.parseExtensionValue(extensionValue));
+            if (authorityInformationAccess == null) {
+                throw new IOException("its value is empty");
+            }
+            return authorityInformationAccess.getAccessDescriptions();
+        } catch (IOException | RuntimeException e) {
+            throw new IOException("The authorityInfoAccess extension is malformed", e);
         }
-        return authorityInformationAccess.getAccessDescriptions();
     }
 
     public static CertificateValidationStatus checkOcsp(X509Certificate certificate, X509Certificate issuer,
