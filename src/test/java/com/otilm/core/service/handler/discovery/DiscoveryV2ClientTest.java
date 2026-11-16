@@ -1,6 +1,7 @@
 package com.otilm.core.service.handler.discovery;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorClientException;
 import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
@@ -398,6 +399,27 @@ class DiscoveryV2ClientTest {
                 .isInstanceOf(DiscoveryReferenceException.class)
                 .hasMessageContaining(goneSecret.getMessage())
                 .hasCause(goneSecret);
+        verifyNoInteractions(apiClient);
+    }
+
+    @Test
+    void refusesTheStopAsCoresOwn_whenTheResolverCannotReadAStoredReference() throws Exception {
+        // given
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("authority", "reference-only", AttributeContentType.RESOURCE)));
+        AttributeException malformed = new AttributeException("Malformed RESOURCE reference UUID: not-a-uuid");
+        when(operationAttributeResolver.resolveWithNestedReferencesAsSystem(any(), anyList()))
+                .thenThrow(new ConnectorException("Unable to resolve stored attribute references", malformed));
+
+        // when
+        ThrowingCallable stop = () -> client.stop(run);
+
+        // then
+        assertThatThrownBy(stop)
+                .isInstanceOf(ValidationException.class)
+                .isNotInstanceOf(DiscoveryReferenceException.class)
+                .hasMessageContaining("Malformed RESOURCE reference UUID: not-a-uuid");
         verifyNoInteractions(apiClient);
     }
 

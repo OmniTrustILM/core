@@ -353,8 +353,8 @@ public class DiscoveryV2Client {
     /**
      * The run's attributes as the connector receives them. A reference the resolver refuses, such as one to an object
      * that is gone, is a {@link ValidationException} naming it, which reaches the user who stops, resumes or cancels
-     * the run. A failure of another connector the resolver asks, such as a secret's vault, becomes a server failure, so
-     * it is never read as the discovery connector's own answer about the run.
+     * the run, and so is a stored reference Core cannot read. A failure of another connector the resolver asks, such as
+     * a secret's vault, becomes a server failure, so it is never read as the discovery connector's own answer.
      */
     private List<RequestAttribute> resolveAsSystem(ConnectorDto connector, List<RequestAttribute> attributes)
             throws ConnectorException {
@@ -362,6 +362,9 @@ public class DiscoveryV2Client {
             return operationAttributeResolver
                     .resolveWithNestedReferencesAsSystem(UUID.fromString(connector.getUuid()), attributes);
         } catch (ConnectorException e) {
+            if (e.getCause() instanceof AttributeException || e.getCause() instanceof NotFoundException) {
+                throw new ValidationException(e.getCause().getMessage());
+            }
             throw DiscoveryReferenceException.failed(e);
         }
     }
