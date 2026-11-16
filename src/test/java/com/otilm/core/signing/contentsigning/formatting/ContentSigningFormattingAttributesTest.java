@@ -95,7 +95,7 @@ class ContentSigningFormattingAttributesTest {
     class Aggregate {
 
         @Test
-        void aggregatesTheReachableSchemasIntoOneFlatSet() throws Exception {
+        void aggregatesTheReachableSchemasIntoOneFlatSet_whenMaxLevelIsSigned() throws Exception {
             // given
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
@@ -135,7 +135,7 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void fetchesTheTimestampTwinsTooWhenMaxLevelIsTimestamped() throws Exception {
+        void fetchesTheTimestampTwinsToo_whenMaxLevelIsTimestamped() throws Exception {
             // given
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(any(), any())).thenReturn(profileListing());
@@ -152,7 +152,7 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void keepsOneCopyOfANameTwoOperationsDeclareIdentically() throws Exception {
+        void keepsOneCopyOfAName_whenTwoOperationsDeclareItIdentically() throws Exception {
             // given: the very same declaration object is handed back for every operation
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(any(), any())).thenReturn(profileListing(attribute("reason")));
@@ -165,7 +165,7 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void treatsTwoIndependentlyBuiltButFieldIdenticalDeclarationsAsConsistent() throws Exception {
+        void treatsTwoDeclarationsAsConsistent_whenTheyAreBuiltApartButFieldIdentical() throws Exception {
             // given: two operations each return their OWN freshly built instance -- as a real connector would after
             // deserializing two separate HTTP responses -- but the fields describe the identical attribute
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
@@ -182,7 +182,7 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void rejectsTheConnectorWhenTwoOperationsDeclareTheSameNameDifferently() throws Exception {
+        void rejectsTheConnector_whenTwoOperationsDeclareTheSameNameWithDifferentContentTypes() throws Exception {
             // given: same name, different content type -- a shared name must mean one shared value
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
@@ -200,7 +200,7 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void rejectsTheConnectorWhenTwoOperationsDeclareTheSamePropertiesDifferently() throws Exception {
+        void rejectsTheConnector_whenTwoOperationsDeclareTheSameNameWithDifferentProperties() throws Exception {
             // given: same name and content type, but one operation marks it required and the other does not
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))
@@ -218,7 +218,7 @@ class ContentSigningFormattingAttributesTest {
         }
 
         @Test
-        void treatsANullAttributeListFromAnOperationAsNoAttributes() throws Exception {
+        void treatsAnOperationAsListingNothing_whenItsAttributeListsAreNull() throws Exception {
             // given: one operation declares nothing at all, signalled by a null list rather than an empty one
             when(connectorApiFactory.getContentSigningFormattingApiClient(connector)).thenReturn(apiClient);
             when(apiClient.listFormattingAttributes(connector, ContentSigningFormattingOperation.COMPUTE_DTBS))

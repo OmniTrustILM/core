@@ -70,7 +70,7 @@ class ContentSigningRequestTest {
     }
 
     @Test
-    void returnsTheAuthorizedDigestUnderTheBatchAlgorithm() {
+    void returnsTheAuthorizedDigestUnderTheBatchAlgorithm_whenTheBatchUsesSha512() {
         // given
         var item = new ContentSigningItem("first", DOCUMENT, SHA512_DIGEST);
         var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.INLINE,

@@ -140,7 +140,7 @@ class StaticKeyManagedContentSigningResolverTest {
     }
 
     @Test
-    void carriesTheCertificatePurposeConstraintsOntoTheResolvedProfile() throws Exception {
+    void carriesTheCertificatePurposeConstraintsOntoTheResolvedProfile_whenTheWorkflowSetsThem() throws Exception {
         // given
         givenSchemeResolutionSucceeds();
         given(connectorService.getConnectorForApiClient(FORMATTING_CONNECTOR_UUID)).willReturn(CONNECTOR_INFO);

@@ -31,7 +31,7 @@ class SigningProfileMapperContentSigningTest {
     class ToManagedContentSigningModel {
 
         @Test
-        void carriesTheLevelLadderFields() {
+        void carriesTheLevelLadderFields_whenTheVersionSetsThem() {
             // given
             var connectorUuid = UUID.randomUUID();
             var timestampSourceUuid = UUID.randomUUID();
@@ -105,7 +105,7 @@ class SigningProfileMapperContentSigningTest {
     class ToDto {
 
         @Test
-        void carriesTheLevelLadderFields() {
+        void carriesTheLevelLadderFields_whenTheVersionSetsThem() {
             // given
             var timestampSourceUuid = UUID.randomUUID();
             SigningProfileVersion version = aContentSigningVersion();

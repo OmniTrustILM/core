@@ -378,7 +378,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
 
         /** The unit test mocks the algorithm; here a real key and a real cryptographic provider resolve it. */
         @Test
-        void tellsTheConnectorTheResolvedSignersAlgorithm_onBothHalvesOfThePair() throws Exception {
+        void tellsBothHalvesOfThePairTheResolvedSignersAlgorithm_whenSigningContent() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("algorithm-pades",
                     SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);
@@ -717,7 +717,7 @@ class ContentSigningEngineITest extends BaseSpringBootTest {
         }
 
         @Test
-        void returnsEachDocumentsRecordReference() throws Exception {
+        void returnsEachDocumentsRecordReference_whenTheProfileRecords() throws Exception {
             // given
             SigningProfileDto contentProfile = createContentSigningProfile("recorded-batch-pades",
                     SignatureFamilyFixtures.PADES, SignatureLevel.SIGNED, null);

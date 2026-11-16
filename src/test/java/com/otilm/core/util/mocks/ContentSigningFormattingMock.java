@@ -230,7 +230,10 @@ public class ContentSigningFormattingMock extends BaseConnectorMock {
         return this;
     }
 
-    /** Lists one optional profile attribute on every operation. */
+    /**
+     * Lists one optional profile attribute on every operation, as profile save, formatting discovery and profile
+     * resolution fetch them.
+     */
     public ContentSigningFormattingMock stubPerOperationFormattingAttributeDefinition(UUID attrUuid, String attrName) {
         return stubPerOperationFormattingAttributeDefinition(attrUuid, attrName, false);
     }
