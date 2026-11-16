@@ -1,6 +1,5 @@
 package com.otilm.core.attribute.engine;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -383,7 +382,7 @@ public class OutboundSecretContainment {
     private static ConnectorCommunicationException withoutWords(ConnectorCommunicationException failure,
             String refused) {
         Throwable cause = failure.getCause();
-        if (ConnectorTransportFailures.isTransportFailure(cause) && !(cause instanceof JsonProcessingException)) {
+        if (ConnectorTransportFailures.isTransportFailure(cause)) {
             return new ConnectorCommunicationException(
                     "Core could not reach the connector for the %s.".formatted(refused), cause, failure.getConnector());
         }

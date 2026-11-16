@@ -458,7 +458,7 @@ class ReferenceTraversalTest {
     }
 
     @Test
-    void keysAnObjectByItsKindAndUuid() {
+    void keysAnObjectByItsKindAndUuid_whenTwoKindsShareIt() {
         // given
         UUID sharedUuid = UUID.randomUUID();
 

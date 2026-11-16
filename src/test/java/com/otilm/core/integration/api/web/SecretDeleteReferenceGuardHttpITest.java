@@ -966,7 +966,7 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
         }
 
         @Test
-        void answers404_whenOnlyTheVaultLostTheSecret() throws Exception {
+        void answers404WithoutTheVaultsWords_whenOnlyTheVaultLostTheSecret() throws Exception {
             // given
             var vaultDetail = "Secret not found";
             vaultAnswersNotFound(vaultDetail);
@@ -976,7 +976,9 @@ class SecretDeleteReferenceGuardHttpITest extends BaseSpringBootTest {
 
             // then
             assertThat(attributes.getResponse().getStatus()).isEqualTo(404);
-            assertThat(attributes.getResponse().getContentAsString()).contains(vaultDetail);
+            assertThat(attributes.getResponse().getContentAsString())
+                    .contains("RESOURCE_NOT_FOUND")
+                    .doesNotContain(vaultDetail);
         }
 
         @Test

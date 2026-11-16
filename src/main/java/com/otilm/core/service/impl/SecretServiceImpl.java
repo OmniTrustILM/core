@@ -984,6 +984,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                         .builder(Resource.SECRET, secret.getUuid())
                         .connector(connectorUuid)
                         .build());
+        requireVaultConnector(connectorUuid);
         SecretContentResponseDto secretContent;
         try {
             ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, secret.getSourceVaultProfile(),
@@ -1249,6 +1250,13 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
         }
     }
 
+    private static void requireVaultConnector(UUID connectorUuid) {
+        if (connectorUuid == null) {
+            throw new ValidationException(
+                    "Cannot load attributes for secret operation, when vault instance is not associated with connector");
+        }
+    }
+
     private static String requestFor(Secret secret) {
         return "request for secret '%s'".formatted(secret.getName());
     }
@@ -1430,10 +1438,7 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
             UUID vaultProfileUuid, SecretType type, List<RequestAttribute> secretAttributes,
             SecretOperationRequest secretOperationRequest)
             throws ConnectorException, NotFoundException, AttributeException {
-        if (connectorUuid == null) {
-            throw new ValidationException(
-                    "Cannot load attributes for secret operation, when vault instance is not associated with connector");
-        }
+        requireVaultConnector(connectorUuid);
 
         ConnectorDetailDto connectorDetailDto = connectorService.getConnector(SecuredUUID.fromUUID(connectorUuid));
 

@@ -2,8 +2,10 @@ package com.otilm.core.service.handler.discovery;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ConnectorClientException;
+import com.otilm.api.exception.ConnectorEntityNotFoundException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
+import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.DiscoverySyncApiClient;
@@ -607,10 +609,68 @@ class DiscoveryV2ClientTest {
 
         // then
         assertThatThrownBy(status).isInstanceOfSatisfying(ConnectorProblemException.class, refused -> {
-            assertThat(refused.getMessage()).doesNotContain("s3cr3t-token");
+            assertThat(refused).hasMessageNotContaining("s3cr3t-token");
             assertThat(refused.getProblemDetail().getRetryAfterSeconds()).isEqualTo(retryAfterSeconds);
             assertThat(refused.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
         });
+    }
+
+    /** A results refusal goes to the drain worker's log, and the worker backs off by the hint it keeps. */
+    @Test
+    void keepsTheRetryHintButNotTheWords_whenAResultsRefusalAnswersARunCarryingASecret() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        int retryAfterSeconds = 45;
+        ProblemDetailExtended busy = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.SERVICE_UNAVAILABLE, "token s3cr3t-token is rate limited", null, null);
+        busy.setRetryAfterSeconds(retryAfterSeconds);
+        when(apiClient.results(any(), any())).thenThrow(new ConnectorProblemException(busy));
+
+        // when
+        ThrowingCallable results = () -> client.results(run, 500, 5_242_880L);
+
+        // then
+        assertThatThrownBy(results).isInstanceOfSatisfying(ConnectorProblemException.class, refused -> {
+            assertThat(refused).hasMessageNotContaining("s3cr3t-token");
+            assertThat(refused.getProblemDetail().getRetryAfterSeconds()).isEqualTo(retryAfterSeconds);
+            assertThat(refused.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.SERVICE_UNAVAILABLE);
+        });
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenAPlainValidationRefusalAnswersAResultsCallCarryingASecret() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        when(apiClient.results(any(), any())).thenThrow(new ValidationException("cursor s3cr3t-token is stale"));
+
+        // when
+        ThrowingCallable results = () -> client.results(run, 500, 5_242_880L);
+
+        // then
+        assertThatThrownBy(results).isInstanceOf(ValidationException.class).hasMessageNotContaining("s3cr3t-token");
+    }
+
+    @Test
+    void reportsAServerFailureRatherThanTheConnectorsAnswer_whenAVaultFailsWhileResolvingTheRun() throws Exception {
+        // given
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("authority", "reference-only", AttributeContentType.RESOURCE)));
+        ConnectorEntityNotFoundException vaultLostTheSecret = new ConnectorEntityNotFoundException(
+                "The connector refused the request for secret 'oauth'.");
+        when(operationAttributeResolver.resolveWithNestedReferencesAsSystem(any(), anyList()))
+                .thenThrow(vaultLostTheSecret);
+
+        // when
+        ThrowingCallable resume = () -> client.resume(run);
+
+        // then
+        assertThatThrownBy(resume)
+                .isInstanceOfSatisfying(ConnectorServerException.class,
+                        failure -> assertThat(failure.getHttpStatus()).isEqualTo(HttpStatus.BAD_GATEWAY))
+                .hasMessageContaining("secret 'oauth'")
+                .hasCause(vaultLostTheSecret);
+        verifyNoInteractions(apiClient);
     }
 
     /** Nothing secret went out, so the connector's words are the caller's best account of what to correct. */

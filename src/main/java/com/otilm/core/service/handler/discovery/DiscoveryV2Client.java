@@ -2,6 +2,7 @@ package com.otilm.core.service.handler.discovery;
 
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
+import com.otilm.api.exception.ConnectorServerException;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -352,12 +354,18 @@ public class DiscoveryV2Client {
     /**
      * The run's attributes as the connector receives them. A reference the resolver refuses, such as one to an object
      * that is gone, is a {@link ValidationException} naming it, which reaches the user who stops, resumes or cancels
-     * the run.
+     * the run. A failure of another connector the resolver asks, such as a secret's vault, becomes a server failure, so
+     * it is never read as the discovery connector's own answer about the run.
      */
     private List<RequestAttribute> resolveAsSystem(ConnectorDto connector, List<RequestAttribute> attributes)
             throws ConnectorException {
-        return operationAttributeResolver
-                .resolveWithNestedReferencesAsSystem(UUID.fromString(connector.getUuid()), attributes);
+        try {
+            return operationAttributeResolver
+                    .resolveWithNestedReferencesAsSystem(UUID.fromString(connector.getUuid()), attributes);
+        } catch (ConnectorException e) {
+            throw new ConnectorServerException("Unable to resolve the discovery run's references: " + e.getMessage(), e,
+                    HttpStatus.BAD_GATEWAY);
+        }
     }
 
     /**

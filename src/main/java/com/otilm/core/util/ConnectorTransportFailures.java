@@ -1,5 +1,6 @@
 package com.otilm.core.util;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
@@ -22,10 +23,14 @@ public final class ConnectorTransportFailures {
     private ConnectorTransportFailures() {
     }
 
-    /** Whether the cause is a transport failure. */
+    /**
+     * Whether the cause is a transport failure. An answer Core could not parse is not one, though Jackson reports it as
+     * an {@link IOException}.
+     */
     @SuppressWarnings("java:S1872")
     public static boolean isTransportFailure(Throwable cause) {
-        return cause != null && (TRANSPORT_FAILURES.stream().anyMatch(type -> type.isInstance(cause))
-                || POOL_ACQUIRE_EXHAUSTED.equals(cause.getClass().getSimpleName()));
+        return cause != null && !(cause instanceof JsonProcessingException)
+                && (TRANSPORT_FAILURES.stream().anyMatch(type -> type.isInstance(cause))
+                        || POOL_ACQUIRE_EXHAUSTED.equals(cause.getClass().getSimpleName()));
     }
 }
