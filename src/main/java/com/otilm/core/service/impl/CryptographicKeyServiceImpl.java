@@ -151,7 +151,7 @@ import static java.util.function.Predicate.not;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 public class CryptographicKeyServiceImpl implements CryptographicKeyExternalService, CryptographicKeyInternalService {
 
-    static final String NOT_REMOVABLE = "Key '%s' cannot be removed from the inventory. %s";
+    private static final String NOT_REMOVABLE = "Key '%s' cannot be removed from the inventory. %s";
 
     private static final Logger logger = LoggerFactory.getLogger(CryptographicKeyServiceImpl.class);
     private static final String ENABLE_OPERATION = "enable";

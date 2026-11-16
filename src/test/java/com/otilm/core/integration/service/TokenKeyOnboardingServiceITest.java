@@ -572,6 +572,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             TokenKeyDto entry = firstListedEntry();
 
             // then
+            assertThat(entry.getStorageName()).isEqualTo(storageName);
             assertThat(entry.getSuggestedName()).isEqualTo(storageName);
             assertThat(entry.getFingerprint()).isEqualTo(fingerprintOf(publicKey));
             assertThat(entry.getKeyAlgorithm()).isEqualTo(KeyAlgorithm.RSA);
