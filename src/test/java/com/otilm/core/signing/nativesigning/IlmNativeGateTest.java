@@ -6,7 +6,6 @@ import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.core.signing.SigningProtocol;
 import com.otilm.core.model.signing.CertificatePurposeRequirements;
-import com.otilm.core.model.signing.SignatureParameterPolicy;
 import com.otilm.core.model.signing.SigningProfileGateRow;
 import com.otilm.core.model.signing.SigningProfileModel;
 import com.otilm.core.model.signing.scheme.DelegatedSigning;
@@ -15,6 +14,7 @@ import com.otilm.core.model.signing.workflow.DelegatedRawSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedRawSigningWorkflow;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
@@ -151,7 +151,7 @@ class IlmNativeGateTest {
                 .withUuid(PROFILE)
                 .withEnabledProtocols(List.of(SigningProtocol.ILM_NATIVE))
                 .withWorkflow(new ManagedContentSigningWorkflow(UUID.randomUUID(), List.of(), null, null, null,
-                        CertificatePurposeRequirements.NONE, SignatureParameterPolicy.DENY_ALL))
+                        CertificatePurposeRequirements.NONE, Set.of()))
                 .withSigningScheme(new StaticKeyManagedSigning(UUID.randomUUID(), List.of()))
                 .build();
 

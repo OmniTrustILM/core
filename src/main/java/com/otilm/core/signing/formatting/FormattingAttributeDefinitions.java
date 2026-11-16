@@ -19,6 +19,7 @@ import com.otilm.core.model.signing.workflow.ManagedContentSigningWorkflow;
 import com.otilm.core.model.signing.workflow.ManagedTimestampingWorkflow;
 import com.otilm.core.model.signing.workflow.SigningWorkflow;
 import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingAttributes;
+import com.otilm.core.signing.contentsigning.formatting.ContentSigningFormattingDefinitions;
 import com.otilm.core.signing.engine.error.SigningEngineException;
 import com.otilm.core.signing.engine.error.SigningEngineFailure;
 import java.util.ArrayList;
@@ -81,12 +82,15 @@ public class FormattingAttributeDefinitions {
     }
 
     /** A content-signing formatter's definitions for the operations reached by the workflow's maximum level. */
-    public List<BaseAttribute> forContentSigning(ApiClientConnectorInfo formatter,
+    public ContentSigningFormattingDefinitions forContentSigning(ApiClientConnectorInfo formatter,
             ManagedContentSigningWorkflow workflow) throws SigningEngineException {
         DefinitionsKey key = DefinitionsKey.of(formatter, workflow);
-        return definitionsCache
-                .getOrLoad(key, () -> fetchedAndStored(key.connectorUuid(),
-                        () -> contentSigningFormattingAttributes.aggregate(formatter, workflow.maxLevel())));
+        return definitionsCache.getOrLoad(key, () -> {
+            ContentSigningFormattingDefinitions published = fetched(key.connectorUuid(),
+                    () -> contentSigningFormattingAttributes.aggregate(formatter, workflow.maxLevel()));
+            store(key.connectorUuid(), published.all());
+            return published;
+        });
     }
 
     @EventListener
@@ -97,10 +101,15 @@ public class FormattingAttributeDefinitions {
                                 && changed.connectorUuid().equals(definitions.connectorUuid()));
     }
 
-    /** Signing checks against what the formatter publishes, so a store refusal leaves only Core's copy behind. */
     private List<BaseAttribute> fetchedAndStored(UUID connectorUuid,
             ReadThroughCache.Loader<List<BaseAttribute>, ConnectorException> fetch) throws SigningEngineException {
-        List<BaseAttribute> published = fetched(connectorUuid, fetch);
+        List<BaseAttribute> published = List.copyOf(fetched(connectorUuid, fetch));
+        store(connectorUuid, published);
+        return published;
+    }
+
+    /** Signing checks against what the formatter publishes, so a store refusal leaves only Core's copy behind. */
+    private void store(UUID connectorUuid, List<BaseAttribute> published) {
         try {
             attributeEngine
                     .updateDataAttributeDefinitions(connectorUuid, AttributeOperation.WORKFLOW_FORMATTING,
@@ -110,14 +119,13 @@ public class FormattingAttributeDefinitions {
                     .warn("Core could not store the attribute definitions published by signature formatting connector {}: {}",
                             connectorUuid, e.getMessage());
         }
-        return published;
     }
 
     /** The HTTP client reports a successful answer without a body as an {@link IllegalStateException}. */
-    private static List<BaseAttribute> fetched(UUID connectorUuid,
-            ReadThroughCache.Loader<List<BaseAttribute>, ConnectorException> fetch) throws SigningEngineException {
+    private static <T> T fetched(UUID connectorUuid, ReadThroughCache.Loader<T, ConnectorException> fetch)
+            throws SigningEngineException {
         try {
-            return List.copyOf(fetch.load());
+            return fetch.load();
         } catch (ConnectorException | ValidationException | IllegalStateException e) {
             throw new SigningEngineException(SigningEngineFailure.CONNECTOR_FAULT,
                     "Signature formatting connector %s could not supply its attribute definitions: %s"

@@ -26,6 +26,7 @@ public final class ConnectorRefusalClassifier {
                     entry(ErrorCode.SIGNATURE_NOT_FOUND, SigningEngineFailure.INVALID_INPUT),
                     entry(ErrorCode.SIGNATURE_PLACEMENT_REJECTED, SigningEngineFailure.INVALID_INPUT),
                     entry(ErrorCode.DOCUMENT_SIGNING_FORBIDDEN, SigningEngineFailure.INVALID_INPUT),
+                    entry(ErrorCode.ATTRIBUTES_REJECTED, SigningEngineFailure.INVALID_INPUT),
                     entry(ErrorCode.PARAMETER_UNSUPPORTED, SigningEngineFailure.MISCONFIGURED));
 
     /** Refusals blaming Core's request body. The fault lies between Core and the connector. */

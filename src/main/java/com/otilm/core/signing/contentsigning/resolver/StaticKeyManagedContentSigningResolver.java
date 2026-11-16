@@ -57,7 +57,8 @@ public class StaticKeyManagedContentSigningResolver implements SigningProfileRes
         ApiClientConnectorInfo connector = resolveFormattingConnector(workflow.signatureFormattingConnectorUuid());
         SignatureFamilyDeclarationDto familyDeclaration = requireDeclaredFamily(workflow);
         List<BaseAttribute> formattingDefinitions = formattingAttributeDefinitions
-                .forContentSigning(connector, workflow);
+                .forContentSigning(connector, workflow)
+                .all();
         FormattingAttributesCheck
                 .requireValid(model.name(), formattingDefinitions, workflow.signatureFormattingConnectorAttributes());
         String timestampSourceProfileName = workflow.maxLevel() == SignatureLevel.SIGNED
@@ -67,8 +68,7 @@ public class StaticKeyManagedContentSigningResolver implements SigningProfileRes
         return new ResolvedManagedContentSigningProfile(model.uuid(), model.name(), model.description(),
                 model.version(), model.enabled(), model.enabledProtocols(),
                 workflow.signatureFormattingConnectorAttributes(), familyDeclaration, workflow.maxLevel(),
-                timestampSourceProfileName, workflow.certificatePurpose(), workflow.parameterPolicy(), connector,
-                resolvedScheme);
+                timestampSourceProfileName, workflow.certificatePurpose(), connector, resolvedScheme);
     }
 
     private ApiClientConnectorInfo resolveFormattingConnector(UUID connectorUuid) throws SigningEngineException {

@@ -4,17 +4,13 @@ import com.otilm.api.model.client.signing.profile.record.SigningRecordPersistenc
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
-import com.otilm.core.dao.converter.SignatureFamilyAttributeConverter;
 import com.otilm.core.dao.entity.Certificate;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.RaProfile;
 import com.otilm.core.dao.entity.TokenProfile;
 import com.otilm.core.dao.entity.UniquelyIdentifiedAndAudited;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -110,8 +106,7 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     private Connector signatureFormattingConnector;
 
     @Column(name = "signature_family")
-    @Convert(converter = SignatureFamilyAttributeConverter.class)
-    private SignatureFamily signatureFamily;
+    private String signatureFamily;
 
     @Column(name = "max_signature_level")
     @Enumerated(EnumType.STRING)
@@ -127,13 +122,9 @@ public class SigningProfileVersion extends UniquelyIdentifiedAndAudited {
     @JdbcTypeCode(SqlTypes.ARRAY)
     private List<String> requiredExtendedKeyUsageOids = new ArrayList<>();
 
-    @Column(name = "allowed_request_parameter_groups")
+    @Column(name = "allowed_request_attributes", nullable = false)
     @JdbcTypeCode(SqlTypes.ARRAY)
-    private List<String> allowedRequestParameterGroups = new ArrayList<>();
-
-    @Column(name = "default_signature_parameters", columnDefinition = "jsonb")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private SignatureParametersDto defaultSignatureParameters;
+    private List<String> allowedRequestAttributes = new ArrayList<>();
 
     @Column(name = "qualified_timestamp")
     private Boolean qualifiedTimestamp;

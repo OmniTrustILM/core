@@ -73,6 +73,20 @@ class ConnectorRefusalClassifierTest {
                             ErrorCode.PARAMETER_UNSUPPORTED.getTitle()));
         }
 
+        @Test
+        void returnsInvalidInput_whenTheConnectorRejectsTheAttributes() {
+            // given
+            var rejectedAttributes = problemRefusal(ErrorCode.ATTRIBUTES_REJECTED);
+
+            // when
+            Classification classification = ConnectorRefusalClassifier.classify(rejectedAttributes, UNCLASSIFIED);
+
+            // then
+            assertThat(classification)
+                    .isEqualTo(new Classification(SigningEngineFailure.INVALID_INPUT,
+                            ErrorCode.ATTRIBUTES_REJECTED.getTitle()));
+        }
+
         @ParameterizedTest
         @MethodSource("refusalsWithoutACode")
         void returnsMisconfigured_whenA422CarriesNoCode(Exception refusalWithoutACode) {

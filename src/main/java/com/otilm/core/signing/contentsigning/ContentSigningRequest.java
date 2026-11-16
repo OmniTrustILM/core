@@ -3,7 +3,6 @@ package com.otilm.core.signing.contentsigning;
 import com.otilm.api.model.common.enums.cryptography.DigestAlgorithm;
 import com.otilm.api.model.common.signature.DocumentTransferMode;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.DigestOnlyDocumentTransferDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.DocumentTransferDto;
 import com.otilm.api.model.connector.signatures.contentsigning.common.InlineDocumentTransferDto;
@@ -17,10 +16,9 @@ import java.util.Objects;
  * @param transferMode how every document travels to the connector: inline, or as a digest
  * @param digestAlgorithm the algorithm of every authorized digest and of every digest the batch sends
  * @param items the documents in request order
- * @param signatureParameters the effective parameters {@code SignatureParameterResolver} produced
  */
 public record ContentSigningRequest(SignatureLevel targetLevel, DocumentTransferMode transferMode,
-        DigestAlgorithm digestAlgorithm, List<ContentSigningItem> items, SignatureParametersDto signatureParameters) {
+        DigestAlgorithm digestAlgorithm, List<ContentSigningItem> items) {
 
     public ContentSigningRequest {
         Objects.requireNonNull(targetLevel, "targetLevel");
