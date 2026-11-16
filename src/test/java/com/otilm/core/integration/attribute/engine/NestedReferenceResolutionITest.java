@@ -283,7 +283,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesNamingTheEntity_whenItBelongsToAnotherConnector() throws Exception {
+        void refusesNamingTheEntity_whenItBelongsToAnotherConnector() {
             // given
             EntityInstanceReference foreignEntity = seedAnEntity(anotherConnector(), "keystore-elsewhere");
             List<RequestAttribute> attributes = List
@@ -302,7 +302,7 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
-        void refusesNamingTheLocation_whenItsEntityBelongsToAnotherConnector() throws Exception {
+        void refusesNamingTheLocation_whenItsEntityBelongsToAnotherConnector() {
             // given
             Location foreignLocation = seedALocation(seedAnEntity(anotherConnector(), "keystore-elsewhere"),
                     "store-elsewhere");
@@ -483,8 +483,9 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
                             List.of(authorityReference(unnamedReferences)));
 
             // then
-            ResourceSimpleContentData authority = (ResourceSimpleContentData) firstData(sent.getFirst().getContent());
-            assertThat(contentOf(authority, "oauthClient").getName()).isEqualTo(oauthClient.getName());
+            ResourceSimpleContentData sentAuthority = (ResourceSimpleContentData) firstData(
+                    sent.getFirst().getContent());
+            assertThat(contentOf(sentAuthority, "oauthClient").getName()).isEqualTo(oauthClient.getName());
         }
 
         @Test
