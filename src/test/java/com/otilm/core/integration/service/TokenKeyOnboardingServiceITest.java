@@ -102,6 +102,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -690,7 +691,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void listsItHeldWithoutAToken_whenTheRecordIsNotActive() throws Exception {
             // given
             var publicKey = rsaPublicKey();
-            var publicKeyRecord = recordHolding("certKey_inactive", publicKey);
+            var holderName = "certKey_inactive";
+            var publicKeyRecord = recordHolding(holderName, publicKey);
             withItemsIn(publicKeyRecord, KeyState.DEACTIVATED);
             tokenLists(aListedKeyPair().withPublicKey(publicKey).build());
 
@@ -700,7 +702,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN);
             assertThat(entry.getReason())
-                    .startsWith("Key 'certKey_inactive' holds this public key without a token instance");
+                    .startsWith("Key '%s' holds this public key without a token instance".formatted(holderName));
         }
 
         @Test
@@ -716,7 +718,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
             assertThat(entry.getInventoryKeyName()).isEqualTo(storageName);
-            assertThat(entry.getReason()).isEqualTo("Key 'signer' already holds this key pair.");
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
         }
 
         @Test
@@ -925,7 +927,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void readsTheInventoryOnce_whateverTheNumberOfKeyPairsOnThePage() throws Exception {
+        void readsTheInventoryOnce_whenThePageHoldsMoreKeyPairs() throws Exception {
             // given
             var smallPage = aKeyListing()
                     .withKeys(heldPair("certKey_0a"), aListedKeyPair().withStorageName("signer 0b").build())
@@ -1104,8 +1106,11 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             .withStringContent("x")
                             .build());
 
-            // when / then
-            assertThatThrownBy(() -> onboard(selection, undefined)).isInstanceOf(ValidationException.class);
+            // when
+            ThrowingCallable onboard = () -> onboard(selection, undefined);
+
+            // then
+            assertThatThrownBy(onboard).isInstanceOf(ValidationException.class);
             connectorMock.verifyKeyResolutionRequests(0);
             assertThat(cryptographicKeyRepository.existsByName(storageName)).isFalse();
         }
@@ -1120,8 +1125,11 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             var selection = theFirstListedPair();
             List<RequestAttribute> forbidden = List.of(departmentValue(department, "payments"));
 
-            // when / then
-            assertThatThrownBy(() -> onboard(selection, forbidden))
+            // when
+            ThrowingCallable onboard = () -> onboard(selection, forbidden);
+
+            // then
+            assertThatThrownBy(onboard)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("Not allowed to set custom attributes: department");
             connectorMock.verifyKeyResolutionRequests(0);
@@ -1252,7 +1260,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void findsTheKeyPairHeld_whenASecondObjectOnTheTokenHoldsIt() throws Exception {
             // given
             var publicKey = rsaPublicKey();
-            var publicKeyRecord = recordHolding("certKey_shared", publicKey);
+            var holderName = "certKey_shared";
+            var publicKeyRecord = recordHolding(holderName, publicKey);
             tokenLists(aListedKeyPair().withStorageName("first").withPublicKey(publicKey).build(),
                     aListedKeyPair().withStorageName("second").withPublicKey(publicKey).build());
             List<TokenKeyDto> entries = firstPage().getItems();
@@ -1266,7 +1275,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(results)
                     .extracting(TokenKeyOnboardingResultDto::isOnboarded, TokenKeyOnboardingResultDto::getKeyUuid)
                     .containsExactly(tuple(true, publicKeyRecord), tuple(false, publicKeyRecord));
-            assertThat(results.get(1).getReason()).isEqualTo("Key 'certKey_shared' already holds this key pair.");
+            assertThat(results.get(1).getReason())
+                    .isEqualTo("Key '%s' already holds this key pair.".formatted(holderName));
         }
 
         @Test
@@ -1465,7 +1475,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void skipsTheKeyPair_whenAPublicKeyInATokenHoldsIt() throws Exception {
             // given
             var publicKey = rsaPublicKey();
-            publicKeyInTheToken("certKey_in_token", publicKey);
+            var holderName = "certKey_in_token";
+            publicKeyInTheToken(holderName, publicKey);
             tokenLists(aListedKeyPair().withPublicKey(publicKey).build());
             var selection = theFirstListedPair();
 
@@ -1475,8 +1486,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(result.isOnboarded()).isFalse();
             assertThat(result.getReason())
-                    .isEqualTo("Key 'certKey_in_token' holds the same public key under a token instance, without its "
-                            + "private key.");
+                    .isEqualTo("Key '%s' holds the same public key under a token instance, without its private key."
+                            .formatted(holderName));
         }
 
         @Test
@@ -1635,7 +1646,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(result.isOnboarded()).isFalse();
-            assertThat(result.getReason()).isEqualTo("A key 'Payments signer' already exists.");
+            assertThat(result.getReason()).isEqualTo("A key '%s' already exists.".formatted(takenName));
         }
 
         @Test
@@ -1826,10 +1837,11 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             List<TokenKeyDto> entries = firstPage().getItems();
 
             // when
-            assertThatThrownBy(() -> onboardThroughTheApi(selecting(entries.get(0)), selecting(entries.get(1))))
-                    .hasMessageContaining("attribute definition refused by the test");
+            ThrowingCallable onboardThroughTheApi = () -> onboardThroughTheApi(selecting(entries.get(0)),
+                    selecting(entries.get(1)));
 
             // then
+            assertThatThrownBy(onboardThroughTheApi).hasMessageContaining("attribute definition refused by the test");
             UUID onboarded = jdbcTemplate
                     .queryForObject("SELECT uuid FROM cryptographic_key WHERE name = ?", UUID.class, storageName);
             LogRecord auditRecord = theOnboardingRecord();

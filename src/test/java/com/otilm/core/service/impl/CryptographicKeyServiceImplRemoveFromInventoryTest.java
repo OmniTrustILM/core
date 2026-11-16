@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -393,17 +394,21 @@ class CryptographicKeyServiceImplRemoveFromInventoryTest {
         @Test
         void refusesWithTheReason_whenAnItemIsCompromised() {
             // given
-            var compromised = aKeyPair("compromised-pair")
+            var compromisedName = "compromised-pair";
+            var compromised = aKeyPair(compromisedName)
                     .withItems(pairItems(KeyState.COMPROMISED, KeyState.ACTIVE))
                     .build();
             inventoryHolds(compromised);
             SecuredUUID compromisedUuid = SecuredUUID.fromUUID(compromised.uuid());
 
-            // when / then
-            assertThatThrownBy(() -> service.removeKeyFromInventory(compromisedUuid))
+            // when
+            ThrowingCallable removeKeyFromInventory = () -> service.removeKeyFromInventory(compromisedUuid);
+
+            // then
+            assertThatThrownBy(removeKeyFromInventory)
                     .isInstanceOf(ValidationException.class)
-                    .hasMessageContaining(
-                            "Key 'compromised-pair' cannot be removed from the inventory. " + COMPROMISED);
+                    .hasMessageContaining("Key '%s' cannot be removed from the inventory. %s"
+                            .formatted(compromisedName, COMPROMISED));
             verifyNoInteractions(writer, cache);
         }
     }

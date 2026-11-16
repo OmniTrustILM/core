@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -42,6 +43,7 @@ import org.mockito.InOrder;
 import org.springframework.security.access.AccessDeniedException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -287,12 +289,12 @@ class KeyImportGatesTest {
         deny(ResourceAction.UPDATE);
 
         // when
-        ValidationException refused = assertThrows(ValidationException.class,
-                () -> gates.requireImportableInto(adoptable));
+        ThrowingCallable requireImportableInto = () -> gates.requireImportableInto(adoptable);
 
         // then
-        assertThat(refused.getMessage())
-                .isEqualTo("Key 'certKey_SuperAdmin' holds the same public key, and you may not update it.");
+        assertThatThrownBy(requireImportableInto)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Key 'certKey_SuperAdmin' holds the same public key, and you may not update it.");
     }
 
     /** The refusal is the one a key held otherwise gets, so it says nothing of whose the record is. */
@@ -317,13 +319,13 @@ class KeyImportGatesTest {
         PublicKeyHolder inAToken = holder(Holding.PUBLIC_KEY_IN_TOKEN);
 
         // when
-        ValidationException refused = assertThrows(ValidationException.class,
-                () -> gates.requireImportableInto(inAToken));
+        ThrowingCallable requireImportableInto = () -> gates.requireImportableInto(inAToken);
 
         // then
-        assertThat(refused.getMessage())
-                .isEqualTo("Key 'certKey_SuperAdmin' holds the same public key under a token instance, without its "
-                        + "private key.");
+        assertThatThrownBy(requireImportableInto)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Key 'certKey_SuperAdmin' holds the same public key under a token instance, "
+                        + "without its private key.");
         verify(authorizationEnforcer, never())
                 .enforce(eq(Resource.CRYPTOGRAPHIC_KEY), eq(ResourceAction.UPDATE), any(SecuredUUID.class));
     }

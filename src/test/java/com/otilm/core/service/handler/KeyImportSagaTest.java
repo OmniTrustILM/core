@@ -55,6 +55,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.exception.ConstraintViolationException;
 import org.hibernate.exception.ConstraintViolationException.ConstraintKind;
 import org.junit.jupiter.api.BeforeEach;
@@ -341,8 +342,10 @@ class KeyImportSagaTest {
         when(cryptographicKeyRepository.existsByName("imported key")).thenReturn(true);
 
         // when
+        ThrowingCallable importKey = () -> saga.importKey(terms, RETRY, key, metadata);
+
         // then
-        assertThatThrownBy(() -> saga.importKey(terms, RETRY, key, metadata))
+        assertThatThrownBy(importKey)
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("A key 'imported key' already exists.");
         verify(keyImportWriter, never()).open(any(), any(), any(), any());
