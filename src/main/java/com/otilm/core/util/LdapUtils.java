@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Hashtable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.naming.CompositeName;
 import javax.naming.Context;
 import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
@@ -63,8 +64,8 @@ public class LdapUtils {
     }
 
     /**
-     * Reads the attribute the LDAP URL names. A timeout of zero or less waits as long as the network allows; the read
-     * timeout bounds the wait for each LDAP response.
+     * Reads the first attribute the LDAP URL names. A timeout of zero or less waits as long as the network allows; the
+     * read timeout bounds the wait for each LDAP response.
      */
     public static byte[] downloadFromLdap(String ldapUrl, int connectTimeoutMillis, int readTimeoutMillis)
             throws NamingException {
@@ -89,7 +90,8 @@ public class LdapUtils {
 
         LdapContext ctx = new InitialLdapContext(env, null);
         try {
-            NamingEnumeration<SearchResult> answer = ctx.search(request.baseDn(), request.filter(), ctls);
+            NamingEnumeration<SearchResult> answer = ctx
+                    .search(new CompositeName().add(request.baseDn()), request.filter(), ctls);
             try {
                 if (!answer.hasMore()) {
                     throw new NameNotFoundException("No data found for attribute in LDAP URL: " + ldapUrl);
@@ -115,7 +117,7 @@ public class LdapUtils {
             throw new IllegalArgumentException("No host provided in LDAP URL: " + ldapUrl);
         }
         String[] query = uri.getRawQuery() == null ? new String[0] : uri.getRawQuery().split("\\?", -1);
-        String attributeName = queryComponent(query, 0, "");
+        String attributeName = queryComponent(query, 0, "").split(",", -1)[0];
         if (attributeName.isBlank()) {
             throw new IllegalArgumentException("Missing attribute in LDAP URL: " + ldapUrl);
         }

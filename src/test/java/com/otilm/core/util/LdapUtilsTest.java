@@ -9,7 +9,9 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
+import javax.naming.CompositeName;
 import javax.naming.Context;
+import javax.naming.Name;
 import javax.naming.NamingException;
 import javax.naming.directory.BasicAttribute;
 import javax.naming.directory.BasicAttributes;
@@ -208,7 +210,7 @@ public class LdapUtilsTest {
         try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
                 (context, construction) -> {
                     environments.add((Hashtable<?, ?>) construction.arguments().getFirst());
-                    when(context.search(anyString(), anyString(), any(SearchControls.class))).thenReturn(results);
+                    when(context.search(any(Name.class), anyString(), any(SearchControls.class))).thenReturn(results);
                 })) {
             // when
             byte[] downloaded = LdapUtils.downloadFromLdap(ldapUrl, 400, 700);
@@ -223,11 +225,69 @@ public class LdapUtilsTest {
             assertThat(environment.get("com.sun.jndi.ldap.read.timeout")).isEqualTo("700");
             var controls = ArgumentCaptor.forClass(SearchControls.class);
             verify(contexts.constructed().getFirst())
-                    .search(eq("CN=CA+OU=PKI Team,DC=example"), eq("(cn=A+B?)"), controls.capture());
+                    .search(eq(new CompositeName().add("CN=CA+OU=PKI Team,DC=example")), eq("(cn=A+B?)"),
+                            controls.capture());
             assertThat(controls.getValue().getReturningAttributes()).containsExactly("cACertificate;binary");
             assertThat(controls.getValue().getSearchScope()).isEqualTo(SearchControls.ONELEVEL_SCOPE);
             assertThat(results.isClosed()).isTrue();
             verify(contexts.constructed().getFirst()).close();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|',
+            value = {
+                    "CN=CA%2FWest,DC=example|CN=CA/West,DC=example",
+                    "CN=CA%5C%5CWest,DC=example|CN=CA\\\\West,DC=example"})
+    void preservesDnAsOneNameComponent_whenUrlContainsEncodedNameSeparators(String encodedDn, String expectedDn)
+            throws Exception {
+        // given
+        byte[] certificateBytes = {1, 2, 3};
+        SearchResults results = searchResults(new BasicAttributes("cACertificate;binary", certificateBytes, true));
+        String ldapUrl = "ldap://ldap.example.com/" + encodedDn + "?cACertificate;binary";
+        try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
+                (context, construction) -> when(context.search(any(Name.class), anyString(), any(SearchControls.class)))
+                        .thenReturn(results))) {
+            // when
+            byte[] downloaded = LdapUtils.downloadFromLdap(ldapUrl);
+
+            // then
+            assertThat(downloaded).isEqualTo(certificateBytes);
+            var names = ArgumentCaptor.forClass(Name.class);
+            verify(contexts.constructed().getFirst())
+                    .search(names.capture(), eq("(objectclass=*)"), any(SearchControls.class));
+            Name searchBase = names.getValue();
+            assertThat(searchBase).isInstanceOf(CompositeName.class);
+            assertThat(searchBase.size()).isEqualTo(1);
+            assertThat(searchBase.get(0)).isEqualTo(expectedDn);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|',
+            value = {
+                    "cACertificate,userCertificate;binary|cACertificate",
+                    "cACertificate%3Bbinary,userCertificate;binary|cACertificate;binary"})
+    void returnsFirstAttribute_whenUrlListsSeveralAttributes(String attributeList, String firstAttribute)
+            throws Exception {
+        // given
+        byte[] firstCertificateBytes = {1, 2, 3};
+        var attributes = new BasicAttributes(firstAttribute, firstCertificateBytes, true);
+        attributes.put("userCertificate;binary", new byte[]{4, 5, 6});
+        SearchResults results = searchResults(attributes);
+        String ldapUrl = "ldap://ldap.example.com/CN=CA?" + attributeList;
+        try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
+                (context, construction) -> when(context.search(any(Name.class), anyString(), any(SearchControls.class)))
+                        .thenReturn(results))) {
+            // when
+            byte[] downloaded = LdapUtils.downloadFromLdap(ldapUrl);
+
+            // then
+            assertThat(downloaded).isEqualTo(firstCertificateBytes);
+            var controls = ArgumentCaptor.forClass(SearchControls.class);
+            verify(contexts.constructed().getFirst())
+                    .search(eq(new CompositeName().add("CN=CA")), eq("(objectclass=*)"), controls.capture());
+            assertThat(controls.getValue().getReturningAttributes()).containsExactly(firstAttribute);
         }
     }
 
@@ -240,7 +300,7 @@ public class LdapUtilsTest {
         SearchResults results = searchResults(new BasicAttributes("cACertificate", certificateBytes, true));
         String ldapUrl = "ldap://ldap.example.com/CN=CA?cACertificate" + (scope.isEmpty() ? "" : "?" + scope);
         try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
-                (context, construction) -> when(context.search(anyString(), anyString(), any(SearchControls.class)))
+                (context, construction) -> when(context.search(any(Name.class), anyString(), any(SearchControls.class)))
                         .thenReturn(results))) {
             // when
             byte[] downloaded = LdapUtils.downloadFromLdap(ldapUrl);
@@ -248,7 +308,8 @@ public class LdapUtilsTest {
             // then
             assertThat(downloaded).isEqualTo(certificateBytes);
             var controls = ArgumentCaptor.forClass(SearchControls.class);
-            verify(contexts.constructed().getFirst()).search(eq("CN=CA"), eq("(objectclass=*)"), controls.capture());
+            verify(contexts.constructed().getFirst())
+                    .search(eq(new CompositeName().add("CN=CA")), eq("(objectclass=*)"), controls.capture());
             assertThat(controls.getValue().getSearchScope()).isEqualTo(expectedScope);
             assertThat(controls.getValue().getReturningAttributes()).containsExactly("cACertificate");
         }
@@ -268,7 +329,7 @@ public class LdapUtilsTest {
         }
         SearchResults results = searchResults(attributes);
         try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
-                (context, construction) -> when(context.search(anyString(), anyString(), any(SearchControls.class)))
+                (context, construction) -> when(context.search(any(Name.class), anyString(), any(SearchControls.class)))
                         .thenReturn(results))) {
             // when
             ThrowingCallable download = () -> LdapUtils.downloadFromLdap("ldap://ldap.example.com/CN=CA?cACertificate");
@@ -285,7 +346,7 @@ public class LdapUtilsTest {
         // given
         SearchResults results = searchResults();
         try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
-                (context, construction) -> when(context.search(anyString(), anyString(), any(SearchControls.class)))
+                (context, construction) -> when(context.search(any(Name.class), anyString(), any(SearchControls.class)))
                         .thenReturn(results))) {
             // when
             ThrowingCallable download = () -> LdapUtils.downloadFromLdap("ldap://ldap.example.com/CN=CA?cACertificate");
@@ -302,7 +363,7 @@ public class LdapUtilsTest {
         // given
         var searchFailure = new NamingException("directory unavailable");
         try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
-                (context, construction) -> when(context.search(anyString(), anyString(), any(SearchControls.class)))
+                (context, construction) -> when(context.search(any(Name.class), anyString(), any(SearchControls.class)))
                         .thenThrow(searchFailure))) {
             // when
             ThrowingCallable download = () -> LdapUtils.downloadFromLdap("ldap://ldap.example.com/CN=CA?cACertificate");

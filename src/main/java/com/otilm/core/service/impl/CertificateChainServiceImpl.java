@@ -51,6 +51,8 @@ public class CertificateChainServiceImpl implements CertificateChainService {
     private static final Logger logger = LoggerFactory.getLogger(CertificateChainServiceImpl.class);
 
     private static final int MAX_AIA_RESPONSE_BYTES = 1024 * 1024;
+    private static final int MAX_AIA_URLS_PER_CERTIFICATE = 5;
+    private static final int MAX_AIA_DOWNLOADS = 20;
 
     @Value("${certificate.chain.max-depth:20}")
     private int certificateChainMaxDepth;
@@ -86,50 +88,39 @@ public class CertificateChainServiceImpl implements CertificateChainService {
 
     @Override
     public void updateCertificateChain(Certificate certificate, X509Certificate subCert) throws CertificateException {
-        if (isSelfSigned(subCert, certificate.getUuid())) {
-            return;
+        Traversal traversal = new Traversal(certificateChainMaxDepth);
+        while (traversal.remainingDepth > 0 && traversal.visited.add(subCert)
+                && !isSelfSigned(subCert, certificate.getUuid())) {
+            Issuer issuer = findInventoryIssuer(certificate, subCert, traversal.visited);
+            if (issuer == null) {
+                issuer = importAiaIssuer(certificate, subCert, traversal);
+            }
+            if (issuer == null) {
+                return;
+            }
+            Certificate nextInChain = issuer.entity();
+            X509CertificateEntity.from(certificate).setIssuerSerialNumber(nextInChain.getSerialNumber());
+            certificate.setIssuerCertificateUuid(nextInChain.getUuid());
+            chainWriter
+                    .applyIssuerReference(certificate.getUuid(), nextInChain.getSerialNumber(), nextInChain.getUuid());
+            --traversal.remainingDepth;
+            if (nextInChain.getIssuerCertificateUuid() != null) {
+                return;
+            }
+            certificate = nextInChain;
+            subCert = issuer.x509();
         }
-        boolean issuerInInventory = false;
+    }
+
+    private Issuer findInventoryIssuer(Certificate certificate, X509Certificate subCert, Set<X509Certificate> visited) {
         for (Certificate issuer : x509CertificateRepository
                 .findBySubjectDnNormalized(X509CertificateEntity.from(certificate).getIssuerDnNormalized())) {
             X509Certificate issCert = parseOrNull(issuer.getCertificateContent().getContent());
-            if (issCert != null && verifySignature(subCert, issCert)) {
-                X509CertificateEntity.from(certificate).setIssuerSerialNumber(issuer.getSerialNumber());
-                certificate.setIssuerCertificateUuid(issuer.getUuid());
-                chainWriter.applyIssuerReference(certificate.getUuid(), issuer.getSerialNumber(), issuer.getUuid());
-                issuerInInventory = true;
-                if (issuer.getIssuerCertificateUuid() == null) {
-                    updateCertificateChain(issuer);
-                }
-                break;
+            if (issCert != null && !visited.contains(issCert) && verifySignature(subCert, issCert)) {
+                return new Issuer(issuer, issCert);
             }
         }
-        if (!issuerInInventory) {
-            int downloadedCertificates = 0;
-            List<String> aiaChain = downloadChainFromAia(certificate, subCert);
-            Certificate previousCertificate = certificate;
-            for (String chainCertificate : aiaChain) {
-                Certificate nextInChain;
-                try {
-                    nextInChain = certificateService.createCertificateAtomic(chainCertificate, false);
-                    assert nextInChain != null;
-                    previousCertificate.setIssuerCertificateUuid(nextInChain.getUuid());
-                    X509CertificateEntity
-                            .from(previousCertificate)
-                            .setIssuerSerialNumber(nextInChain.getSerialNumber());
-                    chainWriter
-                            .applyIssuerReference(previousCertificate.getUuid(), nextInChain.getSerialNumber(),
-                                    nextInChain.getUuid());
-                    previousCertificate = nextInChain;
-                    ++downloadedCertificates;
-                } catch (NoSuchAlgorithmException | CertificateException | NotFoundException e) {
-                    break;
-                }
-            }
-            if (downloadedCertificates > 0) {
-                updateCertificateChain(previousCertificate);
-            }
-        }
+        return null;
     }
 
     @Override
@@ -245,41 +236,47 @@ public class CertificateChainServiceImpl implements CertificateChainService {
                         .replace("-----END CERTIFICATE-----", ""));
     }
 
-    private List<String> downloadChainFromAia(Certificate certificate, X509Certificate certX509) {
-        List<String> chainCertificates = new ArrayList<>();
-        List<X509Certificate> candidates = new ArrayList<>();
-        Set<X509Certificate> visited = new HashSet<>();
-        Set<String> downloadedUrls = new HashSet<>();
-        visited.add(certX509);
+    private Issuer importAiaIssuer(Certificate certificate, X509Certificate certX509, Traversal traversal) {
+        X509Certificate issuer;
+        String pem;
         try {
-            while (chainCertificates.size() < certificateChainMaxDepth && !verifySignature(certX509, certX509)) {
-                X509Certificate issuer = findIssuer(certX509, candidates, visited);
-                if (issuer == null) {
-                    issuer = downloadIssuer(certX509, candidates, visited, downloadedUrls);
-                }
-                if (issuer == null) {
-                    break;
-                }
-                chainCertificates.add(toPem(issuer));
-                visited.add(issuer);
-                certX509 = issuer;
+            issuer = findIssuer(certX509, traversal.candidates, traversal.visited);
+            if (issuer == null) {
+                issuer = downloadIssuer(certX509, traversal);
             }
+            if (issuer == null) {
+                return null;
+            }
+            pem = toPem(issuer);
         } catch (Exception e) {
             logger
                     .debug("Unable to get the chain of certificate {} from Authority Information Access",
                             certificate.getUuid(), e);
+            return null;
         }
-        return chainCertificates;
+        try {
+            Certificate entity = certificateService.createCertificateAtomic(pem, false);
+            assert entity != null;
+            return new Issuer(entity, issuer);
+        } catch (NoSuchAlgorithmException | CertificateException | NotFoundException e) {
+            return null;
+        }
     }
 
-    private X509Certificate downloadIssuer(X509Certificate certificate, List<X509Certificate> candidates,
-            Set<X509Certificate> visited, Set<String> downloadedUrls) throws IOException {
+    private X509Certificate downloadIssuer(X509Certificate certificate, Traversal traversal) throws IOException {
+        int attemptedLocations = 0;
         for (String chainUrl : OcspUtil.getCaIssuerUrlsFromAia(certificate)) {
-            if (!downloadedUrls.add(chainUrl)) {
+            if (attemptedLocations >= MAX_AIA_URLS_PER_CERTIFICATE || traversal.remainingDownloads == 0) {
+                break;
+            }
+            if (!traversal.attemptedUrls.add(chainUrl)) {
                 continue;
             }
-            candidates.addAll(downloadCertificates(chainUrl));
-            X509Certificate issuer = findIssuer(certificate, candidates, visited);
+            ++attemptedLocations;
+            --traversal.remainingDownloads;
+            List<X509Certificate> downloaded = downloadCertificates(chainUrl);
+            traversal.candidates.addAll(downloaded);
+            X509Certificate issuer = findIssuer(certificate, downloaded, traversal.visited);
             if (issuer != null) {
                 logger
                         .info("Certificate {} downloaded from Authority Information Access extension URL {}",
@@ -305,9 +302,6 @@ public class CertificateChainServiceImpl implements CertificateChainService {
         try {
             if (chainUrl.startsWith("ldap://") || chainUrl.startsWith("ldaps://")) {
                 byte[] certificate = LdapUtils.downloadFromLdap(chainUrl, 1000, 1000);
-                if (certificate == null) {
-                    return List.of();
-                }
                 try (InputStream in = new ByteArrayInputStream(certificate)) {
                     return readCertificates(in);
                 }
@@ -321,7 +315,7 @@ public class CertificateChainServiceImpl implements CertificateChainService {
                 }
             }
         } catch (Exception e) {
-            logger.error("Failed to download certificate chain from {}", chainUrl, e);
+            logger.debug("Failed to download certificate chain from {}", chainUrl, e);
         }
         return List.of();
     }
@@ -344,6 +338,21 @@ public class CertificateChainServiceImpl implements CertificateChainService {
             pemWriter.writeObject(certificate);
             pemWriter.flush();
             return writer.toString();
+        }
+    }
+
+    private record Issuer(Certificate entity, X509Certificate x509) {
+    }
+
+    private static final class Traversal {
+        private int remainingDepth;
+        private int remainingDownloads = MAX_AIA_DOWNLOADS;
+        private final Set<X509Certificate> visited = new HashSet<>();
+        private final Set<String> attemptedUrls = new HashSet<>();
+        private final List<X509Certificate> candidates = new ArrayList<>();
+
+        private Traversal(int remainingDepth) {
+            this.remainingDepth = remainingDepth;
         }
     }
 }

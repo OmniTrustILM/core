@@ -16,6 +16,7 @@ import java.net.Socket;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Random;
+import javax.naming.Name;
 import javax.naming.directory.BasicAttributes;
 import javax.naming.directory.SearchControls;
 import javax.naming.ldap.InitialLdapContext;
@@ -88,7 +89,7 @@ class CrlDownloaderTest {
         SearchResults results = searchResults(new BasicAttributes("certificateRevocationList;binary", crlBytes, true));
         String ldapUrl = "ldap://ldap.example.com/CN=LDAP%20CRL%20CA?certificateRevocationList;binary?base";
         try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
-                (context, construction) -> when(context.search(anyString(), anyString(), any(SearchControls.class)))
+                (context, construction) -> when(context.search(any(Name.class), anyString(), any(SearchControls.class)))
                         .thenReturn(results))) {
             // when
             byte[] downloaded = downloader(DOWNLOAD_TIMEOUT).download(ldapUrl);

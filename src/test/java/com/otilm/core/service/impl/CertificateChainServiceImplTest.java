@@ -16,11 +16,14 @@ import com.otilm.core.util.PkiFixtures.RevocationSources;
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.UUID;
+import javax.naming.Name;
 import javax.naming.directory.BasicAttributes;
 import javax.naming.directory.SearchControls;
 import javax.naming.ldap.InitialLdapContext;
@@ -165,6 +168,61 @@ class CertificateChainServiceImplTest {
     }
 
     @Test
+    void preservesExistingIssuerLink_whenImportedCertificateAlreadyHasAChain() throws Exception {
+        // given
+        X509CertificateEntity existingIntermediate = createEntity(intermediate);
+        UUID existingIssuerUuid = UUID.randomUUID();
+        existingIntermediate.setIssuerCertificateUuid(existingIssuerUuid);
+        existingIntermediate.setIssuerSerialNumber("existing-issuer");
+        when(certificateService.createCertificateAtomic(anyString(), eq(false))).thenReturn(existingIntermediate);
+        CMSSignedDataGenerator bundle = new CMSSignedDataGenerator();
+        bundle.addCertificate(new JcaX509CertificateHolder(root));
+        bundle.addCertificate(new JcaX509CertificateHolder(intermediate));
+        stubResponse("/bundle", bundle.generate(new CMSAbsentContent()).getEncoded(), "application/pkcs7-mime");
+        X509CertificateEntity leaf = createLeafCertificate(intermediateCa, buildUrl("/bundle"));
+
+        // when
+        service.updateCertificateChain(leaf);
+
+        // then
+        assertLink(leaf, existingIntermediate);
+        assertThat(existingIntermediate.getIssuerCertificateUuid()).isEqualTo(existingIssuerUuid);
+        assertThat(existingIntermediate.getIssuerSerialNumber()).isEqualTo("existing-issuer");
+        verify(certificateService).createCertificateAtomic(anyString(), eq(false));
+        verify(chainWriter)
+                .applyIssuerReference(leaf.getUuid(), existingIntermediate.getSerialNumber(),
+                        existingIntermediate.getUuid());
+        verifyNoMoreInteractions(chainWriter);
+        assertRequested("/bundle");
+    }
+
+    @Test
+    void retainsLinkedPrefix_whenNextIssuerCannotBeImported() throws Exception {
+        // given
+        X509CertificateEntity importedIntermediate = createEntity(intermediate);
+        when(certificateService.createCertificateAtomic(anyString(), eq(false)))
+                .thenReturn(importedIntermediate)
+                .thenThrow(new CertificateException("Unable to import issuer"));
+        CMSSignedDataGenerator bundle = new CMSSignedDataGenerator();
+        bundle.addCertificate(new JcaX509CertificateHolder(root));
+        bundle.addCertificate(new JcaX509CertificateHolder(intermediate));
+        stubResponse("/bundle", bundle.generate(new CMSAbsentContent()).getEncoded(), "application/pkcs7-mime");
+        X509CertificateEntity leaf = createLeafCertificate(intermediateCa, buildUrl("/bundle"));
+
+        // when
+        service.updateCertificateChain(leaf);
+
+        // then
+        assertLink(leaf, importedIntermediate);
+        assertThat(importedIntermediate.getIssuerCertificateUuid()).isNull();
+        verify(chainWriter)
+                .applyIssuerReference(leaf.getUuid(), importedIntermediate.getSerialNumber(),
+                        importedIntermediate.getUuid());
+        verifyNoMoreInteractions(chainWriter);
+        assertRequested("/bundle");
+    }
+
+    @Test
     void linksIssuer_whenFirstAiaLocationReturnsAnHttpFailure() throws Exception {
         // given
         stubCertificateImports();
@@ -242,8 +300,8 @@ class CertificateChainServiceImplTest {
         // given
         stubCertificateImports();
         stubResponse("/issuer", root.getEncoded(), "application/pkix-cert");
-        X509CertificateEntity leaf = createLeafCertificate(rootCa, "ldap:///CN=AIA%20Root?cACertificate;binary",
-                buildUrl("/issuer"));
+        String hostlessLdapUrl = "ldap:///CN=AIA%20Root?cACertificate;binary";
+        X509CertificateEntity leaf = createLeafCertificate(rootCa, hostlessLdapUrl, buildUrl("/issuer"));
 
         // when
         service.updateCertificateChain(leaf);
@@ -258,16 +316,22 @@ class CertificateChainServiceImplTest {
         // given
         stubCertificateImports();
         SearchResults results = searchResults(new BasicAttributes("cACertificate;binary", root.getEncoded(), true));
-        X509CertificateEntity leaf = createLeafCertificate(rootCa,
-                "ldap://ldap.example.com/CN=AIA%20Root?cACertificate;binary?base");
+        String ldapIssuerUrl = "ldap://ldap.example.com/CN=AIA%20Root?cACertificate;binary?base";
+        X509CertificateEntity leaf = createLeafCertificate(rootCa, ldapIssuerUrl);
+        List<Hashtable<?, ?>> environments = new ArrayList<>();
         try (MockedConstruction<InitialLdapContext> contexts = mockConstruction(InitialLdapContext.class,
-                (context, construction) -> when(context.search(anyString(), anyString(), any(SearchControls.class)))
-                        .thenReturn(results))) {
+                (context, construction) -> {
+                    environments.add((Hashtable<?, ?>) construction.arguments().getFirst());
+                    when(context.search(any(Name.class), anyString(), any(SearchControls.class))).thenReturn(results);
+                })) {
             // when
             service.updateCertificateChain(leaf);
 
             // then
             assertRootLink(leaf);
+            assertThat(environments).hasSize(1);
+            assertThat(environments.getFirst().get("com.sun.jndi.ldap.connect.timeout")).isEqualTo("1000");
+            assertThat(environments.getFirst().get("com.sun.jndi.ldap.read.timeout")).isEqualTo("1000");
             assertThat(results.isClosed()).isTrue();
             verify(contexts.constructed().getFirst()).close();
         }
@@ -276,7 +340,7 @@ class CertificateChainServiceImplTest {
     @Test
     void leavesCertificateUnlinked_whenSignedLeafHasMalformedAia() throws Exception {
         // given
-        X509Certificate leafWithMalformedAia = withMalformedAia(PkiFixtures.clientCertificate(rootCa), rootCa);
+        X509Certificate leafWithMalformedAia = reissueWithMalformedAia(PkiFixtures.clientCertificate(rootCa), rootCa);
         X509CertificateEntity leaf = createEntity(leafWithMalformedAia);
 
         // when
@@ -293,7 +357,7 @@ class CertificateChainServiceImplTest {
     void retainsVerifiedIssuer_whenIntermediateHasMalformedAia() throws Exception {
         // given
         stubCertificateImports();
-        X509Certificate malformedIntermediate = withMalformedAia(intermediate, rootCa);
+        X509Certificate malformedIntermediate = reissueWithMalformedAia(intermediate, rootCa);
         var malformedIntermediateCa = new Ca(intermediateCa.keyPair(), malformedIntermediate);
         stubResponse("/intermediate", malformedIntermediate.getEncoded(), "application/pkix-cert");
         X509CertificateEntity leaf = createLeafCertificate(malformedIntermediateCa, buildUrl("/intermediate"));
@@ -389,8 +453,9 @@ class CertificateChainServiceImplTest {
     }
 
     @Test
-    void returnsEachIssuerOnce_whenDownloadedCertificatesFormACycle() throws Exception {
+    void linksEachIssuerOnce_whenDownloadedCertificatesFormACycle() throws Exception {
         // given
+        stubCertificateImports();
         String firstIssuerUrl = buildUrl("/first-issuer");
         String secondIssuerUrl = buildUrl("/second-issuer");
         Ca secondCa = PkiFixtures
@@ -403,19 +468,24 @@ class CertificateChainServiceImplTest {
         stubResponse("/second-issuer", secondCa.certificate().getEncoded(), "application/pkix-cert");
 
         // when
-        List<String> downloadedChain = ReflectionTestUtils
-                .invokeMethod(service, "downloadChainFromAia", leaf, leafCertificate);
+        service.updateCertificateChain(leaf);
 
         // then
-        assertThat(downloadedChain).hasSize(2);
-        assertThat(CertificateUtil.parseCertificate(downloadedChain.get(0))).isEqualTo(firstCa.certificate());
-        assertThat(CertificateUtil.parseCertificate(downloadedChain.get(1))).isEqualTo(secondCa.certificate());
+        assertThat(imported).hasSize(2);
+        assertThat(CertificateUtil.parseCertificate(imported.get(0).getCertificateContent().getContent()))
+                .isEqualTo(firstCa.certificate());
+        assertThat(CertificateUtil.parseCertificate(imported.get(1).getCertificateContent().getContent()))
+                .isEqualTo(secondCa.certificate());
+        assertLink(leaf, imported.get(0));
+        assertLink(imported.get(0), imported.get(1));
+        assertThat(imported.get(1).getIssuerCertificateUuid()).isNull();
         assertRequested("/first-issuer", "/second-issuer");
     }
 
     @Test
-    void returnsLimitedChain_whenBundleExceedsDownloadDepth() throws Exception {
+    void linksLimitedChain_whenBundleExceedsConfiguredDepth() throws Exception {
         // given
+        stubCertificateImports();
         int maximumDownloadDepth = 1;
         ReflectionTestUtils.setField(service, "certificateChainMaxDepth", maximumDownloadDepth);
         CMSSignedDataGenerator bundle = new CMSSignedDataGenerator();
@@ -427,12 +497,14 @@ class CertificateChainServiceImplTest {
         X509CertificateEntity leaf = createEntity(leafCertificate);
 
         // when
-        List<String> downloadedChain = ReflectionTestUtils
-                .invokeMethod(service, "downloadChainFromAia", leaf, leafCertificate);
+        service.updateCertificateChain(leaf);
 
         // then
-        assertThat(downloadedChain).hasSize(maximumDownloadDepth);
-        assertThat(CertificateUtil.parseCertificate(downloadedChain.getFirst())).isEqualTo(intermediate);
+        assertThat(imported).hasSize(maximumDownloadDepth);
+        assertThat(CertificateUtil.parseCertificate(imported.getFirst().getCertificateContent().getContent()))
+                .isEqualTo(intermediate);
+        assertLink(leaf, imported.getFirst());
+        assertThat(imported.getFirst().getIssuerCertificateUuid()).isNull();
         assertRequested("/bundle");
     }
 
@@ -455,7 +527,7 @@ class CertificateChainServiceImplTest {
         return new Ca(subject.keyPair(), crossSignedCertificate);
     }
 
-    private static X509Certificate withMalformedAia(X509Certificate certificate, Ca issuer) throws Exception {
+    private static X509Certificate reissueWithMalformedAia(X509Certificate certificate, Ca issuer) throws Exception {
         var builder = new JcaX509v3CertificateBuilder(issuer.certificate(), certificate.getSerialNumber(),
                 certificate.getNotBefore(), certificate.getNotAfter(),
                 new X500Name(certificate.getSubjectX500Principal().getName()), certificate.getPublicKey());
