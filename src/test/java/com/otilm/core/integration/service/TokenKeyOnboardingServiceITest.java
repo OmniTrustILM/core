@@ -102,6 +102,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -533,8 +534,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         attributeEngine.updateMetadataAttributeDefinition(definition, profileModel().tokenInstance().connectorUuid());
     }
 
-    private static ListedKeyPairV2Dto pairWithPrivateKeyMetadata(String label, MetadataAttributeV3 metadata) {
-        ListedKeyPairV2Dto pair = aListedKeyPair().withLabel(label).build();
+    private static ListedKeyPairV2Dto pairWithPrivateKeyMetadata(String storageName, MetadataAttributeV3 metadata) {
+        ListedKeyPairV2Dto pair = aListedKeyPair().withStorageName(storageName).build();
         pair.getPrivateKeyData().getKeyData().setMetadata(List.of(metadata));
         return pair;
     }
@@ -561,53 +562,55 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void describesTheKeyPairUnderItsLabel_whenTheInventoryLacksIt() throws Exception {
+        void describesTheKeyPairUnderItsStorageName_whenTheInventoryLacksIt() throws Exception {
             // given
             var publicKey = rsaPublicKey();
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).withPublicKey(publicKey).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).withPublicKey(publicKey).build());
 
             // when
             TokenKeyDto entry = firstListedEntry();
 
             // then
-            assertThat(entry.getSuggestedName()).isEqualTo(label);
+            assertThat(entry.getStorageName()).isEqualTo(storageName);
+            assertThat(entry.getSuggestedName()).isEqualTo(storageName);
             assertThat(entry.getFingerprint()).isEqualTo(fingerprintOf(publicKey));
             assertThat(entry.getKeyAlgorithm()).isEqualTo(KeyAlgorithm.RSA);
             assertThat(entry.getReason()).isNull();
         }
 
         @Test
-        void suggestsADistinctNameForEachKeyPair_whenTwoShareALabel() throws Exception {
+        void suggestsADistinctNameForEachKeyPair_whenTwoShareAStorageName() throws Exception {
             // given
-            var label = "signer";
+            var storageName = "signer";
             var secondPublicKey = rsaPublicKey();
-            tokenLists(aListedKeyPair().withLabel(label).build(),
-                    aListedKeyPair().withLabel(label).withPublicKey(secondPublicKey).build());
+            tokenLists(aListedKeyPair().withStorageName(storageName).build(),
+                    aListedKeyPair().withStorageName(storageName).withPublicKey(secondPublicKey).build());
 
             // when
             List<TokenKeyDto> entries = firstPage().getItems();
 
             // then
-            String secondName = "%s (%s)".formatted(label, fingerprintOf(secondPublicKey).substring(0, 8));
-            assertThat(entries).extracting(TokenKeyDto::getSuggestedName).containsExactly(label, secondName);
+            String secondName = "%s (%s)".formatted(storageName, fingerprintOf(secondPublicKey).substring(0, 8));
+            assertThat(entries).extracting(TokenKeyDto::getSuggestedName).containsExactly(storageName, secondName);
         }
 
         @Test
-        void suggestsALongerFingerprintPrefix_whenKeysHaveTheLabelAndItsShortPrefix() throws Exception {
+        void suggestsALongerFingerprintPrefix_whenKeysHaveTheStorageNameAndItsShortPrefix() throws Exception {
             // given
-            var label = "signer";
+            var storageName = "signer";
             var publicKey = rsaPublicKey();
             String fingerprint = fingerprintOf(publicKey);
-            recordHolding(label, rsaPublicKey());
-            recordHolding("%s (%s)".formatted(label, fingerprint.substring(0, 8)), rsaPublicKey());
-            tokenLists(aListedKeyPair().withLabel(label).withPublicKey(publicKey).build());
+            recordHolding(storageName, rsaPublicKey());
+            recordHolding("%s (%s)".formatted(storageName, fingerprint.substring(0, 8)), rsaPublicKey());
+            tokenLists(aListedKeyPair().withStorageName(storageName).withPublicKey(publicKey).build());
 
             // when
             TokenKeyDto entry = firstListedEntry();
 
             // then
-            assertThat(entry.getSuggestedName()).isEqualTo("%s (%s)".formatted(label, fingerprint.substring(0, 9)));
+            assertThat(entry.getSuggestedName())
+                    .isEqualTo("%s (%s)".formatted(storageName, fingerprint.substring(0, 9)));
         }
 
         @Test
@@ -689,7 +692,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void listsItHeldWithoutAToken_whenTheRecordIsNotActive() throws Exception {
             // given
             var publicKey = rsaPublicKey();
-            var publicKeyRecord = recordHolding("certKey_inactive", publicKey);
+            var holderName = "certKey_inactive";
+            var publicKeyRecord = recordHolding(holderName, publicKey);
             withItemsIn(publicKeyRecord, KeyState.DEACTIVATED);
             tokenLists(aListedKeyPair().withPublicKey(publicKey).build());
 
@@ -699,14 +703,14 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY_WITHOUT_TOKEN);
             assertThat(entry.getReason())
-                    .startsWith("Key certKey_inactive holds this public key without a token instance");
+                    .startsWith("Key '%s' holds this public key without a token instance".formatted(holderName));
         }
 
         @Test
         void namesTheKeyHoldingThePair_whenTheInventoryHoldsIt() throws Exception {
             // given
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).build());
             onboardTheFirstListedPair();
 
             // when
@@ -714,8 +718,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(entry.getStatus()).isEqualTo(TokenKeyStatus.IN_INVENTORY);
-            assertThat(entry.getInventoryKeyName()).isEqualTo(label);
-            assertThat(entry.getReason()).isEqualTo("Key signer already holds this key pair.");
+            assertThat(entry.getInventoryKeyName()).isEqualTo(storageName);
+            assertThat(entry.getReason()).isEqualTo("Key '%s' already holds this key pair.".formatted(storageName));
         }
 
         @Test
@@ -792,17 +796,19 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         @Test
         void describesItsKeyDataAlone_whenAKeyIsUnusable() throws Exception {
             // given
-            var label = "legacy";
+            var storageName = "legacy";
             connectorMock
-                    .stubKeyListing(aKeyListing().withUnusableKeys(anUnusableKey().withLabel(label).build()).build());
+                    .stubKeyListing(aKeyListing()
+                            .withUnusableKeys(anUnusableKey().withStorageName(storageName).build())
+                            .build());
 
             // when
             TokenKeyDto entry = firstListedEntry();
 
             // then
             assertThat(entry)
-                    .extracting(TokenKeyDto::getLabel, TokenKeyDto::getKeyAlgorithm, TokenKeyDto::getLength)
-                    .containsExactly(label, KeyAlgorithm.RSA, 2048);
+                    .extracting(TokenKeyDto::getStorageName, TokenKeyDto::getKeyAlgorithm, TokenKeyDto::getLength)
+                    .containsExactly(storageName, KeyAlgorithm.RSA, 2048);
             assertThat(entry)
                     .extracting(TokenKeyDto::getKeyPairMeta, TokenKeyDto::getFingerprint,
                             TokenKeyDto::getInventoryKeyUuid, TokenKeyDto::getInventoryKeyName,
@@ -922,16 +928,16 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void readsTheInventoryOnce_whateverTheNumberOfKeyPairsOnThePage() throws Exception {
+        void readsTheInventoryOnce_whenThePageHoldsMoreKeyPairs() throws Exception {
             // given
             var smallPage = aKeyListing()
-                    .withKeys(heldPair("certKey_0a"), aListedKeyPair().withLabel("signer 0b").build())
+                    .withKeys(heldPair("certKey_0a"), aListedKeyPair().withStorageName("signer 0b").build())
                     .build();
             var largePage = aKeyListing()
                     .withKeys(heldPair("certKey_1a"), heldPair("certKey_1b"), heldPair("certKey_1c"),
-                            aListedKeyPair().withLabel("signer 1d").build(),
-                            aListedKeyPair().withLabel("signer 1e").build(),
-                            aListedKeyPair().withLabel("signer 1f").build())
+                            aListedKeyPair().withStorageName("signer 1d").build(),
+                            aListedKeyPair().withStorageName("signer 1e").build(),
+                            aListedKeyPair().withStorageName("signer 1f").build())
                     .build();
             warmUpListing(smallPage);
 
@@ -968,8 +974,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         @Test
         void createsTheKeyOnTheProfile_whenTheInventoryLacksThePair() throws Exception {
             // given
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).build());
             var selection = theFirstListedPair();
 
             // when
@@ -978,7 +984,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(result.isOnboarded()).isTrue();
             assertThat(result.isIntoExistingKey()).isFalse();
-            assertThat(result.getKeyName()).isEqualTo(label);
+            assertThat(result.getKeyName()).isEqualTo(storageName);
             CryptographicKey onboarded = cryptographicKeyRepository.findByUuid(result.getKeyUuid()).orElseThrow();
             assertThat(onboarded.getTokenProfileUuid()).isEqualTo(profileUuid);
             assertThat(cryptographicKeyItemRepository.findByKeyUuidIn(List.of(onboarded.getUuid())))
@@ -989,14 +995,14 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void namesTheKeyWithALongerFingerprintPrefix_whenKeysHaveTheLabelAndItsShortPrefix() throws Exception {
+        void namesTheKeyWithALongerFingerprintPrefix_whenKeysHaveTheStorageNameAndItsShortPrefix() throws Exception {
             // given
-            var label = "signer";
+            var storageName = "signer";
             var publicKey = rsaPublicKey();
             String fingerprint = fingerprintOf(publicKey);
-            recordHolding(label, rsaPublicKey());
-            recordHolding("%s (%s)".formatted(label, fingerprint.substring(0, 8)), rsaPublicKey());
-            tokenLists(aListedKeyPair().withLabel(label).withPublicKey(publicKey).build());
+            recordHolding(storageName, rsaPublicKey());
+            recordHolding("%s (%s)".formatted(storageName, fingerprint.substring(0, 8)), rsaPublicKey());
+            tokenLists(aListedKeyPair().withStorageName(storageName).withPublicKey(publicKey).build());
             var selection = theFirstListedPair();
 
             // when
@@ -1004,7 +1010,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(result.isOnboarded()).isTrue();
-            assertThat(result.getKeyName()).isEqualTo("%s (%s)".formatted(label, fingerprint.substring(0, 9)));
+            assertThat(result.getKeyName()).isEqualTo("%s (%s)".formatted(storageName, fingerprint.substring(0, 9)));
         }
 
         @Test
@@ -1091,8 +1097,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         @Test
         void refusesWithoutReadingTheTokenAgain_whenItCannotWriteACustomAttribute() throws Exception {
             // given
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).build());
             var selection = theFirstListedPair();
             List<RequestAttribute> undefined = List
                     .of(aCustomAttribute()
@@ -1101,10 +1107,13 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                             .withStringContent("x")
                             .build());
 
-            // when / then
-            assertThatThrownBy(() -> onboard(selection, undefined)).isInstanceOf(ValidationException.class);
+            // when
+            ThrowingCallable onboard = () -> onboard(selection, undefined);
+
+            // then
+            assertThatThrownBy(onboard).isInstanceOf(ValidationException.class);
             connectorMock.verifyKeyResolutionRequests(0);
-            assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
+            assertThat(cryptographicKeyRepository.existsByName(storageName)).isFalse();
         }
 
         @Test
@@ -1112,17 +1121,20 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // given
             var department = departmentAttribute();
             denyObjectAccess(Resource.ATTRIBUTE, ResourceAction.MEMBERS);
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).build());
             var selection = theFirstListedPair();
             List<RequestAttribute> forbidden = List.of(departmentValue(department, "payments"));
 
-            // when / then
-            assertThatThrownBy(() -> onboard(selection, forbidden))
+            // when
+            ThrowingCallable onboard = () -> onboard(selection, forbidden);
+
+            // then
+            assertThatThrownBy(onboard)
                     .isInstanceOf(ValidationException.class)
                     .hasMessageContaining("Not allowed to set custom attributes: department");
             connectorMock.verifyKeyResolutionRequests(0);
-            assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
+            assertThat(cryptographicKeyRepository.existsByName(storageName)).isFalse();
         }
 
         @Test
@@ -1249,9 +1261,10 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void findsTheKeyPairHeld_whenASecondObjectOnTheTokenHoldsIt() throws Exception {
             // given
             var publicKey = rsaPublicKey();
-            var publicKeyRecord = recordHolding("certKey_shared", publicKey);
-            tokenLists(aListedKeyPair().withLabel("first").withPublicKey(publicKey).build(),
-                    aListedKeyPair().withLabel("second").withPublicKey(publicKey).build());
+            var holderName = "certKey_shared";
+            var publicKeyRecord = recordHolding(holderName, publicKey);
+            tokenLists(aListedKeyPair().withStorageName("first").withPublicKey(publicKey).build(),
+                    aListedKeyPair().withStorageName("second").withPublicKey(publicKey).build());
             List<TokenKeyDto> entries = firstPage().getItems();
             var first = selecting(entries.get(0));
             var second = selecting(entries.get(1));
@@ -1263,7 +1276,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(results)
                     .extracting(TokenKeyOnboardingResultDto::isOnboarded, TokenKeyOnboardingResultDto::getKeyUuid)
                     .containsExactly(tuple(true, publicKeyRecord), tuple(false, publicKeyRecord));
-            assertThat(results.get(1).getReason()).isEqualTo("Key certKey_shared already holds this key pair.");
+            assertThat(results.get(1).getReason())
+                    .isEqualTo("Key '%s' already holds this key pair.".formatted(holderName));
         }
 
         @Test
@@ -1293,8 +1307,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void skipsTheKeyPairAndOnboardsTheNext_whenTheInventoryComesToHoldItWhileItIsWritten() throws Exception {
             // given
             var publicKey = rsaPublicKey();
-            tokenLists(aListedKeyPair().withLabel("contested").withPublicKey(publicKey).build(),
-                    aListedKeyPair().withLabel("uncontested").build());
+            tokenLists(aListedKeyPair().withStorageName("contested").withPublicKey(publicKey).build(),
+                    aListedKeyPair().withStorageName("uncontested").build());
             List<TokenKeyDto> entries = firstPage().getItems();
             var contested = selecting(entries.get(0));
             var uncontested = selecting(entries.get(1));
@@ -1320,7 +1334,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             connectorRegistered(slotMetadata(AttributeContentType.STRING));
             MetadataAttributeV3 integerSlot = slotMetadata(AttributeContentType.INTEGER);
             integerSlot.setContent(List.of(new IntegerAttributeContentV3(7)));
-            tokenLists(pairWithPrivateKeyMetadata("clashing", integerSlot), aListedKeyPair().withLabel("next").build());
+            tokenLists(pairWithPrivateKeyMetadata("clashing", integerSlot),
+                    aListedKeyPair().withStorageName("next").build());
             List<TokenKeyDto> entries = firstPage().getItems();
 
             // when
@@ -1334,10 +1349,11 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void onboardsEachKeyPairUnderItsSuggestedName_whenTwoShareALabel() throws Exception {
+        void onboardsEachKeyPairUnderItsSuggestedName_whenTwoShareAStorageName() throws Exception {
             // given
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build(), aListedKeyPair().withLabel(label).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).build(),
+                    aListedKeyPair().withStorageName(storageName).build());
             List<TokenKeyDto> entries = firstPage().getItems();
             List<String> suggestedNames = entries.stream().map(TokenKeyDto::getSuggestedName).toList();
             var first = new TokenKeySelectionDto(entries.get(0).getKeyPairMeta(), suggestedNames.get(0));
@@ -1353,16 +1369,17 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         }
 
         @Test
-        void namesTheFirstKeyPairItOnboardsAfterTheLabel_whenTwoShareALabelAndNoSelectionNamesThem() throws Exception {
+        void namesTheFirstKeyPairItOnboardsAfterTheStorageName_whenTwoShareOneAndNoSelectionNamesThem()
+                throws Exception {
             // given
-            var label = "signer";
+            var storageName = "signer";
             var listedFirstPublicKey = rsaPublicKey();
             var listedFirst = aListedKeyPair()
                     .withKeyId("listed-first-id")
-                    .withLabel(label)
+                    .withStorageName(storageName)
                     .withPublicKey(listedFirstPublicKey)
                     .build();
-            var listedSecond = aListedKeyPair().withKeyId("listed-second-id").withLabel(label).build();
+            var listedSecond = aListedKeyPair().withKeyId("listed-second-id").withStorageName(storageName).build();
             tokenResolves(found(listedSecond), found(listedFirst));
 
             // when
@@ -1371,17 +1388,18 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
                     new TokenKeySelectionDto(listedFirst.getKeyPairMeta(), null));
 
             // then
-            String fingerprinted = "%s (%s)".formatted(label, fingerprintOf(listedFirstPublicKey).substring(0, 8));
+            String fingerprinted = "%s (%s)"
+                    .formatted(storageName, fingerprintOf(listedFirstPublicKey).substring(0, 8));
             assertThat(results)
                     .extracting(TokenKeyOnboardingResultDto::isOnboarded, TokenKeyOnboardingResultDto::getKeyName)
-                    .containsExactly(tuple(true, label), tuple(true, fingerprinted));
+                    .containsExactly(tuple(true, storageName), tuple(true, fingerprinted));
         }
 
         @Test
         void skipsTheRepeatedKeyPair_whenTheSelectionRepeatsIt() throws Exception {
             // given
-            var label = "signer";
-            var pair = aListedKeyPair().withKeyId("signer-id").withLabel(label).build();
+            var storageName = "signer";
+            var pair = aListedKeyPair().withKeyId("signer-id").withStorageName(storageName).build();
             tokenLists(pair);
             var once = theFirstListedPair();
             var againName = "again";
@@ -1394,8 +1412,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(results).extracting(TokenKeyOnboardingResultDto::isOnboarded).containsExactly(true, false);
             TokenKeyOnboardingResultDto skipped = results.get(1);
-            assertThat(skipped.getKeyName()).isEqualTo(label);
-            assertThat(skipped.getReason()).contains(label);
+            assertThat(skipped.getKeyName()).isEqualTo(storageName);
+            assertThat(skipped.getReason()).contains(storageName);
             assertThat(cryptographicKeyRepository.existsByName(againName)).isFalse();
             connectorMock.verifyKeyResolutionRequestContaining("""
                     {"keys": [
@@ -1409,7 +1427,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void skipsTheSelectionAndOnboardsTheNext_whenTheTokenAnswersItWithoutAKeyPair(KeyResolutionOutcome outcome,
                 String reason) throws Exception {
             // given
-            var next = aListedKeyPair().withLabel("next").build();
+            var next = aListedKeyPair().withStorageName("next").build();
             tokenResolves(answered(outcome), found(next));
             var unanswered = new TokenKeySelectionDto(keyIdMeta("unanswered-id"), null);
             var nextSelection = new TokenKeySelectionDto(next.getKeyPairMeta(), null);
@@ -1458,7 +1476,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         void skipsTheKeyPair_whenAPublicKeyInATokenHoldsIt() throws Exception {
             // given
             var publicKey = rsaPublicKey();
-            publicKeyInTheToken("certKey_in_token", publicKey);
+            var holderName = "certKey_in_token";
+            publicKeyInTheToken(holderName, publicKey);
             tokenLists(aListedKeyPair().withPublicKey(publicKey).build());
             var selection = theFirstListedPair();
 
@@ -1468,8 +1487,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(result.isOnboarded()).isFalse();
             assertThat(result.getReason())
-                    .isEqualTo("Key certKey_in_token holds the same public key under a token instance, without its "
-                            + "private key.");
+                    .isEqualTo("Key '%s' holds the same public key under a token instance, without its private key."
+                            .formatted(holderName));
         }
 
         @Test
@@ -1534,8 +1553,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // given
             var publicKey = rsaPublicKey();
             importOf(publicKey, KeyImportState.ACCEPTED);
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).withPublicKey(publicKey).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).withPublicKey(publicKey).build());
             var selection = theFirstListedPair();
 
             // when
@@ -1544,7 +1563,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(result.isOnboarded()).isFalse();
             assertThat(result.getReason()).isEqualTo("An import of this key pair is still in progress.");
-            assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
+            assertThat(cryptographicKeyRepository.existsByName(storageName)).isFalse();
         }
 
         /** The token may still find a key pair that the compensation destroys while it resolves the selection. */
@@ -1553,8 +1572,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // given
             var publicKey = rsaPublicKey();
             var attempt = importOf(publicKey, KeyImportState.COMPENSATING);
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).withPublicKey(publicKey).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).withPublicKey(publicKey).build());
             var selection = theFirstListedPair();
             connectorMock
                     .onKeyResolutionRequest(() -> jdbcTemplate
@@ -1567,7 +1586,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // then
             assertThat(result.isOnboarded()).isFalse();
             assertThat(result.getReason()).isEqualTo("An import of this key pair is still in progress.");
-            assertThat(cryptographicKeyRepository.existsByName(label)).isFalse();
+            assertThat(cryptographicKeyRepository.existsByName(storageName)).isFalse();
         }
 
         @Test
@@ -1628,7 +1647,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             assertThat(result.isOnboarded()).isFalse();
-            assertThat(result.getReason()).isEqualTo("A key named Payments signer already exists.");
+            assertThat(result.getReason()).isEqualTo("A key '%s' already exists.".formatted(takenName));
         }
 
         @Test
@@ -1742,8 +1761,8 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
         @Test
         void namesTheKeyAsTheRecordsResource_whenTheRequestOnboardsOne() throws Exception {
             // given
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).build());
             var selection = theFirstListedPair();
 
             // when
@@ -1751,9 +1770,10 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
 
             // then
             LogRecord auditRecord = theOnboardingRecord();
-            assertThat(auditRecord.resource().objects()).containsExactly(new ResourceObjectIdentity(label, keyUuid));
+            assertThat(auditRecord.resource().objects())
+                    .containsExactly(new ResourceObjectIdentity(storageName, keyUuid));
             assertThat(auditRecord.operationData())
-                    .isEqualTo(new OnboardedKeys(List.of(new OnboardedKey(keyUuid.toString(), label, false))));
+                    .isEqualTo(new OnboardedKeys(List.of(new OnboardedKey(keyUuid.toString(), storageName, false))));
         }
 
         /** The record names a joined record the caller may not see, which the result leaves unnamed. */
@@ -1764,8 +1784,9 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             var hiddenName = "certKey_hidden";
             var hidden = recordHolding(hiddenName, publicKey);
             denyResourceAccess(Resource.CRYPTOGRAPHIC_KEY, ResourceAction.DETAIL, hidden);
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build(), aListedKeyPair().withPublicKey(publicKey).build());
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).build(),
+                    aListedKeyPair().withPublicKey(publicKey).build());
             List<TokenKeyDto> entries = firstPage().getItems();
 
             // when
@@ -1778,7 +1799,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             assertThat(auditRecord.resource().objects()).isNullOrEmpty();
             assertThat(auditRecord.operationData())
                     .isEqualTo(new OnboardedKeys(List
-                            .of(new OnboardedKey(created.toString(), label, false),
+                            .of(new OnboardedKey(created.toString(), storageName, false),
                                     new OnboardedKey(hidden.toString(), hiddenName, true))));
         }
 
@@ -1811,22 +1832,24 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             MetadataAttributeV3 refused = slotMetadata(AttributeContentType.INTEGER);
             refused.setName(RefusedDefinitionInserts.REFUSED_NAME);
             refused.setContent(List.of(new IntegerAttributeContentV3(7)));
-            var label = "signer";
-            tokenLists(aListedKeyPair().withLabel(label).build(), pairWithPrivateKeyMetadata("refused", refused));
+            var storageName = "signer";
+            tokenLists(aListedKeyPair().withStorageName(storageName).build(),
+                    pairWithPrivateKeyMetadata("refused", refused));
             List<TokenKeyDto> entries = firstPage().getItems();
 
             // when
-            assertThatThrownBy(() -> onboardThroughTheApi(selecting(entries.get(0)), selecting(entries.get(1))))
-                    .hasMessageContaining("attribute definition refused by the test");
+            ThrowingCallable onboardThroughTheApi = () -> onboardThroughTheApi(selecting(entries.get(0)),
+                    selecting(entries.get(1)));
 
             // then
+            assertThatThrownBy(onboardThroughTheApi).hasMessageContaining("attribute definition refused by the test");
             UUID onboarded = jdbcTemplate
-                    .queryForObject("SELECT uuid FROM cryptographic_key WHERE name = ?", UUID.class, label);
+                    .queryForObject("SELECT uuid FROM cryptographic_key WHERE name = ?", UUID.class, storageName);
             LogRecord auditRecord = theOnboardingRecord();
             assertThat(auditRecord.operationResult()).isEqualTo(OperationResult.FAILURE);
             assertThat(auditRecord.resource().objects()).isNullOrEmpty();
             assertThat(auditRecord.operationData())
-                    .isEqualTo(new OnboardedKeys(List.of(new OnboardedKey(onboarded.toString(), label, false))));
+                    .isEqualTo(new OnboardedKeys(List.of(new OnboardedKey(onboarded.toString(), storageName, false))));
         }
     }
 
@@ -1855,7 +1878,7 @@ class TokenKeyOnboardingServiceITest extends BaseSpringBootTest {
             // given
             var keyId = "created-key";
             var publicKey = rsaPublicKey();
-            tokenLists(aListedKeyPair().withKeyId(keyId).withLabel("created").withPublicKey(publicKey).build());
+            tokenLists(aListedKeyPair().withKeyId(keyId).withStorageName("created").withPublicKey(publicKey).build());
             connectorMock.stubDestroyKey();
             var created = keyPairThePlatformCreated("created",
                     aProviderKeyPair().withKeyId(keyId).withPublicKey(publicKey).build());
