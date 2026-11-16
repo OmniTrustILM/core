@@ -1,19 +1,20 @@
 package com.otilm.core.integration.api.web;
 
+import com.otilm.api.model.common.validation.SignatureFamilyFormat;
 import com.otilm.core.util.BaseSpringBootTest;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Covers the wire form of the content-signing formatting discovery route. The published contract lists the lowercase
- * enum codes, so binding them is contract, and a service-level test cannot observe it.
- */
+/** Covers the wire form of the content-signing formatting discovery route. A service-level test cannot observe it. */
 @AutoConfigureMockMvc
 class SigningProfileFormattingDiscoveryITest extends BaseSpringBootTest {
 
@@ -30,11 +31,19 @@ class SigningProfileFormattingDiscoveryITest extends BaseSpringBootTest {
     }
 
     @Test
-    void contentSigningFormattingAttributes_rejectsAFamilyOutsideThePublishedVocabulary() throws Exception {
-        mockMvc
+    void returnsBadRequest_whenTheFamilyCodeIsMalformed() throws Exception {
+        // given
+        var uppercaseFamily = "PAdES";
+
+        // when
+        ResultActions response = mockMvc
                 .perform(get(PATH.formatted(UUID.randomUUID()))
-                        .param("family", "not-a-family")
-                        .param("maxLevel", "signed"))
-                .andExpect(status().is4xxClientError());
+                        .param("family", uppercaseFamily)
+                        .param("maxLevel", "signed"));
+
+        // then
+        response
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(containsString(SignatureFamilyFormat.MESSAGE)));
     }
 }

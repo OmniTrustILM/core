@@ -2,7 +2,6 @@ package com.otilm.core.signing.contentsigning;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
 import com.otilm.api.model.core.logging.enums.AuthMethod;
 import com.otilm.api.model.core.signing.SigningProtocol;
@@ -13,6 +12,7 @@ import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.signing.record.SigningRecordInput;
 import com.otilm.core.signing.record.SigningRecordInputSource;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
@@ -141,7 +141,7 @@ class ContentSigningRecordFactoryTest {
             // given
             var connectorLevelName = "Sealed-T";
             ResolvedManagedContentSigningProfile profile = aResolvedContentSigningProfile()
-                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamily.PADES)
+                    .withFamilyDeclaration(aFamilyDeclaration(SignatureFamilyFixtures.PADES)
                             .withLevelName(SignatureLevel.TIMESTAMPED, connectorLevelName)
                             .build())
                     .build();

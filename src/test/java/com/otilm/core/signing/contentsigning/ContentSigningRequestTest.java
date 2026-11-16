@@ -60,7 +60,7 @@ class ContentSigningRequestTest {
         // given
         var item = new ContentSigningItem("first", SHA512_DIGEST, SHA512_DIGEST);
         var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.DIGEST_ONLY,
-                DigestAlgorithm.SHA_512, List.of(item), null);
+                DigestAlgorithm.SHA_512, List.of(item));
 
         // when
         DocumentTransferDto transfer = request.transferOf(item);
@@ -70,11 +70,11 @@ class ContentSigningRequestTest {
     }
 
     @Test
-    void returnsTheAuthorizedDigestUnderTheBatchAlgorithm() {
+    void returnsTheAuthorizedDigestUnderTheBatchAlgorithm_whenTheBatchUsesSha512() {
         // given
         var item = new ContentSigningItem("first", DOCUMENT, SHA512_DIGEST);
         var request = new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.INLINE,
-                DigestAlgorithm.SHA_512, List.of(item), null);
+                DigestAlgorithm.SHA_512, List.of(item));
 
         // when
         DocumentDigest authorized = request.authorizedDigestOf(item);
@@ -87,7 +87,7 @@ class ContentSigningRequestTest {
 
     private static ContentSigningRequest inlineRequestOf(List<ContentSigningItem> items) {
         return new ContentSigningRequest(SignatureLevel.SIGNED, DocumentTransferMode.INLINE, DigestAlgorithm.SHA_256,
-                items, null);
+                items);
     }
 
     private static ContentSigningItem itemNamed(String identifier) {

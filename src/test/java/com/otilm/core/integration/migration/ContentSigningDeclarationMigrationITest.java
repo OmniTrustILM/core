@@ -2,13 +2,13 @@ package com.otilm.core.integration.migration;
 
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.signing.SigningProfile;
 import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.repository.ConnectorRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileRepository;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
+import com.otilm.core.util.SignatureFamilyFixtures;
 import java.nio.charset.StandardCharsets;
 import java.sql.Array;
 import java.sql.Connection;
@@ -114,7 +114,7 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
     @Test
     void lowersTheSignatureFamilyToItsCode_whenTheVersionHoldsTheEnumName() throws Exception {
         // given
-        UUID versionUuid = insertProfileVersionOfFamily(SignatureFamily.PADES);
+        UUID versionUuid = insertProfileVersionOfFamily(SignatureFamilyFixtures.PADES);
         try (Connection connection = dataSource.getConnection()) {
             simulateOldSchema(connection);
             execute(connection, "UPDATE signing_profile_version SET signature_family = 'PADES' WHERE uuid = '%s'"
@@ -161,7 +161,7 @@ class ContentSigningDeclarationMigrationITest extends BaseMigrationTest {
         return connectorRepository.saveAndFlush(connector).getUuid();
     }
 
-    private UUID insertProfileVersionOfFamily(SignatureFamily family) {
+    private UUID insertProfileVersionOfFamily(String family) {
         SigningProfile profile = new SigningProfile();
         profile.setName("profile-" + UUID.randomUUID());
         profile.setSigningScheme(SigningScheme.DELEGATED);

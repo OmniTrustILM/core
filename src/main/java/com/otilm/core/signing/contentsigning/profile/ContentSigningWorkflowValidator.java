@@ -1,17 +1,12 @@
 package com.otilm.core.signing.contentsigning.profile;
 
-import com.otilm.api.exception.ValidationError;
 import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.signing.profile.scheme.ManagedSigningType;
 import com.otilm.api.model.client.signing.profile.scheme.SigningScheme;
 import com.otilm.api.model.client.signing.profile.workflow.ContentSigningWorkflowRequestDto;
 import com.otilm.api.model.client.signing.profile.workflow.SigningWorkflowType;
 import com.otilm.api.model.common.enums.cryptography.SignatureAlgorithm;
-import com.otilm.api.model.common.signature.SignatureFamily;
 import com.otilm.api.model.common.signature.SignatureLevel;
-import com.otilm.api.model.common.signature.SignatureParameterGroup;
-import com.otilm.api.model.common.signature.parameters.SignatureParametersDto;
-import com.otilm.api.model.common.signature.parameters.pades.PadesSignatureParametersDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureFamilyDeclarationDto;
 import com.otilm.api.model.connector.signatures.contentsigning.declaration.SignatureLevelDeclarationDto;
 import com.otilm.core.dao.entity.Connector;
@@ -19,12 +14,9 @@ import com.otilm.core.dao.entity.signing.SigningProfileVersion;
 import com.otilm.core.dao.repository.signing.SigningProfileVersionRepository;
 import com.otilm.core.signing.contentsigning.declaration.ContentSigningDeclarations;
 import com.otilm.core.signing.contentsigning.declaration.FamilyAlgorithms;
-import com.otilm.core.signing.contentsigning.parameters.PadesVisibleSignatureCompleteness;
-import com.otilm.core.signing.contentsigning.parameters.SignatureParameterMerge;
 import com.otilm.core.signing.contentsigning.state.ContentSigningTransitions;
 import com.otilm.core.signing.record.SigningRecordFloor;
 import jakarta.annotation.Nullable;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -53,13 +45,12 @@ public class ContentSigningWorkflowValidator {
      */
     public void validate(ContentSigningWorkflowRequestDto workflow, Connector connector,
             SignatureAlgorithm signatureAlgorithm, @Nullable UUID targetProfileUuid) {
-        SignatureFamily family = requireFamily(workflow);
+        String family = requireFamily(workflow);
         SignatureLevel maxLevel = requireMaxLevel(workflow);
 
         SignatureFamilyDeclarationDto declared = requireConnectorServes(connector, family, maxLevel);
         requireFamilyAcceptsAlgorithm(declared, signatureAlgorithm);
         validateTimestampSource(workflow, maxLevel, targetProfileUuid);
-        validateSignatureParameters(workflow, family);
     }
 
     /**
@@ -68,7 +59,7 @@ public class ContentSigningWorkflowValidator {
      *
      * @return the connector's declaration of the family
      */
-    public SignatureFamilyDeclarationDto requireConnectorServes(Connector connector, SignatureFamily family,
+    public SignatureFamilyDeclarationDto requireConnectorServes(Connector connector, String family,
             SignatureLevel maxLevel) {
         requireFamily(family);
         requireMaxLevel(maxLevel);
@@ -78,7 +69,7 @@ public class ContentSigningWorkflowValidator {
         return declared;
     }
 
-    private SignatureFamilyDeclarationDto requireDeclaredFamily(Connector connector, SignatureFamily family) {
+    private SignatureFamilyDeclarationDto requireDeclaredFamily(Connector connector, String family) {
         return declarations
                 .family(connector.getUuid(), family)
                 .orElseThrow(() -> new ValidationException(
@@ -86,11 +77,11 @@ public class ContentSigningWorkflowValidator {
                                 .formatted(connector.getName(), family)));
     }
 
-    private static SignatureFamily requireFamily(ContentSigningWorkflowRequestDto workflow) {
+    private static String requireFamily(ContentSigningWorkflowRequestDto workflow) {
         return requireFamily(workflow.getFamily());
     }
 
-    private static SignatureFamily requireFamily(SignatureFamily family) {
+    private static String requireFamily(String family) {
         if (family == null) {
             throw new ValidationException("Signature family is required for a managed content signing workflow");
         }
@@ -211,64 +202,5 @@ public class ContentSigningWorkflowValidator {
                     "The Signing Profile named as the timestamp source does not meet the signing-record floor: "
                             + violation.get());
         }
-    }
-
-    /**
-     * The parameter rules that can be decided from the profile alone. Complements {@code @Valid} cascade on the request
-     * DTO.
-     */
-    private static void validateSignatureParameters(ContentSigningWorkflowRequestDto workflow, SignatureFamily family) {
-        Set<SignatureParameterGroup> allowed = workflow.getAllowedRequestParameterGroups() == null
-                ? Set.of()
-                : workflow.getAllowedRequestParameterGroups();
-        requireGroupsApplyToFamily(allowed, family);
-        requireDefaultsMatchFamily(workflow.getDefaultSignatureParameters(), family);
-        requireSatisfiableDefaults(workflow.getDefaultSignatureParameters(), allowed);
-    }
-
-    private static void requireGroupsApplyToFamily(Set<SignatureParameterGroup> allowed, SignatureFamily family) {
-        List<ValidationError> errors = allowed
-                .stream()
-                .filter(group -> !group.appliesTo(family))
-                .map(group -> ValidationError
-                        .create("Signature parameter group '{}' does not apply to the {} family", group.getCode(),
-                                family))
-                .toList();
-        if (!errors.isEmpty()) {
-            throw new ValidationException(errors);
-        }
-    }
-
-    private static void requireDefaultsMatchFamily(@Nullable SignatureParametersDto defaults, SignatureFamily family) {
-        if (defaults != null && !family.equals(defaults.getFamily())) {
-            throw new ValidationException(
-                    "defaultSignatureParameters declares the %s family, but this workflow produces %s signatures"
-                            .formatted(defaults.getFamily(), family));
-        }
-    }
-
-    /** Checks what a request supplying no parameters would get, so save time reads the object signing reads. */
-    private static void requireSatisfiableDefaults(@Nullable SignatureParametersDto defaults,
-            Set<SignatureParameterGroup> allowed) {
-        if (!(SignatureParameterMerge.merge(defaults, null) instanceof PadesSignatureParametersDto effective)) {
-            return;
-        }
-        List<ValidationError> errors = PadesVisibleSignatureCompleteness
-                .missingFields(effective)
-                .entrySet()
-                .stream()
-                .filter(gap -> !allowed.contains(gap.getKey()))
-                .map(gap -> unsatisfiable(gap.getKey(), gap.getValue()))
-                .toList();
-        if (!errors.isEmpty()) {
-            throw new ValidationException(errors);
-        }
-    }
-
-    private static ValidationError unsatisfiable(SignatureParameterGroup group, List<String> fields) {
-        return ValidationError
-                .create("The default visible signature is incomplete and no request can complete it: %s %s, and the '%s' group is not allow-listed"
-                        .formatted(fields.size() == 1 ? "field" : "fields", String.join(", ", fields),
-                                group.getCode()));
     }
 }
