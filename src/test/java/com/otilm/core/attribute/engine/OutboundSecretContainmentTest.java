@@ -43,6 +43,7 @@ import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.connector.ConnectorDto;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import java.io.Serializable;
+import java.net.ConnectException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -607,6 +608,39 @@ class OutboundSecretContainmentTest {
                 .hasMessageContaining("Core could not read the connector's answer to the run.")
                 .hasMessageNotContaining("s3cr3t-token");
         assertThat(passedOn.getConnector()).isSameAs(connector);
+    }
+
+    @Test
+    void keepsTheTransportCause_whenAConnectionFailureAnswersARequestCarryingASecret() {
+        // given
+        ConnectException refused = new ConnectException("Connection refused");
+        ConnectorCommunicationException unreachable = new ConnectorCommunicationException("Error in communication",
+                refused, aConnector());
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(unreachable, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn)
+                .isInstanceOf(ConnectorCommunicationException.class)
+                .hasMessageContaining("Core could not reach the connector for the run.")
+                .hasCause(refused);
+    }
+
+    @Test
+    void dropsTheCause_whenItMayQuoteTheConnectorsAnswer() {
+        // given
+        IllegalArgumentException unreadable = new IllegalArgumentException("Unexpected token 's3cr3t-token'");
+        ConnectorCommunicationException failure = new ConnectorCommunicationException("Failed to deserialize",
+                unreadable, aConnector());
+
+        // when
+        ConnectorException passedOn = containment.withoutWords(failure, Set.of("s3cr3t-token"), "run");
+
+        // then
+        assertThat(passedOn)
+                .hasMessageContaining("Core could not read the connector's answer to the run.")
+                .hasNoCause();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

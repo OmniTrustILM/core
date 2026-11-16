@@ -249,6 +249,32 @@ class NestedReferenceResolutionITest extends BaseSpringBootTest {
         }
 
         @Test
+        void refusesWithoutTheVaultsWords_whenTheVaultRefusesToDescribeTheLentSecret() {
+            // given
+            String vaultWords = "vault login hvs.root-token was rejected";
+            WireMock
+                    .stubFor(WireMock
+                            .get(WireMock.urlPathMatching("/v1/secretProvider/secrets/basicAuth/attributes"))
+                            .willReturn(WireMock
+                                    .aResponse()
+                                    .withStatus(500)
+                                    .withHeader("Content-Type", "application/json")
+                                    .withBody("\"" + vaultWords + "\"")));
+            List<RequestAttribute> attributes = List.of(authorityReference());
+            Set<String> expandedSecrets = new HashSet<>();
+
+            // when
+            ThrowingCallable expand = () -> expander
+                    .expandForCaller(attributes, expandedSecrets,
+                            referenceLending.forConnector(discoveryConnector.getUuid()));
+
+            // then
+            assertThatThrownBy(expand)
+                    .hasMessageContaining("refused the request for secret '%s'".formatted(oauthClient.getName()))
+                    .hasMessageNotContaining("hvs.root-token");
+        }
+
+        @Test
         void failsClosedNamingTheAuthority_whenTheCallerMayNotSeeIt() {
             // given
             denyResourceAccess(Resource.AUTHORITY, ResourceAction.DETAIL);

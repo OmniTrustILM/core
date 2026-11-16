@@ -984,10 +984,10 @@ public class SecretServiceImpl implements SecretExternalService, SecretInternalS
                         .builder(Resource.SECRET, secret.getUuid())
                         .connector(connectorUuid)
                         .build());
-        ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, secret.getSourceVaultProfile(),
-                secret, secretAttributes, secretRequestDto);
         SecretContentResponseDto secretContent;
         try {
+            ConnectorDetailDto connectorDetailDto = loadSecretRequestDto(connectorUuid, secret.getSourceVaultProfile(),
+                    secret, secretAttributes, secretRequestDto);
             secretContent = connectorApiFactory
                     .getSecretApiClient(connectorDetailDto)
                     .getSecretContent(connectorDetailDto, secretRequestDto, latestVersion.getVaultVersion());

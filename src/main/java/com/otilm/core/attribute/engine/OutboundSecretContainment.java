@@ -1,5 +1,6 @@
 package com.otilm.core.attribute.engine;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -31,6 +32,7 @@ import com.otilm.api.model.common.error.ErrorCode;
 import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.secrets.content.SecretContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
+import com.otilm.core.util.ConnectorTransportFailures;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -350,8 +352,7 @@ public class OutboundSecretContainment {
             case ConnectorClientException client -> new ConnectorClientException(words, client.getHttpStatus());
             case ConnectorServerException server -> new ConnectorServerException(words, server.getHttpStatus());
             case ConnectorEntityNotFoundException ignored -> new ConnectorEntityNotFoundException(words);
-            case ConnectorCommunicationException ignored -> new ConnectorCommunicationException(
-                    "Core could not read the connector's answer to the %s.".formatted(refused), refusal.getConnector());
+            case ConnectorCommunicationException communication -> withoutWords(communication, refused);
             default -> new ConnectorException(words);
         };
         withoutWords.setConnector(refusal.getConnector());
@@ -372,6 +373,22 @@ public class OutboundSecretContainment {
     /** As {@link #withoutWords(ValidationException, Set, String)}, for a request known to carry a secret. */
     public ValidationException withoutWords(ValidationException refusal, String refused) {
         return new ValidationException(REFUSED.formatted(refused));
+    }
+
+    /**
+     * A communication failure without its words. A cause the transport raised, such as a refused connection or a
+     * timeout, is kept: its words are the transport's, and callers tell an outage from an unreadable answer by it. Any
+     * other cause, such as an answer that could not be read, may quote the connector and goes.
+     */
+    private static ConnectorCommunicationException withoutWords(ConnectorCommunicationException failure,
+            String refused) {
+        Throwable cause = failure.getCause();
+        if (ConnectorTransportFailures.isTransportFailure(cause) && !(cause instanceof JsonProcessingException)) {
+            return new ConnectorCommunicationException(
+                    "Core could not reach the connector for the %s.".formatted(refused), cause, failure.getConnector());
+        }
+        return new ConnectorCommunicationException(
+                "Core could not read the connector's answer to the %s.".formatted(refused), failure.getConnector());
     }
 
     private static ConnectorProblemException withoutWords(ConnectorProblemException refusal, String refused) {
