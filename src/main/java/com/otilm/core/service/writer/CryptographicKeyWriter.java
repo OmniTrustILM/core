@@ -80,7 +80,7 @@ public class CryptographicKeyWriter {
     private static final Logger logger = LoggerFactory.getLogger(CryptographicKeyWriter.class);
 
     /** The refusal of a key whose name another key has. */
-    public static final String NAME_TAKEN = "A key named %s already exists.";
+    public static final String NAME_TAKEN = "A key '%s' already exists.";
 
     /** The refusal of a key whose public key another key holds. */
     public static final String KEY_ALREADY_HELD = "A key with the same public key already exists.";
