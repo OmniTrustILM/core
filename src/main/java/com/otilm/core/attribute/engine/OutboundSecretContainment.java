@@ -3,6 +3,7 @@ package com.otilm.core.attribute.engine;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.ResponseAttribute;
 import com.otilm.api.model.client.connector.v2.attribute.AttributeCallbackResponseDto;
@@ -20,6 +21,8 @@ import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceObjectContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSimpleContentData;
+import com.otilm.api.model.common.error.ErrorCode;
+import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.secrets.content.SecretContent;
 import com.otilm.core.attribute.engine.records.ObjectAttributeContent;
 import java.nio.charset.StandardCharsets;
@@ -62,6 +65,14 @@ public class OutboundSecretContainment {
     private static final int MAX_WALK_DEPTH = 12;
 
     /**
+     * How deep the recording walk follows a request Core resolved. Each level a reference nests below the request adds
+     * five wrappers between the request and the secret (the object's attribute list, the attribute, its content list,
+     * the reference and its data), so a secret nested at {@link ReferenceTraversal#MAX_DEPTH} sits further down than a
+     * response is allowed to nest.
+     */
+    private static final int MAX_RECORD_DEPTH = MAX_WALK_DEPTH + 5 * ReferenceTraversal.MAX_DEPTH;
+
+    /**
      * The application's wire ObjectMapper. Using the managed bean (not a bespoke {@code new ObjectMapper()}) keeps the
      * value-echo serialization byte-identical to what actually goes on the wire — a private mapper could serialize a
      * secret differently (and miss an echo) or fail to serialize a type the wire mapper handles.
@@ -88,7 +99,7 @@ public class OutboundSecretContainment {
             return;
         }
         // Record path is best-effort (failClosedOnDepth=false): the value-echo + structural reject are the gates.
-        walkSecretGraph(blob, 0, node -> recordIfSecretLeaf(node, expandedSecrets), false);
+        walkSecretGraph(blob, 0, node -> recordIfSecretLeaf(node, expandedSecrets), MAX_RECORD_DEPTH, false);
     }
 
     /**
@@ -103,7 +114,8 @@ public class OutboundSecretContainment {
             return;
         }
         for (RequestAttribute attribute : resolved) {
-            walkSecretGraph(attribute.getContent(), 0, node -> recordIfSecretLeaf(node, expandedSecrets), false);
+            walkSecretGraph(attribute.getContent(), 0, node -> recordIfSecretLeaf(node, expandedSecrets),
+                    MAX_RECORD_DEPTH, false);
         }
     }
 
@@ -203,7 +215,7 @@ public class OutboundSecretContainment {
         // Structural: walk the response object graph (incl. typed DTO wrappers, not just collections) and reject
         // any secret-bearing shape — same traversal as recordExpandedSecrets, so a wrapped secret cannot slip.
         // failClosedOnDepth=true: a response too deeply nested to fully inspect is refused, not waved through.
-        walkSecretGraph(response, 0, this::rejectIfSecretShape, true);
+        walkSecretGraph(response, 0, this::rejectIfSecretShape, MAX_WALK_DEPTH, true);
 
         Set<String> secrets = expandedSecrets == null ? Set.of() : expandedSecrets;
         Set<String> digests = sentSecretDigests == null ? Set.of() : Set.copyOf(sentSecretDigests);
@@ -259,12 +271,12 @@ public class OutboundSecretContainment {
      * content) that a Jackson value-tree walk cannot type-detect. Both the value-recording and structural-rejection
      * checks share this traversal so they cannot diverge.
      */
-    private void walkSecretGraph(Object node, int depth, java.util.function.Consumer<Object> visitor,
+    private void walkSecretGraph(Object node, int depth, java.util.function.Consumer<Object> visitor, int maxDepth,
             boolean failClosedOnDepth) {
         if (node == null) {
             return;
         }
-        if (depth > MAX_WALK_DEPTH) {
+        if (depth > maxDepth) {
             // The structural check fails CLOSED on overflow: a response too deep to fully inspect must be refused,
             // matching ReferenceExpansionException.depthExceeded. The record path passes false (best-effort; the
             // unbounded value-echo scan is its safety net) so a deep legitimate expansion is never spuriously aborted.
@@ -280,32 +292,79 @@ public class OutboundSecretContainment {
         visitor.accept(node);
 
         if (node instanceof Iterable<?> iterable) {
-            iterable.forEach(o -> walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth));
+            iterable.forEach(o -> walkSecretGraph(o, depth + 1, visitor, maxDepth, failClosedOnDepth));
         } else if (node instanceof Object[] array) {
             for (Object o : array) {
-                walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth);
+                walkSecretGraph(o, depth + 1, visitor, maxDepth, failClosedOnDepth);
             }
         } else if (node instanceof java.util.Map<?, ?> map) {
-            map.values().forEach(o -> walkSecretGraph(o, depth + 1, visitor, failClosedOnDepth));
+            map.values().forEach(o -> walkSecretGraph(o, depth + 1, visitor, maxDepth, failClosedOnDepth));
         } else if (node instanceof AttributeCallbackResponseDto response) {
-            walkSecretGraph(response.getContent(), depth + 1, visitor, failClosedOnDepth);
-            walkSecretGraph(response.getAttributes(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(response.getContent(), depth + 1, visitor, maxDepth, failClosedOnDepth);
+            walkSecretGraph(response.getAttributes(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof ResourceObjectContent resourceObjectContent) {
-            walkSecretGraph(resourceObjectContent.getData(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(resourceObjectContent.getData(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof ResourceSimpleContentData simple) {
-            walkSecretGraph(simple.getAttributes(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(simple.getAttributes(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof ResponseAttribute responseAttribute) {
-            walkSecretGraph(responseAttribute.getContent(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(responseAttribute.getContent(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof BaseAttribute baseAttribute) {
             // The response 'attributes' arm is List<BaseAttribute> — Data/Metadata/Custom all expose content via
             // the universal getContent(); descend the base type so a secret nested in any of them is reached.
-            walkSecretGraph(baseAttribute.getContent(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(baseAttribute.getContent(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof CredentialAttributeContentData credential) {
-            walkSecretGraph(credential.getAttributes(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(credential.getAttributes(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         } else if (node instanceof AttributeContent content) {
             // Decryption puts a protected row's data in a base content rather than its typed one.
-            walkSecretGraph(content.getData(), depth + 1, visitor, failClosedOnDepth);
+            walkSecretGraph(content.getData(), depth + 1, visitor, maxDepth, failClosedOnDepth);
         }
+    }
+
+    /**
+     * A connector's refusal as it may reach the caller: as answered, unless its words carry one of the secrets the
+     * request was sent with; then with its verdict kept and its words replaced. The caller may not be allowed to read
+     * those secrets, while the connector's words are otherwise the caller's best account of what to correct.
+     *
+     * @param refused what the connector refused, such as {@code "run"}, for the replacement words
+     */
+    public ConnectorProblemException withoutSecrets(ConnectorProblemException refusal, Set<String> sentSecrets,
+            String refused) {
+        if (!mentionsAnyOf(refusal.getProblemDetail(), sentSecrets)) {
+            return refusal;
+        }
+        ProblemDetailExtended answered = refusal.getProblemDetail();
+        ErrorCode code = answered.getErrorCode();
+        if (code != null) {
+            return new ConnectorProblemException(ProblemDetailExtended
+                    .fromErrorCode(code, "The connector refused the %s (%s).".formatted(refused, code.name()), null,
+                            null));
+        }
+        ProblemDetailExtended withoutWords = new ProblemDetailExtended();
+        withoutWords.setStatus(answered.getStatus());
+        withoutWords.setDetail("The connector refused the %s.".formatted(refused));
+        return new ConnectorProblemException(withoutWords);
+    }
+
+    /**
+     * Whether any text in the payload contains one of the secrets, anywhere in it. Stricter than the value-echo check
+     * of {@link #assertNoExpandedSecretOutbound(Object, Set)}, which matches whole values: free text such as a
+     * connector's refusal can carry a secret inside a sentence. A payload that cannot be serialized counts as carrying
+     * one.
+     */
+    public boolean mentionsAnyOf(Object payload, Set<String> secrets) {
+        if (payload == null || secrets == null || secrets.isEmpty()) {
+            return false;
+        }
+        JsonNode tree;
+        try {
+            tree = objectMapper.valueToTree(payload);
+        } catch (RuntimeException e) {
+            logger
+                    .warn("Connector text could not be serialized to check it for secrets; treating it as carrying one",
+                            e);
+            return true;
+        }
+        return containsAnyScalar(tree, text -> secrets.stream().anyMatch(text::contains));
     }
 
     /**

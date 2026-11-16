@@ -23,8 +23,10 @@ import com.otilm.api.model.common.PaginationResponseDto;
 import com.otilm.api.model.common.attribute.common.BaseAttribute;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
+import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.connector.discovery.v2.DiscoveredItemPayloadDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoverySupportedResourceDto;
+import com.otilm.api.model.core.auth.AttributeResource;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.connector.FunctionGroupCode;
 import com.otilm.api.model.core.discovery.DiscoveryItemDto;
@@ -329,7 +331,11 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
     public List<BaseAttribute> getDiscoveryAttributes(SecuredUUID connectorUuid)
             throws NotFoundException, ConnectorException {
         ApiClientConnectorInfo connector = requireDiscoveryV2(connectorUuid);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).listRunAttributes(connector);
+        List<BaseAttribute> attributes = connectorApiFactory
+                .getDiscoveryApiClientV2(connector)
+                .listRunAttributes(connector);
+        storeListedDefinitions(connectorUuid.getValue(), null, attributes);
+        return attributes;
     }
 
     @Override
@@ -348,7 +354,25 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             throw new ValidationException(
                     "Connector " + connectorUuid.getValue() + " does not discover " + resource.getLabel());
         }
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).listResourceAttributes(connector, resource);
+        List<BaseAttribute> attributes = connectorApiFactory
+                .getDiscoveryApiClientV2(connector)
+                .listResourceAttributes(connector, resource);
+        storeListedDefinitions(connectorUuid.getValue(), resource.getCode(), attributes);
+        return attributes;
+    }
+
+    /**
+     * Stores the definitions a discovery form is about to show, so that the form's callbacks find them: the callback
+     * endpoint answers only for definitions Core has stored for the connector. Stored under the operation creating a
+     * run stores them under, so that listing and creating agree on what each serves, and in a transaction of its own
+     * that starts after the connector answered.
+     */
+    private void storeListedDefinitions(UUID connectorUuid, String operation, List<BaseAttribute> attributes) {
+        try {
+            attributeEngine.updateDataAttributeDefinitions(connectorUuid, operation, attributes);
+        } catch (AttributeException e) {
+            throw new ValidationException("The connector declares an attribute Core cannot accept: " + e.getMessage());
+        }
     }
 
     /** The connector, once its v2 discovery interface is known to exist — the only generation with a schema. */
@@ -435,6 +459,7 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
                                 .getDataAttributesByContent(connector.getUuid(), requestAttributesOrNone(attributes)));
             }
         }
+        requireReferencesOfTheDeclaredKind(referenced);
         // The credential loader authorizes CREDENTIAL:DETAIL at method entry, so a run naming no credential is kept
         // away from it rather than charged for a walk-past. The resource loader gates per object, inside, and needs no
         // such guard. As in ConnectorRequestAttributesBuilder.
@@ -442,6 +467,32 @@ public class DiscoveryServiceImpl implements DiscoveryExternalService, Discovery
             credentialService.loadFullCredentialData(referenced);
         }
         resourceService.loadResourceObjectContentData(referenced);
+    }
+
+    /**
+     * Refuses a resource attribute whose value is not a reference to an object of the kind the attribute takes. A run
+     * resolves every value of the attribute as the declared kind, so any other value would be stored as something it is
+     * not.
+     */
+    private static void requireReferencesOfTheDeclaredKind(List<DataAttribute> referenced) {
+        for (DataAttribute attribute : referenced) {
+            List<?> content = attribute.getContent();
+            if (attribute.getContentType() != AttributeContentType.RESOURCE || content == null) {
+                continue;
+            }
+            String label = attribute.getProperties().getLabel();
+            AttributeResource declared = attribute.getProperties().getResource();
+            for (Object item : content) {
+                if (!(item instanceof ResourceObjectContent reference) || reference.getData() == null) {
+                    throw new ValidationException("Attribute '%s' takes a reference to %s, and its value is not one."
+                            .formatted(label, declared.getLabel()));
+                }
+                if (reference.getData().getResource() != declared) {
+                    throw new ValidationException("Attribute '%s' takes a reference to %s, not to %s."
+                            .formatted(label, declared.getLabel(), reference.getData().getResource().getLabel()));
+                }
+            }
+        }
     }
 
     private static boolean referencesACredential(List<DataAttribute> referenced) {

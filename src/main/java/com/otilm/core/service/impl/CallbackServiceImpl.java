@@ -53,6 +53,7 @@ import com.otilm.core.service.ResourceInternalService;
 import com.otilm.core.service.TokenProfileInternalService;
 import com.otilm.core.service.callback.AttributeCallbackScopeResolver;
 import com.otilm.core.service.callback.NgCallbackDispatcher;
+import com.otilm.core.service.handler.OwnConnectorReferenceLending;
 import com.otilm.core.service.v2.ConnectorExternalService;
 import com.otilm.core.service.v2.ConnectorInternalService;
 import com.otilm.core.util.AttributeDefinitionUtils;
@@ -92,6 +93,7 @@ public class CallbackServiceImpl implements CallbackExternalService {
     private AttributeCallbackScopeResolver scopeResolver;
     private NgCallbackDispatcher ngCallbackDispatcher;
     private AttributeReferenceExpander attributeReferenceExpander;
+    private OwnConnectorReferenceLending referenceLending;
 
     @Autowired
     public void setScopeResolver(AttributeCallbackScopeResolver scopeResolver) {
@@ -106,6 +108,11 @@ public class CallbackServiceImpl implements CallbackExternalService {
     @Autowired
     public void setAttributeReferenceExpander(AttributeReferenceExpander attributeReferenceExpander) {
         this.attributeReferenceExpander = attributeReferenceExpander;
+    }
+
+    @Autowired
+    public void setReferenceLending(OwnConnectorReferenceLending referenceLending) {
+        this.referenceLending = referenceLending;
     }
 
     @Autowired
@@ -396,7 +403,8 @@ public class CallbackServiceImpl implements CallbackExternalService {
                 ? List.of()
                 : scopeResolver.resolveScopeChain(scopeResource, scopeParentUuid, expandedSecrets);
         if (currentAttributes != null && !currentAttributes.isEmpty()) {
-            attributeReferenceExpander.expandForCaller(currentAttributes, expandedSecrets);
+            attributeReferenceExpander
+                    .expandForCaller(currentAttributes, expandedSecrets, referenceLending.forConnector(connectorUuid));
         }
         NgCallbackDispatcher.NgDispatchContext context = new NgCallbackDispatcher.NgDispatchContext(attribute,
                 connectorInterface, interfaceVersion, contextAttributes, currentAttributes);

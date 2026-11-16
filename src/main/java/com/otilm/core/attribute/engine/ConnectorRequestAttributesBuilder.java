@@ -54,6 +54,9 @@ public class ConnectorRequestAttributesBuilder {
      * {@code OperationAttributeResolver}, which elevates to the platform's attribute-content-resolver system identity
      * for the duration of this call (authorized at the operation level, not per acting caller).
      * <p>
+     * References nested inside a referenced object stay as they are stored; see
+     * {@link #dereferenceWithNestedReferencesForConnectorRequest}.
+     * <p>
      * This method itself does not arm the callback path's outbound-secret value-echo containment. The attribute-list
      * endpoints (list{Issue,Revoke,Register,RaProfile}Attributes) do return connector-supplied content to the operator,
      * so {@code AuthorityProviderV3Adapter} routes those responses through {@code OutboundSecretContainment} —
@@ -68,10 +71,41 @@ public class ConnectorRequestAttributesBuilder {
     }
 
     /**
-     * Shared skeleton: resolve request-attribute content against the connector's definitions, dereferencing CREDENTIAL
-     * + RESOURCE (incl. SECRET) references in place, then map back to client attributes.
+     * As {@link #dereferenceForConnectorRequest}, and also resolves the references inside each referenced object that
+     * belongs to the connector the request is for, such as the OAuth client secret and TLS trust certificates of the
+     * authority a discovery refers to. Those are what the same connector receives for every operation of the object, so
+     * lending them creates no new holder. The references inside an object of another connector stay references. The
+     * depth cap and loop guard are those of {@link ReferenceTraversal}.
+     * {@link #prepareRequestAttributesForConnectorRequest}, which runs as the caller, never resolves nested references.
      */
+    public List<RequestAttribute> dereferenceWithNestedReferencesForConnectorRequest(UUID connectorUuid,
+            List<RequestAttribute> requestAttributes) throws AttributeException, NotFoundException, ConnectorException {
+        List<DataAttribute> dataAttributes = loadContent(connectorUuid, requestAttributes);
+        ReferenceTraversal traversal = new ReferenceTraversal(resourceService::loadReferencedObjectContent,
+                lentTo(connectorUuid));
+        for (DataAttribute attribute : dataAttributes) {
+            traversal.resolveInsideLoaded(attribute.getContent());
+        }
+        return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
+    }
+
+    /** Lends the references inside an object only when the object belongs to the connector. */
+    private ReferenceLending lentTo(UUID connectorUuid) {
+        return (kind, uuid) -> resourceService.findOwningConnector(kind, uuid).filter(connectorUuid::equals).isPresent()
+                ? resourceService::loadReferencedObjectContent
+                : null;
+    }
+
     private List<RequestAttribute> resolveContent(UUID connectorUuid, List<RequestAttribute> requestAttributes)
+            throws AttributeException, NotFoundException, ConnectorException {
+        return AttributeDefinitionUtils.getClientAttributes(loadContent(connectorUuid, requestAttributes));
+    }
+
+    /**
+     * Resolves request-attribute content against the connector's definitions, dereferencing CREDENTIAL + RESOURCE
+     * (incl. SECRET) references in place.
+     */
+    private List<DataAttribute> loadContent(UUID connectorUuid, List<RequestAttribute> requestAttributes)
             throws AttributeException, NotFoundException, ConnectorException {
         List<DataAttribute> dataAttributes = attributeEngine
                 .getDataAttributesByContent(connectorUuid, requestAttributes);
@@ -79,7 +113,7 @@ public class ConnectorRequestAttributesBuilder {
             credentialService.loadFullCredentialData(dataAttributes);
         }
         resourceService.loadResourceObjectContentData(dataAttributes);
-        return AttributeDefinitionUtils.getClientAttributes(dataAttributes);
+        return dataAttributes;
     }
 
     /**

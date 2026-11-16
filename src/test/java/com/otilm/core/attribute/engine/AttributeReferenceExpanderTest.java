@@ -3,6 +3,9 @@ package com.otilm.core.attribute.engine;
 import com.otilm.api.exception.AttributeException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.client.attribute.RequestAttributeV3;
+import com.otilm.api.model.client.attribute.ResponseAttributeV3;
+import com.otilm.api.model.common.attribute.common.AttributeType;
+import com.otilm.api.model.common.attribute.common.AttributeVersion;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
@@ -20,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.springframework.security.access.AccessDeniedException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -180,43 +184,104 @@ class AttributeReferenceExpanderTest {
                 "multi-select must fail the whole call if the caller lacks DETAIL on any element");
     }
 
-    // ---- AC3: cycle / depth --------------------------------------------------------------------
+    // ---- pass-through, repeats, nesting ---------------------------------------------------------
 
     @Test
-    void passesThroughKindsWithoutAConnectorConsumableBlob() throws Exception {
-        UUID uuid = UUID.randomUUID();
-        when(registry.loaderFor(AttributeResource.CERTIFICATE)).thenReturn(null);
+    void leavesAReferenceUntouched_whenItsKindHasNoLoader() throws Exception {
+        // given
+        var kindWithoutALoader = AttributeResource.CERTIFICATE;
+        when(registry.loaderFor(kindWithoutALoader)).thenReturn(null);
+        RequestAttribute attr = resourceRef(kindWithoutALoader, UUID.randomUUID());
+        ResourceObjectContentData original = firstElement(attr).getData();
 
-        RequestAttribute attr = resourceRef(AttributeResource.CERTIFICATE, uuid);
-        ResourceObjectContent before = (ResourceObjectContent) ((List<?>) attr.getContent()).getFirst();
-        ResourceObjectContentData original = before.getData();
-
+        // when
         expander.expandForCaller(List.of(attr), expandedSecrets);
 
-        assertSame(original, before.getData(), "a pass-through kind (CERTIFICATE) must be left untouched");
+        // then
+        assertThat(firstElement(attr).getData()).isSameAs(original);
         verify(containment, never()).recordExpandedSecrets(ArgumentMatchers.any(), ArgumentMatchers.any());
     }
 
-    // Note: the depth-cap and cross-frame cycle guard are not exercised end-to-end because nested-blob resolution
-    // is not wired (attributesOf returns empty — single-level expansion only). Those kernels are unit-tested as
-    // pure functions in ReferenceTraversalTest; an end-to-end depth/cycle test lands with the op-path follow-up
-    // that makes attributesOf live. The tautological inline-throw test was removed (it asserted nothing real).
-
     @Test
-    void multiSelectSiblingDedupByVisitedSet() throws Exception {
+    void reusesTheLoadedObject_whenAMultiSelectNamesItTwice() throws Exception {
+        // given
         UUID uuid = UUID.randomUUID();
-        ResourceSimpleContentData blob = blob(AttributeResource.CREDENTIAL, uuid);
-        registerLoader(AttributeResource.CREDENTIAL, securedUuid -> blob);
-
-        // same uuid referenced twice in one multi-select: the second sighting is skipped by the visited set, no re-load
+        CallerAuthorizedReferenceLoader loader = mock(CallerAuthorizedReferenceLoader.class);
+        when(loader.loadAuthorized(ArgumentMatchers.any()))
+                .thenAnswer(call -> blob(AttributeResource.CREDENTIAL, uuid));
+        registerLoader(AttributeResource.CREDENTIAL, loader);
         RequestAttribute attr = resourceRef(AttributeResource.CREDENTIAL, uuid, uuid);
+
+        // when
         expander.expandForCaller(List.of(attr), expandedSecrets);
 
-        ResourceObjectContent first = (ResourceObjectContent) ((List<?>) attr.getContent()).get(0);
-        ResourceObjectContent second = (ResourceObjectContent) ((List<?>) attr.getContent()).get(1);
-        assertSame(blob, first.getData());
-        // second element was not expanded (already visited) — remains the bare reference
-        assertInstanceOf(ResourceSimpleContentData.class, second.getData());
-        assertTrue(((ResourceSimpleContentData) second.getData()).getAttributes() == null);
+        // then
+        List<?> elements = attr.getContent();
+        ResourceObjectContentData first = ((ResourceObjectContent) elements.get(0)).getData();
+        ResourceObjectContentData second = ((ResourceObjectContent) elements.get(1)).getData();
+        assertThat(second).isSameAs(first);
+        verify(loader).loadAuthorized(ArgumentMatchers.any());
+    }
+
+    @Test
+    void loadsANestedSecretThroughTheLending_whenTheAuthorityLendsIt() throws Exception {
+        // given
+        UUID authorityUuid = UUID.randomUUID();
+        UUID secretUuid = UUID.randomUUID();
+        ResourceSecretContentData secretContent = new ResourceSecretContentData();
+        ReferenceLoader lentLoader = mock(ReferenceLoader.class);
+        when(lentLoader.load(AttributeResource.SECRET, secretUuid)).thenReturn(secretContent);
+        registerLoader(AttributeResource.AUTHORITY, uuid -> authorityHolding(authorityUuid, secretUuid));
+        RequestAttribute attr = resourceRef(AttributeResource.AUTHORITY, authorityUuid);
+
+        // when
+        expander.expandForCaller(List.of(attr), expandedSecrets, (kind, uuid) -> lentLoader);
+
+        // then
+        ResourceSimpleContentData authority = (ResourceSimpleContentData) firstElement(attr).getData();
+        List<?> oauthClient = authority.getAttributes().getFirst().getContent();
+        assertThat(((ResourceObjectContent) oauthClient.getFirst()).getData()).isSameAs(secretContent);
+        verify(registry, never()).loaderFor(AttributeResource.SECRET);
+        verify(containment).recordExpandedSecrets(secretContent, expandedSecrets);
+    }
+
+    @Test
+    void leavesANestedSecretAReference_whenNothingIsLent() throws Exception {
+        // given
+        UUID authorityUuid = UUID.randomUUID();
+        registerLoader(AttributeResource.AUTHORITY, uuid -> authorityHolding(authorityUuid, UUID.randomUUID()));
+        RequestAttribute attr = resourceRef(AttributeResource.AUTHORITY, authorityUuid);
+
+        // when
+        expander.expandForCaller(List.of(attr), expandedSecrets);
+
+        // then
+        ResourceSimpleContentData authority = (ResourceSimpleContentData) firstElement(attr).getData();
+        List<?> oauthClient = authority.getAttributes().getFirst().getContent();
+        assertThat(((ResourceObjectContent) oauthClient.getFirst()).getData())
+                .isInstanceOfSatisfying(ResourceSecretContentData.class,
+                        secret -> assertThat(secret.getContent()).isNull());
+        verify(registry, never()).loaderFor(AttributeResource.SECRET);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static ResourceObjectContent firstElement(RequestAttribute attribute) {
+        List<?> elements = attribute.getContent();
+        return (ResourceObjectContent) elements.getFirst();
+    }
+
+    /** An authority whose one attribute is its OAuth client: a bare reference to a secret, as stored. */
+    private static ResourceSimpleContentData authorityHolding(UUID authorityUuid, UUID secretUuid) {
+        List<BaseAttributeContentV3<?>> oauthClient = new ArrayList<>();
+        oauthClient
+                .add(new ResourceObjectContent("oauth-client",
+                        new ResourceSecretContentData(secretUuid.toString(), "oauth-client", null)));
+        ResourceSimpleContentData authority = blob(AttributeResource.AUTHORITY, authorityUuid);
+        authority
+                .setAttributes(new ArrayList<>(List
+                        .of(new ResponseAttributeV3(oauthClient, UUID.randomUUID(), "oauthClient", "OAuth client",
+                                AttributeType.DATA, AttributeContentType.RESOURCE, AttributeVersion.V3))));
+        return authority;
     }
 }

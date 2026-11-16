@@ -30,12 +30,18 @@ import org.springframework.stereotype.Component;
  * ArchUnit fence forbids that package from touching {@link AuthHelper}; the callback path stays per-object
  * caller-authorized and only this operation path elevates.
  * <p>
+ * <b>Nesting:</b> {@link #resolveForConnectorRequestAsSystem} resolves the stored attributes' own references, one level
+ * deep. {@link #resolveWithNestedReferencesAsSystem} also resolves the references inside the objects they name, such as
+ * the OAuth client secret of an authority a discovery refers to, down to the depth cap of the traversal the callback
+ * path shares. It is only for attributes whose creation checked the creator's rights on every object they reach, which
+ * a Discovery v2 run's creation does.
+ * <p>
  * <b>Failures:</b> an unresolvable stored reference surfaces as {@link ConnectorException}, the one checked type the
- * elevated body may declare. A disabled or invalid-state secret or vault profile, or a reference whose object is gone,
- * surfaces as a {@link ValidationException} instead: it names the object the operator has to fix and maps to 422, which
- * wrapping would turn into a 500 carrying no message. A caller that cannot recover from an unchecked exception has to
- * wrap it itself; {@code AuthorityProviderV3Adapter.pollStatus} does, because the poll listener recovers only from
- * {@link ConnectorException}.
+ * elevated body may declare. A disabled or invalid-state secret or vault profile, a reference whose object is gone, or
+ * references nested deeper than the cap surface as a {@link ValidationException} instead: it names the object the
+ * operator has to fix and maps to 422, which wrapping would turn into a 500 carrying no message. A caller that cannot
+ * recover from an unchecked exception has to wrap it itself; {@code AuthorityProviderV3Adapter.pollStatus} does,
+ * because the poll listener recovers only from {@link ConnectorException}.
  */
 @Component
 public class OperationAttributeResolver {
@@ -50,8 +56,32 @@ public class OperationAttributeResolver {
         this.connectorRequestAttributesBuilder = connectorRequestAttributesBuilder;
     }
 
+    /** The stored attributes with their own references resolved, one level deep. */
     public List<RequestAttribute> resolveForConnectorRequestAsSystem(UUID connectorUuid, List<RequestAttribute> stored)
             throws ConnectorException {
+        return resolveAsSystem(connectorUuid, stored,
+                connectorRequestAttributesBuilder::dereferenceForConnectorRequest);
+    }
+
+    /**
+     * The stored attributes with their references resolved, and the references inside the objects those name. Only for
+     * attributes whose creation checked the creator's rights on every object they reach.
+     */
+    public List<RequestAttribute> resolveWithNestedReferencesAsSystem(UUID connectorUuid, List<RequestAttribute> stored)
+            throws ConnectorException {
+        return resolveAsSystem(connectorUuid, stored,
+                connectorRequestAttributesBuilder::dereferenceWithNestedReferencesForConnectorRequest);
+    }
+
+    /** One of the builder's dereferences, which may fail with the checked types the elevated body maps. */
+    @FunctionalInterface
+    private interface Dereference {
+        List<RequestAttribute> apply(UUID connectorUuid, List<RequestAttribute> stored)
+                throws AttributeException, NotFoundException, ConnectorException;
+    }
+
+    private List<RequestAttribute> resolveAsSystem(UUID connectorUuid, List<RequestAttribute> stored,
+            Dereference dereference) throws ConnectorException {
         if (stored == null) {
             return List.of();
         }
@@ -63,7 +93,7 @@ public class OperationAttributeResolver {
         }
         return authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
             try {
-                return connectorRequestAttributesBuilder.dereferenceForConnectorRequest(connectorUuid, stored);
+                return dereference.apply(connectorUuid, stored);
             } catch (DanglingReferenceException e) {
                 throw new ValidationException(e.getMessage());
             } catch (AttributeException | NotFoundException e) {

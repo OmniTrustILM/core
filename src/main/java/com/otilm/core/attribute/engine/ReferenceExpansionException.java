@@ -1,26 +1,24 @@
 package com.otilm.core.attribute.engine;
 
-import com.otilm.api.exception.PlatformException;
-import com.otilm.api.model.core.auth.AttributeResource;
-
-import java.util.UUID;
+import com.otilm.api.exception.ValidationException;
 
 /**
- * Raised when reference expansion cannot complete safely — currently only on depth-cap overflow.
+ * Raised when references nest deeper than reference resolution follows them.
  * <p>
- * Overflow is a loud failure by design: returning the unexpanded tail would let a bare object UUID flow to the
- * connector instead of the resolved blob, which is a silent correctness/security defect. The legitimate chain is
- * shallow (scope blob -&gt; credential, depth 2); exceeding the cap signals either a mis-modelled attribute graph or a
- * crafted cycle the visited-set somehow missed.
+ * Overflow is a loud failure by design: sending the rest unresolved would let a bare object UUID reach the connector in
+ * place of the object's content. The chains connectors use are shallow (a discovery's authority and the authority's
+ * secret are two levels), so exceeding the cap means the attribute graph is modelled wrongly. The operator fixes that
+ * on the objects, so it answers as a validation refusal naming the reference.
  */
-public class ReferenceExpansionException extends RuntimeException implements PlatformException {
+public class ReferenceExpansionException extends ValidationException {
 
     public ReferenceExpansionException(String message) {
         super(message);
     }
 
-    public static ReferenceExpansionException depthExceeded(AttributeResource kind, UUID uuid, int maxDepth) {
+    public static ReferenceExpansionException depthExceeded(String reference, int maxDepth) {
         return new ReferenceExpansionException(
-                "Reference expansion depth cap (%d) exceeded at %s:%s".formatted(maxDepth, kind, uuid));
+                "%s is referenced more than %d levels deep, which is more than Core resolves for a connector."
+                        .formatted(reference, maxDepth));
     }
 }

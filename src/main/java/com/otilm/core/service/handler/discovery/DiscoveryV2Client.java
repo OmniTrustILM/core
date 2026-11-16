@@ -4,12 +4,11 @@ import com.otilm.api.exception.AttributeException;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.model.client.attribute.RequestAttribute;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
-import com.otilm.api.model.common.error.ErrorCode;
-import com.otilm.api.model.common.error.ProblemDetailExtended;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDeliveryMode;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryDrainRequestDto;
 import com.otilm.api.model.connector.discovery.v2.DiscoveryInitiateRequestDto;
@@ -29,12 +28,11 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.service.CredentialInternalService;
-import com.otilm.core.service.ResourceInternalService;
+import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.AttributeDefinitionUtils;
-import com.otilm.core.util.AuthHelper;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -71,22 +69,17 @@ public class DiscoveryV2Client {
     private final ConnectorApiFactory connectorApiFactory;
     private final ConnectorRepository connectorRepository;
     private final AttributeEngine attributeEngine;
-    private final CredentialInternalService credentialService;
-    private final ResourceInternalService resourceService;
-    private final AuthHelper authHelper;
+    private final OperationAttributeResolver operationAttributeResolver;
     private final OutboundSecretContainment outboundContainment;
     private final DiscoveryDeliveryModeOffer deliveryModeOffer;
 
     public DiscoveryV2Client(ConnectorApiFactory connectorApiFactory, ConnectorRepository connectorRepository,
-            AttributeEngine attributeEngine, CredentialInternalService credentialService,
-            ResourceInternalService resourceService, AuthHelper authHelper,
+            AttributeEngine attributeEngine, OperationAttributeResolver operationAttributeResolver,
             OutboundSecretContainment outboundContainment, DiscoveryDeliveryModeOffer deliveryModeOffer) {
         this.connectorApiFactory = connectorApiFactory;
         this.connectorRepository = connectorRepository;
         this.attributeEngine = attributeEngine;
-        this.credentialService = credentialService;
-        this.resourceService = resourceService;
-        this.authHelper = authHelper;
+        this.operationAttributeResolver = operationAttributeResolver;
         this.outboundContainment = outboundContainment;
         this.deliveryModeOffer = deliveryModeOffer;
     }
@@ -113,25 +106,9 @@ public class DiscoveryV2Client {
         try {
             return connectorApiFactory.getDiscoveryApiClientV2(connector).initiate(connector, request);
         } catch (ConnectorProblemException e) {
-            if (sentSecrets.isEmpty()) {
-                throw e;
-            }
-            // A refusal of the initiate reaches the API caller, and the request carried secrets that caller may not
-            // read, so the connector's words may carry one back. Its verdict is kept; its words are not.
-            throw new ConnectorProblemException(withoutItsWords(e.getProblemDetail()));
+            // A refusal of the initiate reaches the API caller, who may not read the secrets the request carried.
+            throw outboundContainment.withoutSecrets(e, sentSecrets, "run");
         }
-    }
-
-    private static ProblemDetailExtended withoutItsWords(ProblemDetailExtended answered) {
-        ErrorCode code = answered.getErrorCode();
-        if (code != null) {
-            return ProblemDetailExtended
-                    .fromErrorCode(code, "The connector refused the run (%s).".formatted(code.name()), null, null);
-        }
-        ProblemDetailExtended refused = new ProblemDetailExtended();
-        refused.setStatus(answered.getStatus());
-        refused.setDetail("The connector refused the run.");
-        return refused;
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -173,8 +150,12 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        populate(request, run, connector);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).stop(connector, request);
+        Set<String> sentSecrets = populate(request, run, connector);
+        try {
+            return connectorApiFactory.getDiscoveryApiClientV2(connector).stop(connector, request);
+        } catch (ConnectorProblemException e) {
+            throw outboundContainment.withoutSecrets(e, sentSecrets, "run");
+        }
     }
 
     /** Restarts a stopped run from its checkpoint. Answers the same shape as initiate: a handle and stoppability. */
@@ -183,8 +164,12 @@ public class DiscoveryV2Client {
             throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        populate(request, run, connector);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).resume(connector, request);
+        Set<String> sentSecrets = populate(request, run, connector);
+        try {
+            return connectorApiFactory.getDiscoveryApiClientV2(connector).resume(connector, request);
+        } catch (ConnectorProblemException e) {
+            throw outboundContainment.withoutSecrets(e, sentSecrets, "run");
+        }
     }
 
     /**
@@ -198,8 +183,12 @@ public class DiscoveryV2Client {
     public ResponseEntity<Void> cancel(Discovery run) throws ConnectorException, NotFoundException, AttributeException {
         ConnectorDto connector = connectorOf(run);
         DiscoveryRunRequestDto request = new DiscoveryRunRequestDto();
-        populate(request, run, connector);
-        return connectorApiFactory.getDiscoveryApiClientV2(connector).cancel(connector, request);
+        Set<String> sentSecrets = populate(request, run, connector);
+        try {
+            return connectorApiFactory.getDiscoveryApiClientV2(connector).cancel(connector, request);
+        } catch (ConnectorProblemException e) {
+            throw outboundContainment.withoutSecrets(e, sentSecrets, "run");
+        }
     }
 
     private DiscoveryResultsResponseDto drain(Discovery run, long afterSequence, int maxItems, long maxBytes)
@@ -266,12 +255,11 @@ public class DiscoveryV2Client {
         request.setCheckpoint(run.getCheckpoint());
         request.setResources(resourcesOf(run));
         request.setDeliveryModes(deliveryModeOffer.offered());
-        Map<String, List<DataAttribute>> scopes = resolvedScopes(run, connector);
-        request.setAttributes(AttributeDefinitionUtils.getClientAttributes(scopes.getOrDefault(RUN_SCOPE, List.of())));
+        Map<String, List<RequestAttribute>> scopes = resolvedScopes(run, connector);
+        request.setAttributes(scopes.getOrDefault(RUN_SCOPE, List.of()));
         Map<Resource, List<RequestAttribute>> byResource = new EnumMap<>(Resource.class);
         for (Resource resource : resourcesOf(run)) {
-            List<RequestAttribute> attributes = AttributeDefinitionUtils
-                    .getClientAttributes(scopes.getOrDefault(resource.getCode(), List.of()));
+            List<RequestAttribute> attributes = scopes.getOrDefault(resource.getCode(), List.of());
             if (!attributes.isEmpty()) {
                 byResource.put(resource, attributes);
             }
@@ -300,70 +288,72 @@ public class DiscoveryV2Client {
     }
 
     /**
-     * Every scope's definitions with their credential and referenced-object content loaded, exactly as the v1 flow
-     * resolves it before its own call.
+     * Every scope's attributes as the connector receives them: with their credentials and referenced objects resolved,
+     * including the references nested inside those objects, through the resolver an authority's own operations use.
      */
-    private Map<String, List<DataAttribute>> resolvedScopes(Discovery run, ConnectorDto connector)
+    private Map<String, List<RequestAttribute>> resolvedScopes(Discovery run, ConnectorDto connector)
             throws ConnectorException {
-        Map<String, List<DataAttribute>> scopes = definitionScopes(run, connector);
+        Map<String, List<DataAttribute>> definitions = definitionScopes(run, connector);
         // Resolved across all scopes at once, and only once per distinct definition: a credential the run and a
         // resource both declare is one lookup, not two, and for a SECRET reference a lookup is a connector round
-        // trip. Duplicates take the resolved content from the instance that was actually resolved.
-        List<DataAttribute> toResolve = new ArrayList<>();
-        Map<String, DataAttribute> firstOfEach = new LinkedHashMap<>();
-        Map<DataAttribute, DataAttribute> duplicates = new IdentityHashMap<>();
-        for (List<DataAttribute> scope : scopes.values()) {
+        // trip.
+        Map<String, DataAttribute> distinct = new LinkedHashMap<>();
+        Map<DataAttribute, String> keys = new IdentityHashMap<>();
+        for (List<DataAttribute> scope : definitions.values()) {
             for (DataAttribute definition : scope) {
-                DataAttribute first = firstOfEach
-                        .putIfAbsent(AttributeDefinitionUtils.serialize(definition), definition);
-                if (first == null) {
-                    toResolve.add(definition);
-                } else {
-                    duplicates.put(definition, first);
-                }
+                String key = AttributeDefinitionUtils.serialize(definition);
+                keys.put(definition, key);
+                distinct.putIfAbsent(key, definition);
             }
         }
+        List<DataAttribute> toResolve = List.copyOf(distinct.values());
+        List<RequestAttribute> sent = AttributeDefinitionUtils.getClientAttributes(toResolve);
         if (referencesAnything(toResolve)) {
-            dereferenceAsSystem(toResolve);
+            sent = resolveAsSystem(connector, sent);
         }
-        duplicates.forEach((duplicate, resolved) -> duplicate.setContent(resolved.getContent()));
+        List<String> distinctKeys = List.copyOf(distinct.keySet());
+        if (sent.size() != distinctKeys.size()) {
+            throw new IllegalStateException("Resolving the run's attributes returned %d attributes for %d"
+                    .formatted(sent.size(), distinctKeys.size()));
+        }
+        Map<String, RequestAttribute> sentByKey = new HashMap<>();
+        for (int i = 0; i < distinctKeys.size(); i++) {
+            sentByKey.put(distinctKeys.get(i), sent.get(i));
+        }
+        Map<String, List<RequestAttribute>> scopes = new LinkedHashMap<>();
+        definitions
+                .forEach((scope, scopeDefinitions) -> scopes
+                        .put(scope,
+                                scopeDefinitions
+                                        .stream()
+                                        .map(definition -> sentByKey.get(keys.get(definition)))
+                                        .toList()));
         return scopes;
     }
 
     /**
-     * Whether any definition points at another object. When none does, both loaders and the elevation's auth-service
+     * The run's attributes as the connector receives them. A reference the resolver refuses, such as one to an object
+     * that is gone, surfaces as the connector call it prevents: a tick worker reads a validation refusal as the
+     * connector's, and would end a checkpointed run at once, naming the connector.
+     */
+    private List<RequestAttribute> resolveAsSystem(ConnectorDto connector, List<RequestAttribute> attributes)
+            throws ConnectorException {
+        try {
+            return operationAttributeResolver
+                    .resolveWithNestedReferencesAsSystem(UUID.fromString(connector.getUuid()), attributes);
+        } catch (ValidationException e) {
+            throw new ConnectorException("Unable to resolve the discovery run's references: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Whether any definition points at another object. When none does, the resolver and its elevation's auth-service
      * round trip are skipped — a STATUS or DRAIN tick walks this path for the whole life of every run.
      */
     private static boolean referencesAnything(List<DataAttribute> definitions) {
         return definitions.stream().anyMatch(definition -> {
             AttributeContentType contentType = definition.getContentType();
             return contentType == AttributeContentType.CREDENTIAL || contentType == AttributeContentType.RESOURCE;
-        });
-    }
-
-    /**
-     * Dereferences under the {@code attribute-content-resolver} system identity, as {@code OperationAttributeResolver}
-     * does. A tick worker and the reaper's sweep hold no principal, and {@code loadFullCredentialData} is gated on
-     * {@code CREDENTIAL:DETAIL} at method entry — so they are refused before the loader can see whether there is a
-     * credential to load.
-     *
-     * <p>
-     * The elevation narrows nothing: these are the resource-level list loaders, which have no per-object gate (that is
-     * {@code CredentialServiceImpl.getAuthorizedObjectAttributes}); an operator therefore needs no
-     * {@code CREDENTIAL:DETAIL} to stop or resume a run. Collapsing into {@link ConnectorException} is forced: the
-     * elevated body may declare only one checked type.
-     */
-    private void dereferenceAsSystem(List<DataAttribute> toResolve) throws ConnectorException {
-        authHelper.runAsSystem(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME, () -> {
-            try {
-                credentialService.loadFullCredentialData(toResolve);
-                resourceService.loadResourceObjectContentData(toResolve);
-                return null;
-            } catch (AttributeException | NotFoundException e) {
-                // A dangling reference — a deleted credential or secret — is not a missing run, so it surfaces as
-                // the connector call it prevents rather than a 404.
-                throw new ConnectorException("Unable to resolve stored attribute references for the discovery run", e);
-            }
         });
     }
 

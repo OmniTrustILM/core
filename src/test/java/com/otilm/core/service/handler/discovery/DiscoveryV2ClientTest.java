@@ -4,12 +4,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.otilm.api.exception.ConnectorException;
 import com.otilm.api.exception.ConnectorProblemException;
 import com.otilm.api.exception.NotFoundException;
+import com.otilm.api.exception.ValidationException;
 import com.otilm.api.interfaces.client.v2.DiscoverySyncApiClient;
 import com.otilm.api.model.client.attribute.RequestAttribute;
+import com.otilm.api.model.client.attribute.RequestAttributeV3;
 import com.otilm.api.model.common.attribute.common.AttributeType;
 import com.otilm.api.model.common.attribute.common.DataAttribute;
 import com.otilm.api.model.common.attribute.common.content.AttributeContentType;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
+import com.otilm.api.model.common.attribute.v3.content.BaseAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.ResourceObjectContent;
 import com.otilm.api.model.common.attribute.v3.content.StringAttributeContentV3;
 import com.otilm.api.model.common.attribute.v3.content.data.ResourceSecretContentData;
@@ -34,14 +37,14 @@ import com.otilm.core.client.ConnectorApiFactory;
 import com.otilm.core.dao.entity.Connector;
 import com.otilm.core.dao.entity.Discovery;
 import com.otilm.core.dao.repository.ConnectorRepository;
-import com.otilm.core.service.CredentialInternalService;
-import com.otilm.core.service.ResourceInternalService;
-import com.otilm.core.util.AuthHelper;
+import com.otilm.core.service.handler.OperationAttributeResolver;
 import com.otilm.core.util.DiscoveryCheckpointFixture;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,7 +61,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -82,11 +84,7 @@ class DiscoveryV2ClientTest {
     @Mock
     private AttributeEngine attributeEngine;
     @Mock
-    private CredentialInternalService credentialService;
-    @Mock
-    private ResourceInternalService resourceService;
-    @Mock
-    private AuthHelper authHelper;
+    private OperationAttributeResolver operationAttributeResolver;
     @Mock
     private DiscoverySyncApiClient apiClient;
 
@@ -99,11 +97,6 @@ class DiscoveryV2ClientTest {
     @BeforeEach
     void createClientAndRun() {
         client = clientOffering(OFFERED_MODES);
-        // Runs the elevated body inline: the bare mock returns null without invoking it, so every assertion about
-        // what the loaders received would pass while resolving nothing.
-        lenient()
-                .when(authHelper.runAsSystem(eq(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME), any()))
-                .thenAnswer(invocation -> invocation.<AuthHelper.ThrowingSupplier<?, ?>>getArgument(1).get());
 
         run = new Discovery();
         run.setUuid(UUID.randomUUID());
@@ -307,14 +300,15 @@ class DiscoveryV2ClientTest {
                 .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), eq("certificates"), any(), any()))
                 .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
+        resolvingEachTo(new StringAttributeContentV3("s3cret"));
         when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
 
         client.status(run);
 
         // For a SECRET reference a lookup is a connector round trip, so resolving once per scope would pay for
         // the same secret as many times as the run targets resources.
-        ArgumentCaptor<List<DataAttribute>> resolved = ArgumentCaptor.captor();
-        verify(resourceService).loadResourceObjectContentData(resolved.capture());
+        ArgumentCaptor<List<RequestAttribute>> resolved = ArgumentCaptor.captor();
+        verify(operationAttributeResolver).resolveWithNestedReferencesAsSystem(any(), resolved.capture());
         assertThat(resolved.getValue()).hasSize(1);
         assertThat(capturedStatus().getResourceAttributes().get(Resource.CERTIFICATE))
                 .as("the scope that shared the definition still carries it")
@@ -330,11 +324,7 @@ class DiscoveryV2ClientTest {
                 .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), eq("certificates"), any(), any()))
                 .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
-        doAnswer(invocation -> {
-            List<DataAttribute> resolving = invocation.getArgument(0);
-            resolving.forEach(attribute -> attribute.setContent(List.of(new StringAttributeContentV3("s3cret"))));
-            return null;
-        }).when(resourceService).loadResourceObjectContentData(anyList());
+        resolvingEachTo(new StringAttributeContentV3("s3cret"));
         when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
 
         client.status(run);
@@ -347,22 +337,62 @@ class DiscoveryV2ClientTest {
     }
 
     @Test
-    void aReferenceToDereference_isResolvedUnderTheSystemIdentity() throws Exception {
+    void resolvesThroughTheResolverOfAuthorityOperations_whenTheRunReferencesAnObject() throws Exception {
+        // given
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
-                .thenReturn(List.of(definition("credential", "reference-only", AttributeContentType.CREDENTIAL)));
+                .thenReturn(List.of(definition("authority", "reference-only", AttributeContentType.RESOURCE)));
+        resolvingEachTo(new StringAttributeContentV3("resolved"));
         when(apiClient.status(any(), any())).thenReturn(new DiscoveryStatusResponseDto());
 
+        // when
         client.status(run);
 
-        // Tick workers and the reaper's sweep hold no principal, and the credential loader is gated on
-        // CREDENTIAL:DETAIL at method entry.
-        verify(authHelper).runAsSystem(eq(AuthHelper.ATTRIBUTE_CONTENT_RESOLVER_USERNAME), any());
-        verify(credentialService).loadFullCredentialData(anyList());
+        // then
+        verify(operationAttributeResolver).resolveWithNestedReferencesAsSystem(eq(run.getConnectorUuid()), anyList());
+        assertThat(firstData(capturedStatus().getAttributes().getFirst().getContent())).isEqualTo("resolved");
     }
 
     @Test
-    void nothingToDereference_skipsTheLoadersAndTheElevation() throws Exception {
+    void failsRatherThanMisplacingContent_whenTheResolverAnswersForFewerAttributes() throws Exception {
+        // given
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("authority", "reference-only", AttributeContentType.RESOURCE)));
+        when(operationAttributeResolver.resolveWithNestedReferencesAsSystem(any(), anyList())).thenReturn(List.of());
+
+        // when
+        ThrowingCallable status = () -> client.status(run);
+
+        // then
+        assertThatThrownBy(status).isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(apiClient);
+    }
+
+    @Test
+    void reportsAConnectorFailure_whenTheResolverRefusesAReference() throws Exception {
+        // given
+        run.setResources(List.of(Resource.CERTIFICATE));
+        when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
+                .thenReturn(List.of(definition("authority", "reference-only", AttributeContentType.RESOURCE)));
+        ValidationException goneSecret = new ValidationException(
+                "Attribute 'OAuth client' of Authority 'otpki' refers to Secret 'oauth', which does not exist.");
+        when(operationAttributeResolver.resolveWithNestedReferencesAsSystem(any(), anyList())).thenThrow(goneSecret);
+
+        // when
+        ThrowingCallable status = () -> client.status(run);
+
+        // then
+        assertThatThrownBy(status)
+                .isInstanceOf(ConnectorException.class)
+                .isNotInstanceOf(ValidationException.class)
+                .hasMessageContaining(goneSecret.getMessage())
+                .hasCause(goneSecret);
+        verifyNoInteractions(apiClient);
+    }
+
+    @Test
+    void skipsTheResolver_whenNothingIsReferenced() throws Exception {
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), any(), any(), any()))
                 .thenReturn(List.of(definition("host", "10.0.0.0/24", AttributeContentType.STRING)));
@@ -370,11 +400,9 @@ class DiscoveryV2ClientTest {
 
         client.status(run);
 
-        // Nothing for either loader to do, and this path runs on every tick for the whole life of the run — so it
-        // must not spend an auth-service round trip proving that.
-        verifyNoInteractions(authHelper);
-        verifyNoInteractions(credentialService);
-        verifyNoInteractions(resourceService);
+        // Nothing to resolve, and this path runs on every tick for the whole life of the run — so it must not spend
+        // the resolver's auth-service round trip proving that.
+        verifyNoInteractions(operationAttributeResolver);
         assertThat(capturedStatus().getAttributes())
                 .as("the definition still reaches the connector, just unresolved")
                 .singleElement()
@@ -392,15 +420,8 @@ class DiscoveryV2ClientTest {
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
                 .thenReturn(List.of(definition("vaultToken", "reference-only", AttributeContentType.RESOURCE)));
-        doAnswer(invocation -> {
-            List<DataAttribute> resolving = invocation.getArgument(0);
-            resolving
-                    .forEach(attribute -> attribute
-                            .setContent(List
-                                    .of(new ResourceObjectContent("vault", new ResourceSecretContentData("u", "vault",
-                                            new ApiKeySecretContent("s3cr3t-token"))))));
-            return null;
-        }).when(resourceService).loadResourceObjectContentData(anyList());
+        resolvingEachTo(new ResourceObjectContent("vault",
+                new ResourceSecretContentData("u", "vault", new ApiKeySecretContent("s3cr3t-token"))));
         DiscoveryStatusResponseDto echo = new DiscoveryStatusResponseDto();
         echo.setMeta(DiscoveryCheckpointFixture.checkpoint("lastToken", "s3cr3t-token"));
         when(apiClient.status(any(), any())).thenReturn(echo);
@@ -423,11 +444,11 @@ class DiscoveryV2ClientTest {
     }
 
     /**
-     * A refusal of the initiate now reaches the API caller, and the request carried secrets the caller may not read, so
-     * the connector's words go and its verdict stays: still a 422 refusal of the configuration.
+     * A refusal of the initiate reaches the API caller, who may not read the secrets the request carried, so words that
+     * carry one go and the verdict stays: still a 422 refusal of the configuration.
      */
     @Test
-    void anInitiateRefusalForARunCarryingSecrets_dropsTheConnectorsWordsButNotItsVerdict() throws Exception {
+    void dropsTheConnectorsWordsButNotItsVerdict_whenAnInitiateRefusalCarriesASecretItWasSent() throws Exception {
         givenARunResolvingASecret();
         when(apiClient.initiate(any(), any())).thenThrow(validationRefusal("token s3cr3t-token is not valid"));
 
@@ -437,6 +458,35 @@ class DiscoveryV2ClientTest {
                     assertThat(refused.getProblemDetail().getErrorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
                     assertThat(refused.getProblemDetail().getStatus()).isEqualTo(422);
                 });
+    }
+
+    @Test
+    void keepsTheConnectorsWords_whenAnInitiateRefusalCarriesNoneOfTheSecretsItWasSent() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        String foreignAuthority = "authority \"otpki-staging\" does not belong to this connector";
+        when(apiClient.initiate(any(), any())).thenThrow(validationRefusal(foreignAuthority));
+
+        // when
+        ThrowingCallable initiate = () -> client.initiate(run);
+
+        // then
+        assertThatThrownBy(initiate).isInstanceOf(ConnectorProblemException.class).hasMessage(foreignAuthority);
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenAStopRefusalCarriesASecretItWasSent() throws Exception {
+        // given
+        givenARunResolvingASecret();
+        when(apiClient.stop(any(), any())).thenThrow(validationRefusal("token s3cr3t-token cannot be used"));
+
+        // when
+        ThrowingCallable stop = () -> client.stop(run);
+
+        // then
+        assertThatThrownBy(stop)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessage("The connector refused the run (VALIDATION_FAILED).");
     }
 
     /** Nothing secret went out, so the connector's words are the caller's best account of what to correct. */
@@ -472,15 +522,8 @@ class DiscoveryV2ClientTest {
         run.setResources(List.of(Resource.CERTIFICATE));
         when(attributeEngine.getDefinitionObjectAttributeContent(any(), any(), isNull(), any(), any()))
                 .thenReturn(List.of(definition("vaultToken", "reference-only", AttributeContentType.RESOURCE)));
-        doAnswer(invocation -> {
-            List<DataAttribute> resolving = invocation.getArgument(0);
-            resolving
-                    .forEach(attribute -> attribute
-                            .setContent(List
-                                    .of(new ResourceObjectContent("vault", new ResourceSecretContentData("u", "vault",
-                                            new ApiKeySecretContent("s3cr3t-token"))))));
-            return null;
-        }).when(resourceService).loadResourceObjectContentData(anyList());
+        resolvingEachTo(new ResourceObjectContent("vault",
+                new ResourceSecretContentData("u", "vault", new ApiKeySecretContent("s3cr3t-token"))));
     }
 
     @Test
@@ -551,9 +594,24 @@ class DiscoveryV2ClientTest {
     }
 
     private DiscoveryV2Client clientOffering(String modes) {
-        return new DiscoveryV2Client(connectorApiFactory, connectorRepository, attributeEngine, credentialService,
-                resourceService, authHelper, new OutboundSecretContainment(new ObjectMapper()),
+        return new DiscoveryV2Client(connectorApiFactory, connectorRepository, attributeEngine,
+                operationAttributeResolver, new OutboundSecretContainment(new ObjectMapper().findAndRegisterModules()),
                 new DiscoveryDeliveryModeOffer(modes));
+    }
+
+    /** Has the resolver answer every attribute it is given with the content given, as resolving a reference does. */
+    private void resolvingEachTo(BaseAttributeContentV3<?> resolvedContent) throws Exception {
+        when(operationAttributeResolver.resolveWithNestedReferencesAsSystem(any(), anyList()))
+                .thenAnswer(invocation -> invocation
+                        .<List<RequestAttribute>>getArgument(1)
+                        .stream()
+                        .<RequestAttribute>map(attribute -> {
+                            List<BaseAttributeContentV3<?>> content = new ArrayList<>();
+                            content.add(resolvedContent);
+                            return new RequestAttributeV3(attribute.getUuid(), attribute.getName(),
+                                    attribute.getContentType(), content);
+                        })
+                        .toList());
     }
 
     private DiscoveryDrainRequestDto capturedDrain() throws Exception {

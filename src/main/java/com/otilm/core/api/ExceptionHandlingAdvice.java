@@ -26,6 +26,7 @@ import com.otilm.api.model.common.AuthenticationServiceExceptionDto;
 import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.acme.ProblemDocument;
 import com.otilm.api.model.core.auth.Resource;
+import com.otilm.core.attribute.engine.ReferenceAccessDeniedException;
 import com.otilm.core.dao.CryptoAssetConstraintTranslator;
 import com.otilm.core.exception.DanglingReferenceException;
 import com.otilm.core.exception.UnsupportedAuthorityVersionException;
@@ -449,9 +450,13 @@ public class ExceptionHandlingAdvice {
         String resourceActionName = AuthHelper.getDeniedPermissionResourceAction();
         if (resourceName != null && !resourceName.isEmpty() && resourceActionName != null
                 && !resourceActionName.isEmpty()) {
+            String refusedReference = ex instanceof ReferenceAccessDeniedException refused
+                    ? " to use " + refused.getReference()
+                    : "";
             responseDto
                     .setMessage("Access Denied. Required '" + BeautificationUtil.camelToHumanForm(resourceActionName)
-                            + "' permission for '" + Resource.findByCode(resourceName).getLabel() + "'");
+                            + "' permission for '" + Resource.findByCode(resourceName).getLabel() + "'"
+                            + refusedReference);
         } else {
             responseDto.setMessage("Access denied for the specified operation: " + ex.getMessage());
         }

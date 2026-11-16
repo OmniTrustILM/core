@@ -22,12 +22,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -56,7 +58,8 @@ class NgCallbackDispatcherTest {
         txManager = Mockito.mock(PlatformTransactionManager.class);
 
         dispatcher = new NgCallbackDispatcher(connectorApiFactory, attributeEngine, definitionResolver,
-                new OutboundSecretContainment(new com.fasterxml.jackson.databind.ObjectMapper()));
+                new OutboundSecretContainment(
+                        new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()));
         dispatcher.setTransactionManager(txManager);
 
         connector = Mockito.mock(ApiClientConnectorInfo.class);
@@ -84,6 +87,42 @@ class NgCallbackDispatcherTest {
 
         assertThrows(OutboundSecretLeakException.class, () -> dispatcher
                 .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets));
+    }
+
+    @Test
+    void dropsTheConnectorsWords_whenItsRefusalCarriesASecretExpandedForTheCallback() throws Exception {
+        // given
+        String expandedSecret = "super-secret-token-123";
+        ProblemDetailExtended refusal = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, "client " + expandedSecret + " was rejected", null, null);
+        Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(refusal));
+        Set<String> expandedSecrets = new HashSet<>(Set.of(expandedSecret));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch)
+                .isInstanceOf(ConnectorProblemException.class)
+                .hasMessage("The connector refused the callback (VALIDATION_FAILED).");
+    }
+
+    @Test
+    void keepsTheConnectorsWords_whenItsRefusalCarriesNoSecret() throws Exception {
+        // given
+        String unknownAuthority = "authority \"otpki-staging\" does not belong to this connector";
+        ProblemDetailExtended refusal = ProblemDetailExtended
+                .fromErrorCode(ErrorCode.VALIDATION_FAILED, unknownAuthority, null, null);
+        Mockito.when(client.callback(any(), any())).thenThrow(new ConnectorProblemException(refusal));
+        Set<String> expandedSecrets = new HashSet<>(Set.of("super-secret-token-123"));
+
+        // when
+        ThrowingCallable dispatch = () -> dispatcher
+                .dispatchNgCallback(connector, context(), new RequestAttributeCallback(), expandedSecrets);
+
+        // then
+        assertThatThrownBy(dispatch).isInstanceOf(ConnectorProblemException.class).hasMessage(unknownAuthority);
     }
 
     @Test
