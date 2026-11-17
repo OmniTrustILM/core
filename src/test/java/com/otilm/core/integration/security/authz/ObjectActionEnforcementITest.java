@@ -558,15 +558,17 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
     }
 
     private void actAs(User user, Resource resource, UUID objectUuid) {
+        Predicate<OpaRequestedResource> surroundings = request -> !resource.getCode().equals(name(request))
+                && SURROUNDINGS.contains(name(request));
         Predicate<OpaRequestedResource> grants = switch (user) {
             case FULLY_PRIVILEGED -> request -> true;
             case READ_ONLY -> request -> READ_ACTIONS.contains(action(request));
-            case OBJECT_GRANT -> request -> SURROUNDINGS.contains(name(request))
+            case OBJECT_GRANT -> request -> surroundings.test(request)
                     || (resource.getCode().equals(name(request)) && request.getObjectUUIDs() != null
                             && List.of(objectUuid.toString()).equals(request.getObjectUUIDs()));
-            case OWNER -> request -> SURROUNDINGS.contains(name(request));
+            case OWNER -> request -> surroundings.test(request);
             case GROUP_MEMBER ->
-                request -> SURROUNDINGS.contains(name(request)) || (Resource.GROUP.getCode().equals(name(request))
+                request -> surroundings.test(request) || (Resource.GROUP.getCode().equals(name(request))
                         && ResourceAction.MEMBERS.getCode().equals(action(request)));
         };
         grant(grants);

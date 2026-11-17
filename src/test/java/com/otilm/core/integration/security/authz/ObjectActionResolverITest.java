@@ -671,6 +671,7 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         // then
         assertThat(allowed)
                 .as("the RA profile endpoints check its authority when it is set")
+                .isNotEmpty()
                 .doesNotContain(ResourceAction.UPDATE, ResourceAction.ENABLE);
     }
 
