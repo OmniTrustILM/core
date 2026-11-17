@@ -525,7 +525,7 @@ class ObjectActionEnforcementITest extends BaseSpringBootTest {
             Map<ResourceAction, List<Endpoint>> endpoints) {
         List<String> mismatches = new ArrayList<>();
         endpoints.forEach((action, calls) -> {
-            boolean accepted = calls.stream().allMatch(this::accepts);
+            boolean accepted = !calls.stream().map(this::accepts).toList().contains(false);
             if (accepted != reported.contains(action)) {
                 mismatches
                         .add("%s %s, endpoints %s"
