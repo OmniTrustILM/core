@@ -16,6 +16,7 @@ import com.otilm.core.security.authz.opa.dto.AnonymousPrincipal;
 import com.otilm.core.security.authz.opa.dto.OpaRequestedResource;
 import com.otilm.core.security.authz.opa.dto.OpaResourceAccessResult;
 import com.otilm.core.util.AuthenticationTokenTestHelper;
+import jakarta.persistence.EntityManagerFactory;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -53,6 +54,9 @@ class ExternalMethodAuthorizationManagerTest {
     @Mock
     OwnerAssociationRepository ownerAssociationRepository;
 
+    @Mock
+    EntityManagerFactory entityManagerFactory;
+
     @Spy
     ObjectMapper om = new ObjectMapper();
 
@@ -64,7 +68,8 @@ class ExternalMethodAuthorizationManagerTest {
 
     @BeforeEach
     void setUpManager() {
-        core = new ExternalAuthorizationCore(opaClient, om, groupAssociationRepository, ownerAssociationRepository);
+        core = new ExternalAuthorizationCore(opaClient, om, groupAssociationRepository, ownerAssociationRepository,
+                entityManagerFactory);
         manager = new ExternalMethodAuthorizationManager(metadataExtractor, core);
     }
 
