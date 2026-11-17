@@ -866,8 +866,8 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
         assertThat(items)
                 .extracting(ObjectAllowedActionsDto::getUuid)
                 .containsExactlyElementsOf(Stream.concat(owned.stream(), grouped.stream()).toList());
-        assertThat(executions(statistics, "OwnerAssociation")).as("owner association reads").isEqualTo(1);
-        assertThat(executions(statistics, "GroupAssociation")).as("group association reads").isEqualTo(1);
+        assertThat(countExecutions(statistics, "OwnerAssociation")).as("owner association reads").isEqualTo(1);
+        assertThat(countExecutions(statistics, "GroupAssociation")).as("group association reads").isEqualTo(1);
     }
 
     @Test
@@ -900,26 +900,35 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     @Test
-    void asksOpaNothingAndReportsWhatEveryGrantReports_whenThePrincipalMayUseEveryResource() {
+    void reportsCertificateActionsWithoutAskingOpa_whenThePrincipalMayUseEveryResource() {
         // given
         UUID certificate = saveCertificate(saveRaProfile());
-        CryptographicKey key = saveKeyWithTokenProfile();
-        List<ResourceAction> certificateActionsWhenOpaGrantsEverything = actionsOn(Resource.CERTIFICATE, certificate);
-        List<ResourceAction> keyActionsWhenOpaGrantsEverything = actionsOn(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
-        SecurityContextHolder
-                .getContext()
-                .setAuthentication(PrincipalFixtures
-                        .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin")));
+        List<ResourceAction> actionsWhenOpaGrantsEverything = actionsOn(Resource.CERTIFICATE, certificate);
+        authenticateAsAdministrator();
         Mockito.clearInvocations(opaClient);
 
         // when
-        List<ResourceAction> certificateActions = actionsOn(Resource.CERTIFICATE, certificate);
-        List<ResourceAction> keyActions = actionsOn(Resource.CRYPTOGRAPHIC_KEY, key.getUuid());
+        List<ResourceAction> actions = actionsOn(Resource.CERTIFICATE, certificate);
 
         // then
         verify(opaClient, never()).checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
-        assertThat(certificateActions).isNotEmpty().isEqualTo(certificateActionsWhenOpaGrantsEverything);
-        assertThat(keyActions).isNotEmpty().isEqualTo(keyActionsWhenOpaGrantsEverything);
+        assertThat(actions).isNotEmpty().isEqualTo(actionsWhenOpaGrantsEverything);
+    }
+
+    @Test
+    void reportsKeyActionsWithoutAskingOpa_whenThePrincipalMayUseEveryResource() {
+        // given
+        UUID key = saveKeyWithTokenProfile().getUuid();
+        List<ResourceAction> actionsWhenOpaGrantsEverything = actionsOn(Resource.CRYPTOGRAPHIC_KEY, key);
+        authenticateAsAdministrator();
+        Mockito.clearInvocations(opaClient);
+
+        // when
+        List<ResourceAction> actions = actionsOn(Resource.CRYPTOGRAPHIC_KEY, key);
+
+        // then
+        verify(opaClient, never()).checkResourceAccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        assertThat(actions).isNotEmpty().isEqualTo(actionsWhenOpaGrantsEverything);
     }
 
     @Test
@@ -947,12 +956,19 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static long executions(Statistics statistics, String entityName) {
+    private static long countExecutions(Statistics statistics, String entityName) {
         return Arrays
                 .stream(statistics.getQueries())
                 .filter(query -> query.contains(entityName))
                 .mapToLong(query -> statistics.getQueryStatistics(query).getExecutionCount())
                 .sum();
+    }
+
+    private static void authenticateAsAdministrator() {
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(PrincipalFixtures
+                        .authentication(PrincipalFixtures.adminProfile(UUID.randomUUID().toString(), "admin")));
     }
 
     private void denyEveryCheckOn(Resource resource) {
