@@ -20,6 +20,7 @@ import com.nimbusds.jose.jwk.gen.OctetSequenceKeyGenerator;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import com.otilm.api.exception.NotFoundException;
 import com.otilm.api.exception.ValidationException;
+import com.otilm.api.interfaces.core.web.SettingController;
 import com.otilm.api.model.common.attribute.v3.DataAttributeV3;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.api.model.core.other.ResourceEvent;
@@ -38,6 +39,7 @@ import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
 import com.otilm.api.model.core.settings.authentication.AuthenticationSettingsUpdateDto;
 import com.otilm.api.model.core.settings.authentication.JwkSetLoadFailure;
+import com.otilm.api.model.core.settings.authentication.OAuth2ApplicationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsResponseDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
@@ -47,7 +49,9 @@ import com.otilm.core.dao.entity.Setting;
 import com.otilm.core.dao.entity.workflows.Trigger;
 import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.dao.repository.workflows.TriggerRepository;
+import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.service.SettingExternalService;
+import com.otilm.core.service.TaggedOAuth2ProviderSettings;
 import com.otilm.core.service.impl.SettingServiceImpl;
 import com.otilm.core.settings.SettingsCache;
 import com.otilm.core.util.BaseSpringBootTest;
@@ -62,6 +66,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -71,8 +76,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SettingServiceITest extends BaseSpringBootTest {
 
@@ -85,6 +92,9 @@ class SettingServiceITest extends BaseSpringBootTest {
 
     @Autowired
     private SettingExternalService settingService;
+
+    @Autowired
+    private SettingController settingController;
 
     @Autowired
     private SettingRepository settingRepository;
@@ -863,7 +873,8 @@ class SettingServiceITest extends BaseSpringBootTest {
         providerSettings.setJwkSetUrl(UNREACHABLE_JWK_SET_URL);
 
         Assertions
-                .assertDoesNotThrow(() -> settingService.updateOAuth2ProviderSettings(providerName, providerSettings));
+                .assertDoesNotThrow(
+                        () -> settingService.updateOAuth2ProviderSettings(providerName, null, providerSettings));
 
         OAuth2ProviderSettingsDto stored = settingService
                 .getAuthenticationSettings(true)
@@ -878,7 +889,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         providerSettings.setJwkSet(null);
         providerSettings.setJwkSetUrl(LoopbackWireMock.url(jwkSetServer) + "/jwks");
 
-        settingService.updateOAuth2ProviderSettings("network-free-update", providerSettings);
+        settingService.updateOAuth2ProviderSettings("network-free-update", null, providerSettings);
 
         Assertions.assertTrue(jwkSetServer.getAllServeEvents().isEmpty());
     }
@@ -921,6 +932,53 @@ class SettingServiceITest extends BaseSpringBootTest {
     }
 
     @Test
+    void storesApplicationsNormalized_whenSettingsCarryBlanksAndDuplicates() throws Exception {
+        // given
+        var providerName = "normalized-applications";
+        var applications = new OAuth2ApplicationSettingsDto();
+        applications.setEnabled(true);
+        applications.setName("  ");
+        applications.setClientId("");
+        applications.setResource(" ");
+        applications.setScopes(List.of(" openid ", "profile", "openid"));
+        var providerSettings = createProviderUpdateDto();
+        providerSettings.setIssuerUrl("https://issuer.example.com/normalized");
+        providerSettings.setApplications(applications);
+
+        // when
+        settingService.updateOAuth2ProviderSettings(providerName, null, providerSettings);
+
+        // then
+        OAuth2ApplicationSettingsDto stored = settingService
+                .getAuthenticationSettings(true)
+                .getOAuth2Providers()
+                .get(providerName)
+                .getApplications();
+        assertThat(stored.isEnabled()).isTrue();
+        assertThat(stored.getName()).isNull();
+        assertThat(stored.getClientId()).isNull();
+        assertThat(stored.getResource()).isNull();
+        assertThat(stored.getScopes()).containsExactly("openid", "profile");
+    }
+
+    @Test
+    void storesNoApplications_whenSettingsDoNotCarryThem() throws Exception {
+        // given
+        var providerName = "no-applications";
+        var providerSettings = createProviderUpdateDto();
+
+        // when
+        settingService.updateOAuth2ProviderSettings(providerName, null, providerSettings);
+
+        // then
+        OAuth2ProviderSettingsDto stored = settingService
+                .getAuthenticationSettings(true)
+                .getOAuth2Providers()
+                .get(providerName);
+        assertThat(stored.getApplications()).isNull();
+    }
+
+    @Test
     void updateOAuth2ProviderSettings_rejectsBlankJwkSetUrlWithoutEmbeddedJwkSet() throws Exception {
         OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
         providerSettings.setJwkSet(null);
@@ -928,7 +986,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("blank-jwk-url", providerSettings));
+                        () -> settingService.updateOAuth2ProviderSettings("blank-jwk-url", null, providerSettings));
         Assertions.assertEquals("Missing JWK Set URL or encoded JWK Set.", exception.getMessage());
     }
 
@@ -938,7 +996,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         OAuth2ProviderSettingsUpdateDto providerSettings = createProviderUpdateDto();
         providerSettings.setJwkSetUrl("");
 
-        settingService.updateOAuth2ProviderSettings(providerName, providerSettings);
+        settingService.updateOAuth2ProviderSettings(providerName, null, providerSettings);
 
         OAuth2ProviderSettingsDto stored = settingService
                 .getAuthenticationSettings(true)
@@ -956,7 +1014,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         providerSettings.setJwkSet("");
         providerSettings.setJwkSetUrl(UNREACHABLE_JWK_SET_URL);
 
-        settingService.updateOAuth2ProviderSettings(providerName, providerSettings);
+        settingService.updateOAuth2ProviderSettings(providerName, null, providerSettings);
 
         OAuth2ProviderSettingsDto stored = settingService
                 .getAuthenticationSettings(true)
@@ -974,7 +1032,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("blank-embedded", providerSettings));
+                        () -> settingService.updateOAuth2ProviderSettings("blank-embedded", null, providerSettings));
         Assertions.assertEquals("Missing JWK Set URL or encoded JWK Set.", exception.getMessage());
     }
 
@@ -986,7 +1044,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("malformed-jwk-url", providerSettings));
+                        () -> settingService.updateOAuth2ProviderSettings("malformed-jwk-url", null, providerSettings));
         Assertions
                 .assertEquals("JWK Set URL is invalid: Illegal character in path at index 23.", exception.getMessage());
     }
@@ -999,7 +1057,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("gopher-jwk-url", providerSettings));
+                        () -> settingService.updateOAuth2ProviderSettings("gopher-jwk-url", null, providerSettings));
         Assertions.assertEquals("JWK Set URL must use http or https.", exception.getMessage());
     }
 
@@ -1011,7 +1069,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("hostless-jwk-url", providerSettings));
+                        () -> settingService.updateOAuth2ProviderSettings("hostless-jwk-url", null, providerSettings));
         Assertions.assertEquals("JWK Set URL must include a host.", exception.getMessage());
     }
 
@@ -1023,7 +1081,7 @@ class SettingServiceITest extends BaseSpringBootTest {
 
         ValidationException exception = Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("out-of-range-port", providerSettings));
+                        () -> settingService.updateOAuth2ProviderSettings("out-of-range-port", null, providerSettings));
         Assertions.assertEquals("JWK Set URL port must be between 0 and 65535.", exception.getMessage());
     }
 
@@ -1034,8 +1092,8 @@ class SettingServiceITest extends BaseSpringBootTest {
                 .setJwkSet(Base64.getEncoder().encodeToString("not-a-jwk-set".getBytes(StandardCharsets.UTF_8)));
 
         ValidationException exception = Assertions
-                .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("malformed-embedded", providerSettings));
+                .assertThrows(ValidationException.class, () -> settingService
+                        .updateOAuth2ProviderSettings("malformed-embedded", null, providerSettings));
         Assertions.assertEquals("JWK Set is invalid.", exception.getMessage());
     }
 
@@ -1045,8 +1103,8 @@ class SettingServiceITest extends BaseSpringBootTest {
         providerSettings.setJwkSet(encodedJwkSetWithTooSmallRsaKey());
 
         ValidationException exception = Assertions
-                .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("invalid-embedded-key", providerSettings));
+                .assertThrows(ValidationException.class, () -> settingService
+                        .updateOAuth2ProviderSettings("invalid-embedded-key", null, providerSettings));
         Assertions.assertEquals("Could not convert RSA key with KID small to Public key", exception.getMessage());
     }
 
@@ -1103,37 +1161,37 @@ class SettingServiceITest extends BaseSpringBootTest {
     void updateOAuth2ProviderSettings_duplicateIssuer_rejected() throws Exception {
         OAuth2ProviderSettingsUpdateDto first = createProviderUpdateDto();
         first.setIssuerUrl("https://shared-issuer.example.com");
-        settingService.updateOAuth2ProviderSettings("provider-one", first);
+        settingService.updateOAuth2ProviderSettings("provider-one", null, first);
 
         OAuth2ProviderSettingsUpdateDto second = createProviderUpdateDto();
         second.setIssuerUrl("https://shared-issuer.example.com");
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("provider-two", second));
+                        () -> settingService.updateOAuth2ProviderSettings("provider-two", null, second));
     }
 
     @Test
     void updateOAuth2ProviderSettings_sameProviderKeepsItsOwnIssuer() throws Exception {
         OAuth2ProviderSettingsUpdateDto dto = createProviderUpdateDto();
         dto.setIssuerUrl("https://unique-issuer.example.com");
-        settingService.updateOAuth2ProviderSettings("provider-one", dto);
-        Assertions.assertDoesNotThrow(() -> settingService.updateOAuth2ProviderSettings("provider-one", dto));
+        settingService.updateOAuth2ProviderSettings("provider-one", null, dto);
+        Assertions.assertDoesNotThrow(() -> settingService.updateOAuth2ProviderSettings("provider-one", null, dto));
     }
 
     @Test
     void updateOAuth2ProviderSettings_changingIssuerIntoExistingOnes_rejected() throws Exception {
         OAuth2ProviderSettingsUpdateDto first = createProviderUpdateDto();
         first.setIssuerUrl("https://issuer-one.example.com");
-        settingService.updateOAuth2ProviderSettings("provider-one", first);
+        settingService.updateOAuth2ProviderSettings("provider-one", null, first);
 
         OAuth2ProviderSettingsUpdateDto second = createProviderUpdateDto();
         second.setIssuerUrl("https://issuer-two.example.com");
-        settingService.updateOAuth2ProviderSettings("provider-two", second);
+        settingService.updateOAuth2ProviderSettings("provider-two", null, second);
 
         second.setIssuerUrl("https://issuer-one.example.com");
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("provider-two", second));
+                        () -> settingService.updateOAuth2ProviderSettings("provider-two", null, second));
     }
 
     @Test
@@ -1152,7 +1210,7 @@ class SettingServiceITest extends BaseSpringBootTest {
         var provider = createProviderUpdateDto();
         provider.setAllowedDelegates(java.util.Arrays.asList(" mcp ", "", null, "worker"));
         provider.setDelegateClaim(" sub ");
-        settingService.updateOAuth2ProviderSettings("delegation", provider);
+        settingService.updateOAuth2ProviderSettings("delegation", null, provider);
         var stored = settingService.getOAuth2ProviderSettings("delegation", false);
         Assertions.assertEquals(List.of("mcp", "worker"), stored.getAllowedDelegates());
         Assertions.assertEquals("sub", stored.getDelegateClaim());
@@ -1169,14 +1227,14 @@ class SettingServiceITest extends BaseSpringBootTest {
             provider.setAllowedDelegates(delegates);
             Assertions
                     .assertThrows(ValidationException.class,
-                            () -> settingService.updateOAuth2ProviderSettings("invalid-delegation", provider));
+                            () -> settingService.updateOAuth2ProviderSettings("invalid-delegation", null, provider));
         }
         for (String claim : java.util.Arrays.asList(null, "", " ")) {
             var provider = createProviderUpdateDto();
             provider.setDelegateClaim(claim);
             Assertions
                     .assertThrows(ValidationException.class,
-                            () -> settingService.updateOAuth2ProviderSettings("invalid-delegation", provider));
+                            () -> settingService.updateOAuth2ProviderSettings("invalid-delegation", null, provider));
         }
         Assertions.assertNull(settingService.getOAuth2ProviderSettings("invalid-delegation", false));
     }
@@ -1232,6 +1290,133 @@ class SettingServiceITest extends BaseSpringBootTest {
         KeyPair keyPair = generator.generateKeyPair();
         RSAKey rsaKey = new RSAKey.Builder((RSAPublicKey) keyPair.getPublic()).keyID("test-key").build();
         return Base64.getEncoder().encodeToString(new JWKSet(rsaKey).toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void updatesProvider_whenIfMatchIsTheTagOfTheTaggedRead() throws Exception {
+        // given
+        var providerName = "tagged-update";
+        settingService.updateOAuth2ProviderSettings(providerName, null, createProviderUpdateDto());
+        String readTag = settingService.getTaggedOAuth2ProviderSettings(providerName).entityTag();
+        var changed = createProviderUpdateDto();
+        changed.setClientId("changed-client");
+
+        // when
+        settingService.updateOAuth2ProviderSettings(providerName, readTag, changed);
+
+        // then
+        assertThat(settingService.getOAuth2ProviderSettings(providerName, false).getClientId())
+                .isEqualTo("changed-client");
+    }
+
+    @Test
+    void throwsPreconditionFailed_whenIfMatchIsAStaleTag() throws Exception {
+        // given
+        var providerName = "tagged-stale";
+        settingService.updateOAuth2ProviderSettings(providerName, null, createProviderUpdateDto());
+        String staleTag = settingService.getTaggedOAuth2ProviderSettings(providerName).entityTag();
+        var concurrentChange = createProviderUpdateDto();
+        concurrentChange.setClientId("concurrent-client");
+        settingService.updateOAuth2ProviderSettings(providerName, null, concurrentChange);
+        var lateChange = createProviderUpdateDto();
+        lateChange.setClientId("late-client");
+
+        // when
+        ThrowingCallable update = () -> settingService.updateOAuth2ProviderSettings(providerName, staleTag, lateChange);
+
+        // then
+        assertThatThrownBy(update).isInstanceOf(PreconditionFailedException.class).hasMessageContaining(providerName);
+        assertThat(settingService.getOAuth2ProviderSettings(providerName, false).getClientId())
+                .isEqualTo("concurrent-client");
+    }
+
+    @Test
+    void throwsPreconditionFailedAndCreatesNothing_whenIfMatchNamesAMissingProvider() throws Exception {
+        // given
+        var missingProvider = "tagged-missing";
+        var update = createProviderUpdateDto();
+
+        // when
+        ThrowingCallable create = () -> settingService.updateOAuth2ProviderSettings(missingProvider, "*", update);
+
+        // then
+        assertThatThrownBy(create).isInstanceOf(PreconditionFailedException.class);
+        assertThat(settingService.getOAuth2ProviderSettings(missingProvider, false)).isNull();
+    }
+
+    @Test
+    void updatesProvider_whenIfMatchIsAWildcardAndTheProviderExists() throws Exception {
+        // given
+        var providerName = "tagged-wildcard";
+        settingService.updateOAuth2ProviderSettings(providerName, null, createProviderUpdateDto());
+        var changed = createProviderUpdateDto();
+        changed.setClientId("wildcard-client");
+
+        // when
+        settingService.updateOAuth2ProviderSettings(providerName, "*", changed);
+
+        // then
+        assertThat(settingService.getOAuth2ProviderSettings(providerName, false).getClientId())
+                .isEqualTo("wildcard-client");
+    }
+
+    @Test
+    void createsProvider_whenThereIsNoIfMatch() throws Exception {
+        // given
+        var providerName = "tagged-unconditional";
+
+        // when
+        settingService.updateOAuth2ProviderSettings(providerName, null, createProviderUpdateDto());
+
+        // then
+        assertThat(settingService.getOAuth2ProviderSettings(providerName, false)).isNotNull();
+    }
+
+    @Test
+    void keepsTheTag_whenOnlyTheClientSecretChanges() throws Exception {
+        // given
+        var providerName = "tagged-secret-only";
+        var original = createProviderUpdateDto();
+        settingService.updateOAuth2ProviderSettings(providerName, null, original);
+        String tagBefore = settingService.getTaggedOAuth2ProviderSettings(providerName).entityTag();
+        var secretOnly = createProviderUpdateDto();
+        secretOnly.setJwkSet(original.getJwkSet());
+        secretOnly.setClientSecret("another-secret");
+
+        // when
+        settingService.updateOAuth2ProviderSettings(providerName, null, secretOnly);
+
+        // then
+        assertThat(settingService.getTaggedOAuth2ProviderSettings(providerName).entityTag()).isEqualTo(tagBefore);
+    }
+
+    @Test
+    void returnsNoTagAndNoSettings_whenTheTaggedProviderDoesNotExist() {
+        // given
+        var missingProvider = "tagged-absent";
+
+        // when
+        TaggedOAuth2ProviderSettings tagged = settingService.getTaggedOAuth2ProviderSettings(missingProvider);
+
+        // then
+        assertThat(tagged.settings()).isNull();
+        assertThat(tagged.entityTag()).isNull();
+    }
+
+    @Test
+    void answersWithETagHeader_whenTheControllerReadsAProvider() throws Exception {
+        // given
+        var providerName = "tagged-controller";
+        settingService.updateOAuth2ProviderSettings(providerName, null, createProviderUpdateDto());
+        String storedTag = settingService.getTaggedOAuth2ProviderSettings(providerName).entityTag();
+
+        // when
+        ResponseEntity<OAuth2ProviderSettingsResponseDto> response = settingController
+                .getOAuth2ProviderSettings(providerName);
+
+        // then
+        assertThat(response.getHeaders().getETag()).isEqualTo(storedTag);
+        assertThat(response.getBody()).isNotNull();
     }
 
     private static OAuth2ProviderSettingsUpdateDto createProviderUpdateDto() throws Exception {

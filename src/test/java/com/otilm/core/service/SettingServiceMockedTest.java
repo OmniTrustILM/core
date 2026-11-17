@@ -7,12 +7,14 @@ import com.otilm.api.model.core.settings.PlatformSettingsUpdateDto;
 import com.otilm.api.model.core.settings.SettingsSection;
 import com.otilm.api.model.core.settings.SigningSettingsDto;
 import com.otilm.api.model.core.settings.UtilsSettingsDto;
+import com.otilm.api.model.core.settings.authentication.OAuth2ApplicationSettingsDto;
 import com.otilm.api.model.core.settings.authentication.OAuth2ProviderSettingsUpdateDto;
 import com.otilm.core.dao.repository.SettingRepository;
 import com.otilm.core.serialization.ObjectMapperFactory;
 import com.otilm.core.service.impl.SettingServiceImpl;
 import com.otilm.core.settings.SettingsCache;
 import java.util.List;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +25,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -121,12 +124,145 @@ class SettingServiceMockedTest {
         providerSettings.setJwkSetUrl(jwkSetUrl);
 
         ValidationException exception = Assertions
-                .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings("signed-port-jwk-url", providerSettings));
+                .assertThrows(ValidationException.class, () -> settingService
+                        .updateOAuth2ProviderSettings("signed-port-jwk-url", null, providerSettings));
 
         Assertions
                 .assertEquals("JWK Set URL is invalid: Illegal character in port number at index 19.",
                         exception.getMessage());
+    }
+
+    @Test
+    void refusesApplications_whenEnabledWithoutIssuerUrl() {
+        // given
+        var providerSettings = providerWithApplications(applications(true));
+
+        // when
+        ThrowingCallable update = () -> settingService
+                .updateOAuth2ProviderSettings("no-issuer", null, providerSettings);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Sign-in for applications requires the provider's issuer URL.");
+    }
+
+    @Test
+    void refusesApplications_whenClientIdEqualsTheProvidersClientId() {
+        // given
+        var sharedClientId = "ilm-browser-login";
+        var applications = applications(false);
+        applications.setClientId(sharedClientId);
+        var providerSettings = providerWithApplications(applications);
+        providerSettings.setClientId(sharedClientId);
+
+        // when
+        ThrowingCallable update = () -> settingService
+                .updateOAuth2ProviderSettings("same-client", null, providerSettings);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("The client ID for applications must differ from the provider's client ID.");
+    }
+
+    @Test
+    void refusesApplications_whenScopesContainABlankEntry() {
+        // given
+        var applications = applications(false);
+        applications.setScopes(List.of("openid", "  "));
+        var providerSettings = providerWithApplications(applications);
+
+        // when
+        ThrowingCallable update = () -> settingService
+                .updateOAuth2ProviderSettings("blank-scope", null, providerSettings);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Scopes for applications must not contain blank entries.");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ilm.example.com/api", "ftp://ilm.example.com/api", "/api", "https://", "https://a b"})
+    void refusesApplications_whenResourceIsNotAnAbsoluteHttpUri(String resource) {
+        // given
+        var applications = applications(false);
+        applications.setResource(resource);
+        var providerSettings = providerWithApplications(applications);
+
+        // when
+        ThrowingCallable update = () -> settingService
+                .updateOAuth2ProviderSettings("bad-resource", null, providerSettings);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("The resource for applications must be an absolute http or https URI.");
+    }
+
+    @Test
+    void refusesApplications_whenResourceHasAFragment() {
+        // given
+        var applications = applications(false);
+        applications.setResource("https://ilm.example.com/api#part");
+        var providerSettings = providerWithApplications(applications);
+
+        // when
+        ThrowingCallable update = () -> settingService.updateOAuth2ProviderSettings("fragment", null, providerSettings);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("The resource for applications must not contain a fragment.");
+    }
+
+    @Test
+    void refusesApplications_whenResourceCarriesCredentials() {
+        // given
+        var resourceWithCredentials = "https://user:secret@ilm.example.com/api";
+        var applications = applications(false);
+        applications.setResource(resourceWithCredentials);
+        var providerSettings = providerWithApplications(applications);
+
+        // when
+        ThrowingCallable update = () -> settingService
+                .updateOAuth2ProviderSettings("credentials", null, providerSettings);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("The resource for applications must not contain credentials.");
+    }
+
+    @Test
+    void refusesApplications_whenEnabledIssuerUrlCarriesCredentials() {
+        // given
+        var issuerWithCredentials = "https://user:secret@idp.example.com/realms/ILM";
+        var providerSettings = providerWithApplications(applications(true));
+        providerSettings.setIssuerUrl(issuerWithCredentials);
+
+        // when
+        ThrowingCallable update = () -> settingService.updateOAuth2ProviderSettings("issuer", null, providerSettings);
+
+        // then
+        assertThatThrownBy(update)
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Sign-in for applications requires an issuer URL without credentials.");
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static OAuth2ApplicationSettingsDto applications(boolean enabled) {
+        var applications = new OAuth2ApplicationSettingsDto();
+        applications.setEnabled(enabled);
+        return applications;
+    }
+
+    private static OAuth2ProviderSettingsUpdateDto providerWithApplications(OAuth2ApplicationSettingsDto applications) {
+        var providerSettings = new OAuth2ProviderSettingsUpdateDto();
+        providerSettings.setApplications(applications);
+        return providerSettings;
     }
 
     private static PlatformSettingsUpdateDto createAllSectionsUpdate() {

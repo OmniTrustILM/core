@@ -126,7 +126,7 @@ class JwtDecoderITest extends BaseSpringBootTest {
         providerSettings.setJwkSetUrl(ISSUER_URL + "/protocol/openid-connect/certs");
         providerSettings.setClientId("test-client");
         providerSettings.setClientSecret("test-client-secret");
-        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, providerSettings);
+        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
 
         tokenValue = OAuth2TestUtil.createJwtTokenValue(keyPair.getPrivate(), 3600 * 1000, ISSUER_URL, AUDIENCE, "");
 
@@ -201,7 +201,7 @@ class JwtDecoderITest extends BaseSpringBootTest {
                         () -> settingService.getOAuth2ProviderSettings(PROVIDER_NAME, false));
         Assertions
                 .assertThrows(ValidationException.class,
-                        () -> settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, providerSettings));
+                        () -> settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings));
     }
 
     @Test
@@ -218,7 +218,7 @@ class JwtDecoderITest extends BaseSpringBootTest {
     @Test
     void testJwtDecoderOnExpiredTokenWithoutAudiences() throws JOSEException {
         providerSettings.setSkew(0);
-        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, providerSettings);
+        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
 
         SecurityContextHolder.clearContext();
         String expiredToken = OAuth2TestUtil.createJwtTokenValue(keyPair.getPrivate(), 1, ISSUER_URL, AUDIENCE, "");
@@ -230,7 +230,7 @@ class JwtDecoderITest extends BaseSpringBootTest {
     @Test
     void testJwtDecoderOnTokenWithValidAudiences() {
         providerSettings.setAudiences(List.of(AUDIENCE));
-        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, providerSettings);
+        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
 
         SecurityContextHolder.clearContext();
         Assertions.assertInstanceOf(Jwt.class, jwtDecoder.decode(tokenValue));
@@ -239,7 +239,7 @@ class JwtDecoderITest extends BaseSpringBootTest {
     @Test
     void testJwtDecoderOnTokenWithInvalidAudiences() {
         providerSettings.setAudiences(List.of("different-audience"));
-        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, providerSettings);
+        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
         SecurityContextHolder.clearContext();
         Exception exception = Assertions
                 .assertThrows(PlatformAuthenticationException.class, () -> jwtDecoder.decode(tokenValue));
@@ -250,7 +250,7 @@ class JwtDecoderITest extends BaseSpringBootTest {
     void testJwkSetFromInput() {
         providerSettings.setJwkSetUrl(null);
         providerSettings.setJwkSet(Base64.getEncoder().encodeToString(jwkSetJson.getBytes()));
-        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, providerSettings);
+        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
         ResponseEntity<String> response = loginController.getJwkSet(PROVIDER_NAME);
         Assertions.assertEquals(jwkSetJson, response.getBody());
 
@@ -284,7 +284,7 @@ class JwtDecoderITest extends BaseSpringBootTest {
     @Test
     void testUnreachableJwkUrl() {
         providerSettings.setJwkSetUrl(ISSUER_URL + "/protocol/openid-connect/certs");
-        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, providerSettings);
+        settingService.updateOAuth2ProviderSettings(PROVIDER_NAME, null, providerSettings);
 
         mockServer.resetAll();
         SecurityContextHolder.clearContext();

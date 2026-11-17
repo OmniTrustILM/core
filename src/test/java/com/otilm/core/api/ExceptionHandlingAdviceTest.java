@@ -13,6 +13,7 @@ import com.otilm.api.model.common.AuthenticationServiceExceptionDto;
 import com.otilm.api.model.common.ErrorMessageDto;
 import com.otilm.api.model.core.auth.Resource;
 import com.otilm.core.attribute.engine.ReferenceAccessDeniedException;
+import com.otilm.core.exception.PreconditionFailedException;
 import com.otilm.core.util.AuthHelper;
 import java.sql.SQLException;
 import java.util.List;
@@ -31,6 +32,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -267,5 +269,20 @@ class ExceptionHandlingAdviceTest {
             rendered.append(' ').append(proxy.getClassName()).append(' ').append(proxy.getMessage());
         }
         return rendered.toString();
+    }
+
+    @Test
+    void answersWithItsMessage_whenAPreconditionFailed() throws Exception {
+        // given
+        var failure = new PreconditionFailedException("Provider 'x' was changed since it was read.");
+        var handlerMethod = ExceptionHandlingAdvice.class
+                .getMethod("handlePreconditionFailedException", PreconditionFailedException.class);
+
+        // when
+        ErrorMessageDto body = advice.handlePreconditionFailedException(failure);
+
+        // then
+        assertThat(body.getMessage()).isEqualTo("Provider 'x' was changed since it was read.");
+        assertThat(handlerMethod.getAnnotation(ResponseStatus.class).value()).isEqualTo(HttpStatus.PRECONDITION_FAILED);
     }
 }

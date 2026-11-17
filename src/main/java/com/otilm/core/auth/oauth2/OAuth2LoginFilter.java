@@ -11,6 +11,7 @@ import com.otilm.core.logging.LoggingHelper;
 import com.otilm.core.security.authn.PlatformAuthenticationException;
 import com.otilm.core.security.authn.PlatformAuthenticationToken;
 import com.otilm.core.security.authn.PlatformUserDetails;
+import com.otilm.core.security.authn.ProtectedResourceChallenge;
 import com.otilm.core.security.authn.client.AuthenticationInfo;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.service.AuditLogInternalService;
@@ -124,7 +125,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                             .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, message,
                                     recordedToken);
                     logger.error(reason);
-                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, reason);
+                    ProtectedResourceChallenge.rejectWithChallenge(request, response, reason);
                     return;
                 }
                 try {
@@ -135,7 +136,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                             .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, e.getMessage(),
                                     LogRedaction.token(oauth2AccessToken.getTokenValue()));
                     logger.error(e.getMessage());
-                    response.sendError(HttpServletResponse.SC_UNAUTHORIZED, e.getMessage());
+                    ProtectedResourceChallenge.rejectWithChallenge(request, response, e.getMessage());
                     return;
                 }
             }
@@ -151,7 +152,7 @@ public class OAuth2LoginFilter extends OncePerRequestFilter {
                         .logAuthentication(Operation.AUTHENTICATION, OperationResult.FAILURE, e.getMessage(),
                                 LogRedaction.token(authorizedClient.getAccessToken().getTokenValue()));
                 logger.error(e.getMessage());
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, e.getMessage());
+                ProtectedResourceChallenge.rejectWithChallenge(request, response, e.getMessage());
                 return;
             }
             authenticate(request, claims, clientRegistration, snapshot.generation());

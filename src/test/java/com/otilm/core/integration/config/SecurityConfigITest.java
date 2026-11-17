@@ -33,10 +33,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.core.convert.support.GenericConversionService;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 import org.springframework.session.web.http.SessionRepositoryFilter;
@@ -86,6 +88,8 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
     static final String CERTIFICATE_USER_USERNAME = "certificate-user";
     static final String CERTIFICATE_HEADER_VALUE = com.otilm.core.security.authn.ForwardedCertificateFixtures.LEAF_DER;
     static final String TOKEN_USER_USERNAME = "token-user";
+    static final String METADATA_URL = "http://localhost/.well-known/oauth-protected-resource/api";
+    static final String EXPECTED_CHALLENGE = "Bearer resource_metadata=\"" + METADATA_URL + "\"";
 
     Jwt mockJwt;
     String tokenValue;
@@ -226,6 +230,68 @@ class SecurityConfigITest extends BaseSpringBootTestNoAuth {
         verify(jwtDecoder, never()).decode(Mockito.anyString());
         mockServer.verify(1, WireMock.postRequestedFor(WireMock.urlEqualTo("/auth")));
         assertCertificateNotCached();
+    }
+
+    @Test
+    void challengesWithProtectedResourceMetadata_whenNoCredentialsAreSent() throws Exception {
+        // given
+        var unauthenticatedRequest = get("/v1/auth/profile").with(request -> {
+            request.setRemoteAddr("10.0.0.1");
+            return request;
+        });
+
+        // when
+        MvcResult result = mvc.perform(unauthenticatedRequest).andExpect(status().isUnauthorized()).andReturn();
+
+        // then
+        Assertions.assertEquals(EXPECTED_CHALLENGE, result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE));
+    }
+
+    @Test
+    void challengesWithInvalidTokenAndMetadata_whenBearerTokenIsRefused() throws Exception {
+        // given
+        var refusedToken = "not-a-valid-token";
+        when(jwtDecoder.decode(refusedToken)).thenThrow(new BadJwtException("refused"));
+
+        // when
+        MvcResult result = mvc
+                .perform(get("/v1/auth/profile").header("Authorization", "Bearer " + refusedToken))
+                .andExpect(status().isUnauthorized())
+                .andReturn();
+
+        // then
+        String challenge = result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE);
+        Assertions.assertTrue(challenge.startsWith("Bearer error=\"invalid_token\""), challenge);
+        Assertions.assertTrue(challenge.endsWith(", resource_metadata=\"" + METADATA_URL + "\""), challenge);
+    }
+
+    @Test
+    void servesMetadata_whenAnInvalidBearerTokenIsSent() throws Exception {
+        // given
+        var refusedToken = "not-a-valid-token";
+        when(jwtDecoder.decode(refusedToken)).thenThrow(new BadJwtException("refused"));
+
+        // when
+        var metadataRequest = get("/.well-known/oauth-protected-resource/api")
+                .header("Authorization", "Bearer " + refusedToken);
+
+        // then
+        mvc.perform(metadataRequest).andExpect(status().isOk());
+    }
+
+    @Test
+    void challengesWithProtectedResourceMetadata_whenForwardedCertificateIsRejected() throws Exception {
+        // given
+        var malformedCertificate = ":dGVzdA==:";
+
+        // when
+        MvcResult result = mvc
+                .perform(get("/v1/auth/profile").header("X-APP-CERTIFICATE", malformedCertificate))
+                .andExpect(status().isUnauthorized())
+                .andReturn();
+
+        // then
+        Assertions.assertEquals(EXPECTED_CHALLENGE, result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE));
     }
 
     private void enableValidBearer() {

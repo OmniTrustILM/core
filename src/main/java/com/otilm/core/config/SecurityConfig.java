@@ -8,6 +8,8 @@ import com.otilm.core.auth.oauth2.PlatformJwtDecoder;
 import com.otilm.core.auth.oauth2.PlatformLogoutSuccessHandler;
 import com.otilm.core.auth.oauth2.PlatformOAuth2FailureHandler;
 import com.otilm.core.security.authn.PlatformAuthenticationFilter;
+import com.otilm.core.security.authn.ProtectedResourceChallenge;
+import com.otilm.core.security.authn.ProtectedResourceMetadataBearerTokenResolver;
 import com.otilm.core.security.authn.client.PlatformAuthenticationClient;
 import com.otilm.core.security.authn.tsp.BasicPasswordAuthenticator;
 import com.otilm.core.security.authn.tsp.BearerTokenAuthenticator;
@@ -21,6 +23,7 @@ import com.otilm.core.service.SigningProfileInternalService;
 import com.otilm.core.service.TspProfileInternalService;
 import com.otilm.core.util.AuthHelper;
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +38,9 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.web.OAuth2ProtectedResourceMetadataFilter;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import org.springframework.security.web.DefaultSecurityFilterChain;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.authentication.preauth.x509.X509AuthenticationFilter;
@@ -112,8 +117,7 @@ public class SecurityConfig {
                 .exceptionHandling(exceptionHandling -> exceptionHandling
                         .accessDeniedHandler((request, response, accessDeniedException) -> response
                                 .sendError(HttpServletResponse.SC_FORBIDDEN))
-                        .authenticationEntryPoint((request, response, authException) -> response
-                                .sendError(HttpServletResponse.SC_UNAUTHORIZED)))
+                        .authenticationEntryPoint(ProtectedResourceChallenge::commence))
                 .sessionManagement(AbstractHttpConfigurer::disable)
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -122,6 +126,8 @@ public class SecurityConfig {
                 .addFilterBefore(protocolValidationFilter, X509AuthenticationFilter.class)
                 .addFilterBefore(createPlatformAuthenticationFilter(), BearerTokenAuthenticationFilter.class)
                 .oauth2ResourceServer(oauth2 -> oauth2
+                        .authenticationEntryPoint(ProtectedResourceChallenge::commenceBearer)
+                        .bearerTokenResolver(new ProtectedResourceMetadataBearerTokenResolver())
                         .jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(jwtAuthenticationConverter)))
                 .logout(logout -> logout
                         .logoutUrl("/logout")
@@ -135,7 +141,22 @@ public class SecurityConfig {
                 .oauth2Client(oauth2client -> oauth2client.clientRegistrationRepository(clientRegistrationRepository))
                 .addFilterAfter(oauth2LoginFilter, OAuth2LoginAuthenticationFilter.class);
 
-        return http.build();
+        return withoutSpringProtectedResourceMetadata(http.build());
+    }
+
+    /**
+     * The resource server configurer always registers a filter that answers
+     * {@code /.well-known/oauth-protected-resource} with a document of its own, ahead of the controller that publishes
+     * the platform's metadata. Only the controller knows the authorization servers, so the filter is dropped from the
+     * chain.
+     */
+    private static SecurityFilterChain withoutSpringProtectedResourceMetadata(DefaultSecurityFilterChain chain) {
+        List<Filter> filters = chain
+                .getFilters()
+                .stream()
+                .filter(filter -> !(filter instanceof OAuth2ProtectedResourceMetadataFilter))
+                .toList();
+        return new DefaultSecurityFilterChain(chain.getRequestMatcher(), filters);
     }
 
     @Bean

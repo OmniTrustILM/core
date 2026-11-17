@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -143,6 +144,19 @@ class OAuth2LoginFilterTest {
                 .contains("invalid_grant")
                 .noneMatch(line -> line.contains("refresh-token-value"));
         assertThat(response.getErrorMessage()).isEqualTo("invalid_grant");
+    }
+
+    @Test
+    void answersWithProtectedResourceChallenge_whenRefreshFails() throws Exception {
+        // given
+        var expectedChallenge = "Bearer resource_metadata=\"http://localhost/.well-known/oauth-protected-resource/api\"";
+
+        // when
+        MockHttpServletResponse response = refreshRefusedWith(new OAuth2Error("invalid_grant"));
+
+        // then
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo(expectedChallenge);
     }
 
     @Test
