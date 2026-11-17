@@ -871,6 +871,23 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     @Test
+    void leavesOutCertificate_whenAnotherUserOwnsIt() {
+        // given
+        RaProfile raProfile = saveRaProfile();
+        UUID ownedByCaller = saveCertificate(raProfile);
+        UUID ownedByAnother = saveCertificate(raProfile);
+        own(Resource.CERTIFICATE, ownedByCaller);
+        own(Resource.CERTIFICATE, ownedByAnother, UUID.randomUUID());
+        denyEveryCheckOn(Resource.CERTIFICATE);
+
+        // when
+        List<ObjectAllowedActionsDto> items = report(Resource.CERTIFICATE, ownedByCaller, ownedByAnother);
+
+        // then
+        assertThat(items).extracting(ObjectAllowedActionsDto::getUuid).containsExactly(ownedByCaller);
+    }
+
+    @Test
     void releasesTheRequestConnection_whenOwnershipAdmitsTheObject() {
         // given
         UUID certificate = saveCertificate(saveRaProfile());
@@ -1159,15 +1176,17 @@ class ObjectActionResolverITest extends BaseSpringBootTest {
     }
 
     private void own(Resource resource, UUID objectUuid) {
+        own(resource, objectUuid, UUID
+                .fromString(((PlatformAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
+                        .getPrincipal()
+                        .getUserUuid()));
+    }
+
+    private void own(Resource resource, UUID objectUuid, UUID ownerUuid) {
         OwnerAssociation owner = new OwnerAssociation();
         owner.setResource(resource);
         owner.setObjectUuid(objectUuid);
-        owner
-                .setOwnerUuid(UUID
-                        .fromString(
-                                ((PlatformAuthenticationToken) SecurityContextHolder.getContext().getAuthentication())
-                                        .getPrincipal()
-                                        .getUserUuid()));
+        owner.setOwnerUuid(ownerUuid);
         owner.setOwnerUsername("tst-user");
         ownerAssociationRepository.save(owner);
     }

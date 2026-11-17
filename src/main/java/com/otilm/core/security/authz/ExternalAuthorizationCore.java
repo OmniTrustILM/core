@@ -67,10 +67,9 @@ class ExternalAuthorizationCore {
     }
 
     /**
-     * Runs {@code body} with the principal's owner and group associations read through an {@link AssociationSnapshot},
-     * those of the {@code prefetch} objects in one query per kind and resource. Checks that OPA would grant a principal
-     * allowed all resources are answered without asking it. A call made while a snapshot is active joins it. A
-     * principal other than a platform user with a user UUID is decided exactly as outside the scope.
+     * Runs {@code body} with an {@link AssociationSnapshot} for the caller, so the authorization checks inside it share
+     * one set of association reads, starting with the {@code prefetch} objects. Only a platform user with a UUID gets a
+     * snapshot; a nested call for the same principal adds its objects to the active one.
      */
     <T> T withAssociationSnapshot(Authentication authentication, Map<Resource, ? extends Collection<UUID>> prefetch,
             Supplier<T> body) {

@@ -44,9 +44,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Reports the actions the current principal may perform on objects of one resource, as {@link ObjectActionRequirements}
- * describes the endpoints that perform them. Objects that do not exist, or that the principal may neither list nor
- * view, are left out. Each decision is the one enforcement makes, asked once per call, and the requested objects are
- * read in one query, as are their owner and group associations.
+ * describes the endpoints that perform them.
  */
 @Component
 public class ObjectActionResolver {
@@ -66,6 +64,14 @@ public class ObjectActionResolver {
         this.entityManagerFactory = entityManagerFactory;
     }
 
+    /**
+     * Reports the actions the current principal may perform on each requested object, in request order. Objects that do
+     * not exist, or that the principal may neither list nor view, are left out, and an object requested twice is
+     * reported once. Each decision is the one enforcement makes, asked once per call; the requested objects are read in
+     * one query, as are their owner and group associations.
+     *
+     * @throws ValidationException when the resource has no objects identified by UUID and authorized individually
+     */
     public List<ObjectAllowedActionsDto> resolve(Resource resource, List<UUID> objectUuids) {
         ResourceObjects objects = ObjectActionRequirements
                 .of(resource)
