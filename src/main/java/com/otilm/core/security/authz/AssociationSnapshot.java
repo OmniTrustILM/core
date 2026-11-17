@@ -22,14 +22,13 @@ import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * The owner and group associations of the objects one principal is being authorized for, read in one query per kind and
- * resource instead of one per decision. Objects announced with {@link #prefetch} are read together the first time any
- * object of their resource is asked about; an object asked about without being announced is read then and kept,
- * including when it has no owner or no group.
+ * Caches one principal's owner and group associations for a single allowed-actions call, so the authorization fallbacks
+ * read them with one query per resource instead of one per object. Each read opens and closes its own EntityManager,
+ * because the request's EntityManager would keep a connection open across every OPA call.
  *
  * <p>
- * Every read runs on an EntityManager of its own, closed right after it, so no connection is held across the OPA calls
- * between reads, as the request's EntityManager would hold one until the response is written.
+ * It also answers, through {@link #grantsAllOf}, the checks OPA would grant a principal allowed all resources, so those
+ * skip OPA entirely.
  */
 final class AssociationSnapshot {
 
@@ -72,6 +71,9 @@ final class AssociationSnapshot {
         return userUuid.equals(principal.getUserUuid()) && Objects.equals(rawData, principal.getRawData());
     }
 
+    /**
+     * Announces objects to read in the same query as the first object of their resource asked about.
+     */
     void prefetch(Resource resource, Collection<UUID> objectUuids) {
         if (resource.hasOwner()) {
             pendingOwners.computeIfAbsent(resource, key -> new LinkedHashSet<>()).addAll(objectUuids);
