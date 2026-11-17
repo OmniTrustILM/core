@@ -57,6 +57,7 @@ import com.otilm.core.service.handler.authority.AuthorityProviderAdapterFactory;
 import com.otilm.core.util.AttributeDefinitionUtils;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -543,6 +544,13 @@ public class AuthorityInstanceServiceImpl
     @Override
     public NameAndUuidDto getResourceObjectInternal(UUID objectUuid) throws NotFoundException {
         return authorityInstanceReferenceRepository.findResourceObject(objectUuid, AuthorityInstanceReference_.name);
+    }
+
+    @Override
+    public Optional<UUID> findOwningConnector(UUID objectUuid) {
+        return authorityInstanceReferenceRepository
+                .findByUuid(objectUuid)
+                .map(AuthorityInstanceReference::getConnectorUuid);
     }
 
     @Override

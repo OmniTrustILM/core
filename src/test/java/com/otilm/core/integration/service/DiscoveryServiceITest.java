@@ -95,6 +95,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -107,6 +108,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static com.otilm.core.util.builders.CertificateBuilder.aCertificate;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DiscoveryServiceITest extends BaseSpringBootTest {
 
@@ -587,7 +590,8 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
     }
 
     @Test
-    void attributesAreRelayedForAResourceThisConnectorDiscovers() throws Exception {
+    void relaysTheAttributes_whenTheConnectorDiscoversTheResource() throws Exception {
+        // given
         giveConnectorAV2DiscoveryInterface();
         stubSupportedResources("""
                 [{"resource":"certificates"},{"resource":"keys"}]""");
@@ -596,13 +600,33 @@ class DiscoveryServiceITest extends BaseSpringBootTest {
                         .get(WireMock.urlPathEqualTo("/v2/discoveryProvider/keys/attributes"))
                         .willReturn(WireMock.okJson("""
                                 [{"uuid":"7f7f0000-0000-4000-8000-000000000001","name":"keyStore",
-                                  "type":"data","version":3,"contentType":"string"}]""")));
+                                  "type":"data","version":3,"contentType":"string",
+                                  "properties":{"label":"Key store","visible":true,"required":false}}]""")));
 
+        // when
         List<BaseAttribute> attributes = discoveryService
                 .getDiscoveryResourceAttributes(SecuredUUID.fromUUID(connector.getUuid()), Resource.CRYPTOGRAPHIC_KEY);
 
-        Assertions.assertEquals(1, attributes.size());
-        Assertions.assertEquals("keyStore", attributes.getFirst().getName());
+        // then
+        assertThat(attributes).singleElement().extracting(BaseAttribute::getName).isEqualTo("keyStore");
+    }
+
+    /** The listing stores what it relays, so the form's callbacks find it. */
+    @Test
+    void refusesTheListing_whenTheConnectorDeclaresADefinitionCoreCannotStore() {
+        // given
+        giveConnectorAV2DiscoveryInterface();
+        var definitionWithoutProperties = """
+                [{"uuid":"7f7f0000-0000-4000-8000-000000000001","name":"keyStore",
+                  "type":"data","version":3,"contentType":"string"}]""";
+        stubRunAttributes(definitionWithoutProperties);
+        SecuredUUID connectorUuid = SecuredUUID.fromUUID(connector.getUuid());
+
+        // when
+        ThrowingCallable list = () -> discoveryService.getDiscoveryAttributes(connectorUuid);
+
+        // then
+        assertThatThrownBy(list).isInstanceOf(ValidationException.class).hasMessageContaining("keyStore");
     }
 
     private void stubSupportedResources(String json) {
